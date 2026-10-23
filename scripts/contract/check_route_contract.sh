@@ -76,6 +76,18 @@ python3 scripts/contract/gen_derived_routes.py --check
 echo "==> Drift gate for ROUTE_HANDLERS.json (gen_route_handlers.py) ..."
 python3 scripts/contract/gen_route_handlers.py --check
 
+# RD-15…RD-19: "the route is registered and reachable but deliberately answers
+# a constant error" was previously untracked — nothing tied
+# `unsupported=true` in `ledger_annotations.txt` to the handler source, so both
+# sides could drift (a new constant-failure handler stayed invisible on the
+# contract surface; a stale annotation claimed a working route was broken).
+# This guard reads the sidecar validated above plus the handler bodies and
+# fails in BOTH directions. `--self-test` proves the classifier and the two
+# guard directions can fail (铁律 8).
+echo "==> by-design unsupported endpoints (RD-15…RD-19, check_unsupported_endpoints.py) ..."
+python3 scripts/contract/check_unsupported_endpoints.py --self-test
+python3 scripts/contract/check_unsupported_endpoints.py
+
 # A3: `/_matrix/client/v1` 的退役面棘轮。**数据源就是上一步刚校验过的
 # `ROUTE_HANDLERS.json`**，所以本步必须排在其后（否则读到的是上一轮快照）。
 # 它不删任何路由，只做三件事：冻结规模（只减不增）、逐条锁住"没有 v3 孪生"的端点

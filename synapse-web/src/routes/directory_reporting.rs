@@ -296,18 +296,26 @@ pub(crate) async fn report_event(
 /// Request body for [`update_report_score`].
 #[derive(Debug, Default, Deserialize)]
 pub struct UpdateReportScoreBody {
-    #[allow(dead_code)]
     pub score: Option<i64>,
 }
 
 /// See [`update_report_score`].
 pub(crate) async fn update_report_score(
     State(_ctx): State<AdminContext>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Path((_room_id, event_id)): Path<(String, String)>,
-    MatrixJson(_body): MatrixJson<UpdateReportScoreBody>,
+    MatrixJson(body): MatrixJson<UpdateReportScoreBody>,
 ) -> Result<Json<Value>, ApiError> {
     validate_event_id(&event_id)?;
+    // RD-18: the score is rejected below, but it is client-controlled input, so
+    // record what was asked for before answering instead of dropping it.
+    ::tracing::info!(
+        event = "report_score_update_rejected",
+        event_id = %event_id,
+        requester_user_id = %auth_user.user_id,
+        requested_score = ?body.score,
+        "Report score updates are not available via the client API"
+    );
     Err(ApiError::forbidden("Report score updates are not available via the client API".to_string()))
 }
 

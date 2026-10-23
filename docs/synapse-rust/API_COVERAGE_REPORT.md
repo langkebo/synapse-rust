@@ -574,6 +574,22 @@
 > `GET rooms/{room_id}/media`、`DELETE rooms/{room_id}/media/{media_id}`、
 > `POST rooms/{room_id}/media/{quarantine,unquarantine}`）。
 
+### 6.4 有意不实现（by-design unsupported，2026-10-23 新增）
+
+> 有一类端点**注册在册、鉴权正常、但恒定返回错误**（`M_UNRECOGNIZED` / 403 / 410）。它们不是缺陷，
+> 而是契约声明：客户端拿到的"协议合法但不支持"与"服务端故障"必须可区分。审计
+> `docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md` §9.7 的 RD-15…RD-19 即这一批。
+
+- **清单唯一来源**：[`ROUTE_CONTRACT.md`](./ROUTE_CONTRACT.md) 的「有意不实现的端点（by-design unsupported）」
+  段（由 `scripts/contract/gen_contract_doc.py` 从 `scripts/contract/ledger_annotations.txt` 的
+  `unsupported=true` 生成，**本文档不手抄条目数**）。
+- **双向门禁**：`scripts/contract/check_unsupported_endpoints.py` 静态判定「handler 体是否恒为
+  `Err(...)`」，与登记的 `unsupported=true` **双向**比对——漏登记（代码恒失败但不在册）红、
+  陈旧登记（在册但 handler 已能成功返回）也红；已接入 `scripts/contract/check_route_contract.sh`，
+  因此 `ROUTE_HANDLERS.json` 的 `counts.unsupported` 与清单条目数恒等。
+- **语义约定**：`ApiError::not_implemented`/`unrecognized` → 404 `M_UNRECOGNIZED`；
+  `not_supported` → 501 `M_UNKNOWN`；`forbidden` → 403；`gone` → 410。
+
 ---
 
 ## 七、优化建议

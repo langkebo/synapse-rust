@@ -134,7 +134,9 @@ async fn get_voice_config(
         // A11: derive from the single authoritative upload limit
         // (`config.server.max_upload_size`, bytes) instead of hardcoding 50 MiB.
         "max_size_bytes": ctx.config.server.max_upload_size,
-        "max_duration_ms": 60_0000,
+        // RD-19: 600_000 ms (10 min) — the grouping was previously written
+        // `60_0000`, which reads as 60 seconds at a glance.
+        "max_duration_ms": 600_000,
         "content_type": "m.audio",
         "voice_extension": "org.matrix.msc3245.voice",
         "auto_transcribe": false,

@@ -1,6 +1,6 @@
 # synapse-rust 路由契约（Route Contract）
 
-> 自动生成于 2026-10-22，源 = `synapse-web/src/routes/**` 真实 `.route()` 注册面 + `derived_routes.rs`（含按 profile 拆分的 `derived_route_table_{always,worker,oidc}.inc.rs`）派生覆盖。
+> 自动生成于 2026-10-23，源 = `synapse-web/src/routes/**` 真实 `.route()` 注册面 + `derived_routes.rs`（含按 profile 拆分的 `derived_route_table_{always,worker,oidc}.inc.rs`）派生覆盖。
 >
 > 本文件是后端 HTTP 契约的**事实来源之一**（机器侧权威为 `derived_routes.rs` 生成的 `RouteLedger`，启动时校验、集成测试 PATCH 探测）。人工文档（INDEX.md / API_COVERAGE_REPORT.md）须与之保持一致。
 >
@@ -97,6 +97,31 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - 无未装配的孤儿路由。`synapse-web/src/routes/threepid.rs` 曾定义 `create_threepid_router()`（裸 `/requestToken`、`/submitToken`，**从未** merge 进任何路由树且路径非 Matrix 规范形状）—— B5-4 已删除该模块：真实 3PID 端点在 `account_compat.rs`（`/account/3pid/...`，已在 `assembly.rs` 装配），被删代码自引入起即无调用方，纯属死代码。
   **机器证据**：`test_extract_registered.py::check_non_namespace_bucket` 现在把「前缀之外」桶**精确**钉死为 3 条有意根级注册（3 条探活 + 0 条 CAS 根协议端点）。该桶出现任何新成员——无论是死灰复燃的未装配 router 还是新增非 Matrix 根端点——都会让守卫转红并要求显式裁定。
 - `space/children_hierarchy.rs`、`space/lifecycle_query.rs`、`space/membership_state.rs`、`space/summary.rs`：路由在派生表中统一归入 `space` 标签（已覆盖）。
+
+## 有意不实现的端点（by-design unsupported）
+
+以下端点**已注册且可达**，但规范描述的行为被有意不实现：handler 恒定返回同一个错误码，而不是给出一个可能被误当成真实结果的占位 200。登记表是 `scripts/contract/ledger_annotations.txt` 的 `unsupported=true`，守卫 `check_unsupported_endpoints.py` 把它与 handler 源码**双向**比对（漏登记 / 陈旧登记都转红），因此这张表不会悄悄漂移。
+
+当前共 **16** 条：
+
+| Method | Path |
+|---|---|
+| `GET` | `/_matrix/client/v3/rooms/{room_id}/keys/distribution` |
+| `GET` | `/_matrix/client/v3/thirdparty/location` |
+| `GET` | `/_matrix/client/v3/thirdparty/location/{protocol}` |
+| `GET` | `/_matrix/client/v3/thirdparty/user` |
+| `GET` | `/_matrix/client/v3/thirdparty/user/{protocol}` |
+| `GET` | `/_matrix/vendor/v1/rooms/{room_id}/keys/{event_id}` |
+| `GET` | `/_synapse/federation/v1/query/auth` |
+| `POST` | `/_matrix/client/v3/keys/backup/secure/{backup_id}/verify` |
+| `POST` | `/_matrix/federation/v1/user/keys/upload` |
+| `POST` | `/_matrix/vendor/v1/voice/{media_id}/convert` |
+| `POST` | `/_matrix/vendor/v1/voice/{media_id}/optimize` |
+| `POST` | `/_matrix/vendor/v1/voice/{media_id}/transcription` |
+| `POST` | `/_synapse/federation/v1/keys/claim` |
+| `POST` | `/_synapse/federation/v1/keys/query` |
+| `POST` | `/_synapse/federation/v1/keys/upload` |
+| `PUT` | `/_matrix/vendor/v1/rooms/{room_id}/report/{event_id}/score` |
 
 ## 模块级路由清单（逐模块）
 

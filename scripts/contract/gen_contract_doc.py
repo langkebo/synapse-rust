@@ -12,12 +12,20 @@ Human-maintained content under "## 附录" (e.g. 附录 A) is preserved across r
 is never overwritten by the auto-generated body.
 """
 
-import os, re, json, datetime, glob
+import os, re, json, datetime, glob, sys
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.environ.get("SYNAPSE_RUST_ROOT") or os.path.dirname(
     os.path.dirname(SCRIPT_DIR)
 )
+
+# `ledger_annotations.txt` is the single declaration of "by-design unsupported"
+# routes (see `check_unsupported_endpoints.py`, which keeps it in step with the
+# handler sources). Importing the loader keeps this doc from growing a second,
+# drifting copy of the list.
+sys.path.insert(0, SCRIPT_DIR)
+from extract_registered import load_ledger_annotations  # noqa: E402
+
 reg_raw = json.load(open(f"{ROOT}/artifacts/registered_routes.json"))
 reg = reg_raw["modules"]
 non_ns = reg_raw.get("non_namespace_routes", [])
@@ -429,6 +437,31 @@ lines.append(
     "- `space/children_hierarchy.rs`、`space/lifecycle_query.rs`、`space/membership_state.rs`、`space/summary.rs`："
     "路由在派生表中统一归入 `space` 标签（已覆盖）。"
 )
+lines.append("")
+lines.append("## 有意不实现的端点（by-design unsupported）")
+lines.append("")
+_UNSUPPORTED = sorted(
+    (method, path)
+    for (method, path), ann in load_ledger_annotations().items()
+    if ann.get("unsupported")
+)
+lines.append(
+    "以下端点**已注册且可达**，但规范描述的行为被有意不实现：handler 恒定返回同一个错误码，"
+    "而不是给出一个可能被误当成真实结果的占位 200。登记表是 "
+    "`scripts/contract/ledger_annotations.txt` 的 `unsupported=true`，"
+    "守卫 `check_unsupported_endpoints.py` 把它与 handler 源码**双向**比对"
+    "（漏登记 / 陈旧登记都转红），因此这张表不会悄悄漂移。"
+)
+lines.append("")
+if _UNSUPPORTED:
+    lines.append(f"当前共 **{len(_UNSUPPORTED)}** 条：")
+    lines.append("")
+    lines.append("| Method | Path |")
+    lines.append("|---|---|")
+    for _meth, _path in _UNSUPPORTED:
+        lines.append(f"| `{_meth}` | `{_path}` |")
+else:
+    lines.append("_（无）_")
 lines.append("")
 lines.append("## 模块级路由清单（逐模块）")
 lines.append("")

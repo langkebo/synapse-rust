@@ -1436,7 +1436,8 @@ EXPECTED_ANNOTATIONS = {
         "body_opaque": True
     },
     ("POST", "/_matrix/client/v3/keys/backup/secure/{backup_id}/verify"): {
-        "body_opaque": True
+        "body_opaque": True,
+        "unsupported": True,
     },
     ("POST", "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}"): {
         "query_params": "after,before"
@@ -1556,15 +1557,27 @@ EXPECTED_ANNOTATIONS = {
     ("POST", "/_matrix/federation/v1/thirdparty/invite"): {"body_opaque": True},
     ("POST", "/_matrix/federation/v1/user/keys/claim"): {"body_opaque": True},
     ("POST", "/_matrix/federation/v1/user/keys/query"): {"body_opaque": True},
-    ("POST", "/_matrix/federation/v1/user/keys/upload"): {"body_opaque": True},
+    ("POST", "/_matrix/federation/v1/user/keys/upload"): {
+        "body_opaque": True,
+        "unsupported": True,
+    },
     ("POST", "/_matrix/federation/v2/user/keys/query"): {"body_opaque": True},
     ("POST", "/_matrix/key/v2/query"): {"body_opaque": True},
     ("POST", "/_matrix/vendor/v1/rooms/{room_id}/keys/claim"): {"body_opaque": True},
     ("POST", "/_matrix/vendor/v1/rooms/{room_id}/search"): {"body_opaque": True},
     ("POST", "/_matrix/vendor/v1/widgets"): {"body_opaque": True},
-    ("POST", "/_synapse/federation/v1/keys/claim"): {"body_opaque": True},
-    ("POST", "/_synapse/federation/v1/keys/query"): {"body_opaque": True},
-    ("POST", "/_synapse/federation/v1/keys/upload"): {"body_opaque": True},
+    ("POST", "/_synapse/federation/v1/keys/claim"): {
+        "body_opaque": True,
+        "unsupported": True,
+    },
+    ("POST", "/_synapse/federation/v1/keys/query"): {
+        "body_opaque": True,
+        "unsupported": True,
+    },
+    ("POST", "/_synapse/federation/v1/keys/upload"): {
+        "body_opaque": True,
+        "unsupported": True,
+    },
     ("POST", "/_synapse/federation/v2/key/clone"): {"body_opaque": True},
     ("PUT", "/_matrix/app/v1/transactions/{as_id}/{txn_id}"): {"body_opaque": True},
     ("PUT", "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}"): {
@@ -1735,16 +1748,20 @@ EXPECTED_ANNOTATIONS = {
         "rate_limit_exempt": True,
     },
     ("GET", "/_matrix/client/v3/thirdparty/location"): {
-        "query_params": "alias,channel,search,server"
+        "query_params": "alias,channel,search,server",
+        "unsupported": True,
     },
     ("GET", "/_matrix/client/v3/thirdparty/location/{protocol}"): {
-        "query_params": "alias,channel,search,server"
+        "query_params": "alias,channel,search,server",
+        "unsupported": True,
     },
     ("GET", "/_matrix/client/v3/thirdparty/user"): {
-        "query_params": "nickname,search,server,userid"
+        "query_params": "nickname,search,server,userid",
+        "unsupported": True,
     },
     ("GET", "/_matrix/client/v3/thirdparty/user/{protocol}"): {
-        "query_params": "nickname,search,server,userid"
+        "query_params": "nickname,search,server,userid",
+        "unsupported": True,
     },
     ("GET", "/_matrix/media/v1/upload/chunk/progress"): {"query_params": "upload_id"},
     ("GET", "/_matrix/vendor/v1/user/{user_id}/rooms/{room_id}/threads"): {
@@ -2080,6 +2097,19 @@ EXPECTED_ANNOTATIONS = {
     ("POST", "/_matrix/vendor/v1/voice/{media_id}/convert"): {"unsupported": True},
     ("POST", "/_matrix/vendor/v1/voice/{media_id}/optimize"): {"unsupported": True},
     ("POST", "/_matrix/vendor/v1/voice/{media_id}/transcription"): {
+        "unsupported": True
+    },
+    # Server-internal key-distribution bookkeeping; a client has no legitimate
+    # use for it, so the handler answers 403 instead of pretending to work.
+    ("GET", "/_matrix/client/v3/rooms/{room_id}/keys/distribution"): {
+        "unsupported": True
+    },
+    # Synapse's legacy federation key endpoints, superseded by the
+    # `/_matrix/key/v2/*` notary routes; all answer 404 `M_UNRECOGNIZED`.
+    ("GET", "/_synapse/federation/v1/query/auth"): {"unsupported": True},
+    # Synapse moderation extension this server does not model; the typed body is
+    # accepted only so a client gets a stable 403 instead of a 400.
+    ("PUT", "/_matrix/vendor/v1/rooms/{room_id}/report/{event_id}/score"): {
         "unsupported": True
     },
     # -- dynamic: routes whose handler cannot be named statically by

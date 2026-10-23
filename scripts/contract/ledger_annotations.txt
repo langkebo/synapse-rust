@@ -95,7 +95,7 @@
 
 # -- body_opaque: protocol-arbitrary JSON bodies with no addressable field list.
 POST /_matrix/client/v3/keys/backup/secure/{backup_id}/keys	body_opaque=true
-POST /_matrix/client/v3/keys/backup/secure/{backup_id}/verify	body_opaque=true
+POST /_matrix/client/v3/keys/backup/secure/{backup_id}/verify	body_opaque=true unsupported=true
 POST /_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}	query_params=after,before
 POST /_matrix/client/v3/register	query_params=kind body_opaque=true
 POST /_matrix/client/v3/room_keys/import	body_opaque=true
@@ -148,15 +148,15 @@ POST /_matrix/federation/v1/publicRooms	body_opaque=true
 POST /_matrix/federation/v1/thirdparty/invite	body_opaque=true
 POST /_matrix/federation/v1/user/keys/claim	body_opaque=true
 POST /_matrix/federation/v1/user/keys/query	body_opaque=true
-POST /_matrix/federation/v1/user/keys/upload	body_opaque=true
+POST /_matrix/federation/v1/user/keys/upload	body_opaque=true unsupported=true
 POST /_matrix/federation/v2/user/keys/query	body_opaque=true
 POST /_matrix/key/v2/query	body_opaque=true
 POST /_matrix/vendor/v1/rooms/{room_id}/keys/claim	body_opaque=true
 POST /_matrix/vendor/v1/rooms/{room_id}/search	body_opaque=true
 POST /_matrix/vendor/v1/widgets	body_opaque=true
-POST /_synapse/federation/v1/keys/claim	body_opaque=true
-POST /_synapse/federation/v1/keys/query	body_opaque=true
-POST /_synapse/federation/v1/keys/upload	body_opaque=true
+POST /_synapse/federation/v1/keys/claim	body_opaque=true unsupported=true
+POST /_synapse/federation/v1/keys/query	body_opaque=true unsupported=true
+POST /_synapse/federation/v1/keys/upload	body_opaque=true unsupported=true
 POST /_synapse/federation/v2/key/clone	body_opaque=true
 PUT /_matrix/app/v1/transactions/{as_id}/{txn_id}	body_opaque=true
 PUT /_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}	query_params=after,before
@@ -221,10 +221,10 @@ GET /_matrix/vendor/v1/rooms/{room_id}/sync	query_params=filter,full_state,since
 GET /_matrix/client/v3/spaces/{space_id}/hierarchy	query_params=max_depth
 GET /_matrix/client/v3/spaces/{space_id}/hierarchy/v1	query_params=from,limit,max_depth,suggested_only
 GET /_matrix/client/v3/sync	query_params=filter,full_state,org.matrix.msc4222.use_state_after,set_presence,since,timeout,use_state_after rate_limit_exempt=true
-GET /_matrix/client/v3/thirdparty/location	query_params=alias,channel,search,server
-GET /_matrix/client/v3/thirdparty/location/{protocol}	query_params=alias,channel,search,server
-GET /_matrix/client/v3/thirdparty/user	query_params=nickname,search,server,userid
-GET /_matrix/client/v3/thirdparty/user/{protocol}	query_params=nickname,search,server,userid
+GET /_matrix/client/v3/thirdparty/location	query_params=alias,channel,search,server unsupported=true
+GET /_matrix/client/v3/thirdparty/location/{protocol}	query_params=alias,channel,search,server unsupported=true
+GET /_matrix/client/v3/thirdparty/user	query_params=nickname,search,server,userid unsupported=true
+GET /_matrix/client/v3/thirdparty/user/{protocol}	query_params=nickname,search,server,userid unsupported=true
 GET /_matrix/media/v1/upload/chunk/progress	query_params=upload_id
 GET /_matrix/vendor/v1/user/{user_id}/rooms/{room_id}/threads	query_params=dir,from,include,limit
 GET /_matrix/federation/v1/hierarchy/{room_id}	query_params=from,limit,max_depth,suggested_only
@@ -408,6 +408,18 @@ GET /_matrix/vendor/v1/rooms/{room_id}/keys/{event_id}	unsupported=true
 POST /_matrix/vendor/v1/voice/{media_id}/convert	unsupported=true
 POST /_matrix/vendor/v1/voice/{media_id}/optimize	unsupported=true
 POST /_matrix/vendor/v1/voice/{media_id}/transcription	unsupported=true
+# Server-internal endpoint (Synapse exposes it for its own key-distribution
+# bookkeeping); a client has no legitimate use for it, so it answers 403.
+GET /_matrix/client/v3/rooms/{room_id}/keys/distribution	unsupported=true
+# Synapse's legacy federation key endpoints are superseded by
+# `/_matrix/federation/v1/user/keys/*` (itself unimplemented here because the
+# Rust server never fetches third-party device keys on behalf of a room) and by
+# the `/_matrix/key/v2/*` notary routes; all answer 404 `M_UNRECOGNIZED`.
+GET /_synapse/federation/v1/query/auth	unsupported=true
+# Report score is a Synapse moderation extension that this server does not
+# model; the typed body is accepted only so a client gets a stable 403 instead
+# of a deserialization error.
+PUT /_matrix/vendor/v1/rooms/{room_id}/report/{event_id}/score	unsupported=true
 
 # -- dynamic: static extraction cannot name a single handler definition. This
 # list must equal the sidecar's `confidence: none` set in both directions
