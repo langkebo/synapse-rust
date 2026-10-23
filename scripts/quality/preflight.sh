@@ -102,6 +102,13 @@ run "check_plan_doc_sections.py" python3 scripts/ci/check_plan_doc_sections.py
 step "文档：方案数字随访（对照棘轮基线 + .sqlx 条数）"
 run "check_plan_numbers_fresh.sh" bash scripts/ci/check_plan_numbers_fresh.sh
 
+# 文档度量一致性：测试文件数 / 基线索引数必须等于脚本从真源现算的值。
+# 与上面两条**同理每次都跑**（~0.2s）：漂移的形态就是"改了别的文件、没动文档"——
+# 新增一个测试文件或一条 CREATE INDEX，四处手抄的数字同时失效且无人察觉
+# （实测漂移过 300/238/111/116 与 342/347/349/351）。审计 TEST-07/PERF-12 的修法。
+step "文档：度量随访（测试文件数 / 索引数，对照真源）"
+run "check_doc_metrics.py" python3 scripts/ci/check_doc_metrics.py
+
 # 部署隐私（B-7）：仓库内任何部署配置都不得启用服务端 megolm。
 # 配了 `megolm_device_id` 服务端就持有房间密钥、能读所有加密房间，
 # 「私聊是 E2EE」立刻变成假话。这条事实运行时可观测（/health +

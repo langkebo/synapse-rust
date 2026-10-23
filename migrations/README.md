@@ -200,7 +200,13 @@ v11 baseline 曾包含 `openclaw_connections` / `ai_conversations` / `ai_connect
 > 即除了这 23 张表，schema 完全一致。另验证 baseline + extensions 组合应用
 > 亦为 0 error，且 `voice_messages` 不再被扩展文件重建。
 
-> ⚠️ **顺带发现两个既有缺陷（与本次删除无关，尚未修复）**：
+> ✅ **2026-10-23 订正**：下面两条的原文写「尚未修复」，实际**早已修好**。实测
+> `grep -c "table_schema = 'public'" migrations/00000000_unified_schema_v12.sql` → **0**：
+> `typing` 的复合主键守卫已改成 `WHERE conrelid = 'typing'::regclass AND conname = 'pk_typing'`，
+> `user` 表的约束块同样改为按对象名判定。也就是说两条失败模式（重复添加主键 / 约束已存在）
+> 都不再成立。原描述保留作沿革 —— **"尚未修复"这类论断也要回 HEAD 验一遍再引用**。
+>
+> ⚠️ **（以下为 2026-09 的原始记录，状态见上）顺带发现两个既有缺陷**：
 > 1. `-- typing composite PK` 的守卫写作
 >    `WHERE table_schema = 'public' AND ...`，**硬编码 public**。若把 baseline 应用到
 >    非 `public` schema（测试隔离正是如此），守卫会误判为"不存在"而重复添加主键，

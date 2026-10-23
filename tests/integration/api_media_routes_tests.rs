@@ -208,9 +208,13 @@ async fn test_media_preview_and_delete_boundaries() {
     let v1_preview_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), v1_preview_request).await.unwrap();
     assert_eq!(v1_preview_response.status(), StatusCode::OK);
 
+    // `ts` 是历史参数、**接受但忽略**（`PreviewUrlParams` 故意不声明它，也故意不是
+    // `deny_unknown_fields`）。这条请求把它带上并仍期望 200，锁住的是"降级兼容"这个
+    // 性质：若有人给该结构体加 `deny_unknown_fields`、或把 `ts` 变成必填，这里会先红，
+    // 而不是让真实客户端在线上收 400（CODE-12 的连带断言）。
     let v3_preview_request = Request::builder()
         .method("GET")
-        .uri("/_matrix/media/v3/preview_url?url=https://example.com")
+        .uri("/_matrix/media/v3/preview_url?url=https://example.com&ts=1700000000000")
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();

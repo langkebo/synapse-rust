@@ -125,6 +125,211 @@
 
 ---
 
+## 0.4 第五轮：W6 收尾（2026-10-23）
+
+范围只有一件事：把 §10.8 里**批次 5 之外**的剩余项做完，并给每项一个可失败的证据。
+批次 5（RD-14）单独说明——它既不是"没做"，也不是"本轮做了"。
+
+| 条目 | 本轮结论 | 证据（可复现） |
+|---|---|---|
+| **CODE-12** | ✅ 修 | `preview.rs` 的死表达式删除；`cargo check -p synapse-web --all-features` → `EXIT=0`、`warning` **0** |
+| **TEST-07 / DOC-02 / DOC-09** | ✅ 修 | 新增 `scripts/ci/check_doc_metrics.py`；先红（报出 300/238/111/116 四处漂移）后绿 |
+| **PERF-12 / DOC-07** | ✅ 修 | 同上脚本校验 `INDEXES.md` 的计数块；实测真值 **343**（原写 342） |
+| **DOC-06** | ✅ 处置 | `UNRESOLVED_ISSUES_SUMMARY.md` 头部加 `STATUS: HISTORICAL` + 指向本文件 |
+| **DOC-08** | ⚠️ **前提不成立** | 见下文第 3 小节 |
+| **批次 5（RD-14）** | 🟡 未由本轮实施 | 见下文第 2 小节 |
+
+### 1. 文档数字从"四处手抄"改成"脚本现算"
+
+`check_doc_metrics.py` 的判据是三条：块内 `KEY=VALUE` 必须等于真源实算值；受管键必须出现
+（防"新增度量忘了写进文档"）；内联锚点的正则**不匹配也算 FAIL**（防"改了文案却把数字留下"）。
+
+先红（改动文档之前，实测漂移四处）：
+
+```
+FAIL 文档度量与真源不一致（6 处）：
+  - TESTING.md: 缺少 <!-- doc-metrics:start --> … <!-- doc-metrics:end --> 块
+  - migrations/INDEXES.md: 缺少 <!-- doc-metrics:start --> … <!-- doc-metrics:end --> 块
+  - docs/synapse-rust-vs-synapse-comparison.md: 受管文件总数 写着 300，实测 375
+  - …其中 .rs 数 写着 238，实测 287
+  - …unit 写着 111，实测 129
+  - …integration 写着 116，实测 147
+```
+
+后绿：`OK 文档度量一致（块内 12 项 / 内联 6 处；测试文件 287 个 = 129/147/3/5；基线索引 343 条）`。
+
+**三处变异自证**（证明它真会红，而不是"从来没红过"）：
+
+| 变异 | 期望 | 实测 |
+|---|---|---|
+| 块内 `TEST_FILES_UNIT` 改成 128 | 报数字不符 | `FAIL … 写着 128，实测 129` |
+| 块里塞 `MADE_UP_METRIC=7` | 报"不是已知度量" | `FAIL … 不许自造数字` |
+| 把 `tests/unit`(129 文件) 的括号改成全角 | 报"锚点失效" | `FAIL … 文案被改写了，请同步更新 spec` |
+| 临时放入 `.trae/rules/project_rules.md` | 报 115/130 过时 | `FAIL … 写着 115，实测 129` / `130 vs 147` |
+
+`.trae/` 被 gitignore（CI checkout 里不存在）⇒ 该文件缺席时打印 `SKIP` 而不是失败。这是
+**刻意的**：写一条永远跳过的守卫等于没有守卫，写一条永远红的守卫会让人把整个门禁关掉。
+
+### 2. 批次 5（RD-14）为什么本轮没做
+
+HEAD（`63f030154`）上，`scripts/ci/check_feature_matrix.py` **存在但未被任何 workflow 调用**：
+
+```
+$ git show HEAD:.github/workflows/ci.yml | grep -c check_feature_matrix
+0
+```
+
+工作区里有一份**另一个会话正在写**的实现（`git diff --numstat`：`check_feature_matrix.py`
+`+409/−115`、`ci.yml` `+37/−0`，含 S1–S5 静态层与 C1–C4 编译车道）。按"不覆盖他人未提交改动"
+的纪律，本轮**不碰这两个文件**：两个会话同时重写一个 18 KB 的门禁脚本，后提交者会把前者
+静默回退，而且这种回退在 diff 里看起来只是"代码变短了"。
+
+因此表里写"未由本轮实施"而不是"未完成"：**这一项的可验收条件仍然有效**，谁的实现先落地
+就按它验收——`check_feature_matrix.py` 必须被 CI 以 `--compile` 调用，且故意破坏一个
+feature-gated 模块的编译时那条车道必须红（RD-14 原文的门禁判据）。
+
+> 时点声明：本小节的"引用数 0""未由本轮实施"都是**编写本节的时点事实**（HEAD `63f030154`），
+> 不是对批次 5 现状的断言。该实现一旦提交，批次状态以**它自己的提交与其所在小节**为准；
+> 本节只负责记录"当时为什么把它排除在本轮之外"。把它读成"批次 5 永远不会落地"是误读——
+> 这正是本文件 §0.1 反复强调的那类错误（把"我没做"当成"没做"）。
+
+### 3. DOC-08 的前提不成立（第三次"把已修当未修"）
+
+`migrations/README.md` 声称两个缺陷"尚未修复"：`typing` 复合主键守卫与 `user` 表约束块
+硬编码 `table_schema = 'public'`、后者还缺 `IF NOT EXISTS`。实测：
+
+```
+$ grep -c "table_schema = 'public'" migrations/00000000_unified_schema_v12.sql
+0
+```
+
+两处都已改成 `WHERE conrelid = 'typing'::regclass AND conname = 'pk_typing'` 这类**按对象名
+判定**的写法（不依赖 schema 名），因此"重复添加主键"和"约束已存在"两个失败模式都不再成立。
+README 那段描述的是**当时**的状态，且没写"已修"。已就地订正为历史记录 —— 这是本文件第三次
+修正"把已实现的能力当成缺失"的方向性错误（前两次见 §0.1 的 FUNC-01/FUNC-02），
+**看到"尚未修复"四个字的论断，先回 HEAD 验一遍再引用**。
+
+### 4. 本轮之后的数字真值（口径与命令）
+
+| 度量 | 真值 | 口径 |
+|---|---|---|
+| `git ls-files tests` 受管文件 | **375** | 含 fixture / SQL / 快照等非 `.rs` |
+| 其中 `.rs` | **287** | |
+| 分层（unit/integration/e2e/performance） | **129 / 147 / 3 / 5** | `tests/<层>/*.rs` |
+| 基线索引定义数 | **343** | 与 `baseline_declares_each_object_exactly_once` 逐字同口径 |
+| `INDEXES.md` 人工表登记数 | **134** | 表格行数，含 1 条划删除线的历史行 |
+| clippy allow（未带理由） | **160 / 96 文件** | 读 `clippy_allow_baseline` |
+
+全部由 `python3 scripts/ci/check_doc_metrics.py --print` 一次输出，文档里不再手写。
+
+### 5. 方法教训（本轮新增）
+
+`grep "a\|b"` 在本机的 toybox `grep` 下**静默返回空**（BRE `\|` 不支持）。本轮据此一度
+判"文档里没有 `批次 5` 与 `RD-14`"，而它们就在 §9.12 表格里。**检索一律用 `grep -E`
+或专用搜索工具** —— 这个坑在本仓已经踩过多次，代价是"以为不存在"进而"重复造一遍"。
+
+---
+
+## 0.5 未完成任务清单（2026-10-23 汇总）
+
+> **这份清单的判据，先说清楚**：一条条目算"已完成"，当且仅当它出现在 §10.1 某个已落地批次的
+> **条目列**里（W0–W5 + W6 的 §9.12 五批）。不在任何批次里的，就是**未完成** —— 这不是我读过代码
+> 后下的"仍然坏"结论，而是"没有任何一次提交声称修过它"。
+>
+> 少数条目本轮做了代码复核，标 ✅（复核后仍开着）或 ⚠️（与文档描述已有偏差）。
+> 其余标 `—`（按 §10.1 记载，本轮未复读代码）——**不要把 `—` 当成"已确认"**，也不要当成
+> "大概坏了"；它只是"没人验过"。
+>
+> 本文件 §10.11 的收口口径不变：P0=0、P1=0（§0.3 已核），所以下面**没有 P0/P1**。
+>
+> 计数口径：0.5.2 **19 行** + 0.5.3 **14 行** = **33 行**（逐行清点，不是估的）。
+> **不是**"33 个独立编号"——其中 **3 行**各自合并了两条同源条目
+> （FUNC-04+DOC-01、PERF-12+MAINT-07、MAINT-05+DOC-05）。
+
+### 0.5.1 在飞，不算"没人做"
+
+| 项 | 现状 | 验收判据（不变） |
+|---|---|---|
+| **W6 批次 5 / RD-14**：feature 矩阵接入 CI | 工作区有一份另一会话未提交的实现（`check_feature_matrix.py +409/−115`、`ci.yml +37`）。静态层实测 **S1–S5 通过**（12 个可单独开关的能力）；编译车道 `--compile` **未验**。主树 `ci.yml` 对上文的引用数仍是 **0** | 必须被 CI 以 `--compile` 调用；故意破坏一个 feature-gated 模块的编译 ⇒ 那条车道必须红 |
+
+### 0.5.2 P2 未完成（19 行；其中 1 行合并了同源条目 FUNC-04+DOC-01）
+
+| 编号 | 一句话 | 为什么还开着 |
+|---|---|---|
+| ARCH-02 | `sync` 与 `sliding_sync` 无共享语义基座 | §10.10 只否决了"强行合并"，**抽取基座没做** |
+| ARCH-03 | "未实现"存在两套错误语义（404 `M_UNRECOGNIZED` vs 501 `M_UNKNOWN`） | 批次 3 只登记了端点，没统一语义 |
+| ARCH-04 | `events` 未分区、`room_memberships` 无归档 | W4 只做了分批 prune（PERF-06），分区/归档未动 |
+| ARCH-05 | 7 个生产文件 >2000 行 | 从未排期；§10.10 只把"测试文件拆分"排除在外 |
+| CODE-01 | 生产路径 `unreachable!` 会 panic，且无门禁 | ✅ 复核：**5 处仍在**（`synapse-common/src/config/worker.rs:339`、`crypto.rs:260`、`synapse-web/.../room/management.rs:237` 等），`scripts/` 下**无任何 unreachable 门禁** |
+| CODE-06 | 9 个函数 >150 行（最长 461） | — |
+| CODE-08 | 已注册端点恒 403，用无理由 `#[allow(dead_code)]` 掩盖 | — |
+| CODE-10 | 生产 882 处 `let _ =` / `unwrap_or_default()` | 只加了"危险性扫描"，**明确不设下降配额**（§10.10），总数不动 |
+| FUNC-01 | `erase=true` 显式 501：GDPR 擦除未实现 | by-design 的 fail-closed，但没有落地计划 |
+| FUNC-04 / DOC-01 | `API_COVERAGE_REPORT.md` 两处能力标注与实现相反 | 批次 3 只加了 §6.4 指针，**那两处标注未改** |
+| PERF-01 | `to_device_messages` 对**普通设备**无按龄清理 | ✅ 复核：`DELETE FROM to_device_messages` 仅出现在脱水设备路径 |
+| MAINT-01 | 测试替身/工具二进制与生产 crate 未做特性隔离 | RD-07/08 只覆盖了两个模块，其余未做 |
+| MAINT-04 | 能力台账手工维护，已出现多处失真 | 无生成器 |
+| TEST-02 | 6 个测试文件只断言状态码，不断言响应体 | — |
+| TEST-03 | e2e 中 7 条 `#[ignore]`，CI 实际不执行 | ✅ 复核：`tests/e2e/user_flow_tests.rs` 恰好 **7** 条 |
+| TEST-04 | 8 个 CI 脚本从未被任何 workflow 调用 | 批次 5 只处理了 `check_feature_matrix.py` 这一个 |
+| TEST-05 | 27 处 `tokio::time::sleep` / 14 文件，构成时序 flake 面 | — |
+| TEST-06 | 5 个整文件以 feature 门控，默认测试不参与 | 与批次 5 同源，但即便 RD-14 落地，默认车道仍不跑它们 |
+| DOC-03 | 项目规则 §10.1 把 MSC3245 标为 "Room summary"（实为语音消息） | 本轮只改了同一文件里的测试文件数 |
+
+### 0.5.3 P3 未完成（14 行，其中 2 行合并了同源条目：PERF-12+MAINT-07、MAINT-05+DOC-05）
+
+| 编号 | 一句话 | 备注 |
+|---|---|---|
+| ARCH-06 | Schema 规范漂移：`updated_ts BIGINT` 等未统一 | ⚠️ 复核：基线 SQL 里仍有 **86** 处 `updated_ts BIGINT`（本文件 §一 记录的 44 是当时子集口径，数字已漂） |
+| CODE-09 | 常量注释与取值不符 | ✅ 复核：`constants.rs:109` 仍写 "1 year in each direction"，取值 `5 * 60` |
+| FUNC-05 | 联邦能力项有意不注册，但未全部登记为设计决策 | RD-15/16 登记了 thirdparty 4 条 + 联邦 key 上传 5 条，其余未登记 |
+| PERF-10 | PostgreSQL **实例级**未设 `statement_timeout`（应用侧已设） | 只影响直连 psql 的场景 |
+| PERF-11 | N+1 查询 3 处（风险可控） | — |
+| PERF-12 / MAINT-07 | 索引台账 `INDEXES.md` 与 SQL 不一致 | 计数已改为脚本现算（§0.4）；**整份生成未做**（判定：人工表的"为什么建这个索引"无法从 DDL 反推） |
+| SEC-09 | CAS 回调存在开放重定向 | — |
+| SEC-11 | 静态密钥封装存在全零密钥死代码 | — |
+| SEC-12 | legacy r0/v1/v3 媒体下载端点为匿名 | — |
+| SEC-13 | 联邦鉴权 DEBUG 日志打印签名原文 | — |
+| SEC-14 | 联邦请求缺 `ts` 仅告警不拒绝 | — |
+| SEC-15 | 鉴权覆盖率约 94.4%，client/media 面存在未覆盖路由 | 覆盖率本身未重测 |
+| MAINT-05 / DOC-05 | 5 处注释引用不存在的脚本路径 | — |
+| DOC-04 | 三份文档共 9 组行号漂移（改引用符号名而非行号） | — |
+
+### 0.5.4 非条目性缺口（4 项，都不属于某条编号）
+
+| 缺口 | 现状 |
+|---|---|
+| **棘轮清账**：sqlx 三项（生产动态 `133→136`、测试基建 `767→779`、静态 `1367→1360`） | 按"基线只能因修复而收紧"的口径挂账；主树工作区正在改 `sqlx_dynamic_ratio_baseline` 等两份基线，**可能正在清账**，以那笔提交为准 |
+| **运行时数据**：benchmark / 压测 | 全轮未跑；PERF-* 全部是静态推断 |
+| **依赖版本分裂**：`cargo tree -d` | 未重跑，沿用 `DEPENDENCY_UPGRADE_TRACKER.md` 口径（该命令**不能 `head` 截断后再下"唯一来源"结论**） |
+| **`events` 写分流的联邦面** | W-I 只覆盖六路，`events`/`device_lists` 的写路径未纳入审查 |
+
+### 0.5.5 明确不做（列出来是为了不被当成"漏了"）
+
+| 项 | 理由出处 |
+|---|---|
+| CODE-10 总数下降配额 | §10.10：配额会诱导写 `unwrap()` 来"减少计数" |
+| 重写 clippy allow 棘轮 | §10.10：它已经在工作 |
+| 拆分测试文件（`db_tests.rs` 等 3 个 >2000 行） | §10.10：收益（并行编译）远低于冲突成本 |
+| 下架 voice 三端点 / `_synapse/admin/v1/backups` | §10.10：只登记不下架 |
+| 强行合并 `sync` 与 `sliding_sync` | §10.10：那是重写而非重构 |
+| W3 决策前动 Thread 代码 | 已由 W3（ARCH-01）落地，本条失效 |
+| `*_baseline` 语义分化（SHIT_MOUNTAIN 审计的 #8） | 另一份审计的判定：改名 17 文件 + 同步 5 个脚本常量，收益仅"少困惑一次" |
+| `INDEXES.md` 整份重生成 | §0.4 第 2 小节：会让文档从"索引治理"退化成"索引清单" |
+
+### 0.5.6 这份清单怎么用
+
+**下一轮不要从"清单清零"开始，从"能不能写出可失败的验证"开始**（§10.0 的铁律）。
+按这个筛，0.5.2 里最值得先动的是 CODE-01 与 TEST-03：
+
+- CODE-01：`unreachable!` 5 处 + 零门禁 —— 一条 `grep` 门禁 + 逐处改成 `Err`，可先红后绿；
+- TEST-03：7 条 `#[ignore]` —— 每条都能转成"要么删、要么进 CI"，同样是可失败的判据。
+
+反过来，ARCH-05（拆 2000 行文件）、SEC-15（补鉴权覆盖）拿不出可失败验证，按 §10.0 应
+降级为**登记项**，不要当任务排期。
+
+---
+
 ## 一、架构设计
 
 ### ARCH-01（P1）Thread 双实现：非规范 API 写入影子表，数据对 `/sync`、`/messages`、联邦不可见
@@ -784,10 +989,22 @@ git ls-files '*.rs' | grep -vE '(^|/)tests?/|/tests?\.rs$|_tests\.rs$|^tests/' \
 - **类型**：权威清单失效
 - **影响范围**：与本次审查结果（**8 条 P1**，复核后口径见 §0.1）直接矛盾；读者会误判项目状态。
 - **修法**：以本文件为新基线重写摘要，或把旧文件标记 `HISTORICAL`。
+- **状态（2026-10-23）**：✅ **已标记 HISTORICAL**（选择标记而非重写：该文件记录的是 2026-10-06～10-09
+  的闭环过程，重写会把这段沿革抹掉；而"0 P1"的结论必须被显式否定，否则与 §0.3 的"P1 = 0 自述成立"
+  放在一起会被读成"两份文件互相印证"）。
 
 ### DOC-07（P3）`migrations/INDEXES.md` 计数 342 vs 实际 347（详见 PERF-12）
+> **状态（2026-10-23）**：✅ 计数改由脚本现算。实测真值 **343**（口径 = 与
+> `baseline_declares_each_object_exactly_once` 逐字相同的四种 `CREATE … INDEX … IF NOT EXISTS`
+> 前缀；`347/349/351` 都是把注释行或 `CREATE INDEX` 裸 grep 算进去的读数）。
+> 文档里不再手写当前值，改由 `<!-- doc-metrics -->` 块承载，`check_doc_metrics.py` 校验。
+
 ### DOC-08（P3）`migrations/README.md` 描述的两个缺陷已修，文档未同步
 - **类型**：文档滞后
+> **状态（2026-10-23）**：✅ 已订正。原文称 `typing` 复合主键守卫与 `user` 表约束块"尚未修复"，
+> 实测 `grep -c "table_schema = 'public'"` = **0** —— 两处早已改成按对象名判定
+> （`WHERE conrelid = 'typing'::regclass AND conname = 'pk_typing'`），不再依赖 schema 名。
+> 该段已就地标注为历史记录。**"尚未修复"这类论断也必须回 HEAD 验一遍再引用**。
 ### DOC-09（P3）`docs/synapse-rust-vs-synapse-comparison.md` 测试文件数 238 vs 实测 277（详见 TEST-07）
 
 ---
@@ -1628,12 +1845,12 @@ fn is_admin_request_allowed(role: &str, method: &Method, path: &str, rbac_enable
 
 直接执行 [§9.12 分阶段清理建议](#912-统计与分阶段清理建议)，不重复。补两条本轮的：
 
-| 条目 | 改动 | 门禁 |
-|---|---|---|
-| CODE-12 | 删除 `preview.rs:71` 死表达式 | `cargo clippy -p synapse-web -- -D warnings` |
-| CODE-10 / CODE-11 | 只加"危险性扫描"（缓存/存储删除禁止 `let _`）+ `// reason:` 强制；**不设总数下降配额** | `check_clippy_allow_ratchet.py` 扩展后故意新增一条无 reason 的 allow 必须红 |
-| TEST-07 / DOC-02 / DOC-09 | 统一为 283（128/147/3/5）；数字由脚本输出，文档只引用 | 文档数字与脚本输出不一致时 CI 红（需新增 `check_doc_metrics.py`） |
-| PERF-12 / DOC-07 | `INDEXES.md` 由 SQL 解析生成 | 生成结果与文件不一致时 CI 红 |
+| 条目 | 改动 | 门禁 | 状态 |
+|---|---|---|---|
+| CODE-12 | 删除 `preview.rs` 的死表达式 `let _ = ts.unwrap_or_else(current_timestamp_millis)` | `cargo clippy -p synapse-web -- -D warnings` | ✅ **已做**：连同 `PreviewUrlParams.ts` 字段一起删除（只删语句会留下 `field 'ts' is never read`，实测复现），并由集成测试 `test_media_preview_and_delete_boundaries` 带 `&ts=…` 仍期望 200，锁住"接受但忽略"这个兼容面 |
+| CODE-10 / CODE-11 | 只加"危险性扫描"（缓存/存储删除禁止 `let _`）+ `// reason:` 强制；**不设总数下降配额** | `check_clippy_allow_ratchet.py` 扩展后故意新增一条无 reason 的 allow 必须红 | ✅ **已在 W0 落地**：`check_no_silent_cache_delete.sh`（接 `ci.yml:139`）；`check_clippy_allow_ratchet.py` 的 docstring 明写 "New reasonless allows fail"、计数只许下降，实测 `160/96 = baseline` |
+| TEST-07 / DOC-02 / DOC-09 | 统一数字（本轮真值 129/147/3/5，`.rs` 287）；数字由脚本输出，文档只引用 | 文档数字与脚本输出不一致时 CI 红（`check_doc_metrics.py`） | ✅ **已做**：新增 `scripts/ci/check_doc_metrics.py`，接 `docs-quality-gate.yml` 与 preflight；先红后绿 + 4 处变异自证见 §0.4 |
+| PERF-12 / DOC-07 | `INDEXES.md` 的计数由 SQL 解析生成 | 生成结果与文件不一致时 CI 红 | ✅ **已做（有偏差）**：计数与"人工表行数"进入 `doc-metrics` 块，由 `check_doc_metrics.py` 现算校验；**未**把整份文档重生成——人工表里的"为什么需要这个索引"无法从 DDL 反推，生成 343 行会让文档从"索引治理"退化成"索引清单" |
 
 ---
 
@@ -1648,7 +1865,7 @@ fn is_admin_request_allowed(role: &str, method: &Method, path: &str, rbac_enable
 | 5 | `api_route_ledger_tests` | 已有 | W1/W4（契约变更） |
 | 6 | `no_silent_cache_delete` 扫描 | **W0 已落地**：`scripts/ci/check_no_silent_cache_delete.sh`，已接入 `ci.yml` | W0 |
 | 7 | `EXPLAIN` 计划快照 | **新增** | W4 |
-| 8 | 文档数字一致性（测试数/索引数） | **新增** | W6 |
+| 8 | 文档数字一致性（测试数/索引数） | **已落地并接入**：`scripts/ci/check_doc_metrics.py`（块 + 内联锚点），接 `docs-quality-gate.yml` 与 `scripts/quality/preflight.sh` | W6（§0.4） |
 | 9 | `check_feature_matrix.py` 接入 CI | **W6 批次 5 已接入**：`scripts/ci/check_feature_matrix.py` + `.github/workflows/ci.yml`（见 §10.12） | W6（RD-14） |
 | 10 | `no_default_admin_credential` 扫描 | **W5 已落地**：`scripts/ci/check_no_default_admin_credential.sh`，已接入 `ci.yml` | W5（SEC-02） |
 

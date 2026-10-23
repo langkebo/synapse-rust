@@ -102,3 +102,15 @@ jobs:
         uses: lycheeverse/lychee-action@v1.10.0
         with:
           args: --base . --exclude-loopback ${{ steps.docs.outputs.files }}
+
+      # 文档度量一致性（审计 TEST-07 / DOC-02 / DOC-09 / PERF-12 / DOC-07）。
+      #
+      # 这些数字（测试文件数、基线索引数）此前在四处文档里各手抄一份，代码一改就
+      # 同时开始说谎，而且**没有任何东西会红**：实测漂移过 300/238/111/116 与
+      # 342/347/349/351。现在数字由脚本从真源现算，文档只能引用 `<!-- doc-metrics -->`
+      # 块或受校验的内联锚点，手改必红。
+      #
+      # 放在 docs 车道而不是 ci.yml：与 markdownlint/aspell 同性质（只读仓库文件、
+      # 零 cargo 依赖、秒级），改了文档的 PR 才有意义。
+      - name: Doc metrics consistency
+        run: python3 scripts/ci/check_doc_metrics.py -v
