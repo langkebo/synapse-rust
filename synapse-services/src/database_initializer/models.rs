@@ -52,6 +52,9 @@ pub struct DatabaseInitService {
     pub(crate) cache_ttl_seconds: i64,
     pub(crate) environment: Environment,
     pub(crate) mode: DatabaseInitMode,
+    /// Explicit migrations directory; `None` keeps the historical
+    /// `/app/migrations` → `./migrations` (process CWD) lookup.
+    pub(crate) migrations_dir: Option<std::path::PathBuf>,
 }
 
 /// The `InitializationReport` struct.

@@ -3424,7 +3424,43 @@ BASELINE_QUERY_BUILDER=17
 # 2026-10-22: 132 → **133**（+1，与 `sqlx_literal_production_baseline` 的
 #   `synapse-test-utils/src/lib.rs` 14 → 15 同批同向）：`ensure_schema_has_baseline`
 #   的 `to_regclass` 探针，理由见该文件的同名条目。棘轮仍为零余量（133 = 实测）。
-BASELINE_DYNAMIC_PRODUCTION=133
+# 2026-10-23: 133 → **140**（+7，跨进程 schema 池复用）。7 处逐点如下，全部落在
+#   **无条件编译的测试基础设施**（`synapse-test-utils` 本身被非 test target 依赖，
+#   `synapse-common/src/lib.rs` 的 `pub mod test_schema_orphans;` 亦然），因此按 census
+#   口径进生产区——与上方 2026-10-20 条目同一归因，不是生产请求路径：
+#     · `synapse-test-utils/src/lib.rs`（5）：
+#       ① `SELECT pg_advisory_xact_lock($1)` —— 池表创建期的进程间串行化；
+#       ② `INSERT INTO {pool_table} … ON CONFLICT (schema_name) DO UPDATE` —— 登记
+#          TRUNCATE 过的 schema；③ `SELECT to_regnamespace($1)::text` —— 认领前验证
+#          schema 仍在（行可能比 schema 活得久）；④ `DELETE FROM {pool_table} … FOR
+#          UPDATE SKIP LOCKED RETURNING schema_name` —— 原子认领；⑤
+#          `DELETE FROM {pool_table} WHERE parked_ts < $1 RETURNING schema_name` ——
+#          TTL 回收。
+#     · `synapse-common/src/test_schema_orphans.rs`（2）：`to_regclass($1)` 池表存在性
+#       探针 + `SELECT schema_name FROM {PARKED_SCHEMA_TABLE}`（孤儿清理时跳过已停放的
+#       schema，否则守卫会把池里要复用的 schema 全 DROP 掉）。
+#   为什么不能静态化：①②④⑤ 的表名是**schema 限定的标识符**（
+#   `_synapse_test_pool.parked_schemas`），PostgreSQL 不允许参数化标识符；③ 与
+#   orphans 的两条是对**任意运行期 schema/表名**的 catalog 探针（`to_regnamespace` /
+#   `to_regclass`），`query!` 会把 SQL 与某一份 schema 在编译期绑死，正好违背其用途，
+#   且 `.sqlx` 离线缓存里没有这些条目的对应项。
+#   **收紧方向**：把 `{PARKED_SCHEMA_TABLE}` 这类"常量限定名 + format!"的站点改为
+#   `const INSERT_PARKED: &str` 直传以让 census 判成 `literal`（不减少总数，只是换类）；
+#   真正的下降要等 census 口径把"无条件编译的测试基础设施"划入 test 分区（与
+#   2026-10-20 条目同一件事，需独立批次评估）。
+# 2026-10-23 (b): 140 → **141**（+1，池化 schema 的**结构漂移检测**）。
+#   `synapse-test-utils/src/lib.rs::ensure_schema_structure_matches_template` 在每次
+#   TRUNCATE 复用前比对「表名 + 约束名 + 非内部触发器名」与模板的对称差；非空即拒绝
+#   复用并 DROP。这是 2026-10-23 全量门禁中 6 条失败（测试注入 `CHECK (false)` 约束后
+#   schema 被 park，下个进程认领到脏 schema）的**系统性**修复：一处检测覆盖所有注入
+#   站点与未来新增站点。
+#   为什么不能静态化：查询对象是 `pg_tables` / `pg_constraint` / `pg_trigger` 三张系统
+#   目录，比较的两个 schema 名都是运行期参数；`query_scalar!` 会把 SQL 与某一份
+#   schema 在编译期绑死，且 `.sqlx` 离线缓存无对应条目。SQL 文本本身是 `const`（不计入
+#   `sqlx_literal_production_baseline`）。
+#   **收紧方向**：同上方 2026-10-23 条目——等 census 把无条件编译的测试基础设施划入
+#   test 分区后，本项与那 7 处一并迁出生产区。
+BASELINE_DYNAMIC_PRODUCTION=141
 # 2026-10-15: 769 → 768（按实测收紧；棘轮是**上限**，留着 1 个空位等于允许一次静默回归）。
 #   本批（方案 B4.3）只新增了**静态**查询，这一项是复核实测时发现的既有余量。
 # 2026-10-16: 768 → **769**（+1，B1/UG-5 lazy-load 位置列）。
@@ -3486,7 +3522,24 @@ BASELINE_DYNAMIC_PRODUCTION=133
 #   `query!` 不进 `cargo sqlx prepare`。
 #   **收紧方向**：若把该直读抽成生产侧可复用的 `read_database_deadlocks(pool)`（`query!`
 #   静态形态，本项 +1 与 `BASELINE_STATIC` 同步再平衡），本项回落 779。
-BASELINE_DYNAMIC_TEST_INFRA=780
+# 2026-10-23: 780 → **786**（+6，跨进程 schema 池复用的测试夹具）。逐点：
+#     · `synapse-test-utils/src/lib.rs`（4，`#[cfg(test)] mod tests`）：
+#       ① `CREATE SCHEMA {schema_name}`（`create_scratch_schema`，DDL 标识符）；
+#       ② `SELECT count(*) FROM {pool_table} WHERE schema_name = $1`（`pool_rows`，
+#          限定表名）；③④ 两条 `SELECT to_regnamespace($1)::text` 探针（回收后 / 孤儿
+#          守卫扫过后断言 schema 真被 DROP 或真被保留，没有代理指标可用）。
+#     · `synapse-storage/src/schema_validator.rs`（1，`mod db_tests`）：`SET search_path
+#       TO "<schema>", public` —— 把校验器绑到当轮的隔离 schema 上。
+#     · `synapse-services/src/media/quarantine_tests.rs`（1）：`to_regclass(
+#       'public.chunked_upload_progress')` 结构性探针 —— 模板重建会把 `public` 清空，
+#       探针必须先确认表在，否则"没有泄漏"的判定是空真的。
+#   为什么不能改静态宏：`#[cfg(test)]` 内的 `query!` 不进 `cargo sqlx prepare`
+#   （默认 target 集），`--all-targets` 会 E0432 —— 同上方 2026-10-17 / 2026-10-21 /
+#   2026-10-23 前一条；且 `CREATE SCHEMA` / `SET search_path` 的操作对象是标识符，
+#   本就不能参数化。全仓 `static_test = 0` 是这条约束的一致结果。
+#   **收紧方向**：③④ 两处 `to_regnamespace` 可合并为一个 `schema_exists(pool, name)`
+#   夹具（同一文件内单点），随下一次触及该测试时回落 1–2 点。
+BASELINE_DYNAMIC_TEST_INFRA=786
 # 2026-10-15: 1353 → 1354（+1，方案 B4.3）。新增
 #   `synapse-storage/src/schema_health_check.rs` 的 `check_invalid_indexes()` —— 它让
 #   **半建索引**（`pg_index.indisvalid = false`）可见；此前只查"缺表/缺列/缺索引名"，
@@ -3575,7 +3628,9 @@ BASELINE_STATIC=1363
 #   （132 + 767 = 899；见上方 TEST_INFRA 条目）。
 # 2026-10-23: 899 → **912**，随 `BASELINE_DYNAMIC_TEST_INFRA` 767 → 779
 #   （133 + 779 = 912；生产侧本批 136 → 133，已回到 `BASELINE_DYNAMIC_PRODUCTION` 无余量）。
-BASELINE_DYNAMIC=912
+# 2026-10-23: 912 → **926**，随跨进程 schema 池复用（133 + 779 = 912 → 140 + 786 = 926；
+#   生产侧 +7 与测试侧 +6 的逐点归因见上方两条同名条目）。
+BASELINE_DYNAMIC=926
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

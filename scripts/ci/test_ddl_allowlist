@@ -51,6 +51,10 @@ synapse-services/src/test_utils.rs::init_template_schema
 synapse-services/src/test_utils.rs::prepare_isolated_test_pool
 synapse-services/src/test_utils.rs::prepare_empty_isolated_test_pool
 synapse-storage/src/test_utils.rs::prepare_empty_isolated_test_pool
+#   跨进程 schema 池（`_synapse_test_pool.parked_schemas`）自身的用例用 `CREATE SCHEMA`
+#   造一个一次性 schema，验证"停放 / 认领 / 过期回收 / 孤儿回收"的**池协议**；
+#   它们不装表、也不克隆模板，因此不涉及表结构漂移。
+synapse-test-utils/src/lib.rs::db_schema_pool_tests::create_scratch_schema
 
 # —— 纯 SQL 词法解析测试：DDL 文本是**字符串夹具**，从不执行。
 #    （`split_sql_statements` / `strip_copy_blocks` / baseline 索引解析器。）

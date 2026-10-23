@@ -388,12 +388,7 @@ async fn ensure_template_schema_with_lock_timeout(
     lock_wait: Duration,
 ) -> Result<String, String> {
     let template = template_schema_name(baseline_sql);
-    let admin_pool = PgPoolOptions::new()
-        .max_connections(2)
-        .acquire_timeout(Duration::from_secs(60))
-        .connect(db_url)
-        .await
-        .map_err(|e| format!("failed to connect admin pool for template {template}: {e}"))?;
+    let admin_pool = connect_admin_pool(db_url, &template).await?;
 
     // The advisory lock is session-scoped, so it must be taken and released on
     // the same connection that performs the build.
@@ -433,6 +428,116 @@ async fn ensure_template_schema_with_lock_timeout(
 
     result?;
     Ok(template)
+}
+
+/// Connect the template admin pool, retrying a transient handshake failure.
+///
+/// Under `cargo nextest` every test case is its own process, so a full run
+/// opens thousands of short-lived admin pools in parallel. A very small number
+/// of those connections die while the wire protocol is still decoding the
+/// startup exchange (`unknown message type: '\0'` — a garbled/closed socket, not
+/// a rejected login). The next attempt opens a fresh TCP connection, so a
+/// bounded retry removes that noise without hiding a persistent failure: after
+/// the third attempt the error is still returned.
+async fn connect_admin_pool(db_url: &str, template: &str) -> Result<PgPool, String> {
+    const ADMIN_POOL_CONNECT_ATTEMPTS: u32 = 3;
+    let mut last_error = String::new();
+    for attempt in 1..=ADMIN_POOL_CONNECT_ATTEMPTS {
+        let connected =
+            PgPoolOptions::new().max_connections(2).acquire_timeout(Duration::from_secs(60)).connect(db_url).await;
+        match connected {
+            Ok(pool) => return Ok(pool),
+            Err(error) => {
+                last_error = error.to_string();
+                if attempt < ADMIN_POOL_CONNECT_ATTEMPTS {
+                    tokio::time::sleep(Duration::from_millis(200 * u64::from(attempt))).await;
+                }
+            }
+        }
+    }
+    Err(format!(
+        "failed to connect admin pool for template {template} after {ADMIN_POOL_CONNECT_ATTEMPTS} attempts: {last_error}"
+    ))
+}
+
+/// Is this failure a transport-level handshake flake worth one more fresh
+/// connection?
+///
+/// A full gate runs ~10k short-lived test processes, each opening its own admin
+/// pool. Under that churn sqlx occasionally reads a NUL byte while decoding the
+/// server's startup exchange (`unknown message type: '\0'`) or sees the socket
+/// closed mid-handshake. The connection never completed, so the next attempt
+/// opens a genuinely new TCP connection; retrying says nothing about the
+/// database being reachable, and a persistent failure still surfaces after the
+/// last attempt.
+pub fn is_transient_handshake_error(message: &str) -> bool {
+    message.contains("unknown message type") || message.contains("connection closed")
+}
+
+/// Open an admin pool, retrying only [`is_transient_handshake_error`] faults.
+///
+/// Every fixture that opens a fresh admin pool used to call
+/// `PgPoolOptions::connect` once, so one garbled handshake failed a whole test
+/// process before any test body ran (measured on `/tmp/full_gate6.log`:
+/// `api_federation_tests::test_federation_public_rooms_post_filter_room_types_selects_normal_and_space_rooms`
+/// and `synapse-storage push::db_tests::test_get_pushers_with_none_device_id`).
+/// The retry is bounded (3 attempts, 200ms×attempt backoff) and transient-only,
+/// so a wrong URL / rejected login still fails immediately with its own message.
+///
+/// The error is the underlying sqlx message; callers prepend their own context
+/// (`failed to connect admin pool: …`, `failed to connect for template table
+/// names: …`) exactly as they did around a bare `connect`.
+pub async fn connect_pool_with_handshake_retry(
+    database_url: &str,
+    max_connections: u32,
+    acquire_timeout: Duration,
+) -> Result<PgPool, String> {
+    const HANDSHAKE_ATTEMPTS: u32 = 3;
+    let mut last_error = String::new();
+    for attempt in 1..=HANDSHAKE_ATTEMPTS {
+        let connected = PgPoolOptions::new()
+            .max_connections(max_connections)
+            .acquire_timeout(acquire_timeout)
+            .connect(database_url)
+            .await;
+        match connected {
+            Ok(pool) => return Ok(pool),
+            Err(error) => {
+                last_error = error.to_string();
+                if attempt == HANDSHAKE_ATTEMPTS || !is_transient_handshake_error(&last_error) {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(200 * u64::from(attempt))).await;
+            }
+        }
+    }
+    Err(last_error)
+}
+
+/// Acquire one connection from a pool, retrying transient handshake faults.
+///
+/// `connect_lazy` defers the first TCP connection to the initial `acquire()`,
+/// so the same garbled-handshake flake can hit there rather than in
+/// [`connect_pool_with_handshake_retry`].
+pub async fn acquire_connection_with_handshake_retry(
+    pool: &PgPool,
+) -> Result<sqlx::pool::PoolConnection<sqlx::Postgres>, sqlx::Error> {
+    const ACQUIRE_ATTEMPTS: u32 = 3;
+    let mut last_error: Option<sqlx::Error> = None;
+    for attempt in 1..=ACQUIRE_ATTEMPTS {
+        match pool.acquire().await {
+            Ok(conn) => return Ok(conn),
+            Err(error) => {
+                let message = error.to_string();
+                last_error = Some(error);
+                if attempt == ACQUIRE_ATTEMPTS || !is_transient_handshake_error(&message) {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(200 * u64::from(attempt))).await;
+            }
+        }
+    }
+    Err(last_error.expect("at least one acquire attempt runs"))
 }
 
 /// Take the session-scoped template advisory lock, bounded by `lock_wait`.
@@ -1865,8 +1970,9 @@ impl IsolatedTestPool {
         // global phase-2 statements: every table, index, constraint, function,
         // view and trigger. The shared clone helper does not create the schema,
         // so the caller creates it and puts it first on the session `search_path`.
-        let clone_pool =
-            PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(60)).connect(&db_url).await?;
+        let clone_pool = connect_pool_with_handshake_retry(&db_url, 1, Duration::from_secs(60))
+            .await
+            .map_err(sqlx::Error::Protocol)?;
         sqlx::query(&format!(r#"CREATE SCHEMA "{schema}""#)).execute(&clone_pool).await?;
         sqlx::query(&format!(r#"SET search_path TO "{schema}", public"#)).execute(&clone_pool).await?;
         clone_schema_from_template(&clone_pool, &schema, &template, SeedSource::Everything)
@@ -1926,7 +2032,7 @@ impl IsolatedTestPool {
         // pooled connection so no later connection (created while the test is
         // running) can silently default to the `public` schema and leak data
         // across parallel tests.
-        let mut conn = pool.acquire().await?;
+        let mut conn = acquire_connection_with_handshake_retry(&pool).await?;
         sqlx::query(&set_path_for_pool).execute(&mut *conn).await?;
         drop(conn);
 

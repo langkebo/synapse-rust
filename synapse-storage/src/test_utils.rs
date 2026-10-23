@@ -50,8 +50,11 @@ pub async fn resolve_test_database_url() -> Result<String, String> {
         // Use the same generous timeout window as the isolated pools so a
         // moment of server-side connection pressure under `--test-threads=N`
         // cannot turn a health check into a hard failure.
-        let connect_future =
-            PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(30)).connect(&database_url);
+        let connect_future = synapse_common::test_isolation::connect_pool_with_handshake_retry(
+            &database_url,
+            1,
+            Duration::from_secs(30),
+        );
 
         match tokio::time::timeout(Duration::from_secs(30), connect_future).await {
             Err(_) => errors.push(format!("{database_url} -> connect timed out")),
@@ -124,12 +127,10 @@ pub async fn prepare_empty_isolated_test_pool() -> Result<TestSchemaGuard, Strin
     let database_url = resolve_test_database_url().await?;
     let schema_name = next_test_schema_name();
 
-    let admin_pool = PgPoolOptions::new()
-        .max_connections(1)
-        .acquire_timeout(Duration::from_secs(5))
-        .connect(&database_url)
-        .await
-        .map_err(|error| format!("failed to connect admin pool: {error}"))?;
+    let admin_pool =
+        synapse_common::test_isolation::connect_pool_with_handshake_retry(&database_url, 1, Duration::from_secs(5))
+            .await
+            .map_err(|error| format!("failed to connect admin pool: {error}"))?;
 
     sqlx::query(&format!("CREATE SCHEMA {schema_name}"))
         .execute(&admin_pool)
@@ -198,11 +199,9 @@ pub async fn connect_shared_test_pool() -> Result<Arc<PgPool>, String> {
     #[cfg(test)]
     crate::test_exit_hook::ensure();
     let database_url = resolve_test_database_url().await?;
-    let pool = PgPoolOptions::new()
-        .max_connections(2)
-        .acquire_timeout(Duration::from_secs(30))
-        .connect(&database_url)
-        .await
-        .map_err(|error| format!("failed to connect shared test pool: {error}"))?;
+    let pool =
+        synapse_common::test_isolation::connect_pool_with_handshake_retry(&database_url, 2, Duration::from_secs(30))
+            .await
+            .map_err(|error| format!("failed to connect shared test pool: {error}"))?;
     Ok(Arc::new(pool))
 }

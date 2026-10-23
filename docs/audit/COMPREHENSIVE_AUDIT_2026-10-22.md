@@ -931,6 +931,7 @@ git ls-files '*.rs' | grep -vE '(^|/)tests?/|/tests?\.rs$|_tests\.rs$|^tests/' \
 - **证据**：`Cargo.toml:29-64` 的 `default` 不含上述 feature；全仓 `feature = "(voice-extended|saml-sso|cas-sso|voip-tracking|server-notifications|privacy-ext|builtin-oidc)"` 共 **370 处 / 44 文件**（门控本身是到位的，不是"只到装配层"）。
 - **影响**：并非"死代码"，但默认构建与默认测试**零覆盖**（TEST-06 已记录 5 个整文件被门控）；`check_feature_matrix.py` 尚未接入 CI（TEST-04），因此这些能力长期处于"存在但无人验证"的状态——这是本仓最大的"超前实现"存量。
 - **建议**：二选一，不要继续悬空——① 在 CI 增加 feature 矩阵 job（至少 `--features all-extensions` 跑一次 `--no-run` + 单测）；② 对无落地计划的能力（`cas-sso`、`saml-sso`）显式标记为 experimental 并在 README 声明不支持。门禁必须可失败：故意破坏一个 feature-gated 模块的编译，矩阵 job 必须红。
+> **落地（2026-10-23，W6 批次 5）**：走方案 ①。`check_feature_matrix.py` 重写为**可失败**门禁（旧版有两处只 `print` 不比较的伪断言），静态层 S1–S5 进 fast tier、编译车道 C1–C4 进独立 `feature-matrix` job；S5 专门断言 `ci.yml` 必须真的以 `--compile` 调用本脚本，即"脚本存在但从未接入"这一原始形态本身会红。能力台账 `FEATURE_STATUS` 把 supported / experimental / meta / internal 分档登记，与 `[features]` 双向校验。详见 §10.12 ③。
 
 ---
 
@@ -1158,7 +1159,7 @@ git ls-files '*.rs' | grep -vE '(^|/)tests?/|/tests?\.rs$|_tests\.rs$|^tests/' \
 | **W3** | P1 结构决策 | ARCH-01 | 方案 A「打通」：写路径改走规范事件，影子表降级为索引 | **大** | 需先定方案 | ✅ 已提交 `3789583ef`（见 §10.5） |
 | **W4** | P2 资源与性能 | PERF-14、PERF-13、PERF-03/04/05、PERF-07/08/09、PERF-06、CODE-04、CODE-07 | 索引/查询/分批 | 中 | W1（FUNC-06 累计校验） | ✅ 三层全部落地：第一层 `2358c0f5a`、第二层 `0d18fede0`、第三层 `3cf5c006a`（见 §10.6） |
 | **W5** | P2 安全一致性 | SEC-02…SEC-08 | 配置校验 + 默认值 | 小 | 无 | ✅ 已提交 `ca6980c51`（见 §10.7） |
-| **W6** | P3 冗余与文档 | 全部 P3 + §9.12 五批 | 删除/合壳/文档 | 小但量大 | W0（避免删到正在改的文件） | 🟡 批次 1 已提交 `e4ac05ce0`、批次 2 已提交 `b51aafb00`、批次 3 已提交 `f7bf4eec0`、批次 4 已提交 `d9398fed1`（见 §10.8），批次 5 待开始 |
+| **W6** | P3 冗余与文档 | 全部 P3 + §9.12 五批 | 删除/合壳/文档 | 小但量大 | W0（避免删到正在改的文件） | 🟡 批次 1 已提交 `e4ac05ce0`、批次 2 已提交 `b51aafb00`、批次 3 已提交 `f7bf4eec0`、批次 4 已提交 `d9398fed1`（见 §10.8）；批次 5（RD-14 feature 矩阵接入 CI）已落地（见 §10.12） |
 
 **建议并行度**：W0 / W2 / W5 三者互不重叠，可并行；W1 与 W4 串行；W3 单独走设计评审；W6 最后收尾（它会删文件，先做会和前面所有分支冲突）。
 
@@ -1648,7 +1649,7 @@ fn is_admin_request_allowed(role: &str, method: &Method, path: &str, rbac_enable
 | 6 | `no_silent_cache_delete` 扫描 | **W0 已落地**：`scripts/ci/check_no_silent_cache_delete.sh`，已接入 `ci.yml` | W0 |
 | 7 | `EXPLAIN` 计划快照 | **新增** | W4 |
 | 8 | 文档数字一致性（测试数/索引数） | **新增** | W6 |
-| 9 | `check_feature_matrix.py` 接入 CI | 脚本存在但**未接入** | W6（RD-14） |
+| 9 | `check_feature_matrix.py` 接入 CI | **W6 批次 5 已接入**：`scripts/ci/check_feature_matrix.py` + `.github/workflows/ci.yml`（见 §10.12） | W6（RD-14） |
 | 10 | `no_default_admin_credential` 扫描 | **W5 已落地**：`scripts/ci/check_no_default_admin_credential.sh`，已接入 `ci.yml` | W5（SEC-02） |
 
 > 第 6/7/8 条是本次方案的**关键增量**：前三轮审查暴露的根因不是"没发现问题"，而是"修完无法证明修好了"。这三条把"一次性的审查结论"变成"持续可失败的门禁"，否则下一轮还会重新审出同样的条目。
@@ -1678,3 +1679,155 @@ fn is_admin_request_allowed(role: &str, method: &Method, path: &str, rbac_enable
 4. **未覆盖项被显式承认**：附录 B 的口径保持——没跑的 benchmark、没跑的全量集成套件，继续写"未覆盖"，不拿静态推断冒充实测。
 
 > 建议把本节作为下一轮审查的**输入模板**：下一轮只需在 §0.2 追加一节同样格式的表格，并复核 §10 各批次的完成情况。
+
+---
+
+### 10.12 门禁收口（2026-10-23）：跨进程 schema 池 + 三类失败用例修复
+
+上一轮全量门禁（`/tmp/full_gate.log`）在 `10,723` 条里留下 3 类失败/超时，本批逐个定位并修复；同时落地 W6 批次 5（RD-14 feature 矩阵接入 CI）。**全部改动只涉及测试基建与 CI，未改任何生产路径，也未改既有断言口径。**
+
+#### ① 跨进程 schema 池复用（TEST-07 的直接延伸）
+
+| 项 | 内容 |
+|---|---|
+| 问题 | nextest 一用例一进程 ⇒ 进程内 `SCHEMA_POOL` 永不命中 ⇒ 每例都完整克隆 220 表模板（约 1,000 次 catalog 写），集成用例均值 11.45s |
+| 做法 | `synapse-test-utils/src/lib.rs` 新增 **DB 侧池表** `_synapse_test_pool.parked_schemas(schema_name PK, template_name, parked_ts)`：被 TRUNCATE 过的 schema 登记入表，后续进程优先认领，`pg_advisory_xact_lock(9_732_001_001)` 串行化认领、TTL 120s、`42P01`/`3F000` 自愈（表或 schema 被别人删掉即重建/跳过）。开关为 `db_schema_pool_enabled()` = 运行在 nextest 下 **且** 显式启用复用 |
+| 配套 | `synapse-common/src/test_schema_orphans.rs`（池表常量 + 孤儿 schema 清理）、`synapse-common/src/test_schema_guard.rs`（守卫） |
+| 为什么不是迁移文件 | 池表属于测试基建，写进 `migrations/` 会污染生产基线指纹；改为运行时在专用 schema 内懒建 |
+
+#### ② 三类门禁用例
+
+| 用例 | 症状 | 根因 | 修复 |
+|---|---|---|---|
+| `synapse-services media::quarantine_tests::media_fixture_keeps_its_isolated_schema_for_the_whole_test` | `Err` 分支 panic | `init_template_schema()` 的 `DROP SCHEMA public CASCADE` 让共享 `public` 变成 **0 表**，用默认 search_path 的探针必然报"relation does not exist" | 探针前用 `to_regclass('public.chunked_upload_progress')` 判空直接返回（此时"泄漏进 public"在结构上不可能）；原 `Ok(Some(_)) => panic!` 断言保留。⇒ `PASS [6.565s]` |
+| `synapse-services sliding_sync_service::tests::test_txn_id_no_cache_lookup_when_txn_id_absent` | `TIMEOUT [120.009s]`（门禁唯一超时） | `create_test_service()` 的 `connect_lazy` 指向不可达主机，而 **sqlx 默认 `acquire_timeout` = 30s**；`sync()` 顺序 acquire 5 次 ⇒ 实测 **150.061s** | 该池加 `.acquire_timeout(250ms)`。断言（必须 `is_err()`）未改。⇒ **150.061s → 1.326s** |
+| `synapse-services sliding_sync_service::tests::s12_initial_sync_materializes_joined_rooms` / `..._resilient_to_materialize_errors` | 未超时但每例固定 **30.03s** | 同 ①（`create_mocked_test_service` / `create_cached_test_service` 的 lazy 池用默认 30s 超时，presence 写必然失败） | 两处 helper 同样加 250ms。⇒ **30.166s → 0.306s** |
+| `synapse-storage schema_validator::db_tests::*`（5 条） | 表不存在 | 测试池未绑定基线模板 | `test_pool()` 改绑 `synapse_common::test_isolation::ensure_template_schema` 的指纹模板并 `SET search_path`。⇒ **27/27 passed** |
+| `integration api_media_routes_tests::test_client_v1_authenticated_media_download_requires_access_token` | `unknown message type: '\0'` | **并发 flake**（sqlx 协议层读到空字节），非确定性缺陷 | 隔离复现 `PASS [6.458s]`；不改代码，靠下一轮全量门禁确认 |
+
+> **口径说明**：上表 3 条耗时修复都作用在"故意指向不可达主机的测试池"上，缩短的只是**死等时间**，不是放宽断言。生产池的 `acquire_timeout` 未改。
+
+#### ③ W6 批次 5：RD-14 feature 矩阵接入 CI
+
+- `scripts/ci/check_feature_matrix.py`（重写，524 行）：旧版有两处**伪断言**（`--no-default-features` 只 `print` 不执行 cargo；`shipped == tested == default` 只 `print("OK")`），运行多年从未真正检查过。重写后：
+  - **静态层 S1–S5**（零 cargo、<1s）：`[features]` 引用完整性 / `all-extensions` 闭包完整性（豁免须登记原因）/ 每个 crate 内真正参与编译的 `cfg(feature = "X")` 必须指向自己声明的特性 / 能力台账 `FEATURE_STATUS` 与 `[features]` 双向一致 / **`ci.yml` 必须真的以 `--compile` 调用本脚本**（S5 直接拦死 RD-14 的原始形态"脚本存在但从未接入"）。
+  - **编译车道 C1–C4**（`--compile`）：default / all / no-default / 每个 supported+experimental 特性隔离编译。
+  - 旧豁免"`--no-default-features` 编不过"已实测失效（`cargo check -p synapse-rust --no-default-features` 通过），因此该豁免删除、改成真车道。
+- `.github/workflows/ci.yml`（+37 行）：fast tier 加静态层 step（每次 PR），另加独立 `feature-matrix` job 跑 `--compile`。属 §10.9 门禁表第 9 条。
+
+#### ④ SQLx 棘轮随池化改动入账
+
+池实现本身新增了 **13 处**动态 `sqlx::query*` 调用点，全量门禁的 3 条 `sqlx_ratio_gate_tests` 因此转红（实测 `production=140 test=786`，基线 `133/780`）。逐点归因后按本仓既有体例更新基线，而不是把查询改宏：
+
+| 分区 | 增量 | 来源与性质 |
+|---|---|---|
+| production | +7 | `synapse-test-utils/src/lib.rs`（5）：`pg_advisory_xact_lock($1)` 建表串行化、`INSERT/DELETE … FROM {pool_table}` 的**schema 限定标识符**（3 处）、认领前 `to_regnamespace($1)` 探针；`synapse-common/src/test_schema_orphans.rs`（2）：`to_regclass($1)` 池表探针 + `SELECT schema_name FROM {PARKED_SCHEMA_TABLE}` |
+| test | +6 | `synapse-test-utils/src/lib.rs`（4，`#[cfg(test)] mod tests`）：`CREATE SCHEMA {name}`、`count(*) FROM {pool_table}`、两条 `to_regnamespace` 断言探针；`synapse-storage/src/schema_validator.rs`（1）：`SET search_path TO "<schema>", public`；`synapse-services/src/media/quarantine_tests.rs`（1）：`to_regclass('public.chunked_upload_progress')` 结构性探针 |
+
+- 为什么不能静态化：DDL / `SET search_path` 的操作对象是**标识符**（PostgreSQL 不允许参数化）；`to_regclass` / `to_regnamespace` 的职责就是对**任意运行期** schema / 表名判存在，宏会把 SQL 与某一份 schema 在编译期绑死，正好违背用途；且 `#[cfg(test)]` 内的宏不进 `cargo sqlx prepare`。
+- 为什么不减总量：`synapse-test-utils` / `test_schema_orphans` 是**无条件编译**的测试基础设施，按 census 口径必落生产区（与 2026-10-20 同一条归因）。
+- 落地：`BASELINE_DYNAMIC_PRODUCTION` 133 → **140**（次日因 ⑤ 的结构漂移查询再 +1 → **141**）、`BASELINE_DYNAMIC_TEST_INFRA` 780 → **786**、legacy `BASELINE_DYNAMIC` 912 → **926**；`sqlx_literal_production_baseline` 同批同向（`test_schema_orphans.rs` 1 → 2、`lib.rs` 15 → 17，⑤ 再加 1 → **18**，其余为 runtime 形态）。`bash scripts/ci/check_sqlx_dynamic_ratio.sh` ⇒ `OK`（零余量）；`cargo nextest -E 'test(sqlx_ratio_gate) + test(sqlx_dynamic_literal_guard) + test(test_ddl_guard)'` ⇒ **49/49 passed**。
+
+#### ⑤ 池化 schema 的**结构漂移守卫**（第二轮门禁 6 条失败的共同根因）
+
+第二轮全量门禁（`/tmp/full_gate2.log`，`10,728` 条）剩 14 条失败，其中 **6 条**报同一个错：`violates check constraint "register_is_atomic_no_insert"`（`registration_service_tests_migrated::test_register_user_success`、`third_party_rules_event_paths_tests::{test_m4_deny_rule_rejects_federation_pdu_and_does_not_persist_it, test_m4_rewrite_rule_content_is_persisted}`、`voice_routes_tests::{test_get_call_session_rejects_non_members, test_voice_upload_forbid_cross_room_upload, test_voice_upload_without_room_succeeds}`）。
+
+| 项 | 内容 |
+|---|---|
+| 根因 | ① 的跨进程池把"TRUNCATE 过的 schema"跨进程复用，而**结构**从未被校验。`tests/integration/registration_service_tests_migrated.rs:189` 故意 `ALTER TABLE refresh_tokens ADD CONSTRAINT … CHECK (false)` 造写入失败，**从不删除**；该用例结束后 schema 被 park，下一个进程认领到带这条约束的脏 schema，于是任何写 `refresh_tokens` 的用例都炸 |
+| 做法 | `synapse-test-utils/src/lib.rs::truncate_and_reseed_schema` 首行调用新增的 `ensure_schema_structure_matches_template`：一次目录聚合查询，比对 **表名 + 约束名 + 非内部触发器名** 与模板的**对称差**；非空即 `Err` ⇒ `cleanup_schema` 走 DROP 而不是 park。查询本身失败也 fail-closed（宁可丢一个 schema，不可放出脏 schema） |
+| 为什么只比名字不比定义 | 克隆出来的外键**合法地**指向克隆 schema 自己的表（`pg_get_constraintdef` 里带的是克隆 schema 名），比定义会把每个干净 schema 全判成漂移 |
+| 为什么模板侧排除 `_synapse_test_template_ready` | 该表是模板的"构建完成"标记，克隆不复制它（`get_template_table_names` 只取 `relkind='r'` 且该表在克隆后不存在），不排除会对每个 schema 恒定报漂移 |
+| 为什么不逐个改用例去 `poison()` | ① 要改 5+ 个用例且对**未来**新增的注入站点无效；② 漂移检测是一处 ~30 行、对所有注入站点同时生效的**系统性**修复，且不需要改任何断言 |
+| 代价 | 少数"注入 DDL"的用例结束后 schema 被 DROP 而非 park（各丢一次克隆），对全量墙钟可忽略 |
+| 实测证据 | 单独跑 `register_is_atomic`：用例 PASS，完后 `pg_constraint` 里 `register_is_atomic_no_insert` **0 行**、`parked_schemas` 10 → **9**（证明脏 schema 被 DROP 而非 park）；紧接着跑一条干净用例 `test_login_success`，parked 8 → **9**（干净 schema 仍正常 park，复用未破） |
+
+> 附带：`scripts/ci/test_ddl_allowlist` 追加 `synapse-test-utils/src/lib.rs::db_schema_pool_tests::create_scratch_schema` —— 池协议自测用 `CREATE SCHEMA` 造一次性 schema 验证"停放 / 认领 / 过期回收 / 孤儿回收"，不装表、不克隆模板，不涉及结构漂移。
+
+#### ⑥ 模板 admin 池连接的有限重试（2 条 `'\0'` flake）
+
+`nullable_decode_tests::application_service_transaction_decodes_null_sent_ts` 与 `synapse-storage membership::db_tests::test_get_sync_rooms` 报 `failed to connect admin pool for template …: unknown message type: '\0'`——sqlx 在**握手阶段**读到空字节，与随后要执行的 DDL 无关（nextest 一例一进程，全量要开上万次短命连接）。
+
+`synapse-common/src/test_isolation.rs` 抽出 `connect_admin_pool`：最多 **3 次**尝试、200ms/400ms 退避；每次都是全新 TCP 连接。持续性问题仍会在第 3 次后原样报错，因此不是掩盖失败。
+
+#### ⑦ 模板清理测试的破坏性副作用（第三轮门禁唯一失败的根因）
+
+第三轮全量门禁（`/tmp/full_gate3.log`，`10,728` 条）只剩 1 条失败：
+
+```
+FAIL [7.701s] synapse-test-utils pooled_schema_reseed_tests::pooled_schema_can_insert_into_a_reseeded_table
+  pooled schema: "clone of test_76121_1_1792772666846047000 from
+  test_template_v2_575844bda1736c32 failed: error returned from database:
+  schema "test_template_v2_575844bda1736c32" does not exist"
+```
+
+| 项 | 内容 |
+|---|---|
+| 根因 | `tests/unit/test_schema_housekeeping_tests.rs::prune_drops_superseded_templates_and_keeps_the_current_one` 为 `prune_stale_template_schemas` 造了**合成**的 `keep`（`test_template_v2_a4f2c0ffee000001`），而该函数会 DROP 掉除 `keep` 外**所有** `test_template_v<rev>_<hex>`。它看不出合成名与真实模板的区别，于是在全量门禁并发运行期间把真实模板 `test_template_v2_575844bda1736c32` 删掉；恰好有进程处于"就绪检查通过 → 克隆执行"的窄窗口内，克隆即报 `does not exist`。窗口只有几毫秒，故全程只挂 1 条 |
+| 为什么不是 ⑤ 的漂移守卫误判 | 报错发生在 `CREATE TABLE … (LIKE …)` 之前的模板存在性检查，与结构比对无关；且 ⑤ 的守卫只影响"是否 park"，不影响模板本身 |
+| 做法 | 把清理主体抽成 `pub async fn prune_stale_template_schemas_in(conn: &mut sqlx::PgConnection, keep: &str)`；原 wrapper 改为 acquire 连接 → 调 `_in` → 成功后删 marker 文件。测试改为 `pool.begin()` → 造 4 个一次性 schema → `prune_stale_template_schemas_in(&mut tx, &keep)` → 原断言**一字未改** → `tx.rollback()`。PostgreSQL 的 `DROP SCHEMA` / `CREATE SCHEMA` 都是事务性的，于是"该删的删、该留的留"立即可观测，而真实模板毫发无损 |
+| 为什么 marker 文件删除留在 wrapper | marker 是**文件系统**状态，事务回滚救不回来。若在事务内删 marker，回滚后仍存活的真实模板会失去"已就绪"标记，下次被判未就绪而重建 35-60s。因此 `_in` 只做 DB DDL，`remove_file` 只在 wrapper 里、在 DROP 真正落定之后执行 |
+| 为什么不改成"只删合成名" | 那等于让函数按名字前缀猜意图，清理逻辑本身就会被测试反向塑形；而 DDL 事务化是零语义变更的通用能力，未来的破坏性清理测试都能复用 `_in` |
+| 实测证据 | `cargo nextest run -E 'binary(test_schema_housekeeping_tests)'` ⇒ `2 tests run: 2 passed`（`prune_drops_superseded_templates_and_keeps_the_current_one PASS [0.251s]`，事务回滚后真实模板仍在）；`cargo nextest run -p synapse-test-utils` ⇒ `16 tests run: 16 passed`（`pooled_schema_can_insert_into_a_reseeded_table PASS [7.043s]`） |
+
+#### ⑧ 探活连接的有限重试（第四轮门禁唯一失败）
+
+第四轮全量门禁（`/tmp/full_gate4.log`，`10,728` 条，`Summary [3503.649s] 10727 passed, 1 failed`）只剩 1 条：
+
+```
+FAIL [0.051s] (2336/10728) api_space_routes_tests::test_create_space_route_rejects_non_creator_for_foreign_room
+  panicked at tests/integration/mod.rs:500
+  [integration] No reachable test database: failed to connect to any configured test database:
+  postgresql://synapse:synapse@localhost:55432/synapse_test -> encountered unexpected or invalid data:
+  unknown message type: '\0' (sqlx_postgres::message:172)
+```
+
+| 项 | 内容 |
+|---|---|
+| 根因 | 与 ⑥ **同一类** sqlx 握手 flake，只是位置从模板 admin 池挪到了 `resolve_test_database_url` 的探活连接。该函数每个进程只探一次并缓存结果（P0-1 的成果），因此一次握手抖动就让整个进程没等到任何用例体执行就失败 |
+| 修复 | `synapse-test-utils/src/lib.rs::resolve_test_database_url` 对每个候选 URL 最多 **3 次**探活（200ms/400ms 退避，每次全新 TCP 连接），且**只对传输层抖动**（`unknown message type` / `connection closed`）重试；超时与其它错误（鉴权失败、库不存在）仍一次即放弃 |
+| 为什么不是放宽门禁 | `require_test_database` 的 fail-closed 语义原样保留：真的连不上数据库、配置错了 URL，第 3 次之后依旧 panic。重试的只是"连接从未建立"这一种情况 |
+| 实测证据 | 单跑该用例 ⇒ `PASS [3.936s]`；`cargo check --all-features --workspace` ⇒ `Finished dev profile in 15.98s` |
+
+#### ⑨ 房间反压用例的时序依赖与限流桶归因污染（第五轮门禁唯一失败）
+
+第五轮全量门禁（`/tmp/full_gate5.log`，`10,728` 条，`Summary [2996.542s] 10727 passed, 1 failed`）只剩 1 条：
+
+```
+FAIL [7.314s] (…) api_beacon_location_tests::test_beacon_location_applies_room_backpressure_token_bucket
+  panicked at tests/integration/api_beacon_location_tests.rs:409
+  assertion `left == right` failed: {"errcode":"M_LIMIT_EXCEEDED", …}   (探针拿到 200)
+    left: 200
+   right: 429
+```
+
+| 项 | 内容 |
+|---|---|
+| 直接原因 | 用例以「抽干桶后**单发**一条合法位置，断言必然 429」作为观测手段。而房间令牌桶（`synapse-cache/src/manager.rs::rate_limit_token_bucket_take`）按 **墙钟** `SystemTime::now()` 做分数回填（容量 20、5/s），且**拒绝时不消耗令牌**；抽水循环在第一个 429 处 `break`，从「最后一次扣减」到「探针真正扣减」之间隔着请求时延，满负载下 >200ms ⇒ 桶里已回填出 1 个令牌 ⇒ 合法的探针合法地拿到 200。用例断言的不是协议行为，而是「两次请求间隔 <200ms」这一未声明的时序前提 |
+| 次生问题（归因污染） | harness 的 `with_local_connect_info` 把所有合成请求固定成 `127.0.0.1:65530`，而通用 per-IP 限流中间件（`synapse-web/src/middleware/rate_limit.rs`，默认 10/s、burst 20，key = `(client_ip, endpoint)`）会给它们**共用一个桶**。抽水阶段若出现通用中间件发出的 429，与房间令牌桶的 429 在状态码与 `M_LIMIT_EXCEEDED` 上完全一致，"房间级压回"的断言可能被一个无关的桶满足 —— 即使断言变绿也不构成证据 |
+| 修复（观测方式） | 改为**并发突发**：`JoinSet` 同时发出 42 条本应完全合法的位置（7 个发送者 × 6 条，同一 `m.ts = base_ts + 1000`），断言「至少一条 429」。依据是回填速度而非时序：空桶消化 K 条并发请求需要 `K/5` 秒墙钟，只要突发实际跨度 < `(K-1)/5 ≈ 8.2s`，就必然有请求落在无令牌时刻。并发下同一 `ts` 只有抢到令牌的第一条能写入，其余必是 429（无令牌）或 400（`ts <= latest.timestamp`，已消费过令牌），两种状态码都与插入顺序无关，因此断言不再依赖调度顺序 |
+| 修复（归因隔离） | 新增 helper `send_beacon_with_ts_from_ip`：直接构造 `ConnectInfo` 扩展，把每条合成请求放到**独立回环地址**（抽水 `127.0.0.2..7`、探针 `127.0.0.10..51`）。通用 per-IP 桶因此不参与，观测到的 429 只能来自 `(room_id)` 键的房间令牌桶 |
+| 为什么仍是「房间级」证据 | 抽水请求轮流由 6 个参与者发出、每人 ≤15 次（< 桶容量 20）：若实现退化成**按发送者**的桶（每人 20 个），房间桶永不空 ⇒ 抽水阶段不会出现 429、`saw_backpressure` 断言失败。探针 42 条摊在 7 个发送者上（每人 6 条），既低于 `BEACON_MAX_PER_SENDER_PER_ROOM_WINDOW = 10`，成功写入行数也远低于 `BEACON_MAX_PER_ROOM_WINDOW = 60`，即不会误撞配额分支 |
+| 为什么不是放宽断言 | 原断言保留未动：`drained >= 19`、抽水阶段 429 的 `M_LIMIT_EXCEEDED` + `retry_after_ms`、`saw_backpressure`。新断言 `limited >= 1` 比原「单发必 429」**更强**（要求 42 条并发里出现压回，且每条 429 都必须带完整 errcode/retry_after_ms）。抽水阶段每次 400 的 `timestamp must be increasing` 文案校验也原样保留 |
+| 附带 | 用例改为 `#[tokio::test(flavor = "multi_thread", worker_threads = 4)]`：`current_thread` 下 40+ 路并发会串行化到撞 30s 请求超时（504），与限流语义无关 |
+| 实测证据 | 单跑该用例 **5 次连续通过**（`PASS [5.777s]`、`[2.462s]`、`[2.597s]`、`[3.410s]`、`[2.397s]`） |
+
+#### ⑩ 握手重试的覆盖面补齐（第六轮门禁仅剩的 2 条）
+
+第六轮全量门禁（`/tmp/full_gate6.log`，`10,728` 条，`Summary [2973.317s] 10726 passed, 2 failed`）只剩 2 条，且是同一类 flake 落在**尚未接入重试**的连接点上：
+
+```
+FAIL [0.056s] (2076/10728) api_federation_tests::test_federation_public_rooms_post_filter_room_types_selects_normal_and_space_rooms
+  panicked at tests/integration/mod.rs:356
+  failed to connect admin pool: … unknown message type: '\0' (sqlx_postgres::message:172)
+FAIL [0.065s] (8779/10728) synapse-storage push::db_tests::test_get_pushers_with_none_device_id
+  panicked at synapse-storage/src/push/mod.rs:992
+  isolated test pool: Protocol("unknown message type: '\\0' (sqlx_postgres::message:172)")
+```
+
+| 项 | 内容 |
+|---|---|
+| 根因 | 与 ⑥/⑧ **同一类** sqlx 启动握手 flake（`unknown message type: '\0'`），但 ⑥ 只给 `synapse-common::test_isolation::connect_admin_pool` 加了重试，⑧ 只给 `synapse-test-utils::resolve_test_database_url` 加；其余「一次性 admin 连接」仍然一失败就整进程失败。两条失败分别命中 `ensure_template_schema_exists`/`template_schema_is_ready` 一侧（经 `require_test_pool` 冒泡成 `tests/integration/mod.rs:356`）与 `IsolatedTestPool::new` 的克隆池 connect / 惰性池首次 acquire |
+| 修复 | `synapse-common/src/test_isolation.rs` 新增共享 helper：`is_transient_handshake_error`（`unknown message type` / `connection closed`）、`connect_pool_with_handshake_retry`（3 次尝试、200ms×attempt 退避、**仅传输层抖动重试**、错误文案原样返回由调用方加前缀）、`acquire_connection_with_handshake_retry`（覆盖 `connect_lazy` 把首次 TCP 连接推迟到 `pool.acquire()` 的情况）。**20 处**一次性连接全部改走 helper：`IsolatedTestPool::new` 2 处；`synapse-test-utils` 9 处（隔离池 admin、模板初始化、模板存在性、模板就绪、克隆 admin、空隔离池、跨进程池表、模板表名、清理）；`synapse-services` 6 处（4 处 admin、共享池、探活）；`synapse-storage` 3 处（空隔离池 admin、共享池、探活）。各自的超时信封与错误前缀一字未改 |
+| 为什么不是放宽门禁 | 只对「连接从未建立」的传输层错误重试；鉴权失败、库不存在、URL 错误仍一次即返回，第 3 次之后错误原样上报。`require_test_pool` 的 fail-closed 语义未动 |
+| 实测证据 | 单跑两条用例 ⇒ `PASS [3.322s]`（storage）与 `PASS [4.772s]`（integration）；`cargo check --all-features --workspace` ⇒ `Finished dev profile in 30.47s` |

@@ -240,6 +240,13 @@ mod db_tests {
     use sqlx::PgPool;
     use std::sync::Arc;
 
+    /// Baseline SQL shared with every other crate that builds the fingerprint
+    /// template. The bytes are load-bearing: the template name is an FNV-1a hash
+    /// of this string, so a different copy would mint a second template.
+    fn isolated_baseline_sql() -> &'static str {
+        include_str!("../../migrations/00000000_unified_schema_v12.sql")
+    }
+
     /// **这个文件刻意不迁移到 per-test 克隆 schema**（2026-09-21 实测结论）。
     ///
     /// 本模块断言的是**生产对象名**：`validate_indexes()` 读 `pg_indexes WHERE schemaname =
@@ -247,18 +254,38 @@ mod db_tests {
     ///
     /// 而 `CREATE TABLE new (LIKE old INCLUDING ALL)` **不保留索引名**：实测克隆出来的
     /// `users` 索引是 `users_pkey` / `users_username_key` / `users_email_idx` …，只有
-    /// 由 `migrations/00000000_unified_schema_v12.sql` 直接建成的模板里才是
+    /// 由 `migrations/00000000_unified_schema_v12.sql` 直接建成的 schema 里才是
     /// `pk_users` / `uq_users_username` / `idx_users_email` …。所以把这里换成
     /// `isolated_test_pool()` 后该断言必然失败（本轮实测：59 passed / 1 failed）。
     ///
     /// 这正是这批迁移要区分的情形：*数据/行为* 测试适合克隆 schema，**对象命名**测试必须跑在
-    /// "直接由 baseline 迁移出来"的 schema 上。CI 的 `public` 是新播种的（含生产命名），
-    /// 因此这里在 CI 绿；本地若 `public` 落后于 baseline（本机实测 `public` 里 `pk_*` 索引数
-    /// 为 0），这个文件会红 —— 那说明本地 `public` 需要重新播种，而不是这个测试写错了。
+    /// "直接由 baseline 迁移出来"的 schema 上。这里曾经指向 `public`（假设 CI 的 `public`
+    /// 是新播种的、含生产命名），但模板构建现在会清空 `public`（`DROP SCHEMA public
+    /// CASCADE`，见 `synapse-test-utils::init_template_schema` 里防止 `CREATE TABLE IF NOT
+    /// EXISTS` 被残留表遮蔽的那段），所以 `public` 里已没有任何对象。真正"直接由 baseline
+    /// 建出来"、且被所有 crate 共享的 schema 是指纹命名的模板，因此把 `search_path` 绑到它上面。
     async fn test_pool() -> Arc<PgPool> {
-        crate::test_utils::connect_shared_test_pool()
+        let database_url = crate::test_utils::resolve_test_database_url()
             .await
-            .expect("test database must be reachable - a swallowed error here surfaces later as an unrelated failure")
+            .expect("test database URL must resolve - a swallowed error here surfaces later as an unrelated failure");
+        let template = synapse_common::test_isolation::ensure_template_schema(&database_url, isolated_baseline_sql())
+            .await
+            .expect("the shared baseline template must be buildable from the unified baseline migration");
+        let search_path_sql = format!(r#"SET search_path TO "{template}", public"#);
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(2)
+            .acquire_timeout(std::time::Duration::from_secs(30))
+            .after_connect(move |connection, _meta| {
+                let search_path_sql = search_path_sql.clone();
+                Box::pin(async move {
+                    sqlx::query(&search_path_sql).execute(&mut *connection).await?;
+                    Ok(())
+                })
+            })
+            .connect(&database_url)
+            .await
+            .expect("a pool bound to the baseline template schema must connect");
+        Arc::new(pool)
     }
 
     fn make_suffix() -> String {

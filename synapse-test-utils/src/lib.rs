@@ -18,9 +18,9 @@ use std::sync::{Arc, Mutex, Once};
 use std::time::Duration;
 use synapse_common::current_timestamp_millis;
 use synapse_common::test_schema_guard::{
-    drop_schema_blocking, drop_schema_if_unleased_blocking, register_exit_callback, register_schema_cleanup,
-    release_schema_lease, run_cleanup_blocking_outcome, running_under_nextest, schema_lease_key,
-    try_acquire_schema_lease, CleanupFn, CleanupOutcome, SchemaCleanup,
+    drop_schema_blocking, drop_schema_cleanup, drop_schema_if_unleased_blocking, register_exit_callback,
+    register_schema_cleanup, release_schema_lease, run_cleanup_blocking_outcome_lazy, running_under_nextest,
+    schema_lease_key, try_acquire_schema_lease, CleanupFn, CleanupOutcome, SchemaCleanup,
 };
 use synapse_services::database_initializer::{DatabaseInitMode, DatabaseInitService};
 use tokio::sync::OnceCell;
@@ -88,12 +88,19 @@ static SCHEMA_POOL: TokioMutex<Vec<ParkedSchema>> = TokioMutex::const_new(Vec::n
 // each pool's weak reference (atexit join as backstop), identically under
 // `cargo test` (many tests per process) and nextest (one per process).
 //
-// The P0 TRUNCATE-and-reuse optimization is preserved via `SchemaCleanup::
-// release_or_exit_drop`: under `cargo test` the `on_release` path TRUNCATEs the
-// schema and returns its name to `SCHEMA_POOL` for the next test to pop; under
-// nextest (where reuse can never pay off) the `on_release` path is a plain DROP.
-// The `on_exit` path is always a plain DROP — returning a name to a pool that
-// is about to die is pointless.
+// The P0 TRUNCATE-and-reuse optimization is preserved via
+// `pooled_schema_cleanup`: `on_release` TRUNCATEs the schema and parks its name
+// for the next test. *Where* the name is parked depends on the runner:
+//   * `cargo test` (many tests per process) parks it in the process-local
+//     `SCHEMA_POOL` below;
+//   * nextest (one test per process) parks it in the **database** — see
+//     "Cross-process schema pool" below — because a name parked in a dying
+//     process is worth nothing. Both cleanup paths park there, including
+//     `on_exit`: the exit drain runs right after the single test, so an
+//     unconditional DROP at exit would throw away the schema this design exists
+//     to reuse.
+// Under `cargo test` the `on_exit` path stays a plain DROP — returning a name to
+// a pool that is about to die is pointless.
 //
 // Schemas parked in `SCHEMA_POOL` as *names* (no live pool) are reclaimed in two
 // independent ways, because they cover different situations:
@@ -103,8 +110,7 @@ static SCHEMA_POOL: TokioMutex<Vec<ParkedSchema>> = TokioMutex::const_new(Vec::n
 //      without bound — this is the part that used to be missing.
 //   2. **Process-exit drain**: the janitor's exit callback drops whatever is
 //      still parked when the process ends. The TTL thread cannot help there (it
-//      only runs while the process lives), so the exit drain stays; under
-//      nextest the pool is never refilled anyway.
+//      only runs while the process lives), so the exit drain stays.
 static SCHEMA_POOL_EXIT_DRAIN_ONCE: Once = Once::new();
 static SCHEMA_POOL_IDLE_RECLAIMER_ONCE: Once = Once::new();
 
@@ -143,13 +149,351 @@ fn take_expired(pool: &mut Vec<ParkedSchema>, now: std::time::Instant, ttl: Dura
 // each) exhausts PostgreSQL's shared lock table (`max_locks_per_transaction`)
 // and triggers "out of shared memory" at modest test parallelism. One-at-a-time
 // cleanup keeps peak lock pressure bounded without blocking test execution.
-static CLEANUP_SEMAPHORE: LazyLock<Semaphore> = LazyLock::new(|| Semaphore::new(1));
+//
+// Held through an `Arc` and taken with `acquire_owned`: a borrowed
+// `SemaphorePermit<'a>` keeps a `&Semaphore` in the cleanup future's state, and
+// that makes the future fail the `Send` check ("not general enough") where the
+// janitor's blocking bridge requires it.
+static CLEANUP_SEMAPHORE: LazyLock<Arc<Semaphore>> = LazyLock::new(|| Arc::new(Semaphore::new(1)));
 
 /// Env kill-switch for the schema-pool reuse fast path in
 /// `prepare_shared_test_pool`. Set `TEST_SCHEMA_POOL_REUSE=0` to fall back to
 /// the previous clone-only behaviour (used to bisect regressions).
 fn test_schema_pool_reuse_enabled() -> bool {
     std::env::var("TEST_SCHEMA_POOL_REUSE").map(|v| v != "0" && !v.eq_ignore_ascii_case("false")).unwrap_or(true)
+}
+
+// ============================================================================
+// Cross-process schema pool (nextest)
+// ============================================================================
+//
+// `SCHEMA_POOL` above is process-local, which makes it useless under
+// cargo-nextest: there is exactly one test case per process, so a schema is
+// TRUNCATEd and parked by a process that is already exiting, and the next test
+// runs in a different process that cannot see the name. Every nextest test
+// therefore paid the full template clone (measured 2026-10-23: mean 5.21 s per
+// case, 87 % of the whole gate's wall time).
+//
+// This pool moves the parked *names* into a dedicated bookkeeping schema
+// (`_synapse_test_pool.parked_schemas`), which every test process shares. The
+// schema is deliberately outside `public`: template rebuilds run
+// `DROP SCHEMA public CASCADE`, which would otherwise take the pool with it.
+//   * park  — after TRUNCATE + re-seed, `INSERT ... ON CONFLICT DO UPDATE`;
+//   * claim — `DELETE ... WHERE ctid = (SELECT ctid ... FOR UPDATE SKIP LOCKED)
+//             RETURNING schema_name`, atomic across processes, so two concurrent
+//             tests can never be handed the same schema;
+//   * reap  — rows older than [`DB_SCHEMA_POOL_TTL`] are deleted and their
+//             schema DROPped, so an interrupted run cannot accumulate schemas.
+//
+// The table is created lazily under an advisory-xact lock instead of by a
+// migration: migrations are the *production* schema, and a test-only table has
+// no business there. The template fingerprint hashes the migrations directory,
+// so creating this table cannot invalidate the cached template.
+//
+// Rows are namespaced by `template_name`, which embeds the migration revision
+// and fingerprint, so two worktrees never hand each other schemas built from a
+// different baseline.
+
+/// How long a schema may sit in the cross-process pool before it is dropped.
+/// Stays well below `test_schema_orphans::ORPHAN_SCHEMA_MIN_AGE` (600 s) so the
+/// orphan guard never races the pool over the same schema.
+const DB_SCHEMA_POOL_TTL: Duration = Duration::from_secs(120);
+/// Advisory-lock key guarding lazy creation of [`DB_SCHEMA_POOL_TABLE`].
+const DB_SCHEMA_POOL_ADVISORY_KEY: i64 = 9_732_001_001;
+/// Name of the shared pool table. Fully qualified at every use site; admin
+/// connections do not set `search_path`. Defined in `synapse-common` because
+/// the orphan guard has to recognise parked schemas too.
+const DB_SCHEMA_POOL_TABLE: &str = synapse_common::test_schema_orphans::PARKED_SCHEMA_TABLE;
+/// Schema holding [`DB_SCHEMA_POOL_TABLE`]. Not `public`: template rebuilds run
+/// `DROP SCHEMA public CASCADE`, which would destroy the parked rows.
+const DB_SCHEMA_POOL_NAMESPACE: &str = synapse_common::test_schema_orphans::PARKED_SCHEMA_NAMESPACE;
+/// Per-process cache of "the pool table exists".
+///
+/// Deliberately *not* a `OnceCell`: the pool lives in its own schema, which only
+/// this module creates — but a stale database, a manual `DROP`, or a cleanup
+/// script can still remove it, and "the table exists" is then a fact that must
+/// be re-established. An `AtomicBool` can be cleared when an operation observes
+/// the table gone (see [`is_pool_storage_gone`]).
+static DB_POOL_TABLE_READY: AtomicBool = AtomicBool::new(false);
+
+/// SQLSTATE `42P01` — `undefined_table`, or `3F000` — `invalid_schema_name`.
+///
+/// Both mean "the pool table (or the schema holding it) was removed under us".
+fn is_pool_storage_gone(error: &sqlx::Error) -> bool {
+    error.as_database_error().and_then(|error| error.code()).is_some_and(|code| code == "42P01" || code == "3F000")
+}
+
+/// True when the cross-process pool is the right place to park a schema.
+///
+/// Only under nextest: a single `cargo test` process gets the cheaper
+/// process-local `SCHEMA_POOL` and must not pay a database round trip per test.
+fn db_schema_pool_enabled() -> bool {
+    running_under_nextest() && test_schema_pool_reuse_enabled()
+}
+
+/// A short-lived admin pool for the pool table (claims, parks, reaps).
+///
+/// Not cached: each nextest process claims once or twice and exits, so a
+/// module-level pool would mostly sit idle and would have to be tied to a
+/// runtime that dies with the test.
+async fn connect_schema_pool_admin(database_url: &str) -> Result<PgPool, String> {
+    tokio::time::timeout(
+        configured_test_pool_connect_timeout(),
+        synapse_common::test_isolation::connect_pool_with_handshake_retry(database_url, 2, Duration::from_secs(5)),
+    )
+    .await
+    .map_err(|_| "timed out connecting to the cross-process schema pool table".to_string())?
+    .map_err(|error| format!("failed to connect to the cross-process schema pool table: {error}"))
+}
+
+/// Create [`DB_SCHEMA_POOL_TABLE`] once per process.
+///
+/// `CREATE TABLE IF NOT EXISTS` is not atomic against a concurrent creator (the
+/// loser dies on `pg_type_typname_nsp_index`), and nextest runs several test
+/// processes at once, so creation is serialized by an advisory transaction lock.
+/// A failure is not cached: the flag is only set after the commit succeeds.
+async fn ensure_db_schema_pool_table(pool: &PgPool) -> Result<(), String> {
+    if DB_POOL_TABLE_READY.load(Ordering::SeqCst) {
+        return Ok(());
+    }
+    let mut tx = pool.begin().await.map_err(|error| format!("could not begin pool-table creation: {error}"))?;
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(DB_SCHEMA_POOL_ADVISORY_KEY)
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| format!("could not serialize pool-table creation: {error}"))?;
+    // Both statements run inside the advisory-locked transaction, and this is
+    // the only code that touches the bookkeeping schema, so the `IF NOT EXISTS`
+    // checks cannot lose a race with themselves.
+    sqlx::raw_sql(&format!(
+        "CREATE SCHEMA IF NOT EXISTS {DB_SCHEMA_POOL_NAMESPACE}; \
+         CREATE TABLE IF NOT EXISTS {DB_SCHEMA_POOL_TABLE} (\
+             schema_name TEXT PRIMARY KEY, \
+             template_name TEXT NOT NULL, \
+             parked_ts BIGINT NOT NULL)"
+    ))
+    .execute(&mut *tx)
+    .await
+    .map_err(|error| format!("could not create {DB_SCHEMA_POOL_TABLE}: {error}"))?;
+    tx.commit().await.map_err(|error| format!("could not commit pool-table creation: {error}"))?;
+    DB_POOL_TABLE_READY.store(true, Ordering::SeqCst);
+    Ok(())
+}
+
+/// Forget the cached "table exists" answer so the next call recreates it.
+fn forget_db_schema_pool_table() {
+    DB_POOL_TABLE_READY.store(false, Ordering::SeqCst);
+}
+
+/// Publish `schema_name` as reusable for every other test process.
+///
+/// `parked_ts` is injected (rather than read here) so the tests can park a
+/// back-dated entry and drive the reaper through its real code path.
+///
+/// A missing table is retried once: the bookkeeping schema can be removed
+/// between the readiness check and the `INSERT` (a manual `DROP`, a cleanup
+/// script), and the retry rebuilds it instead of failing a passing test.
+async fn park_schema_in_db_pool(
+    pool: &PgPool,
+    schema_name: &str,
+    template_name: &str,
+    parked_ts: i64,
+) -> Result<(), String> {
+    ensure_db_schema_pool_table(pool).await?;
+    match insert_parked_schema(pool, schema_name, template_name, parked_ts).await {
+        Ok(()) => Ok(()),
+        Err(error) if is_pool_storage_gone(&error) => {
+            forget_db_schema_pool_table();
+            ensure_db_schema_pool_table(pool).await?;
+            insert_parked_schema(pool, schema_name, template_name, parked_ts)
+                .await
+                .map_err(|error| format!("could not park {schema_name} in the cross-process schema pool: {error}"))
+        }
+        Err(error) => Err(format!("could not park {schema_name} in the cross-process schema pool: {error}")),
+    }
+}
+
+async fn insert_parked_schema(
+    pool: &PgPool,
+    schema_name: &str,
+    template_name: &str,
+    parked_ts: i64,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(&format!(
+        "INSERT INTO {DB_SCHEMA_POOL_TABLE} (schema_name, template_name, parked_ts) VALUES ($1, $2, $3) \
+         ON CONFLICT (schema_name) DO UPDATE \
+         SET template_name = EXCLUDED.template_name, parked_ts = EXCLUDED.parked_ts"
+    ))
+    .bind(schema_name)
+    .bind(template_name)
+    .bind(parked_ts)
+    .execute(pool)
+    .await
+    .map(|_| ())
+}
+
+/// Take one reusable schema of `template_name` out of the shared pool.
+///
+/// A row can outlive its schema (interrupted run, a reap in another process, the
+/// orphan guard), and `create_pool_for_schema` hard-fails on a schema that does
+/// not exist, so every claimed name is verified before it is handed out. The
+/// `DELETE ... RETURNING` both removes the row and makes the claim atomic: a
+/// stale row is consumed, not skipped, so the loop always makes progress and
+/// cannot spin on the same entry.
+async fn claim_schema_from_db_pool(pool: &PgPool, template_name: &str) -> Result<Option<String>, String> {
+    ensure_db_schema_pool_table(pool).await?;
+    for _ in 0..8 {
+        let claimed = match delete_one_pooled_schema(pool, template_name).await {
+            Ok(claimed) => claimed,
+            Err(error) if is_pool_storage_gone(&error) => {
+                forget_db_schema_pool_table();
+                ensure_db_schema_pool_table(pool).await?;
+                delete_one_pooled_schema(pool, template_name)
+                    .await
+                    .map_err(|error| format!("could not claim a schema from the cross-process pool: {error}"))?
+            }
+            Err(error) => {
+                return Err(format!("could not claim a schema from the cross-process pool: {error}"));
+            }
+        };
+        let Some(schema_name) = claimed else {
+            return Ok(None);
+        };
+        let exists: Option<String> = sqlx::query_scalar("SELECT to_regnamespace($1)::text")
+            .bind(&schema_name)
+            .fetch_one(pool)
+            .await
+            .map_err(|error| format!("could not verify claimed schema {schema_name}: {error}"))?;
+        if exists.is_some() {
+            return Ok(Some(schema_name));
+        }
+        eprintln!("schema pool: discarding cross-process pool entry {schema_name} (schema no longer exists)");
+    }
+    Ok(None)
+}
+
+async fn delete_one_pooled_schema(pool: &PgPool, template_name: &str) -> Result<Option<String>, sqlx::Error> {
+    sqlx::query_scalar(&format!(
+        "DELETE FROM {DB_SCHEMA_POOL_TABLE} \
+         WHERE ctid = (SELECT ctid FROM {DB_SCHEMA_POOL_TABLE} \
+                       WHERE template_name = $1 ORDER BY parked_ts LIMIT 1 FOR UPDATE SKIP LOCKED) \
+         RETURNING schema_name"
+    ))
+    .bind(template_name)
+    .fetch_optional(pool)
+    .await
+}
+
+/// Drop every pooled schema parked for at least `ttl`, returning how many.
+///
+/// DROP is unconditional: the row was removed by the same atomic statement, so
+/// no other process can be holding the schema (and a lease held by a dying
+/// process must not turn into a leak).
+async fn reap_expired_db_pool_entries(pool: &PgPool, now_ts: i64, ttl: Duration) -> Result<usize, String> {
+    ensure_db_schema_pool_table(pool).await?;
+    let cutoff = now_ts.saturating_sub(i64::try_from(ttl.as_millis()).unwrap_or(i64::MAX));
+    let expired = match delete_expired_pooled_schemas(pool, cutoff).await {
+        Ok(expired) => expired,
+        Err(error) if is_pool_storage_gone(&error) => {
+            forget_db_schema_pool_table();
+            ensure_db_schema_pool_table(pool).await?;
+            delete_expired_pooled_schemas(pool, cutoff)
+                .await
+                .map_err(|error| format!("could not reap expired cross-process pool entries: {error}"))?
+        }
+        Err(error) => {
+            return Err(format!("could not reap expired cross-process pool entries: {error}"));
+        }
+    };
+    if !expired.is_empty() {
+        eprintln!("schema pool: dropping {} schema(s) parked for at least {ttl:?}", expired.len());
+    }
+    for schema_name in &expired {
+        let _ = drop_schema(pool, schema_name).await;
+    }
+    Ok(expired.len())
+}
+
+async fn delete_expired_pooled_schemas(pool: &PgPool, cutoff: i64) -> Result<Vec<String>, sqlx::Error> {
+    sqlx::query_scalar(&format!("DELETE FROM {DB_SCHEMA_POOL_TABLE} WHERE parked_ts < $1 RETURNING schema_name"))
+        .bind(cutoff)
+        .fetch_all(pool)
+        .await
+}
+
+/// A schema name taken out of a pool, plus the admin connection that protects
+/// it until the test pool is up.
+///
+/// Under nextest the name comes from a row the claim already deleted, so between
+/// that `DELETE` and the test pool's first `after_connect` the schema is neither
+/// parked nor leased — exactly what `test_schema_orphans` treats as an orphan,
+/// and a reused schema's name-derived age passed `ORPHAN_SCHEMA_MIN_AGE` long
+/// ago. A shared lease (compatible with the `after_connect` shared leases) closes
+/// that window: once the test pool holds its own, closing the admin pool hands
+/// the schema over without a gap.
+struct ClaimedSchema {
+    name: String,
+    lease_guard: Option<PgPool>,
+}
+
+/// Take a shared lease on `schema_name` and return the connection to the pool.
+///
+/// Session-scoped, so the lock survives the hand-back and lasts until the pool's
+/// connection is closed.
+async fn hold_schema_lease(pool: &PgPool, schema_name: &str) -> Result<(), String> {
+    let mut conn = pool.acquire().await.map_err(|error| format!("could not acquire an admin connection: {error}"))?;
+    attach_schema_lease(&mut conn, schema_name)
+        .await
+        .map_err(|error| format!("could not take the shared lease on {schema_name}: {error}"))
+}
+
+/// Claim a reusable schema for `template_name`, or `None` when no pool has one.
+///
+/// The single entry point both acquisition paths use, so the process-local and
+/// the cross-process pools cannot drift apart (and a change to the "which pool"
+/// decision applies to both). The caller must drop [`ClaimedSchema::lease_guard`]
+/// — closing the admin pool — only after the test pool is connected.
+async fn take_reusable_schema_name(database_url: &str, template_name: &str) -> Option<ClaimedSchema> {
+    if !test_schema_pool_reuse_enabled() {
+        return None;
+    }
+    if !db_schema_pool_enabled() {
+        return SCHEMA_POOL.lock().await.pop().map(|parked| ClaimedSchema { name: parked.name, lease_guard: None });
+    }
+    let admin_pool = match connect_schema_pool_admin(database_url).await {
+        Ok(pool) => pool,
+        Err(error) => {
+            eprintln!("schema pool: {error}; cloning a fresh schema instead");
+            return None;
+        }
+    };
+    if let Err(error) = reap_expired_db_pool_entries(&admin_pool, current_timestamp_millis(), DB_SCHEMA_POOL_TTL).await
+    {
+        eprintln!("schema pool: reaping expired cross-process entries failed: {error}");
+    }
+    let claimed = claim_schema_from_db_pool(&admin_pool, template_name).await;
+    match claimed {
+        Ok(Some(name)) => {
+            if let Err(error) = hold_schema_lease(&admin_pool, &name).await {
+                // Handing out a schema no lease protects would let the orphan
+                // guard drop it under the test's feet; a fresh clone is safe.
+                eprintln!("schema pool: {error}; cloning a fresh schema instead");
+                let _ = drop_schema(&admin_pool, &name).await;
+                admin_pool.close().await;
+                return None;
+            }
+            Some(ClaimedSchema { name, lease_guard: Some(admin_pool) })
+        }
+        Ok(None) => {
+            admin_pool.close().await;
+            None
+        }
+        Err(error) => {
+            eprintln!("schema pool: {error}; cloning a fresh schema instead");
+            admin_pool.close().await;
+            None
+        }
+    }
 }
 
 // RwLock to prevent deadlock between init_template_schema (write lock, ALTER
@@ -442,7 +786,7 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
     let connect_timeout = configured_test_pool_connect_timeout();
     let admin_pool = tokio::time::timeout(
         connect_timeout,
-        PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(5)).connect(&database_url),
+        synapse_common::test_isolation::connect_pool_with_handshake_retry(&database_url, 1, Duration::from_secs(5)),
     )
     .await
     .map_err(|_| format!("failed to connect admin pool: timed out after {connect_timeout:?}"))?
@@ -486,7 +830,10 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
     let init_timeout = configured_test_db_init_timeout();
     let report = tokio::time::timeout(
         init_timeout,
-        DatabaseInitService::new(pool.clone()).with_mode(DatabaseInitMode::Strict).initialize(),
+        DatabaseInitService::new(pool.clone())
+            .with_mode(DatabaseInitMode::Strict)
+            .with_migrations_dir(workspace_migrations_dir())
+            .initialize(),
     )
     .await
     .map_err(|_| format!("database initialization timed out after {:?} for {schema_name}", init_timeout))?
@@ -536,8 +883,13 @@ pub async fn prepare_shared_test_pool() -> Result<Arc<PgPool>, String> {
     if test_schema_pool_reuse_enabled() {
         ensure_schema_pool_exit_drain(&database_url);
         ensure_schema_pool_idle_reclaimer(&database_url);
-        if let Some(schema_name) = SCHEMA_POOL.lock().await.pop().map(|parked| parked.name) {
-            let pool = create_pool_for_schema(&database_url, &schema_name).await?;
+        if let Some(claimed) = take_reusable_schema_name(&database_url, &template).await {
+            let ClaimedSchema { name: schema_name, lease_guard } = claimed;
+            let connected = create_pool_for_schema(&database_url, &schema_name).await;
+            if let Some(admin_pool) = lease_guard {
+                admin_pool.close().await;
+            }
+            let pool = connected?;
             register_pending_schema_return(&pool, &schema_name, template.clone(), &database_url);
             return Ok(pool);
         }
@@ -578,7 +930,11 @@ async fn get_template_table_names(database_url: &str, template_name: &str) -> Re
         .get_or_try_init(|| async {
             let admin_pool = tokio::time::timeout(
                 configured_test_pool_connect_timeout(),
-                PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(5)).connect(database_url),
+                synapse_common::test_isolation::connect_pool_with_handshake_retry(
+                    database_url,
+                    1,
+                    Duration::from_secs(5),
+                ),
             )
             .await
             .map_err(|_| "timed out connecting to read template table names".to_string())?
@@ -614,7 +970,7 @@ async fn init_template_schema(database_url: &str, template_name: &str) -> Result
 
     let admin_pool = tokio::time::timeout(
         connect_timeout,
-        PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(5)).connect(database_url),
+        synapse_common::test_isolation::connect_pool_with_handshake_retry(database_url, 1, Duration::from_secs(5)),
     )
     .await
     .map_err(|_| format!("failed to connect admin pool: timed out after {connect_timeout:?}"))?
@@ -758,7 +1114,10 @@ async fn init_template_schema(database_url: &str, template_name: &str) -> Result
     let init_timeout = configured_test_db_init_timeout();
     let report = tokio::time::timeout(
         init_timeout,
-        DatabaseInitService::new(pool.clone()).with_mode(DatabaseInitMode::Strict).initialize(),
+        DatabaseInitService::new(pool.clone())
+            .with_mode(DatabaseInitMode::Strict)
+            .with_migrations_dir(workspace_migrations_dir())
+            .initialize(),
     )
     .await
     .map_err(|_| format!("template schema initialization timed out after {:?}", init_timeout))?
@@ -948,7 +1307,7 @@ async fn ensure_template_schema_exists(database_url: &str, schema_name: &str) ->
     let connect_timeout = configured_test_pool_connect_timeout();
     let admin_pool = tokio::time::timeout(
         connect_timeout,
-        PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(5)).connect(database_url),
+        synapse_common::test_isolation::connect_pool_with_handshake_retry(database_url, 1, Duration::from_secs(5)),
     )
     .await
     .map_err(|_| format!("failed to connect admin pool: timed out after {connect_timeout:?}"))?
@@ -1002,12 +1361,47 @@ use synapse_common::test_isolation::template_ready_marker_path;
 ///    can never leave the database with no template at all.
 ///
 /// Returns the names dropped. Idempotent.
+///
 /// Public so `tests/unit/` can exercise the drop/preserve decision against
-/// throwaway schemas instead of the real template set.
+/// throwaway schemas instead of the real template set — through
+/// [`prune_stale_template_schemas_in`] inside a rolled-back transaction, because
+/// the sweep cannot tell a throwaway `keep` from the real one and would
+/// otherwise delete the template a concurrent test is cloning from.
 pub async fn prune_stale_template_schemas(admin_pool: &PgPool, keep: &str) -> Result<Vec<String>, String> {
+    let mut conn = admin_pool
+        .acquire()
+        .await
+        .map_err(|error| format!("failed to acquire a connection to prune templates: {error}"))?;
+    let dropped = prune_stale_template_schemas_in(&mut conn, keep).await?;
+
+    // Marker files are outside the database, so they are removed only after the
+    // DROPs above have run on the connection (each one autocommits). Callers that
+    // drive the sweep inside a transaction they intend to roll back must use
+    // [`prune_stale_template_schemas_in`] directly, or a surviving template would
+    // lose its run-speed marker.
+    for schema in &dropped {
+        let _ = std::fs::remove_file(template_ready_marker_path(schema));
+    }
+
+    Ok(dropped)
+}
+
+/// The sweep behind [`prune_stale_template_schemas`], over a borrowable
+/// connection, so a caller can run it inside a transaction it rolls back.
+///
+/// Only the tests need that: the sweep drops **every** member of
+/// `test_template_v<rev>_<hex>` except `keep`, so exercising it against the live
+/// database with a synthetic `keep` deletes the template a concurrent test may be
+/// cloning from. Measured on a full gate: the template vanished between
+/// `acquire_pooled_schema`'s readiness check and its clone, and
+/// `pooled_schema_reseed_tests::pooled_schema_can_insert_into_a_reseeded_table`
+/// failed with `schema "test_template_v2_…" does not exist`. PostgreSQL DDL is
+/// transactional, so a test that runs this inside a rolled-back transaction
+/// observes the same drop/preserve decisions without touching the real set.
+pub async fn prune_stale_template_schemas_in(conn: &mut sqlx::PgConnection, keep: &str) -> Result<Vec<String>, String> {
     let keep_exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = $1)")
         .bind(keep)
-        .fetch_one(admin_pool)
+        .fetch_one(&mut *conn)
         .await
         .map_err(|error| format!("failed to check template {keep}: {error}"))?;
     if !keep_exists {
@@ -1022,22 +1416,15 @@ pub async fn prune_stale_template_schemas(admin_pool: &PgPool, keep: &str) -> Re
          ORDER BY nspname",
     )
     .bind(keep)
-    .fetch_all(admin_pool)
+    .fetch_all(&mut *conn)
     .await
     .map_err(|error| format!("failed to list stale templates: {error}"))?;
 
     let mut dropped = Vec::new();
     for schema in stale {
-        match sqlx::query(&format!("DROP SCHEMA IF EXISTS {} CASCADE", quote_ident(&schema))).execute(admin_pool).await
+        match sqlx::query(&format!("DROP SCHEMA IF EXISTS {} CASCADE", quote_ident(&schema))).execute(&mut *conn).await
         {
-            Ok(_) => {
-                // Remove the run-speed marker too, or a stale marker file outlives
-                // its schema and the readiness check has to hit the database to
-                // notice (`template_schema_is_ready` already guards this, but the
-                // files should not accumulate either).
-                let _ = std::fs::remove_file(template_ready_marker_path(&schema));
-                dropped.push(schema);
-            }
+            Ok(_) => dropped.push(schema),
             Err(error) => {
                 tracing::warn!(schema = %schema, %error, "failed to drop stale test template schema");
             }
@@ -1060,7 +1447,7 @@ async fn template_schema_is_ready(database_url: &str, schema_name: &str) -> Resu
     let connect_timeout = configured_test_pool_connect_timeout();
     let admin_pool = tokio::time::timeout(
         connect_timeout,
-        PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(5)).connect(database_url),
+        synapse_common::test_isolation::connect_pool_with_handshake_retry(database_url, 1, Duration::from_secs(5)),
     )
     .await
     .map_err(|_| format!("failed to connect admin pool: timed out after {connect_timeout:?}"))?
@@ -1229,7 +1616,7 @@ async fn clone_schema_from_template(database_url: &str, template_name: &str) -> 
 
     let admin_pool = tokio::time::timeout(
         connect_timeout,
-        PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(5)).connect(database_url),
+        synapse_common::test_isolation::connect_pool_with_handshake_retry(database_url, 1, Duration::from_secs(5)),
     )
     .await
     .map_err(|_| "failed to connect admin pool for clone: timed out".to_string())?
@@ -1391,7 +1778,7 @@ async fn cleanup_schema(
 ) -> CleanupOutcome {
     // Serialize cleanup (see CLEANUP_SEMAPHORE docs) to bound peak lock usage.
     // The semaphore is a process-lifetime static and never closed.
-    let Ok(_cleanup_permit) = CLEANUP_SEMAPHORE.acquire().await else {
+    let Ok(_cleanup_permit) = Arc::clone(&CLEANUP_SEMAPHORE).acquire_owned().await else {
         eprintln!("schema pool: cleanup semaphore closed; skipping cleanup of {schema_name}");
         return CleanupOutcome::Done;
     };
@@ -1401,7 +1788,7 @@ async fn cleanup_schema(
     // session from the work, because the work runs through the pool.
     let admin_pool = tokio::time::timeout(
         Duration::from_secs(10),
-        PgPoolOptions::new().max_connections(2).acquire_timeout(Duration::from_secs(5)).connect(&database_url),
+        synapse_common::test_isolation::connect_pool_with_handshake_retry(&database_url, 2, Duration::from_secs(5)),
     )
     .await;
 
@@ -1429,17 +1816,25 @@ async fn cleanup_schema(
         }
     }
 
+    // Parking is deferred until after the lease is released: a claiming process
+    // takes the shared lease in `after_connect`, so a row published while this
+    // session still held the exclusive lease would stall that process.
+    let mut park_for_cross_process_reuse = false;
     let outcome = if poisoned {
         let _ = drop_schema(&admin_pool, &schema_name).await;
         CleanupOutcome::Done
     } else {
-        match truncate_and_reseed_schema(&admin_pool, &database_url, &schema_name, &template_name).await {
+        match truncate_and_reseed_schema(admin_pool.clone(), &database_url, &schema_name, &template_name).await {
             Ok(()) => {
-                // Safety check passed — return schema name to pool for reuse
-                SCHEMA_POOL
-                    .lock()
-                    .await
-                    .push(ParkedSchema { name: schema_name.clone(), parked_at: std::time::Instant::now() });
+                if db_schema_pool_enabled() {
+                    park_for_cross_process_reuse = true;
+                } else {
+                    // Safety check passed — return schema name to pool for reuse
+                    SCHEMA_POOL
+                        .lock()
+                        .await
+                        .push(ParkedSchema { name: schema_name.clone(), parked_at: std::time::Instant::now() });
+                }
                 CleanupOutcome::Done
             }
             Err(error) => {
@@ -1454,41 +1849,127 @@ async fn cleanup_schema(
         eprintln!("schema pool: failed to release the schema lease for {schema_name}: {error}");
     }
     drop(lease_conn);
+
+    if park_for_cross_process_reuse {
+        let parked =
+            park_schema_in_db_pool(&admin_pool, &schema_name, &template_name, current_timestamp_millis()).await;
+        if let Err(error) = parked {
+            eprintln!("schema pool: {error}; dropping schema instead of parking it");
+            let _ = drop_schema(&admin_pool, &schema_name).await;
+        }
+    }
+
     admin_pool.close().await;
     outcome
 }
 
-/// Register a schema returned by `prepare_shared_test_pool` for deferred return.
-/// The janitor watches the pool's `Weak` and TRUNCATES + returns the schema name
-/// to `SCHEMA_POOL` once the last `Arc<PgPool>` is released. Under nextest the
-/// `on_release` path is a plain DROP because reuse never pays off, and the
-/// shared-pool exit drain will clean any still-parking names.
+/// How long the exit path waits for the schema's own connections to disappear.
+///
+/// The pool is dropped microseconds before the exit drain runs, but PostgreSQL
+/// releases its session-scoped shared leases only once it notices the closed
+/// sockets. The janitor's release path handles that with a backoff + requeue;
+/// the exit drain has no requeue, so the wait has to happen here — otherwise
+/// every nextest process would drop the very schema it just finished using.
+///
+/// The backoff sleeps the drain thread rather than using `tokio::time::sleep`:
+/// the retry loop lives outside the runtime (see `on_exit` below), so each
+/// attempt is one whole blocking cleanup pass.
+const EXIT_PARK_ATTEMPTS: usize = 10;
+const EXIT_PARK_BACKOFF: Duration = Duration::from_millis(100);
+
+/// Run one [`cleanup_schema`] pass on the janitor's blocking path.
+///
+/// The future is built on the driving thread rather than here: this `async fn`
+/// awaits nested `async fn`s that take `&Pool<Postgres>` / `&mut PgConnection` /
+/// `&str`, and handing that future to a `Send`-bounded bridge makes rustc prove
+/// `Send` under a higher-ranked binder, which fails with "`Send` is not general
+/// enough". See [`run_cleanup_blocking_outcome_lazy`].
+fn run_schema_cleanup_blocking(database_url: String, schema_name: String, template_name: String) -> CleanupOutcome {
+    run_cleanup_blocking_outcome_lazy(move || async move {
+        cleanup_schema(database_url, schema_name, template_name, false).await
+    })
+}
+
+/// Cleanup strategy for a schema that may be reused across tests — and, under
+/// nextest, across *processes*.
+///
+/// * `on_release`: a poisoned schema is dropped (lease-guarded); otherwise it is
+///   TRUNCATEd + re-seeded and its name is parked in whichever pool fits the
+///   runner (`SCHEMA_POOL` under `cargo test`, the shared table under nextest).
+/// * `on_exit`: under nextest this runs the *same* park — the exit drain fires
+///   right after the single test of the process, so dropping here would throw
+///   away exactly the schema cross-process reuse exists to keep. The drain
+///   ignores [`CleanupOutcome::Retry`], so a schema still leased at exit is
+///   dropped instead of parked. Under `cargo test` it stays a plain DROP: the
+///   process-local pool dies with the process.
 ///
 /// Both paths are lease-guarded: releasing the outer `Arc<PgPool>` is not proof
 /// the schema is free, because services can keep only an inner `PgPool` clone.
+fn pooled_schema_cleanup(
+    database_url: &str,
+    schema_name: &str,
+    template_name: &str,
+    poisoned: Arc<AtomicBool>,
+) -> SchemaCleanup {
+    let on_release: CleanupFn = {
+        let db = database_url.to_string();
+        let sn = schema_name.to_string();
+        let tn = template_name.to_string();
+        let poisoned = poisoned.clone();
+        Box::new(move || {
+            if poisoned.load(Ordering::SeqCst) {
+                return drop_schema_if_unleased_blocking(&db, &sn);
+            }
+            let db = db.clone();
+            let sn = sn.clone();
+            let tn = tn.clone();
+            run_schema_cleanup_blocking(db, sn, tn)
+        })
+    };
+
+    let on_exit: CleanupFn = if db_schema_pool_enabled() {
+        let db = database_url.to_string();
+        let sn = schema_name.to_string();
+        let tn = template_name.to_string();
+        Box::new(move || {
+            if poisoned.load(Ordering::SeqCst) {
+                drop_schema_blocking(&db, &sn);
+                return CleanupOutcome::Done;
+            }
+            let (cleanup_db, cleanup_sn, cleanup_tn) = (db.clone(), sn.clone(), tn.clone());
+            let mut outcome = CleanupOutcome::Retry;
+            for attempt in 1..=EXIT_PARK_ATTEMPTS {
+                let (attempt_db, attempt_sn, attempt_tn) = (cleanup_db.clone(), cleanup_sn.clone(), cleanup_tn.clone());
+                outcome = run_schema_cleanup_blocking(attempt_db, attempt_sn, attempt_tn);
+                if outcome == CleanupOutcome::Done {
+                    break;
+                }
+                if attempt < EXIT_PARK_ATTEMPTS {
+                    std::thread::sleep(EXIT_PARK_BACKOFF);
+                }
+            }
+
+            if outcome == CleanupOutcome::Retry {
+                eprintln!("schema pool: {sn} is still leased at exit; dropping it instead of parking");
+                drop_schema_blocking(&db, &sn);
+            }
+            CleanupOutcome::Done
+        })
+    } else {
+        drop_schema_cleanup(database_url, schema_name)
+    };
+
+    SchemaCleanup::release_or_exit(on_release, on_exit)
+}
+
+/// Register a schema returned by `prepare_shared_test_pool` for deferred return.
+/// The janitor watches the pool's `Weak` and runs [`pooled_schema_cleanup`] once
+/// the last `Arc<PgPool>` is released.
 fn register_pending_schema_return(pool: &Arc<PgPool>, schema_name: &str, template_name: String, database_url: &str) {
     ensure_schema_pool_exit_drain(database_url);
     ensure_schema_pool_idle_reclaimer(database_url);
-    let db = database_url.to_string();
-    let sn = schema_name.to_string();
-    // `template_name` is only needed by the post-`register_schema_cleanup` call
-    // below (the closure moves `db`/`sn` but not it), so cloning it here was dead.
-    let tn = template_name;
-    let on_release: CleanupFn = Box::new(move || {
-        // Under nextest, dropping immediately beats the wasted TRUNCATE+return.
-        if running_under_nextest() {
-            return drop_schema_if_unleased_blocking(&db, &sn);
-        }
-        let db = db.clone();
-        let sn = sn.clone();
-        let tn = tn.clone();
-        run_cleanup_blocking_outcome(async move { cleanup_schema(db, sn, tn, false).await })
-    });
-    register_schema_cleanup(
-        pool,
-        schema_name,
-        SchemaCleanup::release_or_exit_drop(database_url, schema_name, on_release),
-    );
+    let cleanup = pooled_schema_cleanup(database_url, schema_name, &template_name, Arc::new(AtomicBool::new(false)));
+    register_schema_cleanup(pool, schema_name, cleanup);
 }
 
 /// Install a one-time process-exit drain for `SCHEMA_POOL`.
@@ -1497,8 +1978,9 @@ fn register_pending_schema_return(pool: &Arc<PgPool>, schema_name: &str, templat
 /// `PgPool`, so the janitor's weak-reference watch cannot see them. Without an
 /// exit hook, a `cargo test` run ending with reusable schemas parked in the pool
 /// would leak them. The janitor runs this callback after every pending cleanup
-/// at process exit; under nextest the pool is never refilled (every
-/// `on_release` is a plain DROP), so this is normally a no-op there.
+/// at process exit. Under nextest the per-schema `on_exit` path parks schemas in
+/// the cross-process pool instead of `SCHEMA_POOL`, so this drain only ever sees
+/// entries from the `cargo test` path.
 fn ensure_schema_pool_exit_drain(database_url: &str) {
     SCHEMA_POOL_EXIT_DRAIN_ONCE.call_once(|| {
         let database_url = database_url.to_string();
@@ -1580,9 +2062,10 @@ fn sweep_idle_parked_schemas(database_url: &str, now: std::time::Instant, ttl: D
     expired.len()
 }
 
-/// Acquire a schema from the pool. Fast path: pop a pre-TRUNCATEd schema name
-/// from `SCHEMA_POOL` and create a fresh pool for it. Slow path: clone a new
-/// schema from the template (first N tests only, where N = parallelism).
+/// Acquire a schema from the pool. Fast path: claim a pre-TRUNCATEd schema name
+/// (`SCHEMA_POOL` inside one process, the shared table across nextest processes)
+/// and create a fresh pool for it. Slow path: clone a new schema from the
+/// template (first N tests only, where N = parallelism).
 ///
 /// The returned `LeasedSchema` auto-cleans on Drop — no explicit release needed.
 /// Tests using `TestContext` get this automatically; no test code changes required.
@@ -1597,34 +2080,23 @@ pub async fn acquire_pooled_schema() -> Result<LeasedSchema, String> {
     }
     let template_name = get_template_schema_name(&database_url).await?;
 
-    // Fast path: reuse a TRUNCATEd schema. Pooled schemas were already validated
-    // by `truncate_and_reseed_schema`; skipping the COUNT here removes the
-    // pg_catalog query that used to take 1.6-8 s under parallel load (the #1
+    // Fast path: reuse a TRUNCATEd schema (process-local `SCHEMA_POOL` under
+    // `cargo test`, the shared table under nextest). Pooled schemas were already
+    // validated by `truncate_and_reseed_schema`; skipping the COUNT here removes
+    // the pg_catalog query that used to take 1.6-8 s under parallel load (the #1
     // source of slow-statement warnings). Only the name travels from here on.
-    if let Some(schema_name) = SCHEMA_POOL.lock().await.pop().map(|parked| parked.name) {
-        let pool = create_pool_for_schema(&database_url, &schema_name).await?;
+    if let Some(claimed) = take_reusable_schema_name(&database_url, &template_name).await {
+        let ClaimedSchema { name: schema_name, lease_guard } = claimed;
+        let connected = create_pool_for_schema(&database_url, &schema_name).await;
+        if let Some(admin_pool) = lease_guard {
+            admin_pool.close().await;
+        }
+        let pool = connected?;
         let poisoned = Arc::new(AtomicBool::new(false));
-        // The closure holds its own clone of the flag so the janitor can read
-        // `poison()`; the struct field keeps another clone for the test-side API.
-        let closure_poisoned = poisoned.clone();
-        let schema_name_clone = schema_name.clone();
-        let template_name_clone = template_name.clone();
-        let db_clone = database_url.clone();
-        let on_release: CleanupFn = Box::new(move || {
-            if running_under_nextest() || closure_poisoned.load(Ordering::SeqCst) {
-                return drop_schema_if_unleased_blocking(&db_clone, &schema_name_clone);
-            }
-            let db_clone = db_clone.clone();
-            let schema_name_clone = schema_name_clone.clone();
-            let template_name_clone = template_name_clone.clone();
-            run_cleanup_blocking_outcome(async move {
-                cleanup_schema(db_clone, schema_name_clone, template_name_clone, false).await
-            })
-        });
         register_schema_cleanup(
             &pool,
             &schema_name,
-            SchemaCleanup::release_or_exit_drop(&database_url, &schema_name, on_release),
+            pooled_schema_cleanup(&database_url, &schema_name, &template_name, poisoned.clone()),
         );
         ensure_schema_pool_exit_drain(&database_url);
         return Ok(LeasedSchema { pool, inner: Some(LeasedSchemaInner { poisoned }) });
@@ -1636,27 +2108,10 @@ pub async fn acquire_pooled_schema() -> Result<LeasedSchema, String> {
     drop(_permit);
 
     let poisoned = Arc::new(AtomicBool::new(false));
-    // The closure holds its own clone of the flag so the janitor can read
-    // `poison()`; the struct field keeps another clone for the test-side API.
-    let closure_poisoned = poisoned.clone();
-    let schema_name_clone = schema_name.clone();
-    let template_name_clone = template_name.clone();
-    let db_clone = database_url.clone();
-    let on_release: CleanupFn = Box::new(move || {
-        if running_under_nextest() || closure_poisoned.load(Ordering::SeqCst) {
-            return drop_schema_if_unleased_blocking(&db_clone, &schema_name_clone);
-        }
-        let db_clone = db_clone.clone();
-        let schema_name_clone = schema_name_clone.clone();
-        let template_name_clone = template_name_clone.clone();
-        run_cleanup_blocking_outcome(async move {
-            cleanup_schema(db_clone, schema_name_clone, template_name_clone, false).await
-        })
-    });
     register_schema_cleanup(
         &pool,
         &schema_name,
-        SchemaCleanup::release_or_exit_drop(&database_url, &schema_name, on_release),
+        pooled_schema_cleanup(&database_url, &schema_name, &template_name, poisoned.clone()),
     );
     ensure_schema_pool_exit_drain(&database_url);
 
@@ -1758,21 +2213,26 @@ fn redact_db_url(url: &str) -> String {
 /// the template. This is the fast cleanup path (~1-2s) that makes schemas
 /// reusable across tests without re-cloning.
 ///
-/// Corruption detection: the TRUNCATE statement is built from the template's
-/// cached table names. If a destructive test dropped a table, the TRUNCATE
-/// fails with "relation does not exist" — the error is caught by the caller
-/// and the schema is DROPped instead of pooled. This replaces the previous
-/// explicit COUNT(*) safety check, eliminating all slow pg_catalog queries
-/// from the cleanup path.
+/// Corruption detection has two layers. [`ensure_schema_structure_matches_template`]
+/// runs first and rejects a schema whose object inventory drifted from the
+/// template — an injected `ALTER TABLE ... ADD CONSTRAINT`, an extra table, a
+/// dropped trigger. Without it those survive the TRUNCATE and are handed to the
+/// next test (measured: a `CHECK (false)` on `refresh_tokens` leaked across
+/// processes and failed six unrelated registration/voice/third-party tests).
+/// The TRUNCATE statement is then built from the template's cached table names,
+/// so a dropped table fails with "relation does not exist" — both errors are
+/// caught by the caller and the schema is DROPped instead of pooled.
 ///
 /// Uses cached template table names (populated once per process) to avoid
-/// querying pg_tables/pg_class on every cleanup cycle.
+/// re-reading pg_tables for the TRUNCATE list on every cleanup cycle.
 async fn truncate_and_reseed_schema(
-    admin_pool: &PgPool,
+    admin_pool: PgPool,
     database_url: &str,
     schema_name: &str,
     template_name: &str,
 ) -> Result<(), String> {
+    ensure_schema_structure_matches_template(&admin_pool, schema_name, template_name).await?;
+
     // Build TRUNCATE list from cached template table names.
     // Clones use CREATE TABLE LIKE, so test schema table names == template names.
     // Building in Rust avoids the slow `string_agg` query that scanned pg_tables
@@ -1784,14 +2244,22 @@ async fn truncate_and_reseed_schema(
     let trunc_list: String =
         template_table_names.iter().map(|name| format!("{schema_name}.{name}")).collect::<Vec<_>>().join(", ");
     let sql = format!("TRUNCATE TABLE {trunc_list} RESTART IDENTITY CASCADE");
-    sqlx::raw_sql(&sql).execute(admin_pool).await.map_err(|e| format!("TRUNCATE failed for {schema_name}: {e}"))?;
+    sqlx::raw_sql(&sql).execute(&admin_pool).await.map_err(|e| format!("TRUNCATE failed for {schema_name}: {e}"))?;
 
     // Re-seed reference/config tables from the template — the same set the clone
     // copies, taken from the shared constant so the two paths cannot drift.
     // These are small and fast to copy.
     // Use cached table names to check existence instead of per-table EXISTS queries.
-    for table in synapse_common::test_isolation::SEED_REFERENCE_TABLES {
-        if !template_table_names.iter().any(|name| name == table) {
+    //
+    // The names are copied out of the `&'static [&'static str]` before the loop:
+    // iterating it directly leaves a `slice::Iter<'_, &str>` / `&&str` in the
+    // generator's state across the awaits below, and rustc then fails to prove
+    // this future `Send` ("not general enough"), which the janitor's blocking
+    // bridge requires.
+    let seed_tables: Vec<String> =
+        synapse_common::test_isolation::SEED_REFERENCE_TABLES.iter().map(|table| (*table).to_string()).collect();
+    for table in seed_tables {
+        if !template_table_names.iter().any(|name| name == &table) {
             eprintln!("schema pool: {table} not found in template {template_name}, skipping reseed");
             continue;
         }
@@ -1799,7 +2267,7 @@ async fn truncate_and_reseed_schema(
         let sql =
             format!("INSERT INTO {schema_name}.{table} SELECT * FROM {template_name}.{table} ON CONFLICT DO NOTHING");
         // Use raw_sql since table/schema names are validated identifiers
-        if let Err(e) = sqlx::raw_sql(&sql).execute(admin_pool).await {
+        if let Err(e) = sqlx::raw_sql(&sql).execute(&admin_pool).await {
             // Seed copy failure IS fatal — tests that depend on config rows
             // (e.g. media upload needs server_media_quota id=1) will fail
             // silently if we pool a schema with missing seed data.
@@ -1813,9 +2281,83 @@ async fn truncate_and_reseed_schema(
     // rows just copied back carry explicit ids starting at 1, so without this the
     // next default-id insert into a re-seeded table returns 1 and dies on a
     // duplicate key (measured: `server_media_quota_pkey`, `Key (id)=(1)`).
-    synapse_common::test_isolation::advance_schema_sequences(admin_pool, schema_name).await?;
+    synapse_common::test_isolation::advance_schema_sequences(&admin_pool, schema_name).await?;
 
     Ok(())
+}
+
+/// Compare a reusable schema's object inventory with the template's and fail on
+/// any difference, so [`cleanup_schema`] DROPps it instead of parking it.
+///
+/// The inventory is the **name** set of tables, constraints and non-internal
+/// triggers. Definitions are deliberately not compared: the clone re-points every
+/// foreign key at its own schema, so `pg_get_constraintdef` differs legitimately
+/// between template and clone. Names still catch every shape a test leaves
+/// behind — `ADD/DROP CONSTRAINT`, an extra `CREATE TABLE`, a dropped trigger —
+/// and phase 1d/1e of the clone restore the template's index/constraint names,
+/// so a pristine clone compares equal (verified against a parked schema: 0 drift).
+///
+/// A failed comparison also fails closed (schema dropped), never open.
+async fn ensure_schema_structure_matches_template(
+    pool: &PgPool,
+    schema_name: &str,
+    template_name: &str,
+) -> Result<(), String> {
+    const DRIFT_SQL: &str = r#"
+        WITH expected AS (
+            SELECT 'table:' || tablename AS entry
+              FROM pg_tables
+             WHERE schemaname = $1 AND tablename <> $3
+            UNION ALL
+            SELECT 'constraint:' || c.conname AS entry
+              FROM pg_constraint c
+              JOIN pg_namespace n ON n.oid = c.connamespace
+             WHERE n.nspname = $1
+            UNION ALL
+            SELECT 'trigger:' || t.tgname AS entry
+              FROM pg_trigger t
+              JOIN pg_class c ON c.oid = t.tgrelid
+              JOIN pg_namespace n ON n.oid = c.relnamespace
+             WHERE n.nspname = $1 AND NOT t.tgisinternal
+        ), actual AS (
+            SELECT 'table:' || tablename AS entry
+              FROM pg_tables
+             WHERE schemaname = $2
+            UNION ALL
+            SELECT 'constraint:' || c.conname AS entry
+              FROM pg_constraint c
+              JOIN pg_namespace n ON n.oid = c.connamespace
+             WHERE n.nspname = $2
+            UNION ALL
+            SELECT 'trigger:' || t.tgname AS entry
+              FROM pg_trigger t
+              JOIN pg_class c ON c.oid = t.tgrelid
+              JOIN pg_namespace n ON n.oid = c.relnamespace
+             WHERE n.nspname = $2 AND NOT t.tgisinternal
+        )
+        SELECT entry
+          FROM ((SELECT entry FROM expected EXCEPT SELECT entry FROM actual)
+                UNION ALL
+                (SELECT entry FROM actual EXCEPT SELECT entry FROM expected)) AS drift
+         ORDER BY entry
+         LIMIT 5
+        "#;
+
+    let drift: Vec<String> = sqlx::query_scalar(DRIFT_SQL)
+        .bind(template_name)
+        .bind(schema_name)
+        .bind(synapse_common::test_isolation::TEMPLATE_READY_TABLE)
+        .fetch_all(pool)
+        .await
+        .map_err(|error| format!("structure comparison of {schema_name} against {template_name} failed: {error}"))?;
+
+    if drift.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "structure drift against template {template_name} ({}); schema will be dropped, not pooled",
+        drift.join(", ")
+    ))
 }
 
 /// DROP a schema entirely (CASCADE). Used when a schema is poisoned or
@@ -1836,7 +2378,7 @@ pub async fn prepare_empty_isolated_test_pool() -> Result<Arc<PgPool>, String> {
     let connect_timeout = configured_test_pool_connect_timeout();
     let admin_pool = tokio::time::timeout(
         connect_timeout,
-        PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(5)).connect(&database_url),
+        synapse_common::test_isolation::connect_pool_with_handshake_retry(&database_url, 1, Duration::from_secs(5)),
     )
     .await
     .map_err(|_| format!("failed to connect admin pool: timed out after {connect_timeout:?}"))?
@@ -1897,27 +2439,65 @@ pub async fn resolve_test_database_url() -> Result<String, String> {
     let connect_timeout = configured_test_pool_connect_timeout();
 
     for database_url in candidate_database_urls() {
-        // Probe with an explicit acquire timeout (30s, see
-        // `configured_test_pool_connect_timeout`) so a slow-to-accept server
-        // does not overrun the test harness. The 5s default was too tight and
-        // contributed to the same P0-1 flap.
-        let connect_future =
-            PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(30)).connect(&database_url);
+        let mut last_error = None;
 
-        match tokio::time::timeout(connect_timeout, connect_future).await {
-            Err(_) => errors.push(format!("{database_url} -> connect timed out after {connect_timeout:?}")),
-            Ok(Ok(pool)) => {
-                drop(pool);
-                synapse_common::test_schema_orphans::run_orphan_guard(&database_url).await?;
-                let url = database_url.clone();
-                *RESOLVED_TEST_DB_URL.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(url.clone());
-                return Ok(url);
+        for attempt in 1..=PROBE_ATTEMPTS {
+            // Probe with an explicit acquire timeout (30s, see
+            // `configured_test_pool_connect_timeout`) so a slow-to-accept server
+            // does not overrun the test harness. The 5s default was too tight and
+            // contributed to the same P0-1 flap.
+            let connect_future =
+                PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(30)).connect(&database_url);
+
+            match tokio::time::timeout(connect_timeout, connect_future).await {
+                Err(_) => {
+                    last_error = Some(format!("{database_url} -> connect timed out after {connect_timeout:?}"));
+                    break;
+                }
+                Ok(Ok(pool)) => {
+                    drop(pool);
+                    synapse_common::test_schema_orphans::run_orphan_guard(&database_url).await?;
+                    let url = database_url.clone();
+                    *RESOLVED_TEST_DB_URL.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(url.clone());
+                    return Ok(url);
+                }
+                Ok(Err(error)) => {
+                    let message = error.to_string();
+                    let transient = is_transient_probe_error(&message);
+                    last_error = Some(format!("{database_url} -> {message}"));
+
+                    if !transient || attempt == PROBE_ATTEMPTS {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(200 * u64::from(attempt))).await;
+                }
             }
-            Ok(Err(error)) => errors.push(format!("{database_url} -> {error}")),
+        }
+
+        if let Some(error) = last_error {
+            errors.push(error);
         }
     }
 
     Err(format!("failed to connect to any configured test database: {}", errors.join(" | ")))
+}
+
+/// How many fresh connections [`resolve_test_database_url`] will open for one
+/// candidate URL before giving up.
+const PROBE_ATTEMPTS: u32 = 3;
+
+/// Transport-level probe flake worth one more fresh connection.
+///
+/// A full gate runs ~10k short-lived test processes, each opening its own probe
+/// connection. Under that churn sqlx occasionally reads a NUL byte while
+/// reading the server's greeting (`unknown message type: '\0'`) — measured on
+/// `/tmp/full_gate4.log`, where `api_space_routes_tests::test_create_space_route_rejects_non_creator_for_foreign_room`
+/// lost its only probe to it and the whole process failed before any test body
+/// ran. The connection never existed, so retrying it says nothing about the
+/// database being reachable: a genuinely unreachable / misconfigured URL still
+/// fails after all attempts.
+fn is_transient_probe_error(message: &str) -> bool {
+    message.contains("unknown message type") || message.contains("connection closed")
 }
 
 fn candidate_database_urls() -> Vec<String> {
@@ -2041,7 +2621,7 @@ mod pooled_schema_reseed_tests {
         let database_url = crate::resolve_test_database_url().await.expect("database url");
         let template_name = crate::get_template_schema_name(&database_url).await.expect("template");
         let admin = sqlx::PgPool::connect(&database_url).await.expect("admin pool");
-        crate::truncate_and_reseed_schema(&admin, &database_url, &schema_name, &template_name)
+        crate::truncate_and_reseed_schema(admin.clone(), &database_url, &schema_name, &template_name)
             .await
             .expect("reset the pooled schema");
 
@@ -2071,6 +2651,203 @@ mod pooled_schema_reseed_tests {
         assert!(new_id > 1, "the re-seeded row already owns id = 1, so the insert must land above it");
 
         admin.close().await;
+    }
+}
+
+/// Tests for the cross-process schema pool table (the nextest path): a name
+/// parked by one process must reach exactly one later process, and a name that
+/// can no longer serve a test must never be handed out.
+///
+/// These drive the pool helpers directly against a throwaway schema (`CREATE
+/// SCHEMA`, no template clone) so they stay cheap.
+#[cfg(test)]
+mod db_schema_pool_tests {
+    use super::{
+        claim_schema_from_db_pool, connect_schema_pool_admin, current_timestamp_millis, drop_schema,
+        ensure_db_schema_pool_table, park_schema_in_db_pool, reap_expired_db_pool_entries, DB_SCHEMA_POOL_TABLE,
+    };
+    use sqlx::PgPool;
+    use std::time::Duration;
+    use synapse_common::test_schema_orphans::{
+        reclaim_orphan_test_schemas, stamped_schema_created_nanos, ORPHAN_SCHEMA_MIN_AGE,
+    };
+
+    /// Unique schema/template names, so a concurrent test (or a row left behind by
+    /// a killed run) can never collide with this one.
+    fn scratch_names(tag: &str) -> (String, String) {
+        let unique = format!("{}_{}", std::process::id(), current_timestamp_millis());
+        (format!("test_pool_guard_{tag}_{unique}"), format!("test_template_pool_guard_{tag}_{unique}"))
+    }
+
+    async fn admin_pool() -> Option<PgPool> {
+        if std::env::var("TEST_DATABASE_URL").is_err() {
+            eprintln!("SKIPPING cross-process schema pool test: TEST_DATABASE_URL is unset, so this proves nothing.");
+            return None;
+        }
+        let database_url = crate::resolve_test_database_url().await.expect("database url");
+        let pool = connect_schema_pool_admin(&database_url).await.expect("schema pool admin connection");
+        ensure_db_schema_pool_table(&pool).await.expect("pool table");
+        Some(pool)
+    }
+
+    async fn create_scratch_schema(pool: &PgPool, schema_name: &str) {
+        sqlx::query(&format!("CREATE SCHEMA {schema_name}"))
+            .execute(pool)
+            .await
+            .unwrap_or_else(|error| panic!("could not create scratch schema {schema_name}: {error}"));
+    }
+
+    async fn pool_rows(pool: &PgPool, schema_name: &str) -> i64 {
+        sqlx::query_scalar(&format!("SELECT count(*) FROM {DB_SCHEMA_POOL_TABLE} WHERE schema_name = $1"))
+            .bind(schema_name)
+            .fetch_one(pool)
+            .await
+            .expect("count pool rows")
+    }
+
+    /// The happy path the whole optimization rests on: park, claim once, and the
+    /// name is gone — never handed to two processes.
+    #[tokio::test]
+    async fn a_parked_schema_is_handed_out_exactly_once() {
+        let Some(pool) = admin_pool().await else { return };
+        let (schema_name, template_name) = scratch_names("park_once");
+        create_scratch_schema(&pool, &schema_name).await;
+        park_schema_in_db_pool(&pool, &schema_name, &template_name, current_timestamp_millis())
+            .await
+            .expect("park the scratch schema");
+
+        let claimed = claim_schema_from_db_pool(&pool, &template_name).await.expect("claim");
+        assert_eq!(
+            claimed.as_deref(),
+            Some(schema_name.as_str()),
+            "the parked schema must be handed to the next acquisition"
+        );
+        let claimed_again = claim_schema_from_db_pool(&pool, &template_name).await.expect("second claim");
+        assert_eq!(claimed_again, None, "a claimed schema must never be handed out twice");
+
+        let _ = drop_schema(&pool, &schema_name).await;
+        pool.close().await;
+    }
+
+    /// A name belongs to the template it was TRUNCATEd against. Handing it to a
+    /// different template would serve mismatched tables.
+    #[tokio::test]
+    async fn a_schema_parked_for_one_template_is_not_claimed_for_another() {
+        let Some(pool) = admin_pool().await else { return };
+        let (schema_name, template_name) = scratch_names("template");
+        create_scratch_schema(&pool, &schema_name).await;
+        park_schema_in_db_pool(&pool, &schema_name, &template_name, current_timestamp_millis())
+            .await
+            .expect("park the scratch schema");
+
+        let mismatched = claim_schema_from_db_pool(&pool, &format!("{template_name}_other")).await.expect("claim");
+        assert_eq!(mismatched, None, "a schema parked for another template must not be claimed");
+        let claimed = claim_schema_from_db_pool(&pool, &template_name).await.expect("claim");
+        assert_eq!(
+            claimed.as_deref(),
+            Some(schema_name.as_str()),
+            "the row must survive the mismatched claim and still serve its own template"
+        );
+
+        let _ = drop_schema(&pool, &schema_name).await;
+        pool.close().await;
+    }
+
+    /// A row whose schema has been dropped (killed run, manual cleanup) must be
+    /// discarded at claim time — a name from a `CREATE SCHEMA`-less test pool
+    /// fails `ensure_schema_has_baseline` hard.
+    #[tokio::test]
+    async fn a_row_whose_schema_is_gone_is_discarded_instead_of_handed_out() {
+        let Some(pool) = admin_pool().await else { return };
+        let (schema_name, template_name) = scratch_names("vanished");
+        create_scratch_schema(&pool, &schema_name).await;
+        park_schema_in_db_pool(&pool, &schema_name, &template_name, current_timestamp_millis())
+            .await
+            .expect("park the scratch schema");
+        let _ = drop_schema(&pool, &schema_name).await;
+
+        let claimed = claim_schema_from_db_pool(&pool, &template_name).await.expect("claim");
+        assert_eq!(claimed, None, "a name whose schema no longer exists must never reach a test pool");
+        assert_eq!(
+            pool_rows(&pool, &schema_name).await,
+            0,
+            "the stale row must be deleted, not retried on every acquisition"
+        );
+
+        pool.close().await;
+    }
+
+    /// Entries parked past the TTL are reaped together with their schemas, so a
+    /// crashed run cannot hold 255 tables per abandoned schema forever.
+    #[tokio::test]
+    async fn entries_parked_past_the_ttl_are_reaped_and_their_schema_dropped() {
+        let Some(pool) = admin_pool().await else { return };
+        let (schema_name, template_name) = scratch_names("reap");
+        create_scratch_schema(&pool, &schema_name).await;
+        let stale_ts = current_timestamp_millis() - 10_000;
+        park_schema_in_db_pool(&pool, &schema_name, &template_name, stale_ts).await.expect("park the scratch schema");
+
+        reap_expired_db_pool_entries(&pool, current_timestamp_millis(), Duration::from_millis(1_000))
+            .await
+            .expect("reap expired entries");
+
+        assert_eq!(pool_rows(&pool, &schema_name).await, 0, "an entry parked past the TTL must be deleted");
+        let remaining: Option<String> = sqlx::query_scalar("SELECT to_regnamespace($1)::text")
+            .bind(&schema_name)
+            .fetch_one(&pool)
+            .await
+            .expect("probe the reaped schema");
+        assert!(remaining.is_none(), "reaping must drop the schema, not just forget its name");
+
+        pool.close().await;
+    }
+
+    /// A schema parked for reuse is older than `ORPHAN_SCHEMA_MIN_AGE` by design
+    /// — the name carries the instant of the *first* clone, not the last park —
+    /// so age alone classifies it as an orphan, and the orphan guard runs once
+    /// per test process, i.e. constantly under nextest. It must skip parked
+    /// names, or a long gate run drops the schemas the pool exists to recycle.
+    ///
+    /// The budget is unbounded on purpose: with a limited one the fixture could
+    /// be merely *deferred* (and the test would pass even with the guard bug),
+    /// while the leftovers an unbounded sweep drops are exactly what the guard
+    /// drops in every test process anyway — aged, unleased per-test schemas.
+    #[tokio::test]
+    async fn the_orphan_guard_skips_schemas_parked_for_reuse() {
+        let Some(pool) = admin_pool().await else { return };
+        let now_nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_nanos())
+            .unwrap_or_default();
+        // Stamped shape (`test_<pid>_<n>_<nanos>`), created an hour ago: exactly
+        // what a recycled schema looks like in the second half of a gate run.
+        let schema_name = format!("test_{}_{}_{}", std::process::id(), 97, now_nanos - 3_600_000_000_000);
+        assert!(
+            stamped_schema_created_nanos(&schema_name)
+                .is_some_and(|created| now_nanos.saturating_sub(created) >= ORPHAN_SCHEMA_MIN_AGE.as_nanos()),
+            "precondition: the fixture name must look old enough to be an orphan, got {schema_name}"
+        );
+        let (_, template_name) = scratch_names("orphan_guard");
+        create_scratch_schema(&pool, &schema_name).await;
+        park_schema_in_db_pool(&pool, &schema_name, &template_name, current_timestamp_millis())
+            .await
+            .expect("park the scratch schema");
+
+        let report = reclaim_orphan_test_schemas(&pool, now_nanos, ORPHAN_SCHEMA_MIN_AGE, usize::MAX)
+            .await
+            .expect("sweep orphaned schemas");
+
+        assert!(!report.dropped.contains(&schema_name), "the guard must never drop a parked schema");
+        assert!(report.parked >= 1, "the parked schema must be counted as parked, got {report:?}");
+        let remaining: Option<String> = sqlx::query_scalar("SELECT to_regnamespace($1)::text")
+            .bind(&schema_name)
+            .fetch_one(&pool)
+            .await
+            .expect("probe the parked schema");
+        assert!(remaining.is_some(), "the parked schema must survive the sweep");
+
+        let _ = drop_schema(&pool, &schema_name).await;
+        pool.close().await;
     }
 }
 

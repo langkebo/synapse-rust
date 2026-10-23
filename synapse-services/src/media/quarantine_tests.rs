@@ -125,6 +125,20 @@ async fn media_fixture_keeps_its_isolated_schema_for_the_whole_test() {
 
     let url = crate::test_utils::resolve_test_database_url().await.expect("test database url");
     let public_pool = std::sync::Arc::new(sqlx::PgPool::connect(&url).await.expect("public-schema pool"));
+    // The shared `public` schema no longer holds the baseline tables: building
+    // the template schema rebuilds `public` from scratch (`DROP SCHEMA public
+    // CASCADE`), so it ends up with zero tables. A leak into `public` is then
+    // structurally impossible — the probe would report "relation does not
+    // exist" instead of `None`. Only run the leak probe when the shared schema
+    // still has the table this fixture writes to; the write above already
+    // fails loudly if the fixture's own schema was dropped.
+    let public_table: Option<String> = sqlx::query_scalar("SELECT to_regclass('public.chunked_upload_progress')::text")
+        .fetch_one(&*public_pool)
+        .await
+        .expect("inspecting the shared public schema must not fail");
+    if public_table.is_none() {
+        return;
+    }
     // Read through the production storage on a pool whose `search_path` is
     // the default (`"$user", public`). If the fixture's schema had been
     // dropped, the write above landed in the shared `public` schema and this

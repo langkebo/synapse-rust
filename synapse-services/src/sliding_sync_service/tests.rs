@@ -81,8 +81,19 @@ async fn test_build_incremental_ops_uses_insert_and_delete() {
 }
 
 fn create_test_service() -> SlidingSyncService {
+    // This pool points at a server that is not there, on purpose: tests that
+    // reach storage must observe a failure. sqlx's default acquire timeout is
+    // 30s, and `sync()` acquires the pool several times in sequence (presence,
+    // connection GC, joined rooms, token), so the default turned one
+    // unreachable host into ~150s and tripped nextest's 120s terminate
+    // threshold. Nothing here can ever reach a real database, so a short
+    // timeout only removes dead waiting.
     let pool = Arc::new(
-        sqlx::postgres::PgPoolOptions::new().max_connections(1).connect_lazy("postgres://localhost/test").unwrap(),
+        sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .acquire_timeout(std::time::Duration::from_millis(250))
+            .connect_lazy("postgres://localhost/test")
+            .unwrap(),
     );
     let event_storage = Arc::new(EventStorage::new(&pool, "localhost".to_string()));
     let user_storage = Arc::new(FakeUserStore::new());
@@ -548,7 +559,11 @@ fn make_state_event(event_type: Option<&str>, state_key: Option<&str>) -> synaps
 /// `get_state_events` is backed by a controllable fake rather than Postgres.
 fn create_cached_test_service(event_store: Arc<InMemoryEventStore>) -> SlidingSyncService {
     let pool = Arc::new(
-        sqlx::postgres::PgPoolOptions::new().max_connections(1).connect_lazy("postgres://localhost/test").unwrap(),
+        sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .acquire_timeout(std::time::Duration::from_millis(250))
+            .connect_lazy("postgres://localhost/test")
+            .unwrap(),
     );
     let user_storage = Arc::new(FakeUserStore::new());
     SlidingSyncService {
@@ -759,8 +774,15 @@ fn create_mocked_test_service(
     sync_store: Arc<InMemorySlidingSyncStore>,
     member_store: Arc<synapse_storage::test_mocks::InMemoryMemberStore>,
 ) -> SlidingSyncService {
+    // Same reason as `create_test_service`: the pool points at a server that is
+    // not there, and sqlx's default 30s acquire timeout turned each intentional
+    // storage failure into 30s of dead waiting.
     let pool = Arc::new(
-        sqlx::postgres::PgPoolOptions::new().max_connections(1).connect_lazy("postgres://localhost/test").unwrap(),
+        sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .acquire_timeout(std::time::Duration::from_millis(250))
+            .connect_lazy("postgres://localhost/test")
+            .unwrap(),
     );
     let event_store = Arc::new(InMemoryEventStore::new());
     let user_storage = Arc::new(FakeUserStore::new());

@@ -48,12 +48,23 @@ async fn prune_drops_superseded_templates_and_keeps_the_current_one() {
     // Deliberately NOT matching the anchored pattern — must survive.
     let configured = format!("a4f2_configured_template_{}", std::process::id());
 
+    // The sweep drops **every** member of `test_template_v<rev>_<hex>` except
+    // `keep`, and nothing distinguishes a synthetic `keep` from the real
+    // template. Run against the live database, this test therefore deleted the
+    // template a concurrent test was cloning from (measured on a full gate:
+    // `pooled_schema_reseed_tests::pooled_schema_can_insert_into_a_reseeded_table`
+    // failed with `schema "test_template_v2_…" does not exist`). PostgreSQL DDL is
+    // transactional, so the whole exercise runs in a transaction that is rolled
+    // back: the drop/preserve decisions are real, the casualties are not.
+    let mut tx = pool.begin().await.expect("begin the throwaway-template transaction");
+
     for name in [&keep, &stale_a, &stale_b, &configured] {
-        drop_schema_quietly(&pool, name).await;
-        sqlx::query(&format!("CREATE SCHEMA \"{name}\"")).execute(&pool).await.unwrap();
+        sqlx::query(&format!("DROP SCHEMA IF EXISTS \"{name}\" CASCADE")).execute(&mut *tx).await.unwrap();
+        sqlx::query(&format!("CREATE SCHEMA \"{name}\"")).execute(&mut *tx).await.unwrap();
     }
 
-    let dropped = synapse_test_utils::prune_stale_template_schemas(&pool, &keep).await.expect("prune must succeed");
+    let dropped =
+        synapse_test_utils::prune_stale_template_schemas_in(&mut tx, &keep).await.expect("prune must succeed");
 
     assert!(dropped.contains(&stale_a), "stale template {stale_a} must be dropped; got {dropped:?}");
     assert!(dropped.contains(&stale_b), "stale template {stale_b} must be dropped; got {dropped:?}");
@@ -61,7 +72,7 @@ async fn prune_drops_superseded_templates_and_keeps_the_current_one() {
     let remaining: Vec<String> =
         sqlx::query_scalar("SELECT nspname FROM pg_namespace WHERE nspname = ANY($1) ORDER BY nspname")
             .bind(vec![keep.clone(), stale_a.clone(), stale_b.clone(), configured.clone()])
-            .fetch_all(&pool)
+            .fetch_all(&mut *tx)
             .await
             .unwrap();
 
@@ -71,12 +82,11 @@ async fn prune_drops_superseded_templates_and_keeps_the_current_one() {
     assert!(!remaining.contains(&stale_b), "stale template {stale_b} must be gone");
 
     // Idempotent: nothing left to prune.
-    let again = synapse_test_utils::prune_stale_template_schemas(&pool, &keep).await.unwrap();
+    let again = synapse_test_utils::prune_stale_template_schemas_in(&mut tx, &keep).await.unwrap();
     assert!(!again.contains(&stale_a) && !again.contains(&stale_b), "second prune must be a no-op");
 
-    for name in [&keep, &stale_a, &stale_b, &configured] {
-        drop_schema_quietly(&pool, name).await;
-    }
+    // Rolls the fixture schemas away and leaves the real template set untouched.
+    tx.rollback().await.expect("roll back the throwaway-template transaction");
 }
 
 #[tokio::test]

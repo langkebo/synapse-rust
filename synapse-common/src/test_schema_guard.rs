@@ -169,6 +169,20 @@ impl SchemaCleanup {
     pub fn release_or_exit_drop(database_url: &str, schema_name: &str, on_release: CleanupFn) -> Self {
         Self { on_release, on_exit: drop_schema_cleanup(database_url, schema_name) }
     }
+
+    /// Both paths caller-provided.
+    ///
+    /// Needed when the exit path must do something other than an unconditional
+    /// DROP — e.g. the cross-process schema pool in `synapse-test-utils`, which
+    /// TRUNCATEs and *parks* the schema at exit too (the exit drain usually runs
+    /// immediately after the single test of a nextest process, so a plain DROP
+    /// there would make reuse impossible).
+    ///
+    /// The exit drain runs `on_exit` exactly once and ignores
+    /// [`CleanupOutcome::Retry`], so `on_exit` must not depend on retries.
+    pub fn release_or_exit(on_release: CleanupFn, on_exit: CleanupFn) -> Self {
+        Self { on_release, on_exit }
+    }
 }
 
 /// Advisory-lock key of the connection lease for `schema`.
@@ -377,6 +391,23 @@ where
     run_cleanup_future(future, || CleanupOutcome::Done)
 }
 
+/// [`run_cleanup_blocking_outcome`], but builds the future on the thread that
+/// drives it instead of taking it ready-made.
+///
+/// Use this when the cleanup future cannot be proven `Send`: an `async fn` whose
+/// body awaits nested `async fn`s taking `&Pool<Postgres>` / `&mut PgConnection`
+/// / `&str` makes rustc check `Send` under a higher-ranked binder and reject it
+/// with "`Send` is not general enough", even though every borrow in the body has
+/// an ordinary lifetime. Building the future inside the worker closure removes
+/// the bound entirely — the closure itself only has to be `Send`.
+pub fn run_cleanup_blocking_outcome_lazy<G, F>(make_future: G) -> CleanupOutcome
+where
+    G: FnOnce() -> F + Send + 'static,
+    F: std::future::Future<Output = CleanupOutcome>,
+{
+    run_cleanup_future_lazy(make_future, || CleanupOutcome::Done)
+}
+
 /// Drive `future` to completion on a current-thread runtime, from a thread that
 /// may itself be inside a Tokio runtime.
 ///
@@ -396,8 +427,20 @@ where
     F: std::future::Future<Output = T> + Send + 'static,
     T: Send + 'static,
 {
+    run_cleanup_future_lazy(move || future, on_failure)
+}
+
+/// The body of [`run_cleanup_future`]: the future is created by `make_future`
+/// on whichever thread ends up driving it (see
+/// [`run_cleanup_blocking_outcome_lazy`] for why that matters).
+fn run_cleanup_future_lazy<G, F, T>(make_future: G, on_failure: fn() -> T) -> T
+where
+    G: FnOnce() -> F + Send + 'static,
+    F: std::future::Future<Output = T>,
+    T: Send + 'static,
+{
     let run_inline = move || match tokio::runtime::Builder::new_current_thread().enable_all().build() {
-        Ok(runtime) => runtime.block_on(future),
+        Ok(runtime) => runtime.block_on(make_future()),
         Err(error) => {
             eprintln!("test schema cleanup: failed to build runtime: {error}");
             on_failure()

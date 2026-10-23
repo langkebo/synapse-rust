@@ -244,7 +244,7 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
     let connect_timeout = configured_test_pool_connect_timeout();
     let admin_pool = tokio::time::timeout(
         connect_timeout,
-        PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(5)).connect(&database_url),
+        synapse_common::test_isolation::connect_pool_with_handshake_retry(&database_url, 1, Duration::from_secs(5)),
     )
     .await
     .map_err(|_| "failed to connect admin pool: timed out".to_string())?
@@ -346,12 +346,10 @@ pub async fn connect_shared_test_pool() -> Result<Arc<PgPool>, String> {
     #[cfg(test)]
     crate::test_exit_hook::ensure();
     let database_url = resolve_test_database_url().await?;
-    let pool = PgPoolOptions::new()
-        .max_connections(2)
-        .acquire_timeout(Duration::from_secs(30))
-        .connect(&database_url)
-        .await
-        .map_err(|error| format!("failed to connect shared test pool: {error}"))?;
+    let pool =
+        synapse_common::test_isolation::connect_pool_with_handshake_retry(&database_url, 2, Duration::from_secs(30))
+            .await
+            .map_err(|error| format!("failed to connect shared test pool: {error}"))?;
     Ok(Arc::new(pool))
 }
 
@@ -361,7 +359,7 @@ async fn init_template_schema(database_url: &str) -> Result<String, String> {
 
     let admin_pool = tokio::time::timeout(
         connect_timeout,
-        PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(5)).connect(database_url),
+        synapse_common::test_isolation::connect_pool_with_handshake_retry(database_url, 1, Duration::from_secs(5)),
     )
     .await
     .map_err(|_| format!("failed to connect admin pool: timed out after {connect_timeout:?}"))?
@@ -468,7 +466,7 @@ async fn ensure_template_schema_exists(database_url: &str, schema_name: &str) ->
     let connect_timeout = configured_test_pool_connect_timeout();
     let admin_pool = tokio::time::timeout(
         connect_timeout,
-        PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(5)).connect(database_url),
+        synapse_common::test_isolation::connect_pool_with_handshake_retry(database_url, 1, Duration::from_secs(5)),
     )
     .await
     .map_err(|_| format!("failed to connect admin pool: timed out after {connect_timeout:?}"))?
@@ -575,7 +573,7 @@ pub async fn prepare_empty_isolated_test_pool() -> Result<Arc<PgPool>, String> {
     let connect_timeout = configured_test_pool_connect_timeout();
     let admin_pool = tokio::time::timeout(
         connect_timeout,
-        PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(5)).connect(&database_url),
+        synapse_common::test_isolation::connect_pool_with_handshake_retry(&database_url, 1, Duration::from_secs(5)),
     )
     .await
     .map_err(|_| format!("failed to connect admin pool: timed out after {connect_timeout:?}"))?
@@ -636,7 +634,7 @@ pub async fn resolve_test_database_url() -> Result<String, String> {
 
     for database_url in candidate_database_urls() {
         let connect_future =
-            PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(5)).connect(&database_url);
+            synapse_common::test_isolation::connect_pool_with_handshake_retry(&database_url, 1, Duration::from_secs(5));
 
         match tokio::time::timeout(connect_timeout, connect_future).await {
             Err(_) => errors.push(format!("{database_url} -> connect timed out after {connect_timeout:?}")),

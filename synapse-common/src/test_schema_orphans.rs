@@ -40,7 +40,18 @@
 
 use crate::test_schema_guard::{release_schema_lease, try_acquire_schema_lease};
 use sqlx::PgPool;
+use std::collections::HashSet;
 use std::time::Duration;
+
+/// Schema holding test-runner bookkeeping. Deliberately *not* `public`:
+/// `synapse-test-utils` rebuilds the template by running
+/// `DROP SCHEMA public CASCADE`, which would take the parked rows (and every
+/// schema they describe) with it.
+pub const PARKED_SCHEMA_NAMESPACE: &str = "_synapse_test_pool";
+
+/// Table where `synapse-test-utils` parks TRUNCATEd schemas for the next test
+/// process. Owned (and created lazily) by that crate; this module only reads it.
+pub const PARKED_SCHEMA_TABLE: &str = "_synapse_test_pool.parked_schemas";
 
 /// Orphan age below which a schema is assumed to belong to a test that is still
 /// starting: the fixture creates the schema first and takes the connection
@@ -69,6 +80,10 @@ pub struct OrphanReclaimReport {
     pub dropped: Vec<String>,
     /// Schemas that still hold a connection lease — a live test owns them.
     pub leased: usize,
+    /// Schemas parked in [`PARKED_SCHEMA_TABLE`] for reuse by the next test
+    /// process. Old by design (the name carries the *original* creation
+    /// instant), so the age check alone would call them orphans.
+    pub parked: usize,
     /// Schemas younger than [`ORPHAN_SCHEMA_MIN_AGE`]; possibly mid-creation.
     pub too_young: usize,
     /// Orphans left over because [`ORPHAN_SCHEMA_DROP_BUDGET`] was exhausted.
@@ -146,13 +161,40 @@ pub fn is_uuid_test_schema(name: &str) -> bool {
     name.strip_prefix("test_").is_some_and(|rest| rest.len() == 32 && rest.bytes().all(|byte| byte.is_ascii_hexdigit()))
 }
 
+/// Names currently parked in [`PARKED_SCHEMA_TABLE`], empty when the table does
+/// not exist yet (no nextest run has parked anything).
+///
+/// A parked schema is deliberately kept alive between test processes, and its
+/// name carries the creation instant of the *first* clone, so from minute ten
+/// of a gate run every reusable schema looks older than [`ORPHAN_SCHEMA_MIN_AGE`].
+/// Dropping one is at best wasted work (the next claim discards the row once
+/// `to_regnamespace` comes back null) and at worst a failure, if the claim has
+/// already deleted the row but its pool has not connected yet — the claimant
+/// holds a shared lease for exactly that window.
+async fn parked_schema_names(pool: &PgPool) -> Result<HashSet<String>, String> {
+    let table: Option<String> = sqlx::query_scalar("SELECT to_regclass($1)::text")
+        .bind(PARKED_SCHEMA_TABLE)
+        .fetch_one(pool)
+        .await
+        .map_err(|error| format!("could not look up {PARKED_SCHEMA_TABLE}: {error}"))?;
+    if table.is_none() {
+        return Ok(HashSet::new());
+    }
+    let names: Vec<String> = sqlx::query_scalar(&format!("SELECT schema_name FROM {PARKED_SCHEMA_TABLE}"))
+        .fetch_all(pool)
+        .await
+        .map_err(|error| format!("could not list parked test schemas: {error}"))?;
+    Ok(names.into_iter().collect())
+}
+
 /// Drops abandoned per-test schemas that are past [`ORPHAN_SCHEMA_MIN_AGE`] and
 /// hold no connection lease.
 ///
 /// Only the stamped `test_<pid>_<n>_<nanos>` family is eligible: its age comes
 /// from the name, so a schema created by a process that started a moment ago is
 /// never touched. The lease check is the same one the janitor uses, so a schema
-/// a live test still owns is skipped (`leased`), not dropped.
+/// a live test still owns is skipped (`leased`), not dropped. Schemas parked in
+/// [`PARKED_SCHEMA_TABLE`] are skipped too (`parked`): they are old by design.
 ///
 /// Failures to list or to acquire a connection are returned; a failure to drop
 /// one schema is reported on stderr and the pass continues, because one
@@ -168,6 +210,7 @@ pub async fn reclaim_orphan_test_schemas(
             .fetch_all(pool)
             .await
             .map_err(|error| format!("could not list test schemas: {error}"))?;
+    let parked = parked_schema_names(pool).await?;
 
     let mut report = OrphanReclaimReport { scanned: names.len(), ..OrphanReclaimReport::default() };
     let min_age_nanos = min_age.as_nanos();
@@ -179,6 +222,10 @@ pub async fn reclaim_orphan_test_schemas(
             }
             continue;
         };
+        if parked.contains(&name) {
+            report.parked += 1;
+            continue;
+        }
         if now_nanos.saturating_sub(created) < min_age_nanos {
             report.too_young += 1;
             continue;
@@ -345,6 +392,7 @@ mod tests {
             scanned: 7,
             dropped: vec!["test_1_1_1792413865684199000".to_string()],
             leased: 2,
+            parked: 2,
             too_young: 1,
             deferred: 3,
             unageable: 2,

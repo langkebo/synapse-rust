@@ -26,6 +26,7 @@ impl DatabaseInitService {
             cache_ttl_seconds: DEFAULT_CACHE_TTL_SECONDS,
             environment: Environment::from_env(),
             mode: DatabaseInitMode::Auto,
+            migrations_dir: None,
         }
     }
 
@@ -44,12 +45,26 @@ impl DatabaseInitService {
             cache_ttl_seconds: ttl_seconds,
             environment: Environment::from_env(),
             mode: DatabaseInitMode::Auto,
+            migrations_dir: None,
         }
     }
 
     /// See [`with_mode`].
     pub fn with_mode(mut self, mode: DatabaseInitMode) -> Self {
         self.mode = mode;
+        self
+    }
+
+    /// Run migrations from `dir` instead of the CWD-relative lookup.
+    ///
+    /// The default lookup (`/app/migrations`, then `./migrations`) assumes the
+    /// process runs from the repository root. Test binaries run from their
+    /// *package* root instead, so `synapse-test-utils` (which has no
+    /// `migrations/`) silently matched nothing, reported success, and produced a
+    /// template schema containing only `schema_migrations`. Passing the resolved
+    /// directory makes template construction independent of the caller's CWD.
+    pub fn with_migrations_dir(mut self, dir: std::path::PathBuf) -> Self {
+        self.migrations_dir = Some(dir);
         self
     }
 
@@ -274,14 +289,15 @@ impl DatabaseInitService {
         // 记录锁获取耗时: 高耗时暗示有并发迁移进程 (如多 worker 同时启动)
         info!(lock_key, lock_acquire_ms = lock_start.elapsed().as_millis() as u64, "已获取迁移 advisory lock");
 
-        let migrations_dir = if std::path::Path::new("/app/migrations").exists() {
-            std::path::Path::new("/app/migrations")
-        } else if std::path::Path::new("./migrations").exists() {
-            std::path::Path::new("./migrations")
-        } else {
-            info!("未找到迁移目录，跳过迁移");
-            self.release_migration_lock(&mut lock_conn, lock_key).await;
-            return Ok("数据库迁移跳过 (无迁移文件)".to_string());
+        let migrations_dir = match self.migrations_dir.as_deref() {
+            Some(dir) => dir,
+            None if std::path::Path::new("/app/migrations").exists() => std::path::Path::new("/app/migrations"),
+            None if std::path::Path::new("./migrations").exists() => std::path::Path::new("./migrations"),
+            None => {
+                info!("未找到迁移目录，跳过迁移");
+                self.release_migration_lock(&mut lock_conn, lock_key).await;
+                return Ok("数据库迁移跳过 (无迁移文件)".to_string());
+            }
         };
 
         info!(migrations_dir = ?migrations_dir, "使用运行时迁移文件");

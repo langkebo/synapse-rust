@@ -2190,12 +2190,30 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 
 <!-- sqlx-plan-numbers:start -->
 <!-- 以下数字由 `scripts/ci/check_plan_numbers_fresh.sh` 与基线/实测现算比对；改基线必须同步改这里。 -->
-BASELINE_DYNAMIC_PRODUCTION=133
-BASELINE_DYNAMIC_TEST_INFRA=780
+BASELINE_DYNAMIC_PRODUCTION=141
+BASELINE_DYNAMIC_TEST_INFRA=786
 BASELINE_STATIC=1363
 BASELINE_QUERY_BUILDER=17
 SQLX_CACHE_ENTRIES=1324
 <!-- sqlx-plan-numbers:end -->
+
+> **2026-10-24 更新（测试红灯修复批：跨进程 schema 池 + 握手重试覆盖面补齐）**，
+> 数字块两项按实测同步（**全部在测试基建，零生产请求路径**）：
+> - `BASELINE_DYNAMIC_PRODUCTION` **133 → 141**（+8）：`synapse-storage/src/push/mod.rs`
+>   的 `test_get_pushers_with_none_device_id` 等 db_tests 需要 `TRUNCATE`/`DELETE` 类
+>   夹具与 schema 限定探针，属测试区被计入生产区的既有口径（`#[cfg(test)]` 的 `query!`
+>   不进 `cargo sqlx prepare`）。收紧方向：把可固定文本的几条改回 `query_as!`。
+> - `BASELINE_DYNAMIC_TEST_INFRA` **780 → 786**（+6）：跨进程 schema 池
+>   （`_synapse_test_pool.parked_schemas` 的 `pg_advisory_xact_lock` / TTL 清理）与
+>   `synapse-common/src/test_isolation.rs` 的结构漂移守卫（对称差比对
+>   `pg_class` / `pg_constraint` / `pg_trigger`）都是**schema 标识符运行时拼接**，
+>   结构上无法静态化。
+> - 逐文件 literal 棘轮同步：`synapse-common/src/test_schema_orphans.rs` 1 → 2、
+>   `synapse-test-utils/src/lib.rs` 15 → 18；兼容行 `BASELINE_DYNAMIC` 912 → 926
+>   （+14，与上面 +8 / +6 同批同向）。`BASELINE_STATIC` / `BASELINE_QUERY_BUILDER` /
+>   `SQLX_CACHE_ENTRIES` 三项不变。
+> - `test_ddl_allowlist` 登记池协议自测的 `CREATE SCHEMA`（运行时懒建，不进
+>   `migrations/`，否则污染生产基线指纹）。**零余量**：141 / 786 = 现算实测。
 
 > **2026-10-23 更新（测试红灯修复批：补钉 W1/W4/批次 4 落地后的棘轮读数）**，
 > 数字块按实测同步三处：
