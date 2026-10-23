@@ -264,6 +264,15 @@ jobs:
       - name: deny_unknown_fields ratchet (guards may only be added)
         run: python3 scripts/ci/check_deny_unknown_fields_ratchet.py
 
+      # RD-14：feature 能力矩阵的静态层。旧版脚本有两处"只 print 不比较"的伪断言
+      # （`--no-default-features` 与 shipped/tested/default 三方比较），跑了很多年
+      # 却从未真正检查过任何东西。重写后 S1–S5（引用完整性 / all-extensions 闭包 /
+      # cfg 门指向已声明特性 / 能力台账双向一致 / CI 必须真的以 --compile 调用本脚本）
+      # 零 cargo、<1s，因此放在 fast tier 每次 PR 都跑。
+      # 编译车道（C1–C4）要 Rust 工具链，见下方独立的 `feature-matrix` job。
+      - name: Feature capability matrix (static)
+        run: python3 scripts/ci/check_feature_matrix.py
+
       # Supply-chain hardening (cargo-deny + cargo-audit) runs in the
       # `security-audit` job, which installs both tools first. It used to be
       # invoked here as well ("for fast PR feedback"), but this job installs no
@@ -348,6 +357,34 @@ jobs:
           name: openapi-route-table
           path: docs/openapi/route-table.json
           retention-days: 30
+
+  # ──────────────────────────────────────────────
+  # Feature capability matrix — compile lanes (RD-14)
+  # ──────────────────────────────────────────────
+  # 只跑 `cargo check`，不需要 Postgres/Redis，因此与 `test` 的矩阵解耦：
+  #   C1 `--workspace`
+  #   C2 `--workspace --all-features --all-targets`
+  #   C3 `--workspace --no-default-features`
+  #   C4 每个 supported / experimental 特性单独 `-p synapse-rust --no-default-features`
+  # C4 是 RD-14 的核心：证明「每个能力开关能独立编译」，而不是靠 all-features
+  # 掩盖某两个特性之间的隐式耦合。失败项按名字逐条打印。
+  feature-matrix:
+    name: Feature Matrix (compile)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: feature-matrix
+
+      - name: Feature capability matrix (static + compile lanes)
+        run: python3 scripts/ci/check_feature_matrix.py --compile
 
   test:
     name: Test & Lint (${{ matrix.rust-toolchain }}, ${{ matrix.features-label }})
