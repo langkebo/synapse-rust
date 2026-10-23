@@ -73,7 +73,14 @@ pub fn create_relations_router(state: AppState) -> Router<AppState> {
     let with_event_router = create_relations_with_event_router();
 
     Router::new()
-        // A3：v1 双注册退役（A 族：同一 router 已在 v3 上）。
+        // `/_matrix/client/v1` 是规范正典：matrix-spec 的 `relations.yaml` 把
+        // `servers[0].variables.basePath.default` 定为 `/_matrix/client/v1`，
+        // 即三个 `/relations` 读端点的稳定前缀就是 v1，v3 只是本仓的历史别名。
+        // A3 第一批按"有 v3 孪生 ⇒ 可删"的旧判据把 v1 一起删了（该判据的错误见
+        // `docs/audit/A3_v1_deprecation_strategy.md`「第二批：一个必须先纠的判据错误」）：
+        // relations 属 B 族（规范指定 v1），删掉 v1 会让按规范实现的客户端 404。
+        // 这里恢复 v1，v3 别名保持原样。
+        .nest("/_matrix/client/v1", with_event_router.clone())
         .nest("/_matrix/client/v3", with_event_router)
         // 关系写入是非标准方法（spec 只有 GET 读），按 ISSUE-13 挂 vendor 前缀。
         // 刻意**在本文件里 nest**（而不是让 assembly 的 vendor router 去 merge）：

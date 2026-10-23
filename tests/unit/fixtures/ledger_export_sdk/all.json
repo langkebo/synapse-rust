@@ -8,7 +8,7 @@
     "worker_enabled": true,
     "saml_enabled": true
   },
-  "entry_count": 975,
+  "entry_count": 979,
   "entries": [
     {
       "method": "GET",
@@ -700,6 +700,20 @@
     },
     {
       "method": "GET",
+      "path": "/_matrix/client/v1/rooms/{room_id}/aggregations/{event_id}/{rel_type}",
+      "registered_by": "relations",
+      "path_params": [
+        "room_id",
+        "event_id",
+        "rel_type"
+      ],
+      "query_params": [
+        "from",
+        "limit"
+      ]
+    },
+    {
+      "method": "GET",
       "path": "/_matrix/client/v1/rooms/{room_id}/hierarchy",
       "registered_by": "search",
       "path_params": [
@@ -710,6 +724,60 @@
         "limit",
         "max_depth",
         "suggested_only"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}",
+      "registered_by": "relations",
+      "path_params": [
+        "room_id",
+        "event_id"
+      ],
+      "query_params": [
+        "dir",
+        "from",
+        "limit",
+        "org.matrix.msc3981.recurse",
+        "recurse",
+        "to"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}",
+      "registered_by": "relations",
+      "path_params": [
+        "room_id",
+        "event_id",
+        "rel_type"
+      ],
+      "query_params": [
+        "dir",
+        "from",
+        "limit",
+        "org.matrix.msc3981.recurse",
+        "recurse",
+        "to"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}",
+      "registered_by": "relations",
+      "path_params": [
+        "room_id",
+        "event_id",
+        "rel_type",
+        "event_type"
+      ],
+      "query_params": [
+        "dir",
+        "from",
+        "limit",
+        "org.matrix.msc3981.recurse",
+        "recurse",
+        "to"
       ]
     },
     {

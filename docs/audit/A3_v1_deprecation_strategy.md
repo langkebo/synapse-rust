@@ -289,3 +289,43 @@ B 族的逐条依据：
 3. 有没有可回退的替代路径？（没有 ⇒ 不能"后端先做、客户端后同步"）
 
 三条都不成立，才是 ISSUE-13 的迁移对象。
+
+---
+
+## 2026-10-23 第四批：relations v1 恢复（判据回归）
+
+第一批把 `relations.rs` 的 `/_matrix/client/v1` 挂载整体退掉（975 → 997 那批的 `rooms/*` 5 条之一），
+理由是「三条 `/relations` 读端点都有同 handler 的 v3 孪生」。**这个理由不成立**：
+
+- matrix-spec `data/api/client-server/relations.yaml` 的
+  `servers[0].variables.basePath.default` 就是 **`/_matrix/client/v1`**，且 `x-changed-in`/示例全部按 v1 书写；
+- 因此三个端点（`GET /rooms/{roomId}/relations/{eventId}`、
+  `…/{relType}`、`…/{relType}/{eventType}`）属 **规范指定 v1**（B 族），v3 只应视为本仓别名；
+- 按 `check_v1_deprecation.py` 的 B 族判据，这类端点**不得进入退役队列**。
+
+### 修复
+
+`synapse-web/src/routes/relations.rs` 恢复 `.nest("/_matrix/client/v1", with_event_router.clone())`，
+v3 挂载保留（别名）。路由条目 **975 → 979（净 +4）**，其中带 `aggregations` 过滤的
+`/relations/{eventId}/{relType}/{eventType}` 与三条读端点共 4 条 `(method, absolute_path)`；
+client 桶注册条目 329 → 333、唯一路径 242 → 246，模块数与逻辑端点不变。
+
+### 连带产物（同批重刷，缺一即 drift）
+
+`docs/openapi/route-table.json`、`route-table-sdk.json`、`docs/synapse-rust/ROUTE_CONTRACT.md`、
+`ROUTE_HANDLERS.json`、`API_COVERAGE_REPORT.md`（5 个生成块）、`synapse-web/src/routes/derived_route_table_always.inc.rs`、
+`tests/unit/fixtures/ledger_export{,_sdk}/*`、`tests/integration/snapshots/route_ledger_*.snapshot`、
+`scripts/contract/{ledger_annotations.txt,query_unknown_decisions.txt,v1_spec_keep_baseline.txt}`。
+
+### 判据修正（写死，避免第五批再犯）
+
+**「有 v3 孪生」从来不是删除依据**。判据排序固定为：
+
+1. 规范 `servers[*].variables.basePath.default`（或 endpoint 的 `x-changed-in`）明确指向 v1 ⇒ **B 族，保留**；
+2. 规范把该路径列在 v3 下且本仓有 v1 历史双注册 ⇒ A 族，可退；
+3. 无规范出处（私有扩展）⇒ 按 MSC 编号 / SDK 契约 / 回退路径三问裁定。
+
+`v1_spec_keep_baseline.txt` 因此新增 4 条（relations ×3 + aggregations 过滤组合 1 条 —— 后者
+**不是规范端点**，是为 Synapse 兼容面保留的 v1，依据列里已逐字标注，不与"规范指定"混记）。
+受此影响 `v1_surface_baseline` 由 `V1_ROUTES_MAX=39 / V1_PATHS_MAX=27` 据实放宽到
+`43 / 31`（**这是"v1 保留面"上限，不是退役队列计数**；可退队列仍为 0）。

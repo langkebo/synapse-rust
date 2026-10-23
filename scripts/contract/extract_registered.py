@@ -1662,6 +1662,23 @@ EXPECTED_ANNOTATIONS = {
         # B-20 残留（2026-10-21）：`dir` 由「接受但忽略」改为真排序（`f` 缺省 / `b`，其它 400）。
         "query_params": "dir,from,limit"
     },
+    # 2026-10-23：A3 第四批复核发现 relations 三个读端点的规范前缀就是 v1
+    # （matrix-spec `relations.yaml` 的 `basePath.default = /_matrix/client/v1`），
+    # 第一批把它们当 A 族一起删属误删；恢复 v1 挂载后这 4 条回到表里，
+    # 查询参数与 v3 孪生同形（同 handler）。
+    ("GET", "/_matrix/client/v1/rooms/{room_id}/aggregations/{event_id}/{rel_type}"): {
+        "query_params": "from,limit"
+    },
+    ("GET", "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}"): {
+        "query_params": "dir,from,limit,org.matrix.msc3981.recurse,recurse,to"
+    },
+    ("GET", "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}"): {
+        "query_params": "dir,from,limit,org.matrix.msc3981.recurse,recurse,to"
+    },
+    (
+        "GET",
+        "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}",
+    ): {"query_params": "dir,from,limit,org.matrix.msc3981.recurse,recurse,to"},
     ("GET", "/_matrix/vendor/v1/spaces/public"): {"query_params": "from,limit"},
     ("GET", "/_matrix/vendor/v1/spaces/search"): {
         "query_params": "limit,query,search_term"

@@ -55,7 +55,11 @@ POST	/_matrix/client/unstable/org.matrix.simplified_msc3575/sync	ignore	matrix-c
 GET	/_matrix/client/unstable/uk.half-shot.msc2666/user/mutual_rooms	ignore	shared-struct	MutualRoomsQuery
 GET	/_matrix/client/v1/media/preview_url	ignore	matrix-cs-ignore	PreviewUrlParams
 GET	/_matrix/client/v1/media/thumbnail/{server_name}/{media_id}	ignore	matrix-cs-ignore	ThumbnailQuery
+GET	/_matrix/client/v1/rooms/{room_id}/aggregations/{event_id}/{rel_type}	ignore	matrix-cs-ignore	AggregationsQuery
 GET	/_matrix/client/v1/rooms/{room_id}/hierarchy	ignore	matrix-cs-ignore	RoomHierarchyQuery
+GET	/_matrix/client/v1/rooms/{room_id}/relations/{event_id}	ignore	matrix-cs-ignore	RelationsQuery
+GET	/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}	ignore	matrix-cs-ignore	RelationsQuery
+GET	/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}	ignore	matrix-cs-ignore	RelationsQuery
 GET	/_matrix/client/v1/rooms/{room_id}/threads	ignore	shared-struct	ListQuery	ListQuery also serves /_matrix/vendor/v1/threads
 GET	/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}	ignore	matrix-cs-ignore	ThreadQuery
 GET	/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies	ignore	matrix-cs-ignore	RepliesQuery

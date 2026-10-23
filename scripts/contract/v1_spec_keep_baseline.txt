@@ -1,7 +1,10 @@
 # 规范指定用 `/v1` 的端点：**即使另有 v3 别名，v1 这一份也必须保留**。
 #
+# 也收「规范没写、但为保持 Synapse 兼容面必须保留」的端点（目前只有 aggregations 1 条，
+# 依据列里逐字标注 —— 不与"规范指定"混为一谈）。
+#
 # 为什么单独一份而不是并进 `v1_no_twin_baseline.txt`：后者是"没有 v3 孪生"的集合，
-# 而这里这 8 条**恰好有** v3 孪生 —— 于是"有孪生 ⇒ 可删"这条推断会把它们一起扫掉。
+# 而这里这些**恰好有** v3 孪生 —— 于是"有孪生 ⇒ 可删"这条推断会把它们一起扫掉。
 # 2026-10-22 A3 第二批之前，棘轮正是这么算的（可退队列 29 条里混了这 8 条）。
 #
 # 判据：Matrix 规范把该端点的稳定前缀定为 v1；仓库里那个 v3 路径是别名，
@@ -16,3 +19,7 @@ GET	/_matrix/client/v1/presence/{user_id}/status	治理文档 §13.5 明确列�
 POST	/_matrix/client/v1/presence/{user_id}/status	同上
 PUT	/_matrix/client/v1/presence/{user_id}/status	同上
 GET	/_matrix/client/v1/media/config	Matrix v1.11 媒体配置端点的稳定前缀就是 v1（见 docs/sdk/media.md §媒体配置）；v3 是别名
+GET	/_matrix/client/v1/rooms/{room_id}/relations/{event_id}	matrix-spec `data/api/client-server/relations.yaml` 的 `servers[0].variables.basePath.default` = `/_matrix/client/v1`；v3 是本仓别名（2026-10-23 第四批复核，第一批误删属 A 族误判）
+GET	/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}	同上（relations.yaml 第二条路径，同一 basePath）
+GET	/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}	同上（relations.yaml 第三条路径，同一 basePath）
+GET	/_matrix/client/v1/rooms/{room_id}/aggregations/{event_id}/{rel_type}	**非规范端点**：matrix-spec v1.6–v1.13 与 main 的 relations.yaml 只定义 3 条 relations 路径，聚合只在正文要求服务端提供；本仓目标是 Synapse 兼容，Synapse 的同名端点由 `client_patterns` 同时暴露 v1/v3，故保留 v1（不是"历史双注册"）

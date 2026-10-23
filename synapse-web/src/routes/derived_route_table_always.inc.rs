@@ -1,5 +1,5 @@
 fn all_derived_always_rows() -> Vec<DerivedRoute> {
-    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(956);
+    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(960);
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/", "assembly::create_router");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
@@ -472,8 +472,44 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
+        let e = RouteEntry::new(
+            axum::http::Method::GET,
+            "/_matrix/client/v1/rooms/{room_id}/aggregations/{event_id}/{rel_type}",
+            "relations",
+        )
+        .with_query_params(&["from", "limit"]);
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
         let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v1/rooms/{room_id}/hierarchy", "search")
             .with_query_params(&["from", "limit", "max_depth", "suggested_only"]);
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(
+            axum::http::Method::GET,
+            "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}",
+            "relations",
+        )
+        .with_query_params(&["dir", "from", "limit", "org.matrix.msc3981.recurse", "recurse", "to"]);
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(
+            axum::http::Method::GET,
+            "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}",
+            "relations",
+        )
+        .with_query_params(&["dir", "from", "limit", "org.matrix.msc3981.recurse", "recurse", "to"]);
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    {
+        let e = RouteEntry::new(
+            axum::http::Method::GET,
+            "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_type}",
+            "relations",
+        )
+        .with_query_params(&["dir", "from", "limit", "org.matrix.msc3981.recurse", "recurse", "to"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     {
