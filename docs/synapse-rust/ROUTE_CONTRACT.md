@@ -1680,13 +1680,13 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 | `["oidc"]` | 仅当合并 `oidc_enabled` 路由器（`oidc.enabled = true`）时可达 |
 
 - 推导自提取器的 `guards`，其累积集合是 `default ⊆ worker ⊆ all`；本字段发布的是**边际**（最小可服务档位），因此与本文档 §「运行时 Profile 门控」的 19 条门控路由（worker 11 + oidc 8）逐条对应。
-- 实测分布：`"" = 956` / `worker = 11` / `oidc = 8`，合计 975。
+- 实测分布（2026-10-24）：`"" = 960` / `worker = 11` / `oidc = 8`，合计 **979**（= `ROUTE_HANDLERS.json` 的 `counts.profile`）。
 - 下游用途：端点生成器/SDK 门禁可直接过滤掉默认部署下必然 404 的 worker / oidc 路由，不再需要自己解析 `derived_route_table_*.inc.rs`。
 - 守卫：某条路由若不属于三个档位中的任何一档（被一个没有任何部署会合并的 cfg 守卫包住），生成器**直接失败**而不是发布 `[]`（那等于谎称可达）。
 
 #### 2. `attribution` / `attribution_note`：归属是「推导」还是「钉死」（P2-10）
 
-- `derived`（1045 条）：`file` / `handler` 由注册点静态解析得到。
+- `derived`（976 条）：`file` / `handler` 由注册点静态解析得到。
 - `explicit`（3 条）：解析器**按构造**无法给出唯一定义，在 `gen_route_handlers.py` 的 `EXPLICIT_ROUTE_HANDLERS` 中带证据钉死，`attribution_note` 说明原因：
 
 | Method | Path | `file` / `handler` | 原因 |
@@ -1699,9 +1699,9 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 
 #### 3. 结果：`status` / `confidence` 不再有不确定档
 
-- `status`：`exact = 975`（`ambiguous` 0、`unresolved` 0）；`confidence`：`high = 975`（`low` 0、`none` 0）。
+- `status`：`exact = 979`（`ambiguous` 0、`unresolved` 0）；`confidence`：`high = 979`（`low` 0、`none` 0）。数字取自 `ROUTE_HANDLERS.json` 的 `counts.status` / `counts.confidence`（2026-10-24）。
 - 因此 `ledger_annotations.txt` 的 `dynamic=true` 清单与 `EXPECTED_ANNOTATIONS` 中的对应项**已清空**（原唯一成员就是 `GET /`）。`check_dynamic_allowlist()` 的双向相等约束保留，空集是预期稳态。
-- `body` / `query` 的 `ambiguous` 桶随之归零（`body: none` 690 / `opaque` 99 / `typed` 240 / `foreign` 19；`query: typed` 201 / `none` 847）。
+- `body` / `query` 的 `ambiguous` 桶随之归零（2026-10-24 实测：`body` `none` 658 / `opaque` 80 / `typed` 226 / `foreign` 15；`query` `typed` 190 / `none` 789 —— 均取自 `counts`）。
 
 ### A.11 2026-10-21 sidecar schema v5：`query_unknown` / `query_ignored`（P2-7 + P2-8）
 
@@ -1862,9 +1862,13 @@ EXTERNAL_TYPE_FILES = ("synapse-storage/src/sliding_sync/models.rs",)
 
 > 本附录为人工维护，基于 **SDK Manager 源码 + 后端 handler 源码双侧实读**，逐条核对「已封装后端功能」的完整性；重新生成脚本不覆盖本段。
 > **审计对象**：`@langkebo/matrix-js-sdk@40.2.0-langkebo.5`（`/Users/ljf/Desktop/hu_ts/matrix-js-sdk`）。
-> **后端事实源**：本文件路由面（**975** 条路由 / **66** 个模块）+ `synapse-web/src/routes/**` handler 源码。
-> 　· 计数口径（2026-10-22 复核）：**975** = `all` profile 去重后的 `method + path` 条目数（`tests/unit/fixtures/ledger_export_sdk/all.json` 的 `entry_count`，与 `derived_route_table_*.inc.rs` 生成表逐条一致）；
-> 　· **66** = 含路由注册的模块文件数（细粒度 `registered_by` 共 **75** 个；旧文本写的「51 模块 / 74 标签」「65 模块」是更早口径，已废弃）。
+> **后端事实源**：本文件路由面（**979** 条路由）+ `synapse-web/src/routes/**` handler 源码。
+> 　· 计数口径（2026-10-24 复核）：**979** = `all` profile 去重后的 `method + path` 条目数，三处独立读数一致 ——
+> 　　`tests/unit/fixtures/ledger_export_sdk/all.json` 的 `entry_count`、`docs/synapse-rust/ROUTE_HANDLERS.json` 的 `counts.routes`、
+> 　　以及 `derived_route_table_*.inc.rs` 的 981 行去重结果（960 `always` + 11 `worker` + 10 `oidc`）。
+> 　· **模块口径**（同一份 sidecar 现算，2026-10-24）：含路由注册的源文件 `file` 共 **113** 个；`registered_by` 标签 **74** 个；
+> 　　其首段（模块）**51** 个。⚠️ 旧文本的「**66** 模块 / **75** 标签」**没有任何可复现定义**（按上面三种口径都算不出来），已废止，勿再引用。
+> 　· 复算：`python3 -c "import json;d=json.load(open('docs/synapse-rust/ROUTE_HANDLERS.json'));print(len(d['routes']), len({r['file'] for r in d['routes']}), len({r['registered_by'] for r in d['routes']}), len({r['registered_by'].split('::')[0] for r in d['routes']}))"`
 > **证据产物**：`artifacts/sdk-contract-gap-report.md`、`artifacts/sdk-contract-gap.json`、`scripts/quality/path-contract-coverage.json`；镜像 commit **`2946e19eb`**（2026-10-17）。
 > ⚠️ **时点提示**：本节 B.1–B.7 的**所有数字**（覆盖率、分桶、缺口条数）都是 **2026-10-09 审计时点**的口径，此后后端与 SDK 均有前进；
 > 　　需要当前值请以 `compare-routes.mjs` 的当次输出为准。**结论层面的复核见 B.8（2026-10-17）**。
@@ -1959,7 +1963,7 @@ EXTERNAL_TYPE_FILES = ("synapse-storage/src/sliding_sync/models.rs",)
 4. **复现命令**（在 `/Users/ljf/Desktop/hu_ts/matrix-js-sdk`）：
    - 审计：`pnpm contract:sync && pnpm contract:codegen && node scripts/audit/compare-routes.mjs`
    - 门禁：`pnpm quality:path-contract`（另有 `quality:admin-response-contract` / `quality:contract-drift` / `quality:sdk-contracts` / `quality:route-set-parity`）。
-5. **口径提示**：`generate_sdk_ledger_fixtures.sh` 头部注释里的条数只是**示例历史值**，请以当次实测为准：**975**（2026-10-22 A3 第二批后；第一批后为 997；2026-10-20 时为 1048；2026-10-19 时为 1046、2026-10-18 时为 1041、2026-10-17 时为 1038、2026-10-09 时为 1030）；一律以本文件头部计数与 `sdk-contract-gap.json` 当次实测为准。
+5. **口径提示**：`generate_sdk_ledger_fixtures.sh` 头部注释里的条数只是**示例历史值**，请以当次实测为准：**979**（2026-10-24；2026-10-22 A3 第二批后为 975；第一批后为 997；2026-10-20 时为 1048；2026-10-19 时为 1046、2026-10-18 时为 1041、2026-10-17 时为 1038、2026-10-09 时为 1030）；一律以本文件头部计数与 `sdk-contract-gap.json` 当次实测为准。
 
 ### B.8 复核结论（2026-10-17，双侧源码 + 真实后端联调）
 
@@ -2308,9 +2312,17 @@ EXTERNAL_TYPE_FILES = ("synapse-storage/src/sliding_sync/models.rs",)
 
 | 产物 | 坐标 | 条数 | 用途 |
 |---|---|---|---|
-| `docs/openapi/route-table.json` | golden × default | **968** | CI drift 基线、`placeholder_scan_tests` 的唯一输入 |
-| `docs/openapi/route-table-sdk.json` | sdk × all | **975** | SDK 实际摄入的最大完整面 |
-| `tests/unit/fixtures/ledger_export{,_sdk}/{default,worker,all}.json` | 两 lane × 三 profile，共 6 份 | 968/979/986、1029/1040/1048 | 契约提取的输入 |
+| `docs/openapi/route-table.json` | golden × default | **899** | CI drift 基线、`placeholder_scan_tests` 的唯一输入 |
+| `docs/openapi/route-table-sdk.json` | sdk × all | **979** | SDK 实际摄入的最大完整面 |
+| `tests/unit/fixtures/ledger_export{,_sdk}/{default,worker,all}.json` | 两 lane × 三 profile，共 6 份 | **各文件自带 `entry_count`**（实测 899/910/917、960/971/979）—— 不在此手抄，见下方复算命令 | 契约提取的输入 |
+
+> **这三行不再手抄数字的理由**：2026-10-24 复核发现它们全是旧读数（`968 / 975` 与
+> `968/979/986、1029/1040/1048`），而 R6 门禁只比对 `route-table-sdk.json` 与 fixture，
+> **不比对本文档的文字**——于是文档可以一直错下去而不变红。前两行改成 2026-10-24 实测值，
+> 第三行改成"读各文件自己的 `entry_count`"：文件已经自述条数，再抄一遍就是第四份表示。
+>
+> 复算：`for f in docs/openapi/route-table{-sdk,}.json; do python3 -c "import json,sys;d=json.load(open(sys.argv[1]));print(sys.argv[1], d['lane'], d['profile'], d['total_routes'])" "$f"; done`
+> 　　　`for f in tests/unit/fixtures/ledger_export{,_sdk}/{default,worker,all}.json; do python3 -c "import json,sys;print(sys.argv[1], json.load(open(sys.argv[1]))['entry_count'])" "$f"; done`
 
 1. **不把派生路由标 `derived: true`**：`voice` 在 golden 视图里为 0，根因是 `voice-extended`
    只编进 sdk lane，不是「派生表不同源」。打标记只会掩盖 lane 差异，故改为**同一生成器的第二个
@@ -2327,6 +2339,10 @@ EXTERNAL_TYPE_FILES = ("synapse-storage/src/sliding_sync/models.rs",)
 
 ### E.13 本轮计数变化
 
+> ⚠️ **历史增量表（2026-09 那一轮，当时值）**：下面的 `1048 / 968 / 1339` 是**那次改动的前后差**，
+> 不是当前值。当前值：sdk × all **979**、golden × default **899**（见 E.12）。
+> 保留它是因为它记录了"为什么多了这两条路由"，删掉会丢失动机；但**不要拿它当读数**。
+
 | 指标 | 修复前 | 修复后 | 差值来源 |
 |---|---|---|---|
 | sdk × all 路由数 | 1046 | **1048** | `+DELETE /_matrix/vendor/v1/voice/{media_id}`、`+POST /_synapse/admin/v1/deactivate/{user_id}` |
@@ -2336,7 +2352,7 @@ EXTERNAL_TYPE_FILES = ("synapse-storage/src/sliding_sync/models.rs",)
 
 ### E.14 2026-10-21 B-29 / B-20 残留与工具面类型化 query
 
-本轮**不改路由数**（仍为 golden × default 968、sdk × all 1048），只补齐三处可选参数的
+本轮**不改路由数**（当时为 golden × default 968、sdk × all 1048；**2026-10-24 当前值：899 / 979**，见 E.12），只补齐三处可选参数的
 真实语义、一处「接受但忽略」，并把 5 条动态 query 提取器改为类型化 `Query<T>`。
 口径统一为：**能力要么真实现，要么显式 400**，不存在「接受后静默丢弃」。
 

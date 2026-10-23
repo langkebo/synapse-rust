@@ -32,6 +32,7 @@ PERF-12 / DOC-07）的核心判据是「同一事实多份表示」：测试文�
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import subprocess
 import sys
@@ -118,6 +119,39 @@ def clippy_allow_counts() -> tuple[int, int]:
     return sites, files
 
 
+def _json_int(rel: str, dotted: str) -> int:
+    """读 JSON 里的整数字段（`dotted` 支持 `counts.routes` 这种一层的点号路径）。"""
+    node: object = json.loads((REPO / rel).read_text(encoding="utf-8"))
+    for part in dotted.split("."):
+        if not isinstance(node, dict) or part not in node:
+            raise SystemExit(
+                f"FAIL {rel}: 缺少字段 {dotted!r}（度量真源变了，先修本脚本）"
+            )
+        node = node[part]
+    if not isinstance(node, int):
+        raise SystemExit(f"FAIL {rel}: {dotted} 不是整数而是 {type(node).__name__}")
+    return node
+
+
+def derived_table_rows() -> int:
+    """`derived_route_table_*.inc.rs` 里 `rows.push(DerivedRoute` 的行数（去重前）。
+
+    这个数只出现在文档的"981 行去重为 979 条"这句解释里 —— 它是**生成物**的属性，
+    不是路由面的属性，所以不能从 `ROUTE_HANDLERS.json` 推。多 profile 会把同一条
+    `(method, path)` 推两次，差额就是文档里说的"孪生行"。
+    """
+    total = 0
+    for path in sorted(
+        (REPO / "synapse-web/src/routes").glob("derived_route_table_*.inc.rs")
+    ):
+        total += sum(
+            1
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if "rows.push(DerivedRoute" in line
+        )
+    return total
+
+
 METRICS = {
     "TEST_FILES_TESTS_DIR": lambda: len(git_files("tests")),
     "TEST_FILES_TESTS_DIR_RS": lambda: len(
@@ -131,6 +165,19 @@ METRICS = {
     "INDEXES_DOC_ROWS": indexes_doc_rows,
     "CLIPPY_ALLOW_SITES": lambda: clippy_allow_counts()[0],
     "CLIPPY_ALLOW_FILES": lambda: clippy_allow_counts()[1],
+    # 路由面：`ROUTE_CONTRACT.md` 的附录是"生成时原样保留"的人工段，里面的条数没有任何
+    # 门禁看着（R6 只比对 route-table-sdk 与 fixture，不比对文档文字）。
+    # 实测过：正文写 975/968、fixture 三连写 1029/1040/1048，而真值早已是 979/899。
+    "ROUTE_TABLE_GOLDEN": lambda: _json_int(
+        "docs/openapi/route-table.json", "total_routes"
+    ),
+    "ROUTE_TABLE_SDK": lambda: _json_int(
+        "docs/openapi/route-table-sdk.json", "total_routes"
+    ),
+    "LIVE_ROUTES": lambda: _json_int(
+        "docs/synapse-rust/ROUTE_HANDLERS.json", "counts.routes"
+    ),
+    "DERIVED_TABLE_ROWS": derived_table_rows,
 }
 
 # 块所在文档 → 该块必须出现的受管键。
@@ -198,6 +245,33 @@ INLINE_SITES: tuple[tuple[str, str, str, str], ...] = (
         "TEST_FILES_INTEGRATION",
         r"integration/ +# 集成测试（约 (?P<v>\d+) 个文件）",
         "工作区规则 §9.1：integration 文件数",
+    ),
+    # `ROUTE_CONTRACT.md` 的附录是"生成时原样保留"的人工段 —— 下面的数字以前没人看，
+    # 实测已经腐坏到 975/968（真值 979/899）。只锚定"当前值"的表述，历史增量表
+    # （E.13/E.14）用 `⚠️ 历史…当时值` 标注，不做锚点。
+    (
+        "docs/synapse-rust/ROUTE_CONTRACT.md",
+        "ROUTE_TABLE_GOLDEN",
+        r"golden × default \| \*\*(?P<v>\d+)\*\*",
+        "E.12 表：route-table.json（golden × default）条数",
+    ),
+    (
+        "docs/synapse-rust/ROUTE_CONTRACT.md",
+        "ROUTE_TABLE_SDK",
+        r"sdk × all \| \*\*(?P<v>\d+)\*\*",
+        "E.12 表：route-table-sdk.json（sdk × all）条数",
+    ),
+    (
+        "docs/synapse-rust/ROUTE_CONTRACT.md",
+        "LIVE_ROUTES",
+        r"本文件路由面（\*\*(?P<v>\d+)\*\* 条路由）",
+        "附录 B「后端事实源」：当前路由面条数",
+    ),
+    (
+        "docs/synapse-rust/ROUTE_CONTRACT.md",
+        "DERIVED_TABLE_ROWS",
+        r"(?P<v>\d+) 行去重为 \d+ 条",
+        "总览：派生表行数（去重前）",
     ),
 )
 
