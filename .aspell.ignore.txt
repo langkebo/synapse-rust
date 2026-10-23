@@ -340,6 +340,7 @@ federationauth
 federationclient
 federationcontext
 federationqueuestoreapi
+federationreader
 federationslow
 ffi
 fh

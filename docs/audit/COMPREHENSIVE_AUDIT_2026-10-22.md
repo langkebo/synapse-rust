@@ -1414,22 +1414,22 @@ fn is_admin_request_allowed(role: &str, method: &Method, path: &str, rbac_enable
 >
 > - **`EXPLAIN` 快照没有新增**。"外加 EXPLAIN 快照"针对的是索引层，第一层已接入 `schema-health-check.yml`（`EXPLAIN_CHECK_EXISTING_DB=1` 复用该车道的基线库）；第三层全是分批与错误码，没有新增查询形态。现有 `scripts/ci/pagination_perf_gate.sh` 只覆盖 `/messages` keyset 分页，本层不涉及——不为凑门禁造快照。
 > - **"单批行数 ≤ batch_size"的断言已落地**：`prune_batches_never_ask_for_more_than_the_batch_size` 直接断言每批上限（不依赖真库），`prune_batches_stop_on_an_empty_backlog` 锁终止条件，`prune_drains_a_backlog_larger_than_one_batch` 用 `PRUNE_BATCH_SIZE + 1` 行证明跨批推进。`test(prune)` 过滤 12 条全绿。
-> - **全量门禁实测**（`E2EE_INTEROP=1 cargo nextest run --workspace --all-features --no-fail-fast`）：**10736 tests run: 10720 passed, 16 failed, 16 skipped**。16 条逐条甄别如下——本批次自身引入的两条红已在本批次内修掉（基线指纹常量、我在真库用例里自建 `CREATE TABLE`），其余均可在纯 HEAD `e5153b376` 工作树或环境层面复现：
+> - **全量门禁实测**（`E2EE_INTEROP=1 cargo nextest run --workspace --all-features --no-fail-fast`）：**10736 tests run: 10720 passed, 16 failed, 16 skipped**。16 条已全部修绿（提交 `e5f445546` + `fff8227c0`），逐条真实根因如下——**没有一条是"抖动"或"环境问题"**，原判定表把结构性缺陷记成抖动/环境，是当时未深挖的错误结论：
 >
-> | 失败用例 | 判定 |
-> |---|---|
-> | `api_beacon_location_tests::test_beacon_location_applies_room_backpressure_token_bucket` | 抖动（单跑通过） |
-> | `api_key_backup_route_table_tests::key_backup_routes_are_wired_under_v1_and_r0` | HEAD 既有（纯 HEAD 工作树复现） |
-> | `api_placeholder_contract_p1p2_tests::test_power_levels_contract_rejects_non_members` | HEAD 既有 |
-> | `api_relations_authorization_tests::relations_event_type_route_filters_over_http` | HEAD 既有 |
-> | `api_route_ledger_tests::declared_route_manifest_full_snapshot_matches_{default,worker_enabled}_state`（2 条） | HEAD 既有；实测快照漂移 928 → 956 **全部是 `saml`/`cas` 命名空间路由**，与 W4 无关 |
-> | `sqlx_cache_tooling_guard_tests::converge_{drops_the_frozen_list_and_never_re_consults_the_reference, rejects_a_vacuous_post_check_when_the_reference_collapses_mid_apply}`（2 条） | HEAD 既有；沙箱桩脚本与测试期望脱节（`d57_probe` 是桩的 seed 数据，不是真表） |
-> | `sqlx_ratio_gate_tests`（4 条）+ `sqlx_dynamic_literal_guard_tests::no_new_production_literal_dynamic_sql` | HEAD 既有计数漂移（纯 HEAD 工作树同样红） |
-> | `test_ddl_guard_tests::no_unallowlisted_self_built_schema_in_tests_dir` | HEAD 既有：指向 `tests/integration/registration_service_tests_migrated.rs::register_is_atomic:189`，本批次未触碰该文件 |
-> | `monitoring::db_tests::database_monitor_round_trip_on_the_migration_template` | 环境：`pg_stat_database.deadlocks` 是库级累计值，并行历史累积（实测 5） |
-> | `worker::tests::test_worker_type_owned_route_prefixes` | HEAD 既有：`a796b7e67`（W-F）改了 `worker/models.rs` 的前缀表未同步该用例 |
+> | 失败用例 | 真实根因 | 修法 |
+> |---|---|---|
+> | `api_beacon_location_tests::test_beacon_location_applies_room_backpressure_token_bucket` | 不是抖动：房间级令牌桶容量 20、每秒回填 5，且**按墙钟回填**；旧用例靠"多发几条"抽干桶，但每轮请求本身的耗时会被回填抵消 ⇒ 结构性不可能稳定落到 429 | 用"恒 400 但同样消费令牌"的请求抽水（6 抽水者 × ≤15 轮，≫20 容量），再用合法探针断言 429 + `M_LIMIT_EXCEEDED` + `retry_after_ms` |
+> | `api_key_backup_route_table_tests::key_backup_routes_are_wired_under_v1_and_r0` | A3 第一批已退役 `key_backup` 的 v1 双注册（`key_backup.rs` 只 nest v3），用例仍在断言 v1 可路由 | 改名为 `..._v3_and_v1_is_retired`，对 v1 两条路径断言 `404` —— 反向守卫退役决定 |
+> | `api_placeholder_contract_p1p2_tests::test_power_levels_contract_rejects_non_members` | A3 第二批删掉 `state/m.room.power_levels` 的 v1 孪生（v3 保留） | URI 改打 `/_matrix/client/v3/...`，注释指向 A3 第二批 |
+> | `api_relations_authorization_tests::relations_event_type_route_filters_over_http` | 同 A3 第一批误删：规范 `relations.yaml` 的 `basePath.default` 就是 `/_matrix/client/v1`，v1 是正典 | **修生产侧**：`relations.rs` 恢复 v1 nest（第四批，975 → 979），不是改测试 |
+> | `api_route_ledger_tests::declared_route_manifest_full_snapshot_matches_{default,worker_enabled}_state`（2 条） | 快照漂移不是 `saml`/`cas`：是 A3 一/二/四批的净变化叠加（1,048 → 979）后未重刷 | 用 `route_ledger` 生成器重刷两份 snapshot + 7 份 ledger fixture |
+> | `sqlx_cache_tooling_guard_tests::converge_{drops_the_frozen_list_and_never_re_consults_the_reference, rejects_a_vacuous_post_check_when_the_reference_collapses_mid_apply}`（2 条） | 本机 shell 导出 `TEST_DB_TEMPLATE_SCHEMA=public`，隔离池克隆模板时把桩 schema 顶掉 | 跑门禁一律 `env -u TEST_DB_TEMPLATE_SCHEMA`（已写入 CI 口径） |
+> | `sqlx_ratio_gate_tests`（4 条）+ `sqlx_dynamic_literal_guard_tests::no_new_production_literal_dynamic_sql` | 本批测试修法新增了测试区动态 SQL（`#[cfg(test)]` 的 `query!` 不进 `cargo sqlx prepare`），计数棘轮未同步 | `BASELINE_DYNAMIC_TEST_INFRA` 779 → 780，逐处归因写入 `SQLX_STATICIZATION_PLAN_2026-09-23.md`；`BASELINE_STATIC` 1,363 / `BASELINE_DYNAMIC` 912 不变 |
+> | `test_ddl_guard_tests::no_unallowlisted_self_built_schema_in_tests_dir` | `registration_service_tests_migrated.rs::register_is_atomic` 自建 schema 未登记 | 加入 DDL 允许名单（21 → 22 键） |
+> | `monitoring::db_tests::database_monitor_round_trip_on_the_migration_template` | 不是环境噪声：`pg_stat_database.deadlocks` 是**库级累计单调**计数器，并行历史与旧跑批永久累加（本机实测 8），断言 `== 0` 结构上不可能稳定成立 | 改为「调用前后各直读一次累计值 + 区间断言」，需一处测试区运行时 `query_scalar` |
+> | `worker::tests::test_worker_type_owned_route_prefixes` | `worker/models.rs` 的 `owned_route_prefixes()` 已扩展（Frontend 含 `/_matrix/vendor/v1/*`、Synchrotron 含 `/_matrix/vendor/v1/rooms/*/sync`、FederationReader 含 `/_matrix/key/*`），用例断言未跟 | 断言跟随生产实现（不削弱：仍是 prefix 全等比较） |
 >
-> 另：`.sqlx` 净增 0（删 11 增 11，条目仍 1327），`scripts/ci/check_sqlx_cache_fresh.sh --compile` 通过。
+> 另：`.sqlx` 净增 3（`invite_blocklist` ×2 改静态宏 + `chunked_upload` ×1），条目 1,324；`scripts/ci/check_sqlx_cache_fresh.sh --compile` 通过。
 
 **门禁**：`cargo nextest run --workspace`；外加 `EXPLAIN` 快照（新增）；prune 用例需断言"单批行数 ≤ batch_size"。
 
