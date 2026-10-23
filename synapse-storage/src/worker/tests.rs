@@ -108,12 +108,15 @@ fn test_worker_type_owned_route_prefixes() {
         WorkerType::Master.owned_route_prefixes(),
         &["/_matrix/client/*", "/_matrix/federation/*", "/_matrix/media/*", "/_synapse/admin/*", "/_synapse/worker/*"]
     );
-    assert_eq!(WorkerType::Frontend.owned_route_prefixes(), &["/_matrix/client/*"]);
+    assert_eq!(WorkerType::Frontend.owned_route_prefixes(), &["/_matrix/client/*", "/_matrix/vendor/v1/*"]);
     assert_eq!(WorkerType::Background.owned_route_prefixes(), &["/_synapse/worker/*"]);
     assert_eq!(WorkerType::EventPersister.owned_route_prefixes(), &["/_synapse/worker/v1/replication/*"]);
-    assert_eq!(WorkerType::Synchrotron.owned_route_prefixes(), &["/_matrix/client/*/sync", "/_matrix/client/v3/sync"]);
+    assert_eq!(
+        WorkerType::Synchrotron.owned_route_prefixes(),
+        &["/_matrix/client/*/sync", "/_matrix/vendor/v1/rooms/*/sync"]
+    );
     assert_eq!(WorkerType::FederationSender.owned_route_prefixes(), &[] as &[&str]);
-    assert_eq!(WorkerType::FederationReader.owned_route_prefixes(), &["/_matrix/federation/*"]);
+    assert_eq!(WorkerType::FederationReader.owned_route_prefixes(), &["/_matrix/federation/*", "/_matrix/key/*"]);
     assert_eq!(WorkerType::MediaRepository.owned_route_prefixes(), &["/_matrix/media/*"]);
     assert_eq!(WorkerType::Pusher.owned_route_prefixes(), &[] as &[&str]);
     assert_eq!(WorkerType::AppService.owned_route_prefixes(), &["/_matrix/app/*"]);

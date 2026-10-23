@@ -311,13 +311,13 @@ impl ChunkedUploadStorage {
     /// billed usage once finalized. `exclude_upload_id` lets the finalizer ignore
     /// the upload being converted from pending to used.
     pub async fn pending_bytes(&self, user_id: &str, exclude_upload_id: Option<&str>) -> Result<i64, ApiError> {
-        sqlx::query_scalar::<_, i64>(
-            r#"SELECT COALESCE(SUM(total_size), 0)::BIGINT
+        sqlx::query_scalar!(
+            r#"SELECT COALESCE(SUM(total_size), 0)::BIGINT AS "pending_bytes!"
                FROM upload_progress
                WHERE user_id = $1 AND status IN ('pending', 'complete') AND ($2::TEXT IS NULL OR upload_id <> $2)"#,
+            user_id,
+            exclude_upload_id,
         )
-        .bind(user_id)
-        .bind(exclude_upload_id)
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to sum pending upload bytes", e))

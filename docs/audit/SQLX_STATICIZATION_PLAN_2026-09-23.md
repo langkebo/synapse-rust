@@ -2191,11 +2191,32 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 <!-- sqlx-plan-numbers:start -->
 <!-- 以下数字由 `scripts/ci/check_plan_numbers_fresh.sh` 与基线/实测现算比对；改基线必须同步改这里。 -->
 BASELINE_DYNAMIC_PRODUCTION=133
-BASELINE_DYNAMIC_TEST_INFRA=767
-BASELINE_STATIC=1367
+BASELINE_DYNAMIC_TEST_INFRA=780
+BASELINE_STATIC=1363
 BASELINE_QUERY_BUILDER=17
-SQLX_CACHE_ENTRIES=1321
+SQLX_CACHE_ENTRIES=1324
 <!-- sqlx-plan-numbers:end -->
+
+> **2026-10-23 更新（测试红灯修复批：补钉 W1/W4/批次 4 落地后的棘轮读数）**，
+> 数字块按实测同步三处：
+> - `BASELINE_DYNAMIC_TEST_INFRA` **767 → 779**（+12）：全部是 W4 第二层查询形态收口
+>   （`0d18fede0`）带来的 per-test 隔离 schema 夹具 —— `invite_blocklist.rs` +10、
+>   `synapse-services/src/media/tests.rs` +1、`event/db_tests.rs` +1。
+> - `BASELINE_STATIC` **1367 → 1363**（−4 净额）：批次 4 删除零引用表 `user_locks`
+>   （−5）与 `notification_delivery_log`（−1），W1 新增 `update_displayname_tx` 与
+>   `create_token_tx`（共 +2）—— 均为有意的增删，非"静态换动态"。
+> - `SQLX_CACHE_ENTRIES` **1321 → 1324**（+3）：同一批把 W4 退回运行时的三处查询
+>   （`invite_blocklist.rs` 的行锁 / 全局限锁、`media/chunked_upload.rs::pending_bytes`）
+>   改回静态宏（`AS "locked!"` / `IS NULL` / `AS "pending_bytes!"`），
+>   `BASELINE_DYNAMIC_PRODUCTION` 保持 133（实测 136 → 133）。
+> - `BASELINE_DYNAMIC_PRODUCTION` 与 `BASELINE_QUERY_BUILDER` 不变。
+> - 补钉：`BASELINE_DYNAMIC_TEST_INFRA` 779 → **780**（+1）。来源唯一 ——
+>   `synapse-storage/src/monitoring.rs::database_monitor_round_trip_on_the_migration_template`
+>   原断言 `deadlock_count == 0` 与 `pg_stat_database.deadlocks` 的**库级累计单调**语义冲突
+>   （并行历史与旧跑批永久累加，本机实测 8，结构上不可能稳定为 0），改为「调用前后各直读
+>   一次累计值 + 区间断言」，需一处测试区运行时 `query_scalar`。不能改静态宏的原因同上
+>   （`#[cfg(test)]` 的 `query!` 不进 `cargo sqlx prepare`）。收紧方向：把该直读抽成生产侧
+>   `read_database_deadlocks(pool)` 的静态形态（届时本项回落 779、`BASELINE_STATIC` +1）。
 
 > **2026-10-21 更新（B-34 push rules 排序参数 + `event_search` 物化 FTS 收尾）**，
 > 数字块五项按实测同步：

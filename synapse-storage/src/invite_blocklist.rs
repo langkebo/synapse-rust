@@ -64,8 +64,7 @@ impl InviteBlocklistStorage {
     /// lock releases with the transaction. A missing room needs no lock — the
     /// foreign key rejects the insert anyway.
     async fn lock_room_row(conn: &mut sqlx::PgConnection, room_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query_scalar::<_, i32>("SELECT 1 FROM rooms WHERE room_id = $1 FOR UPDATE")
-            .bind(room_id)
+        sqlx::query_scalar!(r#"SELECT 1 AS "locked!" FROM rooms WHERE room_id = $1 FOR UPDATE"#, room_id)
             .fetch_optional(conn)
             .await?;
         Ok(())
@@ -74,7 +73,9 @@ impl InviteBlocklistStorage {
     /// Serialise writers of the global invite lists (see
     /// [`GLOBAL_INVITE_LISTS_LOCK_KEY`]). Held until the transaction ends.
     async fn lock_global_invite_lists(conn: &mut sqlx::PgConnection) -> Result<(), sqlx::Error> {
-        sqlx::query("SELECT pg_advisory_xact_lock($1)").bind(GLOBAL_INVITE_LISTS_LOCK_KEY).execute(conn).await?;
+        sqlx::query_scalar!("SELECT pg_advisory_xact_lock($1) IS NULL", GLOBAL_INVITE_LISTS_LOCK_KEY)
+            .fetch_one(conn)
+            .await?;
         Ok(())
     }
 

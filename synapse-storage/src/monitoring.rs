@@ -471,12 +471,36 @@ mod db_tests {
 
         // get_performance_metrics：`pg_stat_database` 一定有当前库的一行 ⇒ 取到真值；
         // 没有 redis pool ⇒ 两个 redis 指标为 0；命中率必须落在 [0, 1]；TPS 有限。
+        //
+        // ⚠️ `deadlocks` 是**库级累计值**（不是本次会话的计数），并行历史与旧跑批会把
+        // 它永久累加（本机实测 8）⇒ 不能断言 0。可断言的、同样能变红的不变量是
+        // **往返保真 + 单调**：监控读到的值必须落在"调用前/调用后"两次直读之间。
+        // 若实现把该字段写死成 0 或读错列，`>= before` 立即失败。
+        // 测试侧一律用运行时 `query_scalar`（`#[cfg(test)]` 里的 `query!` 不进
+        // `cargo sqlx prepare`，会让 `SQLX_OFFLINE=true` 的构建找不到缓存条目）。
+        let read_deadlocks = || async {
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COALESCE(deadlocks, 0) FROM pg_stat_database WHERE datname = current_database()",
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap() as u64
+        };
+
+        let deadlocks_before = read_deadlocks().await;
+
         let perf = monitor.get_performance_metrics().await.unwrap();
         assert_eq!(perf.redis_latency_ms, 0.0);
         assert_eq!(perf.redis_slow_commands_count, 0);
         assert!((0.0..=1.0).contains(&perf.cache_hit_ratio), "命中率越界: {}", perf.cache_hit_ratio);
         assert!(perf.transactions_per_second.is_finite());
-        assert_eq!(perf.deadlock_count, 0);
+
+        let deadlocks_after = read_deadlocks().await;
+        assert!(
+            perf.deadlock_count >= deadlocks_before && perf.deadlock_count <= deadlocks_after,
+            "deadlock_count 必须读自当前库的累计值（before={deadlocks_before}, got={}, after={deadlocks_after}）",
+            perf.deadlock_count
+        );
 
         // get_full_health_status：把上面三者串起来（它内部会再调一次 check_connection）。
         let health = monitor.get_full_health_status().await.unwrap();

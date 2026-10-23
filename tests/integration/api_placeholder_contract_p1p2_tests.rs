@@ -256,7 +256,9 @@ async fn test_power_levels_contract_rejects_non_members() {
         &app,
         Request::builder()
             .method("GET")
-            .uri(format!("/_matrix/client/v1/rooms/{}/state/m.room.power_levels/", encoded_room_id))
+            // 房间状态端点的规范前缀是 v3；`/_matrix/client/v1` 的那个孪生是
+            // A3 第二批删掉的历史双注册（A 族），再用 v1 打会 404 而不是 403。
+            .uri(format!("/_matrix/client/v3/rooms/{}/state/m.room.power_levels/", encoded_room_id))
             .header("Authorization", format!("Bearer {}", outsider_token))
             .body(Body::empty())
             .unwrap(),

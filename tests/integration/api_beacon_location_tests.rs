@@ -332,34 +332,83 @@ async fn test_beacon_location_applies_room_backpressure_token_bucket() {
         return;
     };
 
+    // 房间级令牌桶在 `synapse-services/src/beacon_service.rs`：容量 20、每秒回填 5，
+    // 且**按墙钟回填**（`CacheManager::rate_limit_token_bucket_take` 取的是
+    // `SystemTime::now()`）。所以「顺序发 40 条」能否打出 429 取决于单条请求耗时：
+    // 桶耗尽的充要条件是 `n > 19 + 5·t`（t = 整批墙钟秒数），即单条平均耗时必须
+    // < 200ms，机器一忙就永远没有 429 —— 这正是本用例历史抖动的真实根因；而改成
+    // 40 路并发又会撞 `#[tokio::test]` current_thread runtime 下的 30s 服务端超时
+    //（实测 504 M_REQUEST_TIMEOUT）。
+    //
+    // 确定性做法：利用 `build_beacon_location_params` 的判定顺序 ——
+    // **房间令牌桶先于 1Hz 判定**，而被 1Hz 判掉的请求（`m.ts` 不递增 ⇒ 400）
+    // **不写位置行、也不计入配额**（配额按已插入行计数）。于是一串 `m.ts` 与最新
+    // 位置相同的廉价 400 就成了「消费 1 个房间令牌然后被拒」的抽水机，把桶抽干，
+    // 再立刻用一条本应合法的探针观测 429。
+    //
+    // 抽水请求轮流由 6 个参与者发出、每人 ≤15 次（< 桶容量 20）：若实现退化成
+    // 「按发送者」限流（每人 20 个令牌），房间桶永远不会空，探针会拿到 200，
+    // 用例必须变红 —— 这样才保住「房间级」语义。
     let owner_token = super::create_test_user(&app).await;
     let owner_user_id = whoami(&app, &owner_token).await;
     let room_id = create_room(&app, &owner_token).await;
     let beacon_info_event_id = put_beacon_info(&app, &owner_token, &room_id, &owner_user_id).await;
 
-    let mut participants = Vec::new();
-    for _ in 0..40 {
+    let base_ts = current_timestamp_millis();
+    let (status, body) = send_beacon_with_ts(&app, &owner_token, &room_id, &beacon_info_event_id, base_ts).await;
+    assert_eq!(status, StatusCode::OK, "{:?}", body);
+
+    // 抽水者与探针都必须是房间成员（`m.beacon` 走发言权校验）。
+    let mut drainers = Vec::new();
+    for _ in 0..6 {
         let token = super::create_test_user(&app).await;
         let user_id = whoami(&app, &token).await;
         invite_and_join_room(&app, &owner_token, &room_id, &token, &user_id).await;
-        participants.push(token);
+        drainers.push(token);
     }
+    let probe_token = super::create_test_user(&app).await;
+    let probe_user_id = whoami(&app, &probe_token).await;
+    invite_and_join_room(&app, &owner_token, &room_id, &probe_token, &probe_user_id).await;
 
-    let mut hit_backpressure = false;
-    for (i, token) in participants.iter().enumerate() {
-        let ts = 300_000 + i * 1_000;
-        let (status, body) = send_beacon_with_ts(&app, token, &room_id, &beacon_info_event_id, ts as i64).await;
-        if status == StatusCode::TOO_MANY_REQUESTS {
-            assert_eq!(body["errcode"], "M_LIMIT_EXCEEDED");
-            assert!(body.get("retry_after_ms").is_some());
-            hit_backpressure = true;
-            break;
+    let mut drained = 0usize;
+    let mut saw_backpressure = false;
+    'drain: for _ in 0..15 {
+        for token in &drainers {
+            let (status, body) = send_beacon_with_ts(&app, token, &room_id, &beacon_info_event_id, base_ts).await;
+            match status {
+                StatusCode::BAD_REQUEST => {
+                    // 期望路径：`ts <= latest.timestamp` ⇒ 400，且不写位置行。
+                    let message = body["error"].as_str().unwrap_or_default();
+                    assert!(
+                        message.contains("timestamp must be increasing"),
+                        "抽水请求应被 1Hz 判定拒绝，实际: {:?}",
+                        body
+                    );
+                    drained += 1;
+                }
+                StatusCode::TOO_MANY_REQUESTS => {
+                    // 桶已被抽干 ⇒ 房间级压回生效。
+                    assert_eq!(body["errcode"], "M_LIMIT_EXCEEDED", "{:?}", body);
+                    assert!(body.get("retry_after_ms").is_some(), "{:?}", body);
+                    saw_backpressure = true;
+                    break 'drain;
+                }
+                other => panic!("抽水请求出现非预期状态码 {other}: {body:?}"),
+            }
         }
-
-        assert_eq!(status, StatusCode::OK, "{:?}", body);
     }
 
-    assert!(hit_backpressure, "expected room-level backpressure to return 429");
+    // 房主已消费 1 个令牌 ⇒ 桶里只剩 19 个；抽干后必然先出现 429。
+    assert!(drained >= 19, "抽水次数不足以抽干容量 20 的房间令牌桶（实际 {drained} 次 400）");
+    assert!(saw_backpressure, "房间令牌桶抽干后仍未出现 429");
+
+    // 探针：一条本应完全合法的位置（发送者/房间配额均 0 使用、与最新位置间隔 1000ms
+    // 满足 1Hz），在桶刚被抽空的瞬间必须被压回。
+    let (status, body) =
+        send_beacon_with_ts(&app, &probe_token, &room_id, &beacon_info_event_id, base_ts + 1_000).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{:?}", body);
+    assert_eq!(body["errcode"], "M_LIMIT_EXCEEDED", "{:?}", body);
+    assert!(body.get("retry_after_ms").is_some(), "{:?}", body);
 }
 
 #[tokio::test]

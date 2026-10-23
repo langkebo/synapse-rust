@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COALESCE(SUM(total_size), 0)::BIGINT AS \"pending_bytes!\"\n               FROM upload_progress\n               WHERE user_id = $1 AND status IN ('pending', 'complete') AND ($2::TEXT IS NULL OR upload_id <> $2)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "pending_bytes!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "ec9634c163ca956cc3a002672a0d3ef62f643dfc400d348abdef221ebc3301ab"
+}

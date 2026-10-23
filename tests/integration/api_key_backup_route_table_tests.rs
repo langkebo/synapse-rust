@@ -90,19 +90,26 @@ async fn key_backup_routes_are_wired_under_v3() {
 }
 
 #[tokio::test]
-async fn key_backup_routes_are_wired_under_v1_and_r0() {
+async fn key_backup_routes_are_wired_under_v3_and_v1_is_retired() {
     let Some(app) = setup_fresh_test_app().await else {
         super::skip_or_fail_without_db();
         return;
     };
 
-    for prefix in ["/_matrix/client/v1", "/_matrix/client/v3"] {
-        assert_route(&app, &format!("{}/room_keys/version", prefix), &["GET", "POST"]).await;
-        assert_route(
-            &app,
-            &format!("{}/room_keys/keys/!room:example.org/abcsession", prefix),
-            &["GET", "PUT", "DELETE"],
-        )
-        .await;
+    // v3 已由 `key_backup_routes_are_wired_under_v3` 覆盖；这里只钉住
+    // A3 的退役决定（`synapse-web/src/routes/key_backup.rs` 仅 nest `/_matrix/client/v3`，
+    // 依据 `docs/audit/A3_v1_deprecation_strategy.md` 的 A 族历史双注册清零）。
+    // 若未来有人把 `/v1` 双注册加回来，本用例会红——这正是退役决定需要的守卫。
+    for path in
+        ["/_matrix/client/v1/room_keys/version", "/_matrix/client/v1/room_keys/keys/!room:example.org/abcsession"]
+    {
+        let req = Request::builder().method("PATCH").uri(path).body(Body::empty()).unwrap();
+        let response = app.clone().oneshot(with_local_connect_info(req)).await.expect("oneshot");
+        assert_eq!(
+            response.status(),
+            StatusCode::NOT_FOUND,
+            "route {} is registered again — A3 retired the `/v1` duplicate mounting for key_backup",
+            path
+        );
     }
 }

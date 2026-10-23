@@ -3461,7 +3461,32 @@ BASELINE_DYNAMIC_PRODUCTION=133
 #   `scripts/ci/sqlx_query_census.py --json` 实测均为 767 ⇒ 上一版基线存在
 #   3 点静默余量，违反本文件"零余量"原则（留 1 点余量 = 允许一次静默回归）。
 #   本条只把测量值与基线对齐，不声称那 3 处属于某一批次。
-BASELINE_DYNAMIC_TEST_INFRA=767
+# 2026-10-23: 767 → **779**（+12，W4 第二层查询形态收口 `0d18fede0` 的测试夹具）。
+#   三处全是 per-test 隔离 schema 夹具，按"零余量"收紧到实测值：
+#     ① +10 `synapse-storage/src/invite_blocklist.rs`（9 → 19）：`db_tests` 改成
+#        每用例独立 schema（`SET search_path TO "<schema>", public` + `BEGIN`/`ROLLBACK`
+#        脚手架），共用夹具拆成逐用例装配；
+#     ② +1 `synapse-services/src/media/tests.rs`（2 → 3）：分片上传配额的
+#        "跨用户 pending 汇总"用例要多造一条用户级夹具；
+#     ③ +1 `synapse-storage/src/event/db_tests.rs`（79 → 80）：批量读形态的对照夹具。
+#   为什么不能改静态宏：`#[cfg(test)]` 内的 `query!` 不进 `cargo sqlx prepare`
+#   （默认 target 集），`--all-targets` 会 E0432 —— 同上方 2026-10-17 / 2026-10-21 条目；
+#   全仓 `static_test = 0` 是这条约束的一致结果。
+#   **收紧方向**：若把 per-test schema 脚手架抽成 `synapse-test-utils` 的单点实现
+#   （而不是每个 `db_tests` 各写一份 `SET search_path`），本项应同步回落。
+# 2026-10-23: 779 → **780**（+1，修 §10.6 的 deadlock 断言）。来源唯一：
+#   `synapse-storage/src/monitoring.rs` 的 `database_monitor_round_trip_on_the_migration_template`
+#   新增 `sqlx::query_scalar::<_, i64>("SELECT COALESCE(deadlocks, 0) FROM pg_stat_database
+#   WHERE datname = current_database()")`，用于在"调用前/调用后"各直读一次库级累计
+#   `deadlocks`，把原来的 `assert_eq!(perf.deadlock_count, 0)` 换成区间断言。
+#   为什么必须新增而非复用：`pg_stat_database.deadlocks` 是**库级累计单调计数器**，
+#   并行历史与旧跑批会永久累加（本机实测 8）⇒ 断言 0 结构上不可能稳定；而
+#   `get_performance_metrics()` 内部已把该值折叠进 `PerformanceMetrics`，测试拿不到
+#   "真值基准"，只能自己直读。为什么不能改静态宏：同上 —— `#[cfg(test)]` 内的
+#   `query!` 不进 `cargo sqlx prepare`。
+#   **收紧方向**：若把该直读抽成生产侧可复用的 `read_database_deadlocks(pool)`（`query!`
+#   静态形态，本项 +1 与 `BASELINE_STATIC` 同步再平衡），本项回落 779。
+BASELINE_DYNAMIC_TEST_INFRA=780
 # 2026-10-15: 1353 → 1354（+1，方案 B4.3）。新增
 #   `synapse-storage/src/schema_health_check.rs` 的 `check_invalid_indexes()` —— 它让
 #   **半建索引**（`pg_index.indisvalid = false`）可见；此前只查"缺表/缺列/缺索引名"，
@@ -3514,7 +3539,29 @@ BASELINE_DYNAMIC_TEST_INFRA=767
 #   SQL 文本变化导致 `.sqlx` 离线条目失效 ⇒ 改运行时 `query_as` 并从 `.sqlx` 删除旧条目。
 #   与本文件 `BASELINE_DYNAMIC_PRODUCTION` 的 +1 为同一次改动（一减一增），
 #   逐处登记见 `sqlx_literal_production_baseline`（`event/search.rs` 4 → 5）。
-BASELINE_STATIC=1367
+# 2026-10-23: 1367 → **1363**（−4 净额，**不是**静默回归；逐处可复核，结构自证见下方等式）。
+#   这是"测试红灯修复"批（W1 `cc364bd6f` / W4 `0d18fede0` / 批次 4 `d9398fed1` 落地后
+#   棘轮未跟手钉版）的补登记。用 `git worktree` 在 `1ced60cd5`（本文件上次钉版点）
+#   与新树各跑一次 `sqlx_query_census.py` 后逐文件相减，五处变动如下：
+#    ① −5 / +1 `synapse-storage/src/user/storage.rs`（44 → 40）：
+#       −5 是批次 4 删除零引用表 `user_locks` 时带走的整段 API
+#       （`lock_user` / `unlock_user` / `is_user_locked` / `get_active_user_lock` /
+#       `get_locked_users`，五条静态宏，有意的死代码删除）；
+#       +1 是 W1 为注册五写一事务新增的 `update_displayname_tx`（同事务写 displayname）。
+#    ② −1 `synapse-storage/src/server_notification/repository.rs`（41 → 40）：
+#       同一次批次 4 删除零引用表 `notification_delivery_log`，对应那条静态
+#       `INSERT INTO notification_delivery_log …` 随之消失（有意的死代码删除）。
+#    ③ +1 `synapse-storage/src/token.rs`（15 → 16）：W1 的注册五写一事务新增
+#       `create_token_tx`（在同一事务里写 `access_tokens`）。
+#    ④ −2 `synapse-storage/src/invite_blocklist.rs`（25 → 23）：W4 重写行锁/全局限锁
+#       路径时把两条静态宏改成了运行时 `query_scalar::<_, i32>` / `query`。
+#    ⑤ −1 `synapse-storage/src/media/chunked_upload.rs`（11 → 10）：同上，W4 改写了
+#       `pending_bytes` 的聚合查询。
+#   本次红灯修复把 ④⑤ 的这 3 处又改回静态宏（`AS "locked!"` / `IS NULL` /
+#   `AS "pending_bytes!"`）。等式：1367 − 5 + 1 − 1 + 1 = 1363 = 实测（零余量）。
+#   **扩张方向**：若将来把 ④⑤ 再退回运行时（例如 `.sqlx` 无法生成 `FOR UPDATE`
+#   条目），本项需同步下调并在本条就地登记。
+BASELINE_STATIC=1363
 # 兼容旧接口：总数 = 生产 + 测试基础设施（132 + 767 = 899；本项不入棘轮，仅保持一致）
 # 2026-10-21: 883 → 884，随 `BASELINE_DYNAMIC_PRODUCTION` 的 +1（`get_space_visibility_batch`）同步。
 # 2026-10-21: 884 → 887，随 `BASELINE_DYNAMIC_PRODUCTION` 的 +3（`get_rooms_batch` 与两条
@@ -3526,7 +3573,9 @@ BASELINE_STATIC=1367
 #   （`search_room_messages_admin` 时间窗，132 + 770 = 902）同步。
 # 2026-10-21: 902 → **899**，随 `BASELINE_DYNAMIC_TEST_INFRA` 按实测收紧 770 → 767
 #   （132 + 767 = 899；见上方 TEST_INFRA 条目）。
-BASELINE_DYNAMIC=899
+# 2026-10-23: 899 → **912**，随 `BASELINE_DYNAMIC_TEST_INFRA` 767 → 779
+#   （133 + 779 = 912；生产侧本批 136 → 133，已回到 `BASELINE_DYNAMIC_PRODUCTION` 无余量）。
+BASELINE_DYNAMIC=912
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #
