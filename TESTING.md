@@ -79,11 +79,22 @@ env -u TEST_DB_TEMPLATE_SCHEMA TEST_DB_ISOLATION=database \
 | schema clone | **150.8 s** | 1.5–2.6 s |
 | database clone | **30.4 s** | 0.19–0.21 s |
 
+**全量验证（`tests/integration` 全部 1641 条，`--test-threads 4 --no-fail-fast`）**：
+
+```
+Summary [ 417.432s] 1641 tests run: 1635 passed, 6 failed, 0 skipped
+墙钟 6 分 58 秒
+```
+
+对比优化前：同样的 1641 条在其他 binary 混跑下，光 CPU 时间就要 314 分钟。
+**失败集合与优化前完全一致**（那 6 条是既有的路由/契约/门禁失败，与数据库路线无关）。
+
 ### 什么时候才该跑全量
 
 只有两种：① 发版前；② 大面积重构之后。**CI 会跑，本地不必复刻**。
 真要本地全量，用 `--profile ci`（`[profile.ci]` 已固定 `test-threads = 4` / `fail-fast = false`），
-不要用裸 `--workspace --all-features`。
+不要用裸 `--workspace --all-features`。按上面的实测，`tests/integration` 车道约 **7 分钟**；
+`--workspace --all-features` 是全仓 10723 条，量级完全不同。
 
 ---
 
