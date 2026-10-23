@@ -101,8 +101,9 @@ groups:
       - record: instance:megolm_share_duration:p95_5m
         expr: histogram_quantile(0.95, sum(rate(megolm_share_db_duration_ms_bucket[5m])) by (le, instance))
 
-      - record: instance:megolm_persist_errors:rate5m
-        expr: sum(rate(megolm_vodozemac_pickle_persist_errors_total[5m])) by (instance)
+      # 2026-10-23 删除 `instance:megolm_persist_errors:rate5m`：它记录的
+      # `megolm_vodozemac_pickle_persist_errors_total` 从未被 emit（埋点方法在 .rs 里不存在），
+      # 与告警侧的 `MegolmPicklePersistErrors` 同源删除。vodozemac 迁移落地后一起加回。
 
   # =========================================================================
   # Infrastructure Metrics

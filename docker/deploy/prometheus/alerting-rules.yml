@@ -327,19 +327,13 @@ groups:
   # =========================================================================
   - name: e2ee-health
     rules:
-      - alert: MegolmPicklePersistErrors
-        expr: rate(megolm_vodozemac_pickle_persist_errors_total[5m]) > 0
-        for: 1m
-        labels:
-          severity: critical
-          category: e2ee
-          service: synapse-rust
-        annotations:
-          summary: "Megolm 密钥持久化失败"
-          description: |
-            会话密钥写入失败，可能导致 E2EE 消息无法解密。
-            检查存储和密钥文件权限。
-
+      # 2026-10-23 删除 `MegolmPicklePersistErrors`：它引用
+      # `megolm_vodozemac_pickle_persist_errors_total`，而**全仓没有任何代码 emit 它** ——
+      # `record_megolm_vodozemac_pickle_persist` 这个埋点方法在 `.rs` 里根本不存在
+      # （`grep -rn "pickle_persist" --include='*.rs'` 零命中），vodozemac 迁移尚未落地。
+      # Prometheus 对不存在的指标 `rate()` 返回**空向量** ⇒ 告警永不触发、也不报错 ——
+      # 这是"报警器自己静默失效"，比没有告警更坏，因为它让人以为有保护。
+      # 迁移落地后加回来，并同时补 `promtool test rules` 的正例（现在 fixture 里没有它）。
       - alert: E2EESessionKeyReadSlow
         # 恢复真 P95（描述写的是 P95）。该 histogram 带 `result` 标签，
         # 必须 `sum by (le)` 合并后再取分位数。
