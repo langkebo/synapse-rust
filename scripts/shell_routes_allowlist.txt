@@ -55,5 +55,9 @@ voip.rs:309
 
 # E2EE routes (real ACK after persisted send-to-device, cross-signing, or
 # key-request cancellation)
-e2ee/backup.rs:177
+#
+# 2026-10-24：177 → 178（+1）。`4149f1f28` 在 `delete_secure_backup` 上方为
+# `verify_secure_backup_passphrase` 补了两行注释、删掉一行 `#[axum::debug_handler]`
+# （该属性宏会吞掉 `#[allow(clippy::unused_async)]`），净增 1 行。
+e2ee/backup.rs:178
 e2ee/devices.rs:386
