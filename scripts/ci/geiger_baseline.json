@@ -19,7 +19,7 @@
     {
       "package": "synapse-rust",
       "count": 5,
-      "why": "Two kinds, both test-build-only (the production build is 0): (a) 1 hand-written unit — `src/test_exit_hook.rs:29`, `unsafe { libc::atexit(synapse_common::test_schema_guard::drain_schemas_at_exit) }`, added by the B' landing (298f74b8) so the process-exit schema drain is registered without any `unsafe` in a shipped binary; `libc` is a `[dev-dependencies]` entry. (b) 4 cargo-geiger span/target attribution products (one per test target) from macro expansion — the same `format_args!` / `.await`-tokio-macro class as the historical entries; `tests/` itself contains no `unsafe` literal. This 5 is the old 4 plus (a); the production side of B' is the 2 -> 0 decrease that this file now records.",
+      "why": "Two kinds, both test-build-only (the production build is 0): (a) 1 hand-written unit — `synapse-common/tests-support/exit_hook_impl.rs:62` (single `#[path]`-included file since 2026-10-23; the four byte-identical `src/test_exit_hook.rs:29` copies it replaced are gone, per-crate unit count unchanged), `unsafe { libc::atexit(synapse_common::test_schema_guard::drain_schemas_at_exit) }`, added by the B' landing (298f74b8) so the process-exit schema drain is registered without any `unsafe` in a shipped binary; `libc` is a `[dev-dependencies]` entry. (b) 4 cargo-geiger span/target attribution products (one per test target) from macro expansion — the same `format_args!` / `.await`-tokio-macro class as the historical entries; `tests/` itself contains no `unsafe` literal. This 5 is the old 4 plus (a); the production side of B' is the 2 -> 0 decrease that this file now records.",
       "review_by": "2026-12-21"
     }
   ]

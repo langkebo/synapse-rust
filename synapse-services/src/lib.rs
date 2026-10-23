@@ -272,7 +272,11 @@ pub mod test_config;
 pub mod test_utils;
 
 /// Test-build-only schema-cleanup exit hook (B'). See the module docs.
+///
+/// The implementation is the shared `synapse-common/tests-support/` file — one
+/// copy for all five test builds, not one per crate.
 #[cfg(test)]
+#[path = "../../synapse-common/tests-support/exit_hook_impl.rs"]
 mod test_exit_hook;
 
 // Pre-positioned Mock adapters (TDD workflow — see .claude/skills/tdd-rust/SKILL.md)

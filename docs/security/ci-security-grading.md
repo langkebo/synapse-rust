@@ -63,8 +63,11 @@
     数的是 unsafe **表达式**，宏展开不是这里的解释；那个数字是 B' 之后没有同步收紧基线留下的
     旧值（门禁因此每次都报 `production unsafe decreased`）。
   - test-only unsafe：**9**（`synapse-common` 2 + `synapse-services` 2 是手写的
-    `set_var`/`remove_var`；根 crate 5 = 1 处 B' 落点的 `src/test_exit_hook.rs:29`
-    `unsafe { libc::atexit(...) }` + 4 处测试 target 上的宏展开归因产物）
+    `set_var`/`remove_var`；根 crate 5 = 1 处 B' 落点的 `unsafe { libc::atexit(...) }`
+    加 4 处测试 target 上的宏展开归因产物。B' 落点自 2026-10-23 起在共享实现
+    `synapse-common/tests-support/exit_hook_impl.rs:62`——原先每个 crate 各有一份
+    `src/test_exit_hook.rs:29`，四份逐字节相同；单源化只减少**文件**，不改变每个 crate
+    展开后的 unsafe 表达式数，故计数不变）
 - **注意**：cargo-geiger 的 JSON **不含文件路径**（0.13 起 `packages` 是 list、计数器嵌套），
   所以生产/测试的区分只能靠两次扫描相减，无法按文件分类；`geiger_baseline.json` 里
   production 一旦不为 0，每条记录都必须写明站点、理由与 `review_by`，且清单之和必须等于总数，

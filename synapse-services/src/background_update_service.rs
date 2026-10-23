@@ -211,9 +211,24 @@ impl BackgroundUpdateService {
             .map_err(|e| ApiError::internal_with_cause("Failed to complete update", e))?
             .ok_or_else(|| ApiError::not_found("Update not found"))?;
 
-        self.storage.release_lock(job_name).await.ok();
+        // 锁释放失败**不能静默**：它会让这个 job 之后再也取不到锁（后台更新永久停摆），
+        // 而 `.ok()` 连一行日志都不留。主状态此时已经提交，所以这里不能 `?`（回滚会制造
+        // 新的不一致），降级成 warn 是让"锁泄漏"从一个静默故障变成可观测事件的最小改动。
+        if let Err(error) = self.storage.release_lock(job_name).await {
+            warn!(
+                job_name = %job_name,
+                error = %error,
+                "释放后台更新锁失败：该 job 之后可能永久取不到锁，需人工清理 background_update_locks"
+            );
+        }
 
-        self.storage.add_history(job_name, "completed", update.processed_items, None, None).await.ok();
+        if let Err(error) = self.storage.add_history(job_name, "completed", update.processed_items, None, None).await {
+            warn!(
+                job_name = %job_name,
+                error = %error,
+                "写入后台更新历史失败：运维将看不到该 job 的完成记录"
+            );
+        }
 
         Ok(update)
     }
@@ -235,9 +250,23 @@ impl BackgroundUpdateService {
             .map_err(|e| ApiError::internal_with_cause("Failed to fail update", e))?
             .ok_or_else(|| ApiError::not_found("Update not found"))?;
 
-        self.storage.release_lock(job_name).await.ok();
+        if let Err(error) = self.storage.release_lock(job_name).await {
+            warn!(
+                job_name = %job_name,
+                error = %error,
+                "释放后台更新锁失败（失败路径）：该 job 之后可能永久取不到锁，需人工清理 background_update_locks"
+            );
+        }
 
-        self.storage.add_history(job_name, "failed", update.processed_items, Some(error_message), None).await.ok();
+        if let Err(error) =
+            self.storage.add_history(job_name, "failed", update.processed_items, Some(error_message), None).await
+        {
+            warn!(
+                job_name = %job_name,
+                error = %error,
+                "写入后台更新失败历史失败：运维将看不到该 job 的失败记录"
+            );
+        }
 
         Ok(update)
     }
@@ -254,7 +283,13 @@ impl BackgroundUpdateService {
             .map_err(|e| ApiError::internal_with_cause("Failed to cancel update", e))?
             .ok_or_else(|| ApiError::not_found("Update not found"))?;
 
-        self.storage.release_lock(job_name).await.ok();
+        if let Err(error) = self.storage.release_lock(job_name).await {
+            warn!(
+                job_name = %job_name,
+                error = %error,
+                "释放后台更新锁失败（取消路径）：该 job 之后可能永久取不到锁，需人工清理 background_update_locks"
+            );
+        }
 
         Ok(update)
     }

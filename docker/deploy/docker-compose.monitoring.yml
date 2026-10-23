@@ -251,6 +251,16 @@ services:
     restart: unless-stopped
     cpus: ${ALERT_HANDLER_CPU_LIMIT:-0.5}
     mem_limit: ${ALERT_HANDLER_MEMORY_LIMIT:-128m}
+    environment:
+      # 通知出口。**留空则告警只进本容器日志**（app.py 启动时会打 warning 提醒）。
+      # 填钉钉/企业微信/任意接收 JSON POST 的 webhook 即可把告警推出去；
+      # 改完需要 `docker compose up -d --build alert-handler` 重建（环境变量在镜像外）。
+      ALERT_FORWARD_URL: ${ALERT_FORWARD_URL:-}
+      ALERT_FORWARD_TIMEOUT_SECONDS: ${ALERT_FORWARD_TIMEOUT_SECONDS:-5}
+      # 下游消息格式：raw（原样透传，只对自己写的接收器有用）/ dingtalk / wecom。
+      # 填钉钉或企微的群机器人 URL 时**必须**同时设这一项，否则发出去的是 Alertmanager
+      # 原始 payload，对方返回 200 但不会渲染成消息（静默无效果）。
+      ALERT_FORWARD_FORMAT: ${ALERT_FORWARD_FORMAT:-raw}
     ports:
       - "127.0.0.1:${ALERT_HANDLER_PORT:-8080}:8080"
     healthcheck:

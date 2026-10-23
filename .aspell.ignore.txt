@@ -1135,3 +1135,16 @@ zeroize
 zeroized
 zeroizeondrop
 zsh
+#   * cardinality、heatmap、metricssummary、prometheusql、slo ——
+#     tests/prometheus-implementation-{plan,summary}.md 的**既有**拼写红：这两个文件此前未被改动，
+#     所以从未进过 aspell 检查面；2026-10-23 给它们加"已废弃"标注时才暴露（HEAD 版同样失败）。
+#     metricssummary 是 `MetricsSummary` 被脚本小写化后的结果，prometheusql 是 `PrometheusQL` 同理。
+cardinality
+heatmap
+metricssummary
+prometheusql
+slo
+#   * dingtalk、wecom —— 告警转发渠道的产品名（钉钉 / 企业微信的英文标识），
+#     出现在 docs/audit/SHIT_MOUNTAIN_AUDIT_2026-10-23.md 与 docker/deploy/alert-handler/app.py 的说明里。
+dingtalk
+wecom

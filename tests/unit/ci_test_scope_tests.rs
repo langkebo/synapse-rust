@@ -886,6 +886,67 @@ fn performance_smoke_step_declares_required_features() {
     }
 }
 
+/// 退出排空钩子只能有**一份实现**。
+///
+/// 判据是 `unsafe { libc::atexit(..) }` 的**调用点个数**，不是文件名也不是路径：
+/// 把副本改名或换目录都不能绕过。注释行允许提到它（多处文档在解释这件事）。
+///
+/// 为什么这是个判据而不是洁癖：注册逻辑（`Once` + `atexit` + 排空时机）一旦要改，
+/// 5 份拷贝就要同步 5 次，而漏掉一份**不会**让任何测试变红——它只会在那个测试
+/// 二进制退出时留下一张 `test_*` schema。事故成本落在下一个跑全量套件的人身上。
+/// 2026-10-23 实测：5 份里 4 份 md5 完全相同，`geiger_baseline.json` 只能 itemise
+/// 其中一份，另外三份的 `unsafe` 在审计面上是隐形的。
+///
+/// **红证明**：把 `synapse-common/tests-support/exit_hook_impl.rs` 的内容复制回
+/// 任一 crate 的 `src/` → FAILED（实测 2 份）。删掉共享文件 → FAILED（0 份）。
+#[test]
+fn exit_hook_has_a_single_implementation() {
+    // 拆开写，避免这一行自己命中下面的 `contains`（门禁自匹配：SEC-02 踩过一次）。
+    const NEEDLE: &str = concat!("libc", "::atexit(");
+    const SHARED: &str = "synapse-common/tests-support/exit_hook_impl.rs";
+    let root = repo_root();
+
+    let mut sites: Vec<String> = Vec::new();
+    let mut stack = vec![root.clone()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&dir) else { continue };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let file_name = entry.file_name();
+            let file_name = file_name.to_string_lossy();
+            if path.is_dir() {
+                // `target` 是构建产物；`.worktrees`/`.claude` 是并发会话的私有树
+                // （它们各自的副本不该让主树的守卫变红）。
+                if matches!(file_name.as_ref(), "target" | ".git" | ".worktrees" | ".claude" | "node_modules") {
+                    continue;
+                }
+                stack.push(path);
+            } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
+                let Ok(text) = fs::read_to_string(&path) else { continue };
+                let calls = text
+                    .lines()
+                    .filter(|line| {
+                        let trimmed = line.trim_start();
+                        !trimmed.starts_with("//") && line.contains(NEEDLE)
+                    })
+                    .count();
+                if calls > 0 {
+                    sites.push(format!("{} ({calls} 处)", path.strip_prefix(&root).unwrap_or(&path).display()));
+                }
+            }
+        }
+    }
+
+    assert_eq!(
+        sites.len(),
+        1,
+        "退出排空钩子只能有一份实现（判据：`atexit` 调用点），实测 {} 份：{sites:?}\n\
+         共用写法：`#[cfg(test)] #[path = \"…/tests-support/exit_hook_impl.rs\"] mod test_exit_hook;`",
+        sites.len()
+    );
+    assert!(sites[0].contains(SHARED), "唯一实现必须在 {SHARED}，实测 {}", sites[0]);
+}
+
 /// 每个"测试期会向 janitor 注册 schema"的 crate，都必须由**自己的测试构建**注册退出排空钩子。
 ///
 /// 背景（B' 设计，见 `docs/archive/GATE_INTEGRITY_FOLLOWUP_2026-09-19_LOG.md` §14.14.8.1）：
@@ -935,17 +996,25 @@ fn every_db_test_binary_registers_the_exit_drain() {
             toml.contains("libc = \"0.2\""),
             "{krate} 在测试期注册 schema 清理，因此它的 [dev-dependencies] 必须有 libc（atexit 钩子是 unsafe）"
         );
-        // ② 该 crate 源码里必须出现注册点（测试期注册模块或测试目标里的注册函数）。
+        // ② 该 crate 源码里必须能**到达**注册点：要么自己写着 `drain_schemas_at_exit`，
+        // 要么 `#[path]` include 了共享实现 `exit_hook_impl.rs`（后者是 2026-10-23 起的
+        // 单源写法；判据仍是"它自己的测试构建里编得到注册点"，没有放宽）。
+        // 用 `grep -E`：本仓 CLI 的 grep 可能是 toybox shim，BRE 的 `\|` 会**静默返回空**
+        // 而让这条守卫以"找不到"的名义假红。
         let grep_reg = std::process::Command::new("bash")
             .arg("-c")
-            .arg(format!("grep -rl drain_schemas_at_exit {krate}/src {krate}/tests-support 2>/dev/null || true"))
+            .arg(format!(
+                "grep -rlE 'drain_schemas_at_exit|exit_hook_impl\\.rs' {krate}/src {krate}/tests-support 2>/dev/null || true"
+            ))
             .current_dir(&root)
             .output()
             .expect("git grep must be runnable");
         let reg = String::from_utf8_lossy(&grep_reg.stdout);
         assert!(
             !reg.trim().is_empty(),
-            "{krate} 必须在自己可编译进测试构建的代码里注册 drain_schemas_at_exit（依赖里的 #[cfg(test)] 对它的测试构建不可见）"
+            "{krate} 必须在自己可编译进测试构建的代码里到达注册点（`drain_schemas_at_exit`，\
+             或 `#[path]` include 的 `synapse-common/tests-support/exit_hook_impl.rs`）——\
+             依赖里的 #[cfg(test)] 对它的测试构建不可见"
         );
         // 只"存在钩子模块"不算注册：必须真的在某个共享夹具里调用 `test_exit_hook::ensure()`。
         let grep_call = std::process::Command::new("bash")

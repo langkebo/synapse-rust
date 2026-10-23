@@ -80,10 +80,10 @@ REPO = Path(__file__).resolve().parents[2]
 # 规则：用**所有已部署版本里最新的那个**校验全部配置 = 用最严格的工具检查；
 # 且任何一处 compose 升版都会被这条派生逻辑立刻吸收，不会静默落后。
 MONITORING_COMPOSE_FILES = [
-    "docker/docker-compose.monitoring.yml",
     "docker/deploy/docker-compose.monitoring.yml",
 ]
 _PROM_IMAGE_RE = re.compile(r"image:\s*(prom/prometheus:(v[0-9][0-9.]*))")
+_ALERTMANAGER_IMAGE_RE = re.compile(r"image:\s*(prom/alertmanager:(v[0-9][0-9.]*))")
 
 
 def _version_key(image: str) -> tuple[int, ...]:
@@ -125,6 +125,44 @@ def prometheus_image() -> str:
     return _prometheus_image_cache
 
 
+def derive_alertmanager_image() -> str:
+    """从监控 compose 的钉版里取**最新**的 prom/alertmanager 镜像名。
+
+    与 prometheus 同理：不硬编码版本，任何一处 compose 升版都被这条派生逻辑立刻吸收。
+    `amtool` 只随 `prom/alertmanager` 发布，所以镜像必须从 alertmanager 服务派生，
+    不能借用 prometheus 镜像（那里没有 amtool）。
+    """
+    pins: dict[str, list[str]] = {}
+    for rel in MONITORING_COMPOSE_FILES:
+        path = REPO / rel
+        if not path.is_file():
+            continue
+        for match in _ALERTMANAGER_IMAGE_RE.finditer(path.read_text()):
+            pins.setdefault(match.group(1), []).append(rel)
+    if not pins:
+        raise Failure(
+            "无法从任何监控 compose 派生出 prom/alertmanager 镜像版本（已尝试："
+            + ", ".join(MONITORING_COMPOSE_FILES)
+            + "）。\n"
+            "      → 找不到版本就无法校验 alertmanager 配置；**不允许**硬编码默认值。"
+        )
+    newest = max(pins, key=_version_key)
+    if len(pins) > 1:
+        print(f"monitoring compose 存在多个 prom/alertmanager 钉版：{sorted(pins)}")
+        print(f"  → 用最新的 {newest} 校验全部配置（最严格口径）。")
+    return newest
+
+
+_alertmanager_image_cache: str | None = None
+
+
+def alertmanager_image() -> str:
+    global _alertmanager_image_cache
+    if _alertmanager_image_cache is None:
+        _alertmanager_image_cache = derive_alertmanager_image()
+    return _alertmanager_image_cache
+
+
 ALLOWLIST = REPO / "scripts/ci/prometheus_target_allowlist"
 
 # 自抓取目标（容器内 localhost 即 Prometheus 自身）
@@ -132,15 +170,11 @@ SELF_TARGETS = {"localhost", "127.0.0.1", "::1"}
 
 # 每个 Prometheus 配置 → 它应当在哪些 compose 文件的服务集合里找目标。
 # 键是配置路径（相对仓库根），值是 compose 路径列表。
+#
+# 2026-10-23：`monitoring/prometheus/*.yml` 与 `docker/docker-compose.monitoring.yml` 一并删除
+# ——那套 dev 栈的 Alertmanager 配置被 `amtool check-config` 判为非法（`${VAR:-默认}` 是字面值），
+# 且从未出现在 `docker/deploy/deploy.sh` 的部署路径上，`README_MONITORING.md` 也早已写明不要使用它。
 CONFIG_COMPOSE_MAP: dict[str, list[str]] = {
-    "monitoring/prometheus/prometheus.yml": [
-        "docker/docker-compose.yml",
-        "docker/docker-compose.monitoring.yml",
-    ],
-    "monitoring/prometheus/prometheus-with-mock.yml": [
-        "docker/docker-compose.yml",
-        "docker/docker-compose.monitoring.yml",
-    ],
     "docker/deploy/prometheus/prometheus.yml": [
         "docker/deploy/docker-compose.yml",
         "docker/deploy/docker-compose.monitoring.yml",
@@ -149,18 +183,22 @@ CONFIG_COMPOSE_MAP: dict[str, list[str]] = {
 
 # 需要校验的规则文件（配置里的 rule_files 另行动态解析）
 RULE_FILES = [
-    "monitoring/alerting-rules.yml",
     "docker/deploy/prometheus/alerting-rules.yml",
     "docker/deploy/prometheus/recording-rules.yml",
 ]
 
-# 漂移守卫的基准对：(变体配置, 基准配置)
-DRIFT_PAIRS = [
-    (
-        "monitoring/prometheus/prometheus-with-mock.yml",
-        "monitoring/prometheus/prometheus.yml",
-    ),
+# Alertmanager 配置文件 —— 用 `amtool check-config` 校验。
+# `promtool` 只解析 Prometheus 配置，**完全不碰**这类文件，所以必须单列（section F）。
+ALERTMANAGER_CONFIGS = [
+    "docker/deploy/alertmanager/alertmanager.yml",
 ]
+
+# 漂移守卫的基准对：(变体配置, 基准配置)
+#
+# **当前为空**：唯一的变体 `prometheus-with-mock.yml` 随 monitoring 栈删除。留空而非删掉整个
+# 守卫，是因为"变体必须 = 基准 + 已知增量"这条不变量将来还会用上；`check_drift()` 对空列表
+# 返回空（section D 显示 `不适用`，不是 `OK`）——见 `main()` 里对空 DRIFT_PAIRS 的处理。
+DRIFT_PAIRS: list[tuple[str, str]] = []
 
 
 class Failure(Exception):
@@ -191,15 +229,38 @@ def resolve_promtool() -> tuple[str, str]:
     )
 
 
-def _docker_cmd(
-    image: str, mounts: list[tuple[Path, str]], args: list[str]
-) -> list[str]:
-    """组装 `docker run --entrypoint promtool <mounts> <image> <args>`。
+def resolve_amtool(prom_kind: str) -> tuple[str, str]:
+    """返回校验 `alertmanager.yml` 用的 (kind, prefix)。
 
-    挂载必须出现在镜像名**之前**，否则 docker 会把 `-v` 当成 promtool 的参数
-    （实测报 `unknown short flag '-v'`）。
+    docker 模式：用从 compose 派生的 **`prom/alertmanager`** 镜像 —— `amtool` 只随它发布，
+    prometheus 镜像里没有。
+    local 模式：找本机 `amtool`，找不到就 Failure（同样不提供跳过）。
     """
-    cmd = ["docker", "run", "--rm", "--entrypoint", "promtool"]
+    if prom_kind == "docker":
+        return "docker", alertmanager_image()
+    local = shutil.which("amtool")
+    if local:
+        return "local", local
+    raise Failure(
+        "本机既没有 docker 也没有 amtool —— 无法校验 alertmanager 配置。\n"
+        "  本门禁刻意不提供『跳过』分支：跳过等于门禁不存在。\n"
+        "  修法：安装 Docker，或安装 amtool（随 alertmanager 一起发布）。"
+    )
+
+
+def _docker_cmd(
+    image: str,
+    mounts: list[tuple[Path, str]],
+    args: list[str],
+    entrypoint: str = "promtool",
+) -> list[str]:
+    """组装 `docker run --entrypoint <entrypoint> <mounts> <image> <args>`。
+
+    挂载必须出现在镜像名**之前**，否则 docker 会把 `-v` 当成工具的参数
+    （实测报 `unknown short flag '-v'`）。
+    `entrypoint` 默认 `promtool`；校验 Alertmanager 配置时传 `amtool`。
+    """
+    cmd = ["docker", "run", "--rm", "--entrypoint", entrypoint]
     for host, container in mounts:
         cmd += ["-v", f"{host}:{container}:ro"]
     cmd += [image, *args]
@@ -211,7 +272,6 @@ def resolve_rule_file(config_rel: str, raw_path: str) -> Path:
     base = os.path.basename(raw_path)
     candidates = [
         (REPO / config_rel).parent / base,
-        REPO / "monitoring" / base,
         REPO / "docker/deploy/prometheus" / base,
     ]
     host = next((c for c in candidates if c.is_file()), None)
@@ -282,6 +342,43 @@ def check_rules(kind: str, prefix: str, rule_rel: str) -> list[str]:
     if proc.returncode == 0 and "FAILED" not in proc.stdout:
         return []
     return [f"{rule_rel}:\n{_indent((proc.stdout + proc.stderr).strip())}"]
+
+
+def check_alertmanager_configs(kind: str, prefix: str) -> list[str]:
+    """F: amtool check-config —— Alertmanager 配置的语法与字段校验。
+
+    为什么必须单独做：`promtool check config` 只解析 Prometheus 配置，**完全不碰**
+    `alertmanager.yml`。2026-10-23 因此发现一份配置里同时存在三个致命问题而 CI 一直绿：
+
+    * `smtp_smarthost: '${SMTP_SMARTHOST:-localhost:25}'` —— **Alertmanager 不做环境变量替换**，
+      这是字面地址，`amtool` 报 `too many colons in address`；
+    * `target_match_anc:` —— 不是 Alertmanager 的合法字段（合法的是
+      `source_match` / `target_match` / `*_match_re` / `*_matchers`）；
+    * 顶层 `silences:` —— 不是配置项（静默通过 API/UI 管理）。
+
+    三条都会让 Alertmanager 启动即退出，而它被 compose 挂载 ⇒ 那套栈的告警一条都发不出去。
+    """
+    problems: list[str] = []
+    for cfg_rel in ALERTMANAGER_CONFIGS:
+        cfg_abs = REPO / cfg_rel
+        if not cfg_abs.is_file():
+            problems.append(f"{cfg_rel}: 文件不存在")
+            continue
+        if kind == "docker":
+            cmd = _docker_cmd(
+                prefix,
+                [(cfg_abs.parent, "/cfg")],
+                ["check-config", f"/cfg/{cfg_abs.name}"],
+                entrypoint="amtool",
+            )
+        else:
+            cmd = [prefix, "check-config", str(cfg_abs)]
+        proc = _run(cmd)
+        combined = (proc.stdout + proc.stderr).strip()
+        if proc.returncode == 0 and "FAILED" not in combined:
+            continue
+        problems.append(f"{cfg_rel}:\n{_indent(combined)}")
+    return problems
 
 
 def _indent(text: str, prefix: str = "      ") -> str:
@@ -510,6 +607,17 @@ def main() -> int:
 
     desc = f"docker 镜像 {prefix}" if kind == "docker" else f"本地 promtool ({prefix})"
     print(f"promtool: {desc}")
+    try:
+        am_kind, am_prefix = resolve_amtool(kind)
+    except Failure as e:
+        print(f"FAIL: {e}", file=sys.stderr)
+        return 1
+    am_desc = (
+        f"docker 镜像 {am_prefix}"
+        if am_kind == "docker"
+        else f"本地 amtool ({am_prefix})"
+    )
+    print(f"amtool:   {am_desc}")
     print()
 
     for config_rel in CONFIG_COMPOSE_MAP:
@@ -523,8 +631,22 @@ def main() -> int:
     sections.append(
         ("C. 死目标守卫（目标必须在 compose 中存在）", check_dead_targets())
     )
-    sections.append(("D. 变体漂移守卫（mock 变体 = 基准 + mock-*）", check_drift()))
+    # DRIFT_PAIRS 为空时不假装"检查过且通过"：标题写明不适用，免得下一个人以为这道守卫在保护什么。
+    sections.append(
+        (
+            "D. 变体漂移守卫（无变体配置 ⇒ 不适用）"
+            if not DRIFT_PAIRS
+            else "D. 变体漂移守卫（变体 = 基准 + 已知增量）",
+            check_drift(),
+        )
+    )
     sections.append(("E. keep/drop 语义守卫", check_external_label_kind()))
+    sections.append(
+        (
+            "F. alertmanager 配置（amtool check-config）",
+            check_alertmanager_configs(am_kind, am_prefix),
+        )
+    )
 
     for title, problems in sections:
         status = "OK" if not problems else f"FAIL（{len(problems)} 项）"

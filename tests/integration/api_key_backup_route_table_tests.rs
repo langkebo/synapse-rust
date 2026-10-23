@@ -113,3 +113,22 @@ async fn key_backup_routes_are_wired_under_v3_and_v1_is_retired() {
         );
     }
 }
+
+// 2026-10-23 删除 `key_backup_routes_are_wired_under_v1_and_r0`（重复 + 恒红）。
+//
+// 为什么是重复：上面 `key_backup_routes_are_wired_under_v3` 的注释已经写明
+// 「All three nested prefixes (v1/r0/v3) share the same inner `Router`; verifying v3 is
+// sufficient to prove `create_key_backup_router` is participating in the merge」。
+// 被删的那条遍历 `["/_matrix/client/v1", "/_matrix/client/v3"]`：
+//   · v3 的两条断言与上面**完全重叠**；
+//   · v1 的两条断言**永远不可能通过** —— `create_key_backup_router` 结尾只有
+//     `.nest("/_matrix/client/v3", router)`；全仓 0 处 `/_matrix/client/r0` 路由；
+//     三个 v1 基线（`v1_surface_baseline` / `v1_no_twin_baseline.txt` /
+//     `v1_spec_keep_baseline.txt`）里也都没有 `room_keys`。也就是说 `/room_keys/*`
+//     从来没有在 v1/r0 面注册过，断言的期望值与代码事实相反。
+//   · 函数名与内容也不符：名字说 "v1_and_r0"，代码测的是 v1 和 v3。
+//
+// 它从 2026-10-22 起就是 HEAD 既有红（见
+// `docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md:1422` 与 `:1579` 的「契约/路由面 4 条」）。
+// 删除不损失覆盖：v3 面由上面那条逐条覆盖（8 条路径 × 期望方法集）；
+// v1 退役则由 `key_backup_routes_are_wired_under_v3_and_v1_is_retired` 钉住（期望 404）。

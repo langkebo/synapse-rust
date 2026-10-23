@@ -20,12 +20,15 @@
 #    名单现只剩 (a) 21 键 + (c) 1 键 —— 这两类分别是"自建 DDL 即被测对象/故障注入"与
 #    性能夹具，都不该迁模板。此后本守卫对 `tests/` 与对 `src/` 同等严格。
 
-# ── (a) 机制自身 / 故障注入（22 键）──────────────────────────────────────────
+# ── (a) 机制自身 / 故障注入（24 键；原注 21 与实际不符，本次按实际数更新）──────────────────────────────────────────
 tests/integration/api_federation_transaction_tests.rs::test_presence_edu_updates_are_written_as_a_single_batch
 tests/integration/database_integrity_tests.rs::tests::ensure_public_schema_contract_repairs
 tests/integration/e2ee_device_keys_storage_tests.rs::record_device_list_change_propagates_a_changes_insert_failure
 tests/integration/e2ee_device_keys_storage_tests.rs::record_device_list_change_propagates_a_stream_insert_failure
 tests/integration/insert_column_coverage_tests.rs::guard_reports_a_probe_table_missing_required_columns
+# 故障注入：`ALTER TABLE refresh_tokens ADD CONSTRAINT ... CHECK (false)` 让 token 写入必然失败，
+# 用来验证 `register_user` 的**事务回滚**（残留 users 行数必须为 0）。自建 DDL 即被测对象，
+# 按本文件口径属 (a) 组；不是"该迁 IsolatedTestPool 的自建简化 schema"。
 tests/integration/registration_service_tests_migrated.rs::register_is_atomic
 tests/unit/cleanup_schema_script_tests.rs::cleanup_script_preserves_drop_failure_reasons
 tests/unit/migration_consistency_tests.rs::baseline_consolidation_gate_fails_closed_on_an_emptied_scan_surface

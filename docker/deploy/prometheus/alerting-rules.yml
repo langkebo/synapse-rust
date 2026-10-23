@@ -327,19 +327,13 @@ groups:
   # =========================================================================
   - name: e2ee-health
     rules:
-      - alert: MegolmPicklePersistErrors
-        expr: rate(megolm_vodozemac_pickle_persist_errors_total[5m]) > 0
-        for: 1m
-        labels:
-          severity: critical
-          category: e2ee
-          service: synapse-rust
-        annotations:
-          summary: "Megolm 密钥持久化失败"
-          description: |
-            会话密钥写入失败，可能导致 E2EE 消息无法解密。
-            检查存储和密钥文件权限。
-
+      # 2026-10-23 删除 `MegolmPicklePersistErrors`：它引用
+      # `megolm_vodozemac_pickle_persist_errors_total`，而**全仓没有任何代码 emit 它** ——
+      # `record_megolm_vodozemac_pickle_persist` 这个埋点方法在 `.rs` 里根本不存在
+      # （`grep -rn "pickle_persist" --include='*.rs'` 零命中），vodozemac 迁移尚未落地。
+      # Prometheus 对不存在的指标 `rate()` 返回**空向量** ⇒ 告警永不触发、也不报错 ——
+      # 这是"报警器自己静默失效"，比没有告警更坏，因为它让人以为有保护。
+      # 迁移落地后加回来，并同时补 `promtool test rules` 的正例（现在 fixture 里没有它）。
       - alert: E2EESessionKeyReadSlow
         # 恢复真 P95（描述写的是 P95）。该 histogram 带 `result` 标签，
         # 必须 `sum by (le)` 合并后再取分位数。
@@ -516,6 +510,28 @@ groups:
   #   * `upstream_error` —— writer 收到了、答了非 2xx（403 / 429 / 500）。
   #     这是 writer 对某一次写的裁决，**不**进下面两条规则：把 403 洪峰当 outage
   #     会把告警训练成噪音。
+      # 只在 worker 拓扑下有意义：`message_queue_depth` 的 set 点只有
+      # `src/bin/synapse_worker.rs`（worker 二进制）。单体部署
+      # （`docker/deploy/docker-compose.yml` 的 `synapse` 服务）不跑 worker 角色 ⇒ 该 gauge
+      # 恒为 0 ⇒ 本告警不触发。留着是因为 worker 拓扑（`docker/docker-compose.workers.yml`）
+      # 复用同一份规则；"单体下不触发"是预期行为，不是缺陷。若将来要区分，可加
+      # `synapse_deploy_mode="worker"` 标签再用 `absent()` 断言 —— 现在没有这个标签。
+      - alert: MessageQueueBacklog
+        expr: message_queue_depth > 100
+        for: 5m
+        labels:
+          severity: warning
+          category: performance
+          service: synapse-rust
+        annotations:
+          summary: "worker 事件队列积压：{{ $value }} 条"
+          description: |-
+            `message_queue_depth` 连续 5 分钟超过 100。该 gauge 只在 worker 角色写入，
+            单体部署下不产生数据（本告警静默，属预期）。
+            积压意味着 worker 消费速度跟不上生产速度；先看 `WorkerWriteForwardFailed` /
+            `WorkerWriteForwardStalled` 与 `WorkerInstanceHeartbeatStale` 是否同时告警，
+            再判断是写入侧堵了还是 worker 掉了。
+
   - name: worker-write-forwarding
     interval: 30s
     rules:
@@ -559,3 +575,26 @@ groups:
             说明 writer 活着但在拒绝流量（权限 / 限流 / 内部错误），而不是网络不通。
             两条一起看：`WorkerWriteForwardFailed` 管"写根本没送到"，
             这条管"送到了但从没成功过"。
+
+  # 从 `monitoring/alerting-rules.yml` 迁入（2026-10-23）。那套栈的 Alertmanager 配置被
+  # `amtool check-config` 判为非法、且不在 `deploy.sh` 的部署路径上，16 条告警从未发出过；
+  # 逐条核实指标活性后只留这一条（`auth_failures_total` 在 `server_metrics.rs:300` 注册、
+  # `:474` 有 `inc()`），其余 15 条随该栈一并删除。
+  - name: auth-health
+    rules:
+      - alert: SpikeInAuthFailures
+        expr: |
+          rate(auth_failures_total[5m])
+            > 2 * avg_over_time(rate(auth_failures_total[5m])[1h:])
+        for: 10m
+        labels:
+          severity: warning
+          category: security
+          service: synapse-rust
+        annotations:
+          summary: "认证失败速率超过过去 1 小时基线的 2 倍（当前 {{ $value | humanize }}/s）"
+          description: |-
+            `auth_failures_total` 的 5 分钟速率超过自身过去 1 小时均值的 2 倍，持续 10 分钟。
+            注意基线的含义：长期零失败时基线为 0，此时**任何**认证失败都会触发，靠 `for: 10m`
+            兜底过滤偶发单次失败。若确认这是噪音而不是在被打，应调 `for` 或给表达式加绝对下限，
+            不要直接把整条告警删掉 —— 认证失败激增是凭据填充攻击的第一个可观测信号。

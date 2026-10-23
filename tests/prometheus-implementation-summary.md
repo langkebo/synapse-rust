@@ -1,9 +1,15 @@
 # Prometheus 监控优化实施总结
 
+> ⚠️ **历史文档（2026-10-23 加注）**：本文描述的 `monitoring/` 目录、`docker/docker-compose.monitoring.yml`
+> 与 `scripts/deploy-monitoring.sh` **已全部删除**。原因是那套栈的 Alertmanager 配置被
+> `amtool check-config` 判为非法、从未发出过通知，且不在 `docker/deploy/deploy.sh` 的部署路径上。
+> 现状见 [`README_MONITORING.md`](../README_MONITORING.md)。本文保留作"当时为什么这么设计"的记录，
+> **不要再照着它操作** —— 它引用的每个路径现在都不存在。
+
 ## 执行概况
 
-**执行时间**: 2026-09-30  
-**负责人**: prometheus-ops-expert  
+**执行时间**: 2026-09-30
+**负责人**: prometheus-ops-expert
 **参考文档**: `prometheus-custom-metrics.md`
 
 ---
@@ -42,7 +48,7 @@ pub fn record_message_delivery(
     encryption: &str,
 ) { ... }
 
-// 示例：房间创建记录  
+// 示例：房间创建记录
 pub fn record_room_creation(
     &self,
     duration_sec: f64,
@@ -170,9 +176,9 @@ pub struct MetricsSummary {
 
 **目标**: 将 Phase 1 定义的辅助方法实际集成到业务代码中
 
-**预计工作量**: 
+**预计工作量**:
 - 消息投递场景：3-5 处
-- 房间创建场景：2-3 处  
+- 房间创建场景：2-3 处
 - E2EE 场景：3-4 处
 - Sync 延迟场景：2 处
 
@@ -342,6 +348,6 @@ has_alias: "true"|"false"                      // 别名影响
 
 ---
 
-**文档版本**: v1.0  
-**最后更新**: 2026-09-30  
+**文档版本**: v1.0
+**最后更新**: 2026-09-30
 **状态**: Phase 1 & Phase 3 完成，等待 Phase 2 决策

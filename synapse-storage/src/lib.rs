@@ -237,7 +237,11 @@ pub use user_store_fake::FakeUserStore;
 pub mod test_utils;
 
 /// Test-build-only schema-cleanup exit hook (B'). See the module docs.
+///
+/// The implementation is the shared `synapse-common/tests-support/` file — one
+/// copy for all five test builds, not one per crate.
 #[cfg(test)]
+#[path = "../../synapse-common/tests-support/exit_hook_impl.rs"]
 mod test_exit_hook;
 
 /// D14-2 守卫：共享列清单常量（`ROOM_EVENT_COLS` 等）与当前 schema 的一致性。

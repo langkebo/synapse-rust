@@ -3,9 +3,11 @@
 > 本文档对应**线上实际运行的监控栈**：
 > `docker/deploy/docker-compose.monitoring.yml`，compose project = `synapse-monitoring`。
 >
-> ⚠️ **不要**使用 `scripts/deploy-monitoring.sh`，也不要使用
-> `docker/docker-compose.monitoring.yml` —— 那属于另一套 `synapse-test` 栈
-> （目录 `docker/`），它会抢占线上已占用的 8008 / 80 / 443 / 9090 / 9100 端口。
+> 另一套 dev 栈（`monitoring/` 目录 + `docker/docker-compose.monitoring.yml` +
+> `scripts/deploy-monitoring.sh` + `MONITORING_GUIDE.md`）已于 **2026-10-23 删除**：
+> 它的 Alertmanager 配置被官方 `amtool check-config` 判为非法（`${VAR:-默认}` 是字面值，
+> Alertmanager 不做环境变量替换），因此从未发出过任何通知；它还会抢占线上已占用的
+> 8008 / 80 / 443 / 9090 / 9100 端口。现在仓库里**只有**本文件描述的 deploy 栈。
 
 ---
 

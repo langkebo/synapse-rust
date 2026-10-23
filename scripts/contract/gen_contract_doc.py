@@ -12,7 +12,7 @@ Human-maintained content under "## 附录" (e.g. 附录 A) is preserved across r
 is never overwritten by the auto-generated body.
 """
 
-import os, re, json, datetime, glob, sys
+import os, re, json, glob, subprocess, sys
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.environ.get("SYNAPSE_RUST_ROOT") or os.path.dirname(
@@ -25,6 +25,33 @@ ROOT = os.environ.get("SYNAPSE_RUST_ROOT") or os.path.dirname(
 # drifting copy of the list.
 sys.path.insert(0, SCRIPT_DIR)
 from extract_registered import load_ledger_annotations  # noqa: E402
+
+
+def _generated_stamp() -> str:
+    """生成时间戳用 **HEAD 的提交日期**，不用 `date.today()`。
+
+    为什么：这份文档是**代码的派生**，与"今天几号"无关。用当天日期时，任何跨午夜跑过
+    生成器的 checkout 都会多出一行只差日期的 diff ⇒ 文件变脏 ⇒ preflight 判定
+    "本次改动了契约链" ⇒ **整个契约 gate 被 SKIP**（等于链路根本没被校验）。
+    丢弃那行没用：下次生成又出现。`check_route_contract.sh:136` 的归一化只保证
+    "gate 不会因日期变红"，挡不住上游这个 SKIP。
+
+    改用 HEAD 日期后，同一个 commit 永远生成同一份文档，diff 只在结构真的变化时出现。
+    非 git 检出（从 tarball 构建）回落成 `unknown`，不假装知道日期。
+    """
+    try:
+        out = subprocess.run(
+            ["git", "log", "-1", "--format=%cs"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+    return out.stdout.strip() or "unknown"
+
 
 reg_raw = json.load(open(f"{ROOT}/artifacts/registered_routes.json"))
 reg = reg_raw["modules"]
@@ -266,7 +293,7 @@ lines = []
 lines.append("# synapse-rust 路由契约（Route Contract）")
 lines.append("")
 lines.append(
-    f"> 自动生成于 {datetime.date.today().isoformat()}，源 = `synapse-web/src/routes/**` 真实 `.route()` 注册面 + `derived_routes.rs`（含按 profile 拆分的 `derived_route_table_{{always,worker,oidc}}.inc.rs`）派生覆盖。"
+    f"> 自动生成于 {_generated_stamp()}，源 = `synapse-web/src/routes/**` 真实 `.route()` 注册面 + `derived_routes.rs`（含按 profile 拆分的 `derived_route_table_{{always,worker,oidc}}.inc.rs`）派生覆盖。"
 )
 lines.append(">")
 lines.append(

@@ -1,11 +1,11 @@
-# promtool 单元测试：monitoring/alerting-rules.yml
+# promtool 单元测试：docker/deploy/prometheus/alerting-rules.yml
 #
 # 为什么需要它：告警规则是"只有出事才有反应"的代码 —— 指标名打错、标签集不一致导致
 # 向量运算静默为空、阈值写反，这些在**没出事时**全都看起来正常。单元测试是唯一能在
 # 离线状态证明"该响会响、不该响不响"的手段。
 #
 # 跑法（本机无 promtool 时用镜像）：
-#   docker run --rm -v "$PWD/monitoring:/m" --entrypoint promtool \
+#   docker run --rm -v "$PWD/docker/deploy/prometheus:/m" --entrypoint promtool \
 #     prom/prometheus:v2.48.1 test rules /m/promtool/alerting-rules.test.yml
 #
 # 纪律：
@@ -166,3 +166,44 @@ tests:
 
   # 注：磁盘余量告警 `HostDiskSpaceLow` 由 infrastructure 组既有规则覆盖（本组不重复定义），
   #     它的测试应加在那边；这里刻意不做，避免"同名两条规则各自半测"的假象。
+
+  # ── worker 队列积压：gauge=200 ⇒ 应响（5m for）──────────────────────────
+  # 该 gauge 只在 worker 角色写入；本测试证明"有数据时判断正确"，不证明"单体下不触发"。
+  - interval: 1m
+    input_series:
+      - series: 'message_queue_depth'
+        values: '200x10'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: MessageQueueBacklog
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              category: performance
+              service: synapse-rust
+            exp_annotations:
+              summary: "worker 事件队列积压：200 条"
+              description: "`message_queue_depth` 连续 5 分钟超过 100。该 gauge 只在 worker 角色写入，\n单体部署下不产生数据（本告警静默，属预期）。\n积压意味着 worker 消费速度跟不上生产速度；先看 `WorkerWriteForwardFailed` /\n`WorkerWriteForwardStalled` 与 `WorkerInstanceHeartbeatStale` 是否同时告警，\n再判断是写入侧堵了还是 worker 掉了。"
+
+  # 反例：depth=50 ⇒ 不应响
+  - interval: 1m
+    input_series:
+      - series: 'message_queue_depth'
+        values: '50x10'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: MessageQueueBacklog
+        exp_alerts: []
+
+  # ── 认证失败激增（反例）：平稳速率 ⇒ 不应响 ─────────────────────────────
+  # 正例未构造：表达式含子查询 `[1h:]`，promtool 在序列起点前无数据时行为不稳定，
+  # 而且 `summary` 里 `$value | humanize` 的渲染值难以稳定逐字匹配。宁可只留反例，
+  # 也不用一条"靠调参凑出来的正例"制造假信心。
+  - interval: 1m
+    input_series:
+      - series: 'auth_failures_total{type="failure"}'
+        values: '0+1x60'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: SpikeInAuthFailures
+        exp_alerts: []

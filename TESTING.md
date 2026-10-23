@@ -2,6 +2,102 @@
 
 本文档描述 synapse-rust 项目的测试策略、质量标准和执行规范。当前正式能力口径请以 `docs/INDEX.md` 为准；测试与 CI 语义收口请同时参考 `docs/INDEX.md` 与 `docs/INDEX.md`。
 
+## 〇、跑测试之前（必读，60 秒）
+
+本仓有 **10723 个测试 / 23 个 test binary**。**全量跑不是本地用法**：2026-10-23 实测跑完
+约需 **9 小时 CPU 时间**，而且是**在被中断前跑到 75%** 才估出来的。
+
+按改动范围选命令：
+
+| 你在改什么 | 命令 | 量级 |
+|---|---|---|
+| 一个模块的纯逻辑 | `cargo nextest run -p <crate> --lib` | 秒 |
+| 一条路由 / 一个边界 | `cargo nextest run --test unit -E 'test(名字)'` | 秒 |
+| 要动数据库 | 见下面「DB 测试的三条路」 | 十秒～分钟 |
+| 提交前 | `./scripts/quality/preflight.sh` | ~5 分钟 |
+
+### 三个会让测试慢 10 倍或变假绿的口径错误
+
+**1. `--workspace --all-features` 不是"更保险"，是"跑错东西"**
+
+它会打开 `performance-tests` feature，把 `tests/performance/`（**手动套件**，本文 §8 明确
+「不纳入常规门禁」）和 `e2e` 一起拉进来。实测占比：
+
+| binary | 条数 | 中位 | 合计 |
+|---|---|---|---|
+| `synapse-rust::integration` | 1641 | 11.09s | **314 分钟（92%）** |
+| `synapse-storage` | 170 | 12.58s | 33 分钟 |
+| `synapse-services` | 2355 | 0.05s | 23 分钟 |
+| `synapse-rust::unit` | 2000 | 0.06s | 11 分钟 |
+| `synapse-rust::performance_manual` | 18 | 0.17s | **1.2 分钟** |
+| `synapse-rust::e2e` | 20 | 0.03s | **0 分钟** |
+
+**注意最后两行**：删掉 performance/e2e 省不了任何时间（1.2 分钟 / 0 分钟），
+因为 `required-features` 让它们本来就轻。**时间是 `tests/integration/` 吃掉的**，
+口径错了就会以为"测试太多"，然后去删覆盖率。
+
+**2. 不指定 `--test-threads` 会用满 CPU，但数据库是共享瓶颈**
+
+`.config/nextest.toml` 的注释记载：「共享锁表在 **6 线程即爆**
+（`53200 out of shared memory`），集成车道因此定为 4」。CI 与 `[profile.ci]` 都是 4。
+
+实测印证：同一批 74 个测试，`--test-threads 1` 每条 1.5–2.6s；
+全量按默认线程数跑时每条涨到 **10–20s** —— 劣化 5–10 倍不是测试慢，是 clone 互相抢 DDL 锁。
+
+**3. `TEST_DB_TEMPLATE_SCHEMA` 不要随手 `env -u`**
+
+某些 shell 里有 `TEST_DB_TEMPLATE_SCHEMA=public` 的陷阱值（会把测试灌进 public schema 互相污染），
+于是见过用 `env -u TEST_DB_TEMPLATE_SCHEMA` 躲它。但 unset 之后 schema clone 路线也失效了。
+**正确做法是用 `TEST_DB_ISOLATION=database`** —— 它读 `TEST_DB_TEMPLATE_DATABASE`，
+与 `TEST_DB_TEMPLATE_SCHEMA` 无关，可以放心 `env -u` 后者。
+
+### DB 测试的三条路（差 30 倍）
+
+| 路线 | 开关 | 单条实测 | 前置 |
+|---|---|---|---|
+| 重放全部迁移 | `TEST_ISOLATED_SCHEMAS=1` | **10–20 s** | 无 |
+| schema clone（221 张 `CREATE TABLE LIKE`） | 默认 | 1.5–2.6 s | 模板 schema |
+| **database clone（推荐）** | `TEST_DB_ISOLATION=database` | **0.19–0.21 s** | 模板库（一次性） |
+
+一次性准备（幂等，实测 **6.3 秒**，建出 220 张表）：
+
+```bash
+bash scripts/test_db_template.sh ensure
+```
+
+之后照这个跑：
+
+```bash
+env -u TEST_DB_TEMPLATE_SCHEMA TEST_DB_ISOLATION=database \
+  cargo nextest run --test integration --all-features --test-threads 4
+```
+
+对照实验（2026-10-23，同样 74 个 `token_storage_tests_migrated`，`--test-threads 1`）：
+
+| 路线 | 74 条总耗时 | 单条 |
+|---|---|---|
+| schema clone | **150.8 s** | 1.5–2.6 s |
+| database clone | **30.4 s** | 0.19–0.21 s |
+
+**全量验证（`tests/integration` 全部 1641 条，`--test-threads 4 --no-fail-fast`）**：
+
+```
+Summary [ 417.432s] 1641 tests run: 1635 passed, 6 failed, 0 skipped
+墙钟 6 分 58 秒
+```
+
+对比优化前：同样的 1641 条在其他 binary 混跑下，光 CPU 时间就要 314 分钟。
+**失败集合与优化前完全一致**（那 6 条是既有的路由/契约/门禁失败，与数据库路线无关）。
+
+### 什么时候才该跑全量
+
+只有两种：① 发版前；② 大面积重构之后。**CI 会跑，本地不必复刻**。
+真要本地全量，用 `--profile ci`（`[profile.ci]` 已固定 `test-threads = 4` / `fail-fast = false`），
+不要用裸 `--workspace --all-features`。按上面的实测，`tests/integration` 车道约 **7 分钟**；
+`--workspace --all-features` 是全仓 10723 条，量级完全不同。
+
+---
+
 ## 一、测试分层架构
 
 ### 1.1 测试金字塔

@@ -63,7 +63,7 @@ EXCLUDED_NAMES = frozenset({"new", "get_collector", "get_summary"})
 # 测试路径豁免（**路径谓词**，不用 glob 字符串）。
 TEST_DIR_SEGMENTS = ("tests", "benches", "test_mocks")
 TEST_FILE_SUFFIXES = ("_tests.rs", "_test.rs")
-TEST_FILE_NAMES = ("tests.rs", "test_utils.rs", "db_tests.rs", "test_exit_hook.rs")
+TEST_FILE_NAMES = ("tests.rs", "test_utils.rs", "db_tests.rs")
 
 # ── 可移植正则（2026-09-22：修掉一次"macOS 假绿 / Linux 假红"） ────────────────
 #
@@ -129,13 +129,14 @@ BASELINE_REASONS = {
     "record_message_send": "消息发送路径未接",
     "record_presence_update": "presence 更新路径未接",
     "record_state_group_resolve": "state group 解析路径未接",
-    "record_megolm_vodozemac_pickle_persist": "vodozemac pickle 持久化路径未接",
-    "record_megolm_dual_write_promotion": "megolm 双写迁移路径未接",
-    "record_megolm_lazy_migration_batch": "megolm 惰性迁移批处理未接",
-    "update_pool_metrics": (
-        "连接池状态回填未接 ⇒ pool_utilization / db_connections_active / db_connections_idle "
-        "/ pool_health_status 恒为 0，DatabasePoolUtilizationHigh 与 DatabasePoolExhausted 无法触发"
-    ),
+    # 2026-10-23 删掉 4 条**孤儿**（键不在基线里 ⇒ 永远不会被下面的 `.get(name)` 命中）：
+    #   * record_megolm_vodozemac_pickle_persist / _dual_write_promotion / _lazy_migration_batch
+    #     —— 这三个方法在 `.rs` 里**根本不存在**（`grep -rn <name> --include='*.rs'` 零命中）。
+    #     条目是从 vodozemac 迁移计划文档抄进字典的；方法从未实现，基线里自然也没有它们。
+    #   * update_pool_metrics —— 描述"未接 ⇒ pool_utilization 等恒为 0、告警无法触发"**已过期**：
+    #     `src/tasks/mod.rs:158` 与 `src/server/mod.rs:451` 都在生产路径回填它。
+    #     它进不了基线是因为同名冲突被跳过（见 scripts/ci/metric_instrumentation_baseline 末尾注释）。
+    # 由 main() 里的「BASELINE_REASONS 与基线必须一一对应」断言防止再长出孤儿。
 }
 
 
@@ -532,6 +533,35 @@ def main() -> int:
     stale = sorted(name for name in baseline if name not in set(unreachable))
 
     failed = False
+
+    # `BASELINE_REASONS` 的语义是"基线里每一条的说明"，所以它的键必须与基线**一一对应**。
+    # 多出来的键永远不会被上面那个 `.get(name)` 命中 —— 没人会读到，却会让看代码的人以为
+    # 那个方法仍在待办清单里（实测过一次：3 个根本不存在的 megolm 方法 + 1 个早已接通的
+    # update_pool_metrics 一起躺在字典里）。
+    orphan_reasons = sorted(set(BASELINE_REASONS) - set(baseline))
+    missing_reasons = sorted(set(baseline) - set(BASELINE_REASONS))
+    if orphan_reasons:
+        failed = True
+        print(
+            "FAIL BASELINE_REASONS 里有多余条目（基线中不存在，这些说明永远没人读到）",
+            file=sys.stderr,
+        )
+        for name in orphan_reasons:
+            print(f"  {name}", file=sys.stderr)
+        print(
+            "  → 删掉它们；若方法确实还在待办，请先把它加进基线"
+            "（`--update` 生成）再写说明。",
+            file=sys.stderr,
+        )
+    if missing_reasons:
+        failed = True
+        print(
+            "FAIL 基线条目缺少说明（BASELINE_REASONS 里没有它）—— "
+            "下一个看到它的人只能自己去查为什么未接通",
+            file=sys.stderr,
+        )
+        for name in missing_reasons:
+            print(f"  {name}", file=sys.stderr)
 
     if new_gaps:
         failed = True
