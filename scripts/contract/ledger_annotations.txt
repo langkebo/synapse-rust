@@ -391,6 +391,14 @@ GET /_synapse/admin/v1/room_stats	query_ignored=*
 GET /_synapse/admin/v1/room_stats/{room_id}	query_ignored=*
 GET /_synapse/worker/v1/workers	query_ignored=*
 GET /_synapse/worker/v1/workers/type/{worker_type}	query_ignored=*
+# MSC3266 room summary: `get_room_summary` takes no `Query` extractor, so **every**
+# query string is accepted and dropped. The SDK's `room-summary` read path still
+# sends `?via=…` (a leftover from the federation join shape), which made the wire
+# gate land on `backend-query-unknown` — i.e. "后端到底认不认这个参数" 无人可答。
+# 两条挂载点是**同一个 handler**（`create_room_summary_private_router` 的 vendor 面 +
+# `create_room_summary_v1_router` 的规范面），所以两条都要登记，否则只描述一半。
+GET /_matrix/vendor/v1/rooms/{room_id}/summary	query_ignored=*
+GET /_matrix/client/v1/rooms/{room_id}/summary	query_ignored=*
 GET /_matrix/vendor/v1/spaces/{space_id}/children	query_ignored=*
 POST /_matrix/vendor/v1/spaces/{space_id}/children	query_ignored=*
 DELETE /_matrix/vendor/v1/spaces/{space_id}/children/{room_id}	query_ignored=*

@@ -1630,6 +1630,8 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
   - `GET /_matrix/vendor/v1/spaces/{space_id}/summary`、`GET .../summary/with_children`
   - `GET /_matrix/vendor/v1/spaces/{space_id}/tree_path`
   - `GET /_matrix/vendor/v1/spaces/room/{room_id}/parents`
+  - `GET /_matrix/{client/v1,vendor/v1}/rooms/{room_id}/summary`（MSC3266；同一 handler 的两个挂载点。
+    SDK 的 `room-summary` 读路径仍会带 `?via=…`，属历史遗留 —— 服务端接受并丢弃，已登记 `query_ignored=*`）
 - 若未来要给它们加 `max_depth` / 过滤，必须同时更新 sidecar，避免 SDK 只能靠猜。
 
 ### A.9 2026-10-20 语义缺口修复（B-15 / B-16 / B-17 / B-18）

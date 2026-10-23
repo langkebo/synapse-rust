@@ -2088,6 +2088,8 @@ EXPECTED_ANNOTATIONS = {
     ("GET", "/_synapse/admin/v1/room_stats/{room_id}"): {"query_ignored": "*"},
     ("GET", "/_synapse/worker/v1/workers"): {"query_ignored": "*"},
     ("GET", "/_synapse/worker/v1/workers/type/{worker_type}"): {"query_ignored": "*"},
+    ("GET", "/_matrix/vendor/v1/rooms/{room_id}/summary"): {"query_ignored": "*"},
+    ("GET", "/_matrix/client/v1/rooms/{room_id}/summary"): {"query_ignored": "*"},
     ("GET", "/_matrix/vendor/v1/spaces/{space_id}/children"): {"query_ignored": "*"},
     ("POST", "/_matrix/vendor/v1/spaces/{space_id}/children"): {"query_ignored": "*"},
     ("DELETE", "/_matrix/vendor/v1/spaces/{space_id}/children/{room_id}"): {
