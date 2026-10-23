@@ -132,15 +132,11 @@ SELF_TARGETS = {"localhost", "127.0.0.1", "::1"}
 
 # 每个 Prometheus 配置 → 它应当在哪些 compose 文件的服务集合里找目标。
 # 键是配置路径（相对仓库根），值是 compose 路径列表。
+#
+# 2026-10-23：`monitoring/prometheus/*.yml` 与 `docker/docker-compose.monitoring.yml` 一并删除
+# ——那套 dev 栈的 Alertmanager 配置被 `amtool check-config` 判为非法（`${VAR:-默认}` 是字面值），
+# 且从未出现在 `docker/deploy/deploy.sh` 的部署路径上，`README_MONITORING.md` 也早已写明不要使用它。
 CONFIG_COMPOSE_MAP: dict[str, list[str]] = {
-    "monitoring/prometheus/prometheus.yml": [
-        "docker/docker-compose.yml",
-        "docker/docker-compose.monitoring.yml",
-    ],
-    "monitoring/prometheus/prometheus-with-mock.yml": [
-        "docker/docker-compose.yml",
-        "docker/docker-compose.monitoring.yml",
-    ],
     "docker/deploy/prometheus/prometheus.yml": [
         "docker/deploy/docker-compose.yml",
         "docker/deploy/docker-compose.monitoring.yml",
@@ -149,18 +145,16 @@ CONFIG_COMPOSE_MAP: dict[str, list[str]] = {
 
 # 需要校验的规则文件（配置里的 rule_files 另行动态解析）
 RULE_FILES = [
-    "monitoring/alerting-rules.yml",
     "docker/deploy/prometheus/alerting-rules.yml",
     "docker/deploy/prometheus/recording-rules.yml",
 ]
 
 # 漂移守卫的基准对：(变体配置, 基准配置)
-DRIFT_PAIRS = [
-    (
-        "monitoring/prometheus/prometheus-with-mock.yml",
-        "monitoring/prometheus/prometheus.yml",
-    ),
-]
+#
+# **当前为空**：唯一的变体 `prometheus-with-mock.yml` 随 monitoring 栈删除。留空而非删掉整个
+# 守卫，是因为"变体必须 = 基准 + 已知增量"这条不变量将来还会用上；`check_drift()` 对空列表
+# 返回空（section D 显示 `不适用`，不是 `OK`）——见 `main()` 里对空 DRIFT_PAIRS 的处理。
+DRIFT_PAIRS: list[tuple[str, str]] = []
 
 
 class Failure(Exception):
@@ -523,7 +517,15 @@ def main() -> int:
     sections.append(
         ("C. 死目标守卫（目标必须在 compose 中存在）", check_dead_targets())
     )
-    sections.append(("D. 变体漂移守卫（mock 变体 = 基准 + mock-*）", check_drift()))
+    # DRIFT_PAIRS 为空时不假装"检查过且通过"：标题写明不适用，免得下一个人以为这道守卫在保护什么。
+    sections.append(
+        (
+            "D. 变体漂移守卫（无变体配置 ⇒ 不适用）"
+            if not DRIFT_PAIRS
+            else "D. 变体漂移守卫（变体 = 基准 + 已知增量）",
+            check_drift(),
+        )
+    )
     sections.append(("E. keep/drop 语义守卫", check_external_label_kind()))
 
     for title, problems in sections:

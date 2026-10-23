@@ -1,7 +1,13 @@
 # Prometheus 监控优化实施方案
 
-> **创建时间**: 2026-09-30  
-> **文档版本**: v1.0  
+> ⚠️ **历史文档（2026-10-23 加注）**：本文描述的 `monitoring/` 目录、`docker/docker-compose.monitoring.yml`
+> 与 `scripts/deploy-monitoring.sh` **已全部删除**。原因是那套栈的 Alertmanager 配置被
+> `amtool check-config` 判为非法、从未发出过通知，且不在 `docker/deploy/deploy.sh` 的部署路径上。
+> 现状见 [`README_MONITORING.md`](../README_MONITORING.md)。本文保留作"当时为什么这么设计"的记录，
+> **不要再照着它操作** —— 它引用的每个路径现在都不存在。
+
+> **创建时间**: 2026-09-30
+> **文档版本**: v1.0
 > **负责人**: prometheus-ops-expert
 
 ---
@@ -279,15 +285,15 @@ async fn http_middleware(
     let start = Instant::now();
     let response = next.run(request).await;
     let duration = start.elapsed().as_secs_f64();
-    
+
     let status = response.status().as_u16().to_string();
     let endpoint = extract_endpoint_pattern(&request.uri().path());
     let client_agent = extract_client_agent(&request.headers());
-    
+
     metrics.http_requests_total
         .with_label_values(&[&status, &endpoint, &client_agent])
         .inc();
-    
+
     response
 }
 ```
@@ -342,7 +348,7 @@ pub fn record_cache_operation_labeled(
 1. **基础健康检查** (critical)
    - HTTP 5xx 错误率 > 5%
    - 数据库查询错误率突增
-   
+
 2. **延迟告警** (warning)
    - 房间创建 P99 > 5s
    - 消息投递 P95 > 1s
@@ -398,7 +404,7 @@ cd /Users/ljf/Desktop/hu_ts/synapse-rust && \
 PATH="/usr/bin:/bin:$PATH" cargo check --all-targets
 ```
 
-**预期结果**: 
+**预期结果**:
 - ✅ 无编译错误
 - ⚠️ 可能有 warning 关于未使用的指标（需调用点改造后才消除）
 

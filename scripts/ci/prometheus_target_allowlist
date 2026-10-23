@@ -16,4 +16,8 @@
 #    正解是把 coturn 接入同一网络（或给 Prometheus 加第二网络）。
 #    修好之前保留本行，以免门禁因一个已知问题长期变红、失去信噪比；
 #    修好后请立即删除本行（门禁会因此恢复对该目标的守卫）。
-coturn 独立栈目标（9641 由 coturn 自身暴露）；当前网络不可达待修，见 OPS_REVIEW_2026-10-10 §A6
+#
+# 2026-10-23 修正 key：本行原写作 `coturn …`（job 名），而 check_dead_targets 比对的是
+# target 的 **host**（`if tgt in allow or host in allow`）⇒ 这份豁免从登记起就没生效过，
+# C 项因此长期 FAIL、把真问题淹在已知问题里。key 改为 host 后门禁转 OK。
+host.docker.internal coturn 独立栈目标（9641 由 coturn 自身暴露）；当前网络不可达待修，见 OPS_REVIEW_2026-10-10 §A6
