@@ -981,18 +981,21 @@ git ls-files '*.rs' | grep -vE '(^|/)tests?/|/tests?\.rs$|_tests\.rs$|^tests/' \
 - **证据**：全仓 `FROM notification_delivery_log` **0 命中**，仅有 INSERT。
 - **影响**：表随时间无限增长且无任何读取方（无可观测性、无重试、无清理）；`server-notifications` 又是非默认 feature（RD-14），默认部署连写入都不会发生。
 - **建议**：删除表与写入点，或补齐"查询投递历史"的消费者；若要保留审计价值，必须同时加 TTL/清理任务，否则是纯负担。
+- **状态：已删除（2026-10-23，W6 批次 4）**。选「删表 + 删写入点」：基线 SQL 删建表块与其 2 个索引，存储层删 `log_delivery`（`server_notification/repository.rs`）及其 `api.rs` 转发，`ServerNotificationService::broadcast_notification` 退化为 no-op（保留签名，避免调用方扩散改动）。依据：`server-notifications` 是非默认 feature，默认部署连写入都不发生，且全仓无读取方——补消费者或加 TTL 都不如直接删除。
 
 #### RD-21（P2）`user_locks` 表与 4 个存储方法在生产已无调用方
 - **位置**：`migrations/00000000_unified_schema_v12.sql:4418`（建表）；`synapse-storage/src/user/storage.rs:1468-1550`（`lock_user`/`unlock_user`/计数/列表）
 - **证据**：生产调用方**只有** `synapse-storage/src/test_mocks/mod.rs:53` 与 `db_tests.rs`、`user_store_fake.rs`；服务层 `user_lock_service` 已在"审查 #23"中删除（`synapse-services/src/wiring/extensions.rs:16-17` 自述）。
 - **影响**：一张有写入语义（行锁）却无人调用的表，加一套完整的存储 API，构成"半删除"状态；后来者会以为存在并发用户锁机制。
 - **建议**：按 `docs/synapse-rust/archive/REDUNDANT_TABLE_DELETION_PLAN.md` 的先例走"先删调用 → 观察窗口 → 删表 + 删方法"。
+- **状态：已删除（2026-10-23，W6 批次 4）**。原文记 4 个方法，**实测 5 个**：`lock_user`/`unlock_user`/`is_user_locked`/`get_active_user_lock`/`get_locked_users`，连同 `LockedUser` 模型、基线 SQL 的建表块与 2 个索引、`UserStore` trait、`UserStorage` 实现/转发、`user_store_fake` 与 `db_tests` 的对应用例一并移除。**观察窗口压缩进同一提交**：本轮已逐点核实生产调用方为 0（唯一命中是 `test_mocks`/`db_tests`/`user_store_fake`，且服务层 `user_lock_service` 早已删除），再挂一个空观察期不会产生新信息。
 
 #### RD-22（P3）`users` 三个密码生命周期列生产零读取
 - **位置**：`migrations/00000000_unified_schema_v12.sql:118-120`（`is_password_change_required`、`must_change_password`、`password_expires_at`）、索引 `:3319-3320`、初始化 `:4232`
 - **证据**：全仓生产代码无点访问；唯一断言在 `tests/integration/user_storage_tests_migrated.rs:259-260`（断言列不存在/未被使用）。
 - **影响**：三列 + 两个部分索引常驻，`:4232` 还会把 admin 置为 `must_change_password = TRUE`，但无任何登录逻辑消费它——形成"要求改密但永不生效"的静默行为。
 - **建议**：二选一——实现强制改密流程（登录响应/`/account/password` 联动），或删除三列与 `:4232` 数据修补。后者更符合当前业务范围。
+- **状态：已删除（2026-10-23，W6 批次 4）**。选后者：基线 SQL 删 3 列、2 个部分索引与 `:4232` 的 admin 数据修补；`synapse-storage/src/user/storage.rs` 的 10 处 `SELECT` 列清单与 2 条 `UPDATE` 同步去列（`update_password` 只写 `password_hash` + `password_changed_ts`）。**连带必改**：`test-support/test_schema_contract.sql` 里 3 条 `ALTER TABLE users ADD COLUMN IF NOT EXISTS …` 必须同删，否则测试契约层会在建完模板后把列加回来，使"删列"在测试库上不生效。保留仍在使用的 `password_changed_ts`/`failed_login_attempts`/`locked_until`。
 
 ---
 
@@ -1155,7 +1158,7 @@ git ls-files '*.rs' | grep -vE '(^|/)tests?/|/tests?\.rs$|_tests\.rs$|^tests/' \
 | **W3** | P1 结构决策 | ARCH-01 | 方案 A「打通」：写路径改走规范事件，影子表降级为索引 | **大** | 需先定方案 | ✅ 已提交 `3789583ef`（见 §10.5） |
 | **W4** | P2 资源与性能 | PERF-14、PERF-13、PERF-03/04/05、PERF-07/08/09、PERF-06、CODE-04、CODE-07 | 索引/查询/分批 | 中 | W1（FUNC-06 累计校验） | ✅ 三层全部落地：第一层 `2358c0f5a`、第二层 `0d18fede0`、第三层 `3cf5c006a`（见 §10.6） |
 | **W5** | P2 安全一致性 | SEC-02…SEC-08 | 配置校验 + 默认值 | 小 | 无 | ✅ 已提交 `ca6980c51`（见 §10.7） |
-| **W6** | P3 冗余与文档 | 全部 P3 + §9.12 五批 | 删除/合壳/文档 | 小但量大 | W0（避免删到正在改的文件） | 🟡 批次 1 已提交 `e4ac05ce0`、批次 2 已提交 `b51aafb00`、批次 3 已提交 `f7bf4eec0`（见 §10.8），批次 4…5 待开始 |
+| **W6** | P3 冗余与文档 | 全部 P3 + §9.12 五批 | 删除/合壳/文档 | 小但量大 | W0（避免删到正在改的文件） | 🟡 批次 1 已提交 `e4ac05ce0`、批次 2 已提交 `b51aafb00`、批次 3 已提交 `f7bf4eec0`、批次 4 已提交 `d9398fed1`（见 §10.8），批次 5 待开始 |
 
 **建议并行度**：W0 / W2 / W5 三者互不重叠，可并行；W1 与 W4 串行；W3 单独走设计评审；W6 最后收尾（它会删文件，先做会和前面所有分支冲突）。
 
@@ -1577,6 +1580,50 @@ fn is_admin_request_allowed(role: &str, method: &Method, path: &str, rbac_enable
   - sqlx 棘轮与 DDL 守卫 8 条：`sqlx_ratio_gate_tests`×4、`sqlx_cache_tooling_guard_tests`×2、`sqlx_dynamic_literal_guard_tests`、`test_ddl_guard_tests`（§10.6 已归因为 HEAD 既有计数漂移，基线不下调）。
   - 环境/工具链 2 条：`synapse-storage monitoring::db_tests::database_monitor_round_trip_on_the_migration_template`、`synapse-storage worker::tests::test_worker_type_owned_route_prefixes`。
   - 相比批次 2 的 17 failed，本次 **−2**：`placeholder_scan_tests::test_empty_json_successes_are_allowlisted`（批次 2 内已修）、`api_beacon_location_tests`（抖动，本轮通过）；**无任何条目因本批从绿转红**。
+
+> **落地状态：批次 4（DB 迁移）已完成（2026-10-23，提交 `d9398fed1`）**。范围 RD-20/21/22。实际落地与审计原文有 **5 处偏差/补充**，以实际为准：
+>
+> ① **RD-21 是 5 个方法，不是 4 个**：`lock_user` / `unlock_user` / `is_user_locked` / `get_active_user_lock` / `get_locked_users`，连同 `LockedUser` 模型、基线 SQL 的建表块与 2 个索引、`UserStore` trait、`UserStorage` 实现/转发、`user_store_fake` 与 `db_tests` 的对应用例一并移除。
+> ② **RD-22 必须连带删 `test-support/test_schema_contract.sql` 的 3 条 `ALTER TABLE users ADD COLUMN IF NOT EXISTS …`**：契约层在模板建完之后执行，不改它会把刚删掉的列原样加回，使"删列"在测试库上完全失效，而基线 SQL 的静态 grep 门禁看不出这种回填。
+> ③ **模板指纹常量按既定协议同步**：基线 SQL 变更 ⇒ FNV-1a 64 指纹 `f151aaa3c500793e` → `90f2bf165cb2f005`，`tests/unit/test_isolation_unification_tests.rs` 的 `EXPECTED_BASELINE_FINGERPRINT` 同步更新；改动前先在 HEAD 上复算，证明哈希实现本身未变（否则会把"基线变了"误读为"算法变了"）。
+> ④ **§9.12 的「先停写 → 观察窗口 → 删表」压缩进同一提交**：三处对象的生产调用方实测均为 0——`user_locks` 的唯一命中是 `test_mocks` / `db_tests` / `user_store_fake`（服务层 `user_lock_service` 早已删除），`notification_delivery_log` 属非默认 feature 且全仓无读取方。空转的观察期不会产生新信息。
+> ⑤ **§9.12 的「迁移前备份 + schema 快照对比」落地为可执行门禁**：新增 `test_zero_reference_schema_objects_are_dropped`（配 `assert_table_absent` / `assert_column_absent` 两个辅助），在 `current_schema()` 上断言 3 表 4 列不存在。一次性人工快照会过期，测试不会。
+
+**批次 4 落地明细**
+
+| 条目 | 实际改动 |
+|---|---|
+| RD-20 | 基线 SQL 删 `notification_delivery_log` 建表块 + 2 个索引；`synapse-storage/src/server_notification/repository.rs` 删 `log_delivery`、`api.rs` 删转发；`ServerNotificationService::broadcast_notification` 退化为 no-op（**保留签名**，避免调用方扩散改动）；`tests/unit/server_notification_service_tests.rs` 同步删写入断言 |
+| RD-21 | 基线 SQL 删 `user_locks` 建表块 + 2 个索引；`synapse-storage/src/user/storage.rs` 删 5 个方法与 `LockedUser`，`user/models.rs` / `lib.rs` / `auth/mod.rs` 删导出；`UserStore` trait 与 `UserStorage` 实现/转发同步；`test_mocks` / `test_mocks/tests` / `user_store_fake` / `user/db_tests` / `user/tests` 删对应用例；`AGENTS.md` / `CLAUDE.md` 删 `seed_locked_users()` 说明 |
+| RD-22 | 基线 SQL 删 3 列 + 2 个部分索引 + admin `must_change_password` 数据修补；`user/storage.rs` 的 10 处 `SELECT` 列清单与 2 条 `UPDATE` 去列（`update_password` 只写 `password_hash` + `password_changed_ts`）；`test-support/test_schema_contract.sql` 删 3 条 `ALTER TABLE`（偏差 ②）；`tests/integration/user_storage_tests_migrated.rs` / `nullable_decode_tests.rs`、`tests/unit/user_service_tests.rs` 与 `synapse-services` 侧 `user_service` / `admin_user_service` / `account_identity_service` / `room/membership/actions` / `test_mocks` / `test_utils` / `auth/tests` 同步去列 |
+| 新增门禁 | `tests/integration/db_schema_smoke_tests_migrated.rs`：`assert_table_absent` / `assert_column_absent`（锚定 `current_schema()`）+ `test_zero_reference_schema_objects_are_dropped` |
+| 棘轮同步 | `EXPECTED_BASELINE_FINGERPRINT` → `90f2bf165cb2f005`（偏差 ③）；`migrations/INDEXES.md` 删 4 条索引记录；`.sqlx` 重生成 26 个文件（1327 → **1321** 条） |
+
+**门禁（§9.12 批次 4 原文：「迁移前备份；迁移后跑 db_tests 与 schema 快照对比」）**
+
+| 门禁 | 结果 |
+|---|---|
+| **红证**（先证门禁能失败） | `/tmp/w6b4_red.log`、`/tmp/redgreen_b4.log`：`test_zero_reference_schema_objects_are_dropped` → `1 failed`，`panicked at db_schema_smoke_tests_migrated.rs:48` — `Expected table 'notification_delivery_log' to be dropped, got: Some("notification_delivery_log")`（删代码前先写断言，确认它确实能红） |
+| 绿证 | `/tmp/green_b4_baseline.log`：`1 test run: 1 passed` |
+| 定向集成 | `/tmp/targeted_int_b4.log`：`48 tests run: 48 passed, 1593 skipped`（`db_schema_smoke_tests_migrated` + `user_storage_tests_migrated` + `nullable_decode_tests` 等受影响面） |
+| 定向单元 | `/tmp/targeted_unit_b4.log`：`110 tests run: 110 passed, 1892 skipped` |
+| storage lib 全量 | `/tmp/targeted_storage_lib_b4.log`：`793/1867 tests run: 792 passed, 1 failed`，唯一失败是 `monitoring::db_tests::database_monitor_round_trip_on_the_migration_template`（`left: 5, right: 0`），§10.6 已登记的环境项，非本批引入 |
+| `synapse-test-utils` 全量 | 修复被污染的模板后 `11 tests run: 11 passed`（见下方踩坑第 3 条） |
+| `.sqlx` 缓存 | `scripts/ci/check_sqlx_cache_fresh.sh` → `EXIT=0`：1321 个条目已被 git 跟踪、源码 1360 处静态查询字面量全部命中 |
+| sqlx 棘轮 | `check_sqlx_dynamic_ratio.sh` → `EXIT=1`（3 项违规，见下方归因） |
+| 全量回归 | 沿用 W4 第三层已完整跑完的那次：`E2EE_INTEROP=1 cargo nextest run --workspace --all-features --no-fail-fast` → `3,495.446s`、`10723 tests run: 10707 passed (1 slow), 16 failed, 16 skipped`、`EXIT=100` |
+
+- **16 条失败的归因（零新增）**：13 条为 §10.6 已登记的既有失败集；1 条 `sync_helpers_tests::room_event_to_json_age_is_zero_when_event_is_now` 为时序抖动（`age` 跨秒边界）；2 条 `synapse-test-utils` 为模板被污染（已在本批内修复并定向复绿，见踩坑第 2–3 条）。**无任何条目因本批从绿转红**。
+- **sqlx 静态计数 1367 → 1360 的归因（基线不下调）**：−6 是本批删除的静态宏（`notification_delivery_log` 的 INSERT、`user_locks` 的行锁查询、`users` 三列相关文本），−1 是既有漂移。按「棘轮基线只能因修复而收紧」的既定口径，`BASELINE_STATIC` **保持 1367**，与 `BASELINE_DYNAMIC_PRODUCTION` 136 > 133、`BASELINE_DYNAMIC_TEST_INFRA` 779 > 767 一并挂到独立的"棘轮清账"任务。`SQLX_CACHE_ENTRIES` 属"与真源现算比对"项（非棘轮），已同步为 1321，并在 `SQLX_STATICIZATION_PLAN_2026-09-23.md` 的数字块下追加了 2026-10-23 的变更记录。
+
+> **踩坑记录**
+>
+> 1. **`init_template_schema()` 无条件 `DROP SCHEMA IF EXISTS public CASCADE` 再 `CREATE`**（`synapse-test-utils/src/lib.rs:697-698`）：任何一次模板铸造都会清空开发库的 `public`。改动基线 SQL ⇒ 指纹变化 ⇒ 必然触发一次重铸，因此"跑测试"与"库里还有东西"不可兼得，必须事后重建。
+> 2. **`TEST_DB_TEMPLATE_SCHEMA=public` 会写一个伪造的 public 模板标记**：模板就绪标记按 schema 名落盘（`{marker_dir}/synapse_test_template_ready_{schema}`），指向 `public` 时标记内容与真实模板无关，后续所有用例都会在"看似就绪、其实没建表"的 public 上跑。
+> 3. **`step_migrations` 的迁移目录解析依赖 cwd**（`synapse-services/src/database_initializer/mod.rs:277-285`：`/app/migrations` → `./migrations` → 找不到就 `info!` + **静默跳过**）：当进程 cwd 是 crate 子目录（如 `synapse-test-utils/`）时，铸出的模板只有 `schema_migrations` 一表；随后 `ensure_test_schema_contract` 失败 ⇒ **不写就绪标记** ⇒ 每个测试进程都重铸一次、每次清空 public，整套件互相毒化（本批实测 2 条 `synapse-test-utils` 用例失败即此）。修复路径是给该解析加 `CARGO_MANIFEST_DIR` 向上查找并让"找不到迁移"报错而非静默跳过，**作为独立挂账项**（超出本批范围）。
+> 4. **全量 nextest 必须带 `--profile ci`（4 线程）**：default profile 无覆盖 ⇒ `test-threads = num-cpus`（本机 10），16 GB 内存下跑到 `8,058/10,723` 时 swap 11.4 GB / 12.3 GB 用尽，进程被 SIGKILL（`EXIT=137`）。这不是测试失败，是资源打满。
+> 5. **耗时结构（本批顺带量化，印证 TESTING.md §3.1/§9.1.1）**：1,635 条集成用例累计 18,723s（**均值 11.45s**，占全量时间的 81%），6,411 条 lib/unit 累计 4,308s（**均值 0.67s**）。根因是 nextest 一用例一进程 ⇒ `SCHEMA_POOL` 永不命中 ⇒ 每例完整克隆 220 表模板（约 1,000 次 catalog 写）。因此本地全量集成应用 `cargo test --test integration`（单进程、池生效、~0.26s/例），nextest 只在需要隔离/并行时用且必须 `--profile ci`。
+> 6. **提交前 preflight 检查的是整棵树（含未跟踪文件）**：`docs/audit/SHIT_MOUNTAIN_AUDIT_2026-10-23.md`（未跟踪、不属于本批）触发的 aspell 失败会拦住本批提交，只能补词表（`dingtalk` / `wecom`）。同理 `check_plan_numbers_fresh.sh` 会在 `.sqlx` 条数变化时强制同步文档数字块——这两条都是"改动集之外仍会红"的守卫，不能只见本批 diff。
 
 直接执行 [§9.12 分阶段清理建议](#912-统计与分阶段清理建议)，不重复。补两条本轮的：
 
