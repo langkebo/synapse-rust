@@ -63,6 +63,7 @@ mod api_search_thread_tests;
 mod api_security_headers_tests;
 mod api_security_vuln_fix_tests;
 mod api_server_notification_admin_routes_tests;
+mod api_space_lifecycle_routes_tests;
 mod api_space_routes_tests;
 mod api_sticky_event_tests;
 mod api_sticky_state_event_tests;
