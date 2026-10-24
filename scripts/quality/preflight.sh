@@ -129,6 +129,11 @@ run "check_ts_order_tiebreak.py" python3 scripts/ci/check_ts_order_tiebreak.py
 step "门禁可达性（每个 check_* 都要有人调用，或显式登记）"
 run "check_gate_reachability.py" python3 scripts/ci/check_gate_reachability.py
 
+# `updated_ts` 可空性棘轮（ARCH-06）：两种形态并存是现状，规则已改口为"新表必须显式选"，
+# 本步只是不让计数悄悄朝可空方向漂。~20ms，且只读基线 SQL，与改动集无关。
+step "Schema：updated_ts 可空性棘轮"
+run "check_schema_timestamp_convention.py" python3 scripts/ci/check_schema_timestamp_convention.py
+
 step "契约 gate"
 if [ -z "$(printf '%s\n' "$changed" | grep -E 'ROUTE_CONTRACT|ledger_annotations|extract_registered|derived_route|ledger_export|route-table\.json|route_ledger' || true)" ]; then
     run "check_route_contract.sh" bash scripts/contract/check_route_contract.sh

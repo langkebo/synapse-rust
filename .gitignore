@@ -140,6 +140,11 @@ load-test-run*.ndjson
 # 现导出的清单落在 scripts/api_test/reports/（已随 reports/ 一起忽略）。
 scripts/api_test/ledger.json
 .DS_Store
+# `.trae/` 是 IDE 本地目录，整体忽略。**但有一个例外**：`.trae/rules/project_rules.md`
+# 是项目规则本身（时间字段规范、MSC 台账、命名约定…），审计里十多个条目都在引用它。
+# 它不入库时：① 引用它的条目（DOC-03）修了也不进版本控制；② 规则类门禁对每个开发者
+# 各看一棵树（审计 NEW-02）。因此该文件用 `git add -f` 纳入版本控制 —— **改完仍要 -f**：
+#     git add -f .trae/rules/project_rules.md
 .trae/
 .gstack/
 .claude/worktrees/

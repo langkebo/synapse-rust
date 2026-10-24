@@ -1,0 +1,6 @@
+# `updated_ts` 约束形态 —— 逐形态计数棘轮（见 scripts/ci/check_schema_timestamp_convention.py）。
+# 只允许朝更严格走：LOOSE 只能变小、STRICT 只能变大；改完跑 --update 收紧。
+# 规则口径见 .trae/rules/project_rules.md §2.2（两种写法都合法，新表必须显式选一个）。
+
+STRICT=43
+LOOSE=42

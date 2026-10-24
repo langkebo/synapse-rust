@@ -127,6 +127,13 @@ jobs:
           python3 scripts/check_migration_consistency.py \
             --json-report artifacts/migration_consistency.json
 
+      # ARCH-06：`updated_ts` 的两种约束形态在基线 SQL 里各占一半，谁也不是笔误。
+      # 规则已改口为「新表必须显式选一个」，本棘轮把计数冻结到只许朝 NOT NULL 方向变。
+      # 它认两种语法（`CREATE TABLE` 内联 + `ALTER TABLE … ADD COLUMN`）——
+      # 后者一漏就会放过"后加的列随手写成可空"这一最常见的漂移形态（实测漏了 room_directory）。
+      - name: updated_ts nullability ratchet
+        run: python3 scripts/ci/check_schema_timestamp_convention.py
+
       - name: Route ↔ storage boundary gate
         run: bash scripts/ci/check_route_storage_boundary.sh
 

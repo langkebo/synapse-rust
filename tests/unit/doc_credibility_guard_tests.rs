@@ -741,3 +741,53 @@ fn the_capability_ledger_checker_rejects_the_two_historical_wrong_rows() {
         "自检失效：这套「剥离删除线 / 原判订正段后找 MISSING」的判定没能识别历史错误原文"
     );
 }
+
+// ── 项目规则里的 MSC 台账 ─────────────────────────────────────────────────
+
+/// 项目规则把 **MSC3245 标成 "Room summary"**（实为**语音消息**），且标"完整实现"。
+///
+/// 这条错了两份：MSC3245 是 voice messages（语音的编码/转写在客户端完成，服务端三端点
+/// `convert`/`optimize`/`transcription` 按 by-design 恒返回 `M_UNRECOGNIZED`）；"Room summary"
+/// 属于 MSC3266 / MSC4380 一族。照台账排期的人会去找一个不存在的服务端能力，或反过来
+/// 把"服务端没实现"当成缺陷去补（审计 DOC-03，`FUNC-02` 的初判就是这么错的）。
+///
+/// 判据用**成对断言**：这一行必须写"语音消息"，且那一行不得再出现 "Room summary" 与
+/// "完整实现" 的并列 —— 只钉住错词不够，因为把错词换成另一个错词（比如 "Voice broadcast"）
+/// 同样会误导。
+#[test]
+fn project_rules_labels_msc3245_as_voice_messages() {
+    const RULES: &str = ".trae/rules/project_rules.md";
+    let path = repo_root().join(RULES);
+    if !path.exists() {
+        // `.trae/` 是 IDE 本地目录。该文件已于 2026-10-24 用 `git add -f` 纳入版本控制
+        // （审计 NEW-02），所以 CI 里也存在；本地缺席时跳过而不是失败。
+        eprintln!("SKIP：{RULES} 不存在（该文件应已入库，见 NEW-02）");
+        return;
+    }
+    let text = fs::read_to_string(&path).expect("read project_rules.md");
+
+    let row = text
+        .lines()
+        .find(|line| line.contains("MSC3245"))
+        .unwrap_or_else(|| panic!("{RULES} 里找不到 MSC3245 那一行，守卫前提失效"));
+
+    // 只看**名称列与状态列**。证据列允许引用旧错标（"此前写作 XX，两处都错"），
+    // 整行匹配会把这种"说明它为什么错"的订正本身判红 —— 首版就是这么误伤的。
+    let cells: Vec<&str> = row.split('|').map(str::trim).collect();
+    assert!(cells.len() >= 5, "MSC3245 那一行不是 4 列表格行，守卫前提失效：\n  {row}");
+    let (label, status) = (cells[2], cells[3]);
+
+    assert!(
+        label.contains("语音消息"),
+        "MSC3245 是**语音消息**（voice messages），台账的名称列必须写明。实际名称列：`{label}`"
+    );
+    assert!(
+        !label.contains("Room summary"),
+        "MSC3245 不是 \"Room summary\"（那是 MSC3266/MSC4380 一族）。实际名称列：`{label}`"
+    );
+    assert!(
+        !status.contains("完整实现"),
+        "服务端三端点（convert/optimize/transcription）按 MSC3245 属 by-design 未实现，\
+         不能标「完整实现」。实际状态列：`{status}`"
+    );
+}
