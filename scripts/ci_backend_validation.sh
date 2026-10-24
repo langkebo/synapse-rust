@@ -21,6 +21,9 @@ APPSERVICE_GATE_ADMIN_TOKEN="${APPSERVICE_GATE_ADMIN_TOKEN:-}"
 # 串行是刻意的 —— 那 7 条并发起来会在注册/搜索上撞 rate_limit，且失败信息互相污染。
 E2E_BASE_URL="${E2E_BASE_URL:-}"
 E2E_TEST_THREADS="${E2E_TEST_THREADS:-1}"
+# 门禁只跑一次，不需要增量编译；关闭后不再产生 target/debug/incremental 会话
+# （实测该项占 target 体积约 8 成）。
+export CARGO_INCREMENTAL=0
 
 log() {
     printf '[ci] %s\n' "$*"
