@@ -14,6 +14,7 @@ mod api_background_update_routes_tests;
 mod api_beacon_location_tests;
 #[cfg(feature = "burn-after-read")]
 mod api_burn_after_read_redaction_tests;
+mod api_captcha_routes_tests;
 mod api_content_scanner_integration_tests;
 mod api_create_room_auth_tests;
 mod api_delayed_event_schedule_tests;

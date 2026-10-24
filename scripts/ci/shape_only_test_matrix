@@ -14,7 +14,7 @@
 #   ① 接真（真 router + 真库 / 真调生产函数）⇒ 不进本表，名字可继续叫 `*_route_tests`；
 #   ② 只锁形状 ⇒ 名字必须带 `_shape_only_tests`，文件头 20 行内写明「只锁形状」，登记在本表。
 
-tests/unit/captcha_shape_only_tests.rs|NONE
+tests/unit/captcha_shape_only_tests.rs|tests/integration/api_captcha_routes_tests.rs
 tests/unit/e2ee_shape_only_tests.rs|tests/integration/api_e2ee_advanced_tests.rs
 tests/unit/federation_cache_shape_only_tests.rs|tests/integration/api_admin_federation_tests.rs
 tests/unit/formatting_shape_only_tests.rs|NONE
