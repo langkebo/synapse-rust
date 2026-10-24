@@ -39,6 +39,7 @@ mod api_input_validation_tests;
 mod api_invite_blocklist_e2e_tests;
 mod api_invite_blocklist_routes_tests;
 mod api_key_backup_route_table_tests;
+mod api_media_quota_routes_tests;
 mod api_media_routes_tests;
 mod api_megolm_rotation_tests;
 mod api_module_admin_routes_tests;

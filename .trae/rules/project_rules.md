@@ -62,7 +62,7 @@ synapse-rust/                          # workspace 根（thin binary crate）
 ├── synapse-test-utils/                # 测试工具（EnvGuard、env_lock 等）
 ├── tests/                             # 测试文件
 │   ├── unit/                          # 单元测试（约 130 个文件）
-│   ├── integration/                   # 集成测试（约 161 个文件）
+│   ├── integration/                   # 集成测试（约 162 个文件）
 │   ├── e2e/                           # E2E 测试（3 个文件）
 │   ├── performance/                   # 性能测试（5 个文件）
 │   └── common/                        # 共享测试夹具（http_mock、snapshots 等）
