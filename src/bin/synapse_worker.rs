@@ -97,31 +97,50 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let smtp_mailer = smtp_mailer_clone.clone();
         let smtp_from = smtp_from.clone();
         async move {
+            // 每个 job 都被"消费"了，但**消费 ≠ 做完**。分类见
+            // `synapse_common::background_job::WorkerSupport`：Handled 之外的变体都会留下一条
+            // `worker_job_without_implementation` 告警，免得"作业完成"的指标与"什么都没做"
+            // 看起来一样（NEW-06）。
+            if job.worker_support() != synapse_common::background_job::WorkerSupport::Handled {
+                tracing::warn!(
+                    event = "worker_job_without_implementation",
+                    support = ?job.worker_support(),
+                    reason = job.worker_support_reason(),
+                    "background job consumed without doing the work it advertises"
+                );
+            }
             match job {
                 BackgroundJob::SendEmail { to, subject, body } => {
                     process_send_email_job(smtp_mailer.clone(), &smtp_from, &to, &subject, &body).await
                 }
                 BackgroundJob::ProcessMedia { file_id } => {
-                    tracing::info!("[MEDIA] Processing media file: {}", file_id);
-                    tracing::info!("[MEDIA] Generating thumbnails for {}...", file_id);
-                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                    tracing::info!("[MEDIA] Thumbnails generated for {}", file_id);
+                    // 原来这里 `sleep(500ms)` 之后打 "Thumbnails generated for {id}"，但一张
+                    // 缩略图都没生成 —— 真正的生成在 `media_service::get_thumbnail` 的
+                    // cache-miss 路径上。保留 info 说明"这个 job 只是预热"，不假装做完（NEW-06）。
+                    tracing::info!("[MEDIA] Media job received for {}（缩略图按需懒生成）", file_id);
                     Ok(())
                 }
                 BackgroundJob::FederationTransaction { txn_id, destination } => {
-                    tracing::info!("[FEDERATION] Processing transaction {} to {}", txn_id, destination);
-                    tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+                    tracing::warn!(
+                        event = "worker_job_unimplemented",
+                        txn_id = %txn_id,
+                        destination = %destination,
+                        "收到 FederationTransaction job，但 worker 没有实现联邦发送（仓内也无生产者）；丢弃该 job 而非假装发送成功"
+                    );
                     Ok(())
                 }
                 BackgroundJob::Generic { name, payload } => {
                     tracing::info!("[GENERIC] Processing job '{}'", name);
 
                     if name == "notify_device_revocation" {
-                        if let Some(dest) = payload.get("destination").and_then(|v| v.as_str()) {
-                            tracing::info!("[GENERIC] Notifying device revocation to {}", dest);
-                            tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
-                            tracing::info!("[GENERIC] Device revocation notified to {}", dest);
-                        }
+                        // 原来 sleep(300ms) 后打 "Device revocation notified"，但**从未发过任何
+                        // 联邦请求**。生产者是 `device_sync::notify_device_revocation`，所以配了
+                        // task_queue 的部署里设备吊销通知一直被静默丢弃（NEW-06）。
+                        tracing::warn!(
+                            event = "worker_job_unimplemented",
+                            destination = payload.get("destination").and_then(|v| v.as_str()).unwrap_or("<none>"),
+                            "收到 notify_device_revocation job，但 worker 没有实现该联邦 EDU；远端不会收到设备吊销通知"
+                        );
                     } else {
                         tracing::info!(
                             "[GENERIC] Payload summary: fields={}",
@@ -146,9 +165,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Ok(())
                 }
                 BackgroundJob::DelayedEventProcessing { event_id } => {
-                    tracing::info!("[DELAYED] Processing delayed event: {}", event_id);
-                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-                    tracing::info!("[DELAYED] Event {} processed", event_id);
+                    // 延迟事件由 `room/scheduled_dispatch` 的调度器处理，这一支是冗余的。
+                    tracing::info!(
+                        "[DELAYED] delayed event {} 由 scheduled_dispatch 处理（worker 不做实事）",
+                        event_id
+                    );
                     Ok(())
                 }
             }

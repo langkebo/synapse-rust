@@ -194,6 +194,11 @@ jobs:
       - name: Web layer must not use synapse_storage directly (ratchet)
         run: python3 scripts/ci/check_web_layering.py
 
+      # TEST-05：`sleep` 站点只许减少（分桶：生产 / 生产文件里的 cfg(test) / tests）。
+      # 逐处"是等事件还是等窗口"判不出意图，所以门禁只做能被证明的"总量不增长"。
+      - name: Sleep-site ratchet (no new fixed windows)
+        run: python3 scripts/ci/check_sleep_ratchet.py
+
       # 元门禁：每个 `check_*` 脚本都必须真的被某条车道调用，或显式登记为手动入口。
       # 没有它，"新增一道门禁"与"新增一个永远不跑的文件"在外观上完全一致 ——
       # TEST-04 记的正是这一类（本条自己也是被它约束的对象之一）。

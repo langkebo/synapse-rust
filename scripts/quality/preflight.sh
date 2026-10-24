@@ -131,6 +131,10 @@ run "check_gate_reachability.py" python3 scripts/ci/check_gate_reachability.py
 
 # `updated_ts` 可空性棘轮（ARCH-06）：两种形态并存是现状，规则已改口为"新表必须显式选"，
 # 本步只是不让计数悄悄朝可空方向漂。~20ms，且只读基线 SQL，与改动集无关。
+# `sleep` 站点棘轮（TEST-05）：分三桶计数，只许下降。~0.3s，只读 .rs 源码。
+step "测试：sleep 站点棘轮"
+run "check_sleep_ratchet.py" python3 scripts/ci/check_sleep_ratchet.py
+
 step "Schema：updated_ts 可空性棘轮"
 run "check_schema_timestamp_convention.py" python3 scripts/ci/check_schema_timestamp_convention.py
 

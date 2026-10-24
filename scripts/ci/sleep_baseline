@@ -1,0 +1,25 @@
+# `sleep` 站点计数棘轮（见 scripts/ci/check_sleep_ratchet.py）。
+# 只允许减少：删掉一处后跑 --update 收紧；新增一处会红（先说明它为什么不是 flake 源）。
+# 逐桶：PROD=生产代码 / TEST_INLINE=生产文件里的 #[cfg(test)] / TEST_FILE=tests/**。
+
+PROD=26
+TEST_INLINE=34
+TEST_FILE=47
+
+# 逐文件明细（PROD 桶；新增文件会在这里体现出来）
+PROD_FILE scripts/bench_harness.rs 1
+PROD_FILE synapse-cache/src/invalidation.rs 1
+PROD_FILE synapse-common/src/task_queue.rs 2
+PROD_FILE synapse-common/src/test_isolation.rs 4
+PROD_FILE synapse-common/src/test_schema_guard.rs 2
+PROD_FILE synapse-federation/src/client.rs 1
+PROD_FILE synapse-services/src/database_initializer/mod.rs 1
+PROD_FILE synapse-services/src/event_notifier.rs 1
+PROD_FILE synapse-services/src/friend_room_service/mod.rs 1
+PROD_FILE synapse-services/src/push/providers/mod.rs 1
+PROD_FILE synapse-services/src/sliding_sync_service/mod.rs 2
+PROD_FILE synapse-services/src/sync_service/event_fetch.rs 2
+PROD_FILE synapse-services/src/worker/health.rs 1
+PROD_FILE synapse-storage/src/background_update.rs 1
+PROD_FILE synapse-test-utils/src/lib.rs 4
+PROD_FILE synapse-web/src/routes/admin/server.rs 1

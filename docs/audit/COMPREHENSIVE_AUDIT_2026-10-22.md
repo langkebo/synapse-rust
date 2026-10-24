@@ -61,8 +61,9 @@
 
 | 编号 | 级别 | 一句话 | 判据（怎么算修好） |
 |---|---|---|---|
+| **NEW-06** | **P1** | worker 不实现 `notify_device_revocation` 的联邦发送，生产者却「入队即成功」 ⇒ 设备吊销通知静默丢失 | ① worker 侧真发 EDU（注入 `FederationClient`，用 `send_signed_request`）；② 或生产者在 `worker_support() != Handled` 时不入队、走真实发送。判据：集成用例断言「吊销后远端收到 `m.device_list_update`」 |
 | **TEST-02** | P2 | 断言强度不足（原记 6 个文件只断言状态码） | **3 个已补**（403/401/404 断言 `errcode` + error、成功分支断言关键字段）、**2 个判定不适用**（安全头 / 路由台账）；仅剩 `msc4108` 的 12 个自证用例（并入 NEW-05）。判据：改期望 errcode 或响应字段 ⇒ 用例必须红（两处已实测） |
-| **TEST-05** | P2 | `tokio::time::sleep` **90 处 / 43 文件**（原记 27/14），构成时序 flake 面 | 逐处分类"等真实事件 / 等固定窗口"，后者改条件轮询；分类表落文档 + 计数棘轮 |
+| **TEST-05** | P2 | `sleep` 站点 **107 处**（PROD 26 / 测试域 81），三桶棘轮已建 | 测试域 81 处逐处改「等真实事件」（条件轮询 + deadline / `oneshot`）；计数只能下降（已由 `check_sleep_ratchet.py` 守住） |
 | **SEC-14** | P3 | 联邦请求缺 `ts` 仅告警不拒绝 | 增加拒绝分支 + 一条"缺 ts ⇒ 401"的用例（先写用例证明当前是 200/放行） |
 
 ### 0.2.2 需要决策或外部条件
@@ -242,6 +243,52 @@
 
 ## 三、功能完整性
 
+### NEW-06（P1）worker 的后台作业处理器有 4 个空壳分支，其中 1 个有真实生产者
+
+- **位置**：`src/bin/synapse_worker.rs:105-150`（`job_handler` 的 `match`）
+- **形态**：四个分支只做 `sleep(…) .await` + 一行"已完成"日志，**没有实现任何副作用**：
+
+  | 分支 | 原代码做的事 | 日志说的是 |
+  |---|---|---|
+  | `ProcessMedia` | `sleep(500ms)` | `"[MEDIA] Thumbnails generated for {id}"` |
+  | `FederationTransaction` | `sleep(200ms)` | `"[FEDERATION] Processing transaction …"` |
+  | `DelayedEventProcessing` | `sleep(100ms)` | `"[DELAYED] Event {id} processed"` |
+  | `Generic{name:"notify_device_revocation"}` | `sleep(300ms)` | `"[GENERIC] Device revocation notified to {dest}"` |
+
+- **哪一条是真的坏**：逐个查生产者（全仓 `BackgroundJob::<variant>` 引用）：
+
+  | 变体 | 生产者 | 结论 |
+  |---|---|---|
+  | `SendEmail` | `captcha_service.rs:296`、`registration_service.rs:86` | worker **真有实现**（SMTP） |
+  | `RedactEvent` | 0（主服务同步做） | worker 真有实现，冗余但无害 |
+  | `ProcessMedia` | `media_service.rs:410` | **空壳但无害**：缩略图由 `get_thumbnail` 的 cache-miss 路径懒生成，本 job 只是预热；错的是那句"已生成" |
+  | `DelayedEventProcessing` | 0 | 冗余：`room/scheduled_dispatch` 的调度器在处理 |
+  | `FederationTransaction` | 0 | 无生产者，纯死分支 |
+  | `Generic{notify_device_revocation}` | **`device_sync.rs:212`** | ❗ **真的坏**：见下 |
+
+  `device_sync::notify_device_revocation` 的逻辑是"有 task_queue ⇒ 入队并 `return Ok(())`"，
+  于是配了 Redis 队列（= worker 部署）时：**入队 → worker 睡 300ms → 打「已通知」→ 丢弃**。
+  远端从未收到 `m.device_list_update` EDU，会继续向已吊销的设备推 to-device 消息。
+  两端日志都显示成功，指标上是一条"已消费的作业"。
+  > 另注：`task_queue` 为空时的兜底路径也可疑 —— 它用**未签名**的 `PUT /_matrix/federation/v1/send/{txn}`
+  > 发一个裸 event JSON（`http_client` 是普通 `reqwest::Client`，没有 X-Matrix 头）。那条路远端应回 401，
+  > 但代码只在 2xx 时记成功、否则静默继续 —— 属于同一条链上的第二个问题。
+- **本轮做了什么**（把"说谎"改成"承认"）：
+  1. 新增 `synapse_common::background_job::WorkerSupport`（`Handled` / `RedundantNoOp` /
+     `Unimplemented`）+ `worker_support()` / `worker_support_reason()`，把"每个变体在 worker 里
+     到底是真做、冗余、还是没做"变成**数据**；
+  2. worker 里 4 个分支删掉 `sleep` 与假日志，改为在消费时统一打
+     `event = "worker_job_without_implementation"` 的 **warn**（带 `support` 与 `reason`）；
+  3. 用例 `worker_support_is_explicit_for_every_variant` 把分类钉住 —— 把任何一个
+     `Unimplemented` 改回 `Handled` 会红（避免为了日志好看而"修好"）。
+  4. 顺带让 TEST-05 的计数下降 4 处（`sleep` 是这四个空壳唯一的"工作")。
+- **仍未做（这才是 P1 的部分）**：让 worker 真的把 EDU 发出去。需要给 `DeviceSyncManager`
+  注入 `FederationClient`（当前只有裸 `reqwest::Client`），用 `send_signed_request` 构造
+  `m.device_list_update` 事务；或者在"worker 无实现"时**不要入队**、直接走真实发送路径。
+  在那之前，worker 部署的设备吊销通知仍然是**缺失**的 —— 现在只是不再谎报。
+- **判据（可失败）**：把 `BackgroundJob::Generic` 的 `worker_support()` 改成 `Handled` ⇒
+  `worker_support_is_explicit_for_every_variant` 红（实测）。
+
 ### FUNC-05（P3）联邦能力项有意不注册，未全部登记为设计决策
 
 - **已登记**：thirdparty 4 条 + 联邦 key 上传 5 条（RD-15/16）。
@@ -402,13 +449,44 @@
   "本文件只锁 JSON 形状，不覆盖路由行为"。
   判据：把被测 handler 的返回字段改名 ⇒ 该文件必须红；改不红的就是②类。
 
-### TEST-05（P2）`tokio::time::sleep` 90 处 / 43 文件，构成时序 flake 面
+### TEST-05（P2）`sleep` 站点：三桶计数棘轮（2026-10-24 重写）
 
-- **数字已抬升**：原记 27 处 / 14 文件 → 实测 **90 / 43**（§0.4 有命令）。
-- **影响**：每一条 `sleep` 都是一个"机器快就过、慢就红"的潜在 flake；CI 上表现为随机失败，
-  进而诱导 `--retries`（把真缺陷也一起吞掉）。
-- **修法**：逐处分类成"等真实事件"（→ 条件轮询/oneshot）与"等固定窗口"（→ 保留但注明理由），
-  分类表落文档 + 计数棘轮（只许下降）。
+原条目写"27 处 / 14 文件"。实测（`tokio::time::sleep` + `thread::sleep`，含 `sleep(Duration…)`）
+是一个**混着三种东西**的集合，合成一个数字没有意义：
+
+| 桶 | 含义 | 处数 | 判据 |
+|---|---|---|---|
+| `PROD` | 非测试文件、且不在 `#[cfg(test)]` 区里 | **26** | 多为重试退避 / 长轮询等待，**有正当理由**；但也是"启动时睡一下等对端"的藏身处 |
+| `TEST_INLINE` | 生产文件里的 `#[cfg(test)] mod` 内 | **34** | 纯 flake 面：`sleep(200ms)` 等后台任务跑完，机器慢就红 |
+| `TEST_FILE` | `tests/**` 与 `*_tests.rs` | **47** | 同上 |
+| 合计 | | **107** | |
+
+> 三个数由 `python3 scripts/ci/check_sleep_ratchet.py --print` 现算（含逐文件明细）。
+> 早先记的 "27 / 14" 与上一轮记的 "90 / 43" 都不可复现：前者口径不明，后者只数了
+> `tokio::time::sleep` 且没区分 `cfg(test)`。**以脚本输出为准**。
+
+**本轮新增门禁**：`scripts/ci/check_sleep_ratchet.py`（`scripts/ci/sleep_baseline`）——
+任一分桶增加即红；`--update` 只接受"变小"。**为什么不做逐处意图分类的自动判定**：
+`loop` / `select!` / `timeout` 的邻近关系判不出意图（`sleep(100ms)` 既可能是"等后台任务"
+也可能是"空闲轮询"），自动分桶会得出"已治理"的假象。门禁只做能被证明的"总量不增长"，
+逐处意图分类留在这张表 + 各文件的注释里。
+
+**典型站点（PROD 桶，值得单独看一眼的）**：
+
+| 站点 | 判断 |
+|---|---|
+| `synapse-federation/src/client.rs`（重试退避） | 正当：退避是必需的，且由 `delay` 决定 |
+| `synapse-services/src/sync_service/event_fetch.rs`（长轮询） | 正当：`poll_interval.min(remaining)` 有界 |
+| `synapse-common/src/test_isolation.rs` × 4（握手重试） | 正当：固定 `ACQUIRE_ATTEMPTS` + 线性退避 |
+| `synapse-web/src/routes/admin/server.rs`（重启等待） | 待评估：按 `delay_ms` 睡等自身重启，属"等固定窗口" |
+| `synapse-common/src/task_queue.rs`（空闲轮询 1s） | 待评估：可用 `NOTIFY`/stream 阻塞读替代 |
+
+**已减少**：NEW-06 修掉 worker 里 4 个空壳分支的 `sleep(500/200/300/100ms)`，PROD 桶因此
+从 30 降到 26（基线是修完之后建立的，所以基线里已经是 26）。
+
+**仍开着**：81 处测试域 `sleep` 未逐处改造（改法是"等真实事件"：条件轮询 + deadline，
+或 `oneshot`/`notify`）。本轮的产出是**让它不再增长 + 有一份可引用的分布**，
+不是"清零"。
 
 ### TEST-06（P2）5 个整文件以 feature 门控，默认测试不参与
 
@@ -459,9 +537,9 @@
 
 ### 10.2 下一批（W8）建议
 
-**顺序**：`TEST-02` → `TEST-05` → `SEC-14`。
+**顺序**：`NEW-06`（P1，唯一）→ `TEST-05` → `SEC-14`。
 
-理由：两条都能先写出红；`TEST-05` 的 90 处分类是纯体力活但收益最长尾。`SEC-14`（缺 `ts` 只告警）
+理由：NEW-06 是清单里唯一的 P1，且已有可失败的分类判据（`worker_support_is_explicit_for_every_variant`）加一个明确验收（远端真的收到 EDU）；`TEST-05` 剩余 81 处是体力活但收益最长尾。`SEC-14`（缺 `ts` 只告警）
 **需要先确认规范是否允许缺省** —— 硬拒可能与老版本 homeserver 断联邦，所以它排在需要判断的位置。
 
 ### 10.3 明确不做（防止过度开发）
