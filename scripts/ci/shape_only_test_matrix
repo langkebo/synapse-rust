@@ -37,7 +37,7 @@ tests/unit/event_report_shape_only_tests.rs|NONE
 tests/unit/federation_shape_only_tests.rs|NONE
 tests/unit/friend_shape_only_tests.rs|NONE
 tests/unit/module_shape_only_tests.rs|NONE
-tests/unit/push_shape_only_tests.rs|NONE
+tests/unit/push_shape_only_tests.rs|tests/integration/api_push_pushers_routes_tests.rs
 tests/unit/room_summary_shape_only_tests.rs|NONE
 tests/unit/space_shape_only_tests.rs|NONE
 tests/unit/telemetry_shape_only_tests.rs|NONE

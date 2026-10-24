@@ -47,6 +47,7 @@ mod api_privacy_posture_tests;
 mod api_profile_tests;
 mod api_protocol_alignment_tests;
 mod api_public_rooms_tests;
+mod api_push_pushers_routes_tests;
 mod api_rate_limit_contract_tests;
 mod api_relations_authorization_tests;
 mod api_rendezvous_routes_tests;
