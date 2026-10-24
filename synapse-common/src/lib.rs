@@ -12,7 +12,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 // B-3.1-b-2 complete: every public item in this crate now has doc comments.
 // Switched to deny so any future PR adding a new pub item without docs will
-// fail CI immediately. The ratchet (scripts/quality/check_missing_docs_ratchet.sh)
+// fail CI immediately. The ratchet (scripts/check_missing_docs_ratchet.sh)
 // enforces the same constraint across the whole workspace for non-cleared crates.
 #![deny(missing_docs)]
 

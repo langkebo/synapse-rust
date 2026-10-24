@@ -656,3 +656,88 @@ fn code_referenced_docs_exist() {
         violations.join("\n  ")
     );
 }
+
+// ── 能力台账（API_COVERAGE_REPORT）的"未实现"标注必须与代码一致 ──────────────
+
+/// `docs/synapse-rust/API_COVERAGE_REPORT.md` 的能力标注是**排期依据**：
+/// 团队照它判断"这个能力还没做"。标反了会直接导致重复开发，或反过来把已实现的能力
+/// 当成缺口写进对外兼容性声明。
+///
+/// 审计 FUNC-04 记的正是这一类，且 2026-10-24 复核发现两处**都还是错的**：
+///
+/// | 行 | 台账原判 | 代码事实 |
+/// |---|---|---|
+/// | 缩略图 `animated` | `**MISSING**`，证据"`animated` 在 routes/ 与 services/ 均 0 命中" | 两处都有命中（`routes/media/download.rs:27,175,190`、`media_service.rs:530-552`），缓存键还带 `_animated` 后缀 |
+/// | `M_APPSERVICE_LOGIN_UNSUPPORTED` | `PARTIAL`，证据"该码全仓 0 命中" | 码表 + 构造器 + 使用点齐全（`error/code.rs:140`、`error.rs:389`、`auth_compat.rs:210`） |
+///
+/// 两处的共性不是"数字过期"，而是**证据是编的**：把"我没搜到"写成"不存在"。
+/// 所以判据不能只钉住这两行文案，而要钉住"声称不存在 ⇒ 代码里真的不存在"这个逻辑：
+/// 代码里一旦出现该标识符，台账那一行就不许再说 `MISSING` / `0 命中`。
+#[test]
+fn capability_ledger_absence_claims_match_the_code() {
+    const LEDGER: &str = "docs/synapse-rust/API_COVERAGE_REPORT.md";
+
+    // (标识符, 在哪找, 台账里用来表达"不存在"的词)
+    let claims = [
+        ("animated", "synapse-web/src/routes/media/download.rs"),
+        ("M_APPSERVICE_LOGIN_UNSUPPORTED", "synapse-common/src/error/code.rs"),
+    ];
+
+    let ledger = read(LEDGER);
+    let mut problems = Vec::new();
+
+    // 两条"这已经是历史"的写法必须先剥掉再判，否则改对之后反而恒红：
+    //   * `~~…~~` —— DOC-04 约定的已更正标记；
+    //   * `**原判「…」不成立**` —— 本文件的订正风格（引用旧结论并宣告它错了）。
+    // 这不是"为了让测试变绿而放宽"：要判的是**当前主张**，而引用旧结论正是"它不再主张"的证据。
+    let retracted = Regex::new(r"原判[^。|]*?不成立").expect("retraction regex");
+
+    for (needle, source) in claims {
+        let present_in_code = read(source).contains(needle);
+        if !present_in_code {
+            continue; // 代码里真的没有 ⇒ 台账怎么写都可能对，本条不管
+        }
+        // 只检查"提到该标识符"的那几行，避免误伤别处的 MISSING。
+        for line in ledger.lines().filter(|line| line.contains(needle)) {
+            let without_strike = line.split("~~").step_by(2).collect::<Vec<_>>().join("");
+            let live = retracted.replace_all(&without_strike, "");
+            for wrong in ["**MISSING**", "0 命中"] {
+                if live.contains(wrong) {
+                    problems.push(format!(
+                        "`{needle}` 在 `{source}` 里存在，但台账这一行仍写 `{wrong}`：\n    {}",
+                        line.trim()
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        problems.is_empty(),
+        "能力台账与代码相反（{} 处）：\n  {}\n\
+         修法：把该行改成 `TRUE（已实现）` 并给出**能复现**的证据（`路径:行号`），\n\
+         或在证据里写明是哪个判据失效 —— 不要只把 `MISSING` 换成 `PARTIAL` 蒙过去。",
+        problems.len(),
+        problems.join("\n  ")
+    );
+}
+
+/// 判据自检：把上面两条历史错误原文喂进同一套逻辑，必须判为不合规。
+///
+/// 没有这一条，`capability_ledger_absence_claims_match_the_code` 可能在
+/// "解析什么都没匹配到"的情况下通过 —— 那正是它要防的失败形态（门禁空转）。
+#[test]
+fn the_capability_ledger_checker_rejects_the_two_historical_wrong_rows() {
+    let source = "animated";
+    let code_has_it = read("synapse-web/src/routes/media/download.rs").contains(source);
+    assert!(code_has_it, "前提失效：`animated` 已不在 download.rs，本自检需要随实现更新");
+
+    let historical = "| 缩略图动画支持（`animated` 查询参数） | 1.158 | **MISSING** | `animated` 均 **0 命中** |";
+    let retracted = Regex::new(r"原判[^。|]*?不成立").expect("retraction regex");
+    let stripped = historical.split("~~").step_by(2).collect::<Vec<_>>().join("");
+    let live = retracted.replace_all(&stripped, "");
+    assert!(
+        live.contains("**MISSING**") || live.contains("0 命中"),
+        "自检失效：这套「剥离删除线 / 原判订正段后找 MISSING」的判定没能识别历史错误原文"
+    );
+}

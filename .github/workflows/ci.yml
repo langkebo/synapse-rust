@@ -172,11 +172,26 @@ jobs:
       - name: SQLx offline cache present and tracked
         run: bash scripts/ci/check_sqlx_cache_fresh.sh
 
+      # `ORDER BY <x>_ts` 单键站点的逐文件计数棘轮（页边界会重/漏的那一类）。
+      # 本步此前**只存在于脚本自身**：W4 第二层（`0d18fede0`）的落地说明写着
+      # "按脚本约定必须 --update 收紧（67 处 / 28 文件），否则门禁红" —— 它确实红过、
+      # 也确实 --update 过，但没有任何 workflow 调用它，所以那次"门禁红"来自有人手工跑。
+      # "门禁存在"与"门禁在跑"读起来一样，这条把后者钉住（由
+      # `scripts/ci/check_gate_reachability.py` 反向守着：删掉本步它立刻报 DEAD）。
+      - name: Timestamp tie-break ratchet (ORDER BY <x>_ts)
+        run: python3 scripts/ci/check_ts_order_tiebreak.py
+
       # A2 / B4-4: the HTTP layer must reach persistence only through
       # `synapse-services`. The allowlist may only shrink; the gate fails on a new
       # offender AND on a stale entry, so it cannot be silenced by editing a number.
       - name: Web layer must not use synapse_storage directly (ratchet)
         run: python3 scripts/ci/check_web_layering.py
+
+      # 元门禁：每个 `check_*` 脚本都必须真的被某条车道调用，或显式登记为手动入口。
+      # 没有它，"新增一道门禁"与"新增一个永远不跑的文件"在外观上完全一致 ——
+      # TEST-04 记的正是这一类（本条自己也是被它约束的对象之一）。
+      - name: Every gate script is reachable or declared opt-in
+        run: python3 scripts/ci/check_gate_reachability.py
 
       # Same invariant, wider net: no `crate::storage` import, `sqlx::query` or
       # raw `PgPool` anywhere under synapse-web/src/routes/. This script existed

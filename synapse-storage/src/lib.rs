@@ -6,7 +6,7 @@
 // Production lib code is still held to the strict clippy lint config in [lints.clippy].
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 // B-3.1-b-6: synapse-storage fully documented + deny(missing_docs).
-// ratchet baseline tracked in scripts/quality/check_missing_docs_ratchet.sh;
+// ratchet baseline tracked in scripts/check_missing_docs_ratchet.sh;
 // this crate is now at zero missing-doc warnings under `cargo doc`.
 #![deny(missing_docs)]
 

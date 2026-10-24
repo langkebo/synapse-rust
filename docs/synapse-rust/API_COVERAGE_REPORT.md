@@ -382,7 +382,7 @@
 |---|---|---|---|
 | **默认房间版本改为 11**（MSC4239，Matrix v1.14） | 1.158 | **TRUE（已推进到 12）** | `synapse-common/src/room_versions.rs:94` `DEFAULT_ROOM_VERSION = "12"`（O-1 Phase 2，对齐上游 v1.162.0rc1；1.158 的 v11 默认已被本仓越过）。注意 `MSC4239` 是 **v11** 的发布 MSC，勿与 v12（MSC4304）混 |
 | v12/v13 房间可创建 | 1.158 | **PARTIAL（v12 已可创建；v13 已移除）** | 同上 `:151` `RoomVersionCapability::stable("12")`（`can_create = true`）；v1–v11 为 `stable_no_create`（`:120-150`）；`"13"` 不列入（`:114-118`，Q5(b)，上游规范稳定列表止于 v12、1.161 只识别 `1..12`）。**订正（2026-10-02）**：MSC4297（state resolution v2.1）**已实现并接线到生产路径**（分叉时 `resolve_forked_state` → `resolve_state_for_version_with_rules`，v12+ 空 state map 起步），v12 **不再**「声明领先实现」（`docs/audit/ROOM_V12_PLAN_STATUS_2026-09-27.md`） |
-| 缩略图动画支持（`animated` 查询参数） | 1.158 | **MISSING** | `animated` 在 `synapse-web/src/routes/` 与 `synapse-services/` 中均 **0 命中** |
+| 缩略图动画支持（`animated` 查询参数） | 1.158 | **TRUE（已实现，2026-10-24 订正）** | web 层 `synapse-web/src/routes/media/download.rs:27,175,190`（`animated` 参数 → 本地/远端两条路径都切 `image/webp`）；service 层 `synapse-services/src/media_service.rs:517-552`（缓存键带 `_animated` 后缀、产物扩展名 `.webp`、`generate_thumbnail(…, animated)`）。**原判 `MISSING` 的证据不成立**：`animated` 在两个 crate 下均有命中，审计 FUNC-04 已订正 |
 | MSC4335 媒体上传超限返回 `M_USER_LIMIT_EXCEEDED` | 1.158 | **PARTIAL** | 错误码已定义（`synapse-common/src/error/code.rs:83,131,225,292`），但**未见**媒体上传限额路径使用它（`synapse-services/` 0 命中） |
 | **MSC3814 脱水设备 `/events` 端点（上游 1.157 曾由 POST 改为 GET + query）** | 1.157 | **已按规范形态恢复 POST 并保留 GET 别名（2026-10-16 订正）** | `ROUTE_CONTRACT.md` 在册为 **`GET` 与 `POST` 两条** `/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events`；契约产物（派生表 / fixture / 快照 / route-table / client.yaml）已同批再生成。**为何不跟上游收紧为 GET-only**：MSC3814 / ruma 的规范形态是 `POST` + body 游标，而对接的 `matrix-js-sdk` fork（`src/dehydrated-device/index.ts` 的 `claimDevice()`）就是按 `POST` 发出 ⇒ GET-only 会让规范客户端无路可走（该缺口见 `docs/前缀命名空间治理方案-2026-10-08.md`） |
 | **删除 `GET /_matrix/client/unstable/org.matrix.msc2965/auth_issuer`** | 1.161 | **TRUE（已对齐，2026-09 摘除）** | 本仓已删除该端点（commit `76e5f9136`，见 `docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md` D-90）；`/_matrix/client/unstable/org.matrix.msc2965/auth_metadata`（另一条 MSC2965 端点）仍在册 |
@@ -397,7 +397,7 @@
 | 上游条目 | 版本 | 本仓实测 | 证据 |
 |---|---|---|---|
 | **`rc_reports` 限流应用于房间举报端点** | 1.161 | **TRUE（已实现，2026-09-25 复核）** | `synapse-web/src/routes/directory_reporting.rs:235,293` 在 `report_room`/`report_user` 内按用户取桶（`take_rc_reports_token`，`:638-645`）；规则可配（`rate_limit.rc_reports`） |
-| `M_APPSERVICE_LOGIN_UNSUPPORTED`（Matrix 1.17 稳定码） | 1.161 | **PARTIAL（根因已消除一半）** | **AS 登录已实现**：`synapse-web/src/routes/auth_compat.rs:455-468` 处理 `m.login.application_service`（as_token + 命名空间校验 + 设备物化 + 令牌签发）；但该**错误码本身** `M_APPSERVICE_LOGIN_UNSUPPORTED` 全仓 **0 命中**（上游把它用在 `POST /register` 的 `inhibit_login` 语义上，窗口不在 `/login`） |
+| `M_APPSERVICE_LOGIN_UNSUPPORTED`（Matrix 1.17 稳定码） | 1.161 | **TRUE（已实现，2026-10-24 订正）** | AS 登录：`synapse-web/src/routes/auth_compat.rs:455-468`（as_token + 命名空间校验 + 设备物化 + 令牌签发）；错误码：定义 `synapse-common/src/error/code.rs:46,140,266`、构造器 `error.rs:389`（400，与上游同码同状态）、使用点 `auth_compat.rs:210`（`POST /register` 未带 `inhibit_login: true` 时返回）。**原判「全仓 0 命中」不成立**，审计 FUNC-04 已订正 |
 | MSC4178 3PID `requestToken` 非法邮箱/国家码返回 `M_INVALID_PARAM` | 1.161 | **未核对** | — |
 | MSC3866：`GET /_synapse/admin/v2/users` 在未启用时省略 approval 标记 | 1.161 | **未核对** | — |
 | Profile 自定义字段：PUT/DELETE 返回 403 + `M_FORBIDDEN` | 1.161 | **已实现（另一触发路径）** | `account_compat.rs:205,237`（标准字段）、`extended_profile.rs:160,186`（自定义字段）在调用者 ≠ 目标用户时返回 `forbidden("Access denied")` |
@@ -519,7 +519,7 @@
 
 | 项 | 状态（2026-09-25 复核） | 影响 |
 |---|---|---|
-| **App Service 登录**（`m.login.application_service`） | ✅ **已实现**（`auth_compat.rs:455-468`）；~~整体缺失~~ | 仍缺 pushers、设备管理、虚拟用户以 C-S 身份调用、以及稳定错误码 `M_APPSERVICE_LOGIN_UNSUPPORTED`（全仓 0 命中） |
+| **App Service 登录**（`m.login.application_service`） | ✅ **已实现**（`auth_compat.rs:455-468`）；~~整体缺失~~ | 仍缺 pushers、设备管理、虚拟用户以 C-S 身份调用（稳定错误码 `M_APPSERVICE_LOGIN_UNSUPPORTED` 已于 2026-10-24 订正为已实现，见 §5.2） |
 | **MSC4512** App Service 命名空间代理 | ✅ **代理已实现**（`app_service.rs:722-723`）；~~缺失~~ | 联邦侧代理请求（上游 #19977 的另一半）未做；上游整体仍 experimental + opt-in |
 | **MSC3912 / v11 撤回格式** | ✅ **格式已修且级联已通**（v11+ 写 `content.redacts`；**订正（2026-10-04）**：客户端与管理端均可达级联——`handlers/room/events.rs:1134-1169` 在 `with_rel_types` 非空时调 `cascade_redact_related_events`；原"仅管理端可达 / `:990` 不级联"旧判作废） | `with_rel_types` 为空时与上游一致仅撤回单条；非空时单层级联（不递归、不触碰父事件） |
 | **v12/v13 房间创建** | ✅ **仅 v12 可创建**（2026-09-27 G-1，`7489b247f`；`room_versions.rs:151` `stable("12")`） | v1–v11 为 `stable_no_create`、v13 已移除（Q5(b)）；**订正（2026-10-02）**：MSC4297（state resolution v2.1）已实现并接线到生产路径（写入分叉时 `resolve_forked_state` → `resolve_state_for_version_with_rules`），已无遗留项 |
@@ -626,7 +626,7 @@
 
 | 编号 | 项 | 原定级 | 建议定级 | 理由 |
 |---|---|---|---|---|
-| C1 | App Service 登录（含稳定错误码） | 未列 | **低（已实现，仅欠错误码）** | `m.login.application_service` 已落地；剩稳定错误码 `M_APPSERVICE_LOGIN_UNSUPPORTED` 与 pushers/设备管理 |
+| C1 | App Service 登录（含稳定错误码） | 未列 | **低（已实现，仅欠 pushers/设备管理）** | `m.login.application_service` 与稳定错误码 `M_APPSERVICE_LOGIN_UNSUPPORTED` 均已落地（后者 2026-10-24 订正）；剩 pushers/设备管理 |
 | C2 | MSC4502 / MSC4262 从 PARTIAL 收敛到完整或显式声明边界 | 未列 | **中** | 代码已有实现痕迹但未验证语义完整性（各 8 个 `.rs` 命中） |
 | C3 | MSC4140 联邦 EDU | "已对齐" | **低（已实现，仅欠 `state_key`）** | EDU 已通；剩 `delayed_event_service.rs:94` 的 `state_key: None` |
 | C4 | Admin 媒体端点族补齐 | 未列 | **已收敛（低）** | 2026-09 补齐 10 条，2026-10-05（`2df0b8fa8`）再补齐并去重（§6.3）；本桶实测见 §三「媒体」行（唯一路径数已超上游人工口径 18，覆盖率 >100%） |

@@ -117,6 +117,18 @@ run "check_doc_metrics.py" python3 scripts/ci/check_doc_metrics.py
 step "部署隐私：服务端不得持有房间密钥（B-7）"
 run "check_deploy_privacy.sh" bash scripts/check_deploy_privacy.sh
 
+# 时序列决胜键棘轮：`ORDER BY <x>_ts` 单键会让同毫秒事件在页边界重复/漏掉。
+# 每次都跑（~30ms）：故障形态是"新写了一条按 ts 排序的查询"，与改动集无关。
+# 此前它只存在于脚本自身 —— CI 与 preflight 都没调用，等于没有门禁（审计 TEST-04）。
+step "时序列决胜键棘轮（ORDER BY <x>_ts）"
+run "check_ts_order_tiebreak.py" python3 scripts/ci/check_ts_order_tiebreak.py
+
+# 元门禁：每个 `check_*` 脚本都必须真的被某条车道调用，或显式登记为手动入口。
+# 每次都跑（~0.2s，只做 git ls-files + 文本闭包）：上面那一步之所以能被发现"从来没跑"，
+# 靠的就是它。删掉任意一处调用，它立刻把对应脚本报成 DEAD。
+step "门禁可达性（每个 check_* 都要有人调用，或显式登记）"
+run "check_gate_reachability.py" python3 scripts/ci/check_gate_reachability.py
+
 step "契约 gate"
 if [ -z "$(printf '%s\n' "$changed" | grep -E 'ROUTE_CONTRACT|ledger_annotations|extract_registered|derived_route|ledger_export|route-table\.json|route_ledger' || true)" ]; then
     run "check_route_contract.sh" bash scripts/contract/check_route_contract.sh

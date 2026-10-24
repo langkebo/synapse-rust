@@ -106,7 +106,11 @@ pub const DEFAULT_GUEST_ACCESS: &str = "forbidden";
 // Timestamp Validation Window
 // ============================================================================
 
-/// Acceptable timestamp window in seconds (1 year in each direction)
+/// 客户端时间戳允许的时钟偏移窗口（秒），**双向**：`now ± 5 分钟`。
+///
+/// 用于 `validation::validate_timestamp`。注释此前写作 "1 year in each direction"，
+/// 与取值 `5 * 60` 相差四个数量级（审计 CODE-09）——按注释推断"跨年的事件都能通过"会
+/// 直接推错行为；真正放宽到年量级的只有联邦侧的 `federation.signing_ts_tolerance_ms`。
 pub const TIMESTAMP_WINDOW_SECONDS: i64 = 5 * 60;
 
 // ============================================================================

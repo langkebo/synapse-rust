@@ -2,7 +2,7 @@
 // Production lib code is still held to the strict clippy lint config in [lints.clippy].
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 // B-3.1-b-3: synapse-e2ee fully documented + deny(missing_docs).
-// ratchet baseline is tracked in scripts/quality/check_missing_docs_ratchet.sh;
+// ratchet baseline is tracked in scripts/check_missing_docs_ratchet.sh;
 // this crate is now at zero missing-doc warnings under `cargo doc`.
 #![deny(missing_docs)]
 //! End-to-end encryption for the synapse-rust Matrix homeserver.

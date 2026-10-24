@@ -18,10 +18,10 @@
 //! [`CacheError`] is the common error type.
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
-// B-3.1-b ratchet in progress — see scripts/quality/check_missing_docs_ratchet.sh.
+// B-3.1-b ratchet in progress — see scripts/check_missing_docs_ratchet.sh.
 // We keep the deny level now that B-3.1-b-1 has cleared every public item in
 // this crate (cargo doc -p synapse-cache reports 0 missing). The ratchet script
-// (scripts/quality/check_missing_docs_ratchet.sh) will fail any PR that
+// (scripts/check_missing_docs_ratchet.sh) will fail any PR that
 // introduces a new undocumented public item anywhere in the workspace, so
 // neighbouring crates will hit the ratchet before they could regress this one.
 #![deny(missing_docs)]

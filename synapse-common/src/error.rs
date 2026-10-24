@@ -438,7 +438,7 @@ impl ApiError {
     /// Returns **501 Not Implemented** + `M_UNKNOWN`.
     ///
     /// Distinct from [`not_implemented`](Self::not_implemented), which is a 404
-    /// `M_UNIMPLEMENTED` for an endpoint that does not exist at all. Use this one
+    /// `M_UNRECOGNIZED` for an endpoint that does not exist at all. Use this one
     /// when the endpoint exists and the request is understood, but a specific
     /// field or extension is unsupported: the alternative is to accept the field
     /// and silently discard it, which turns a client's explicit instruction into

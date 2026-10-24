@@ -1,0 +1,21 @@
+# 手动门禁登记表（`scripts/ci/check_gate_reachability.py` 读它）
+#
+# 格式（一行一条，`#` 后面必须写理由，空理由会被判红）：
+#
+#   scripts/ci/check_something.py    # 为什么它不能自动化（需要什么外部条件）
+#
+# 三条纪律：
+#   1. 只有**真的无法自动化**的才登记。能接线就接线 —— 登记项不会在任何人提交时跑。
+#   2. 一旦该脚本被接进车道，**必须把这一行删掉**：登记表里"已经可达"的条目会让门禁判红，
+#      因为登记表一旦容留过时条目，就会变成第二个真相。
+#   3. 不要为了"让门禁变绿"往这里塞条目。这条门禁要回答的问题恰恰是
+#      "还有谁在假装自己是门禁"。
+#
+# 当前没有条目：46 个 `check_*` 脚本全部可达（`check_ts_order_tiebreak.py` 曾长期
+# 不可达，2026-10-24 接进 `ci.yml` 与 `preflight.sh`）。
+#
+# 已知的**非** `check_*` 手动入口（不受本条门禁约束，列在这里只为不被误认为漏了）：
+#   scripts/ci/run_complement_tests.sh          # 需要 Python Synapse complement 环境
+#   scripts/run_benchmarks.sh / run_bench_server.sh
+#   scripts/ci/run_coverage.sh、scripts/run_pg_amcheck.py
+#   scripts/test/ephemeral/*、scripts/test/run_element_web_browser_harness.sh
