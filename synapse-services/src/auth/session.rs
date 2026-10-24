@@ -150,11 +150,72 @@ impl AuthService {
                     "Failed to revoke user tokens after reuse detection"
                 );
             }
+
+            // NEW-18：复用检出必须**同时掐断已下发的 access token**。
+            // 只吊销 `refresh_tokens` 表只能断掉"下一次续期"，攻击者/被盗方手里的 access token
+            // 仍能用到自然过期（实测：复用旧 refresh_token 得 401，但同会话刚换到的 access_token
+            // 打 `/account/whoami` 仍 200）。这里照 `logout_all` 的做法（但不删设备、不清设备密钥）
+            // 把 access 侧一并作废：
+            // ① 按 hash 拉黑 —— 校验路径里黑名单检查**早于** token 缓存命中，所以这一条最可靠；
+            // ② 失效 `token:revocation_ok:{hash}` 短 TTL 缓存，否则 30s 内仍会跳过 DB 检查；
+            // ③ 删 `access_tokens` 行 —— 跨实例、缓存全失效后也生效；
+            // ④ 置 `user:logout_all:` 标记作纵深防御（校验侧用 `get_raw_shared` 读，多实例可见）。
+            let revoked_access_tokens = match self.token_storage.get_user_tokens(&t.user_id).await {
+                Ok(tokens) => {
+                    for token in &tokens {
+                        if let Err(e) = self
+                            .token_storage
+                            .add_hash_to_blacklist(&token.token_hash, &t.user_id, Some("refresh_token_reuse_detected"))
+                            .await
+                        {
+                            ::tracing::warn!(
+                                target: "security_audit",
+                                event = "refresh_token_reuse_blacklist_failed",
+                                user_id = t.user_id.as_str(),
+                                token_id = token.id,
+                                error = %e,
+                                "Failed to blacklist access token after reuse detection"
+                            );
+                        }
+                    }
+                    tokens.len()
+                }
+                Err(e) => {
+                    ::tracing::warn!(
+                        target: "security_audit",
+                        event = "refresh_token_reuse_enumerate_failed",
+                        user_id = t.user_id.as_str(),
+                        error = %e,
+                        "Failed to enumerate access tokens after reuse detection"
+                    );
+                    0
+                }
+            };
+
+            // ② 必须在 ③ 之前：`invalidate_revocation_ok_for_user` 靠枚举用户 token 算哈希键，
+            // 删完行再枚举就只剩空集会漏掉标记（与 `logout_all` 里的同一条顺序约束）。
+            self.invalidate_revocation_ok_for_user(&t.user_id).await;
+
+            if let Err(e) = self.token_storage.delete_user_tokens(&t.user_id).await {
+                ::tracing::warn!(
+                    target: "security_audit",
+                    event = "refresh_token_reuse_delete_access_tokens_failed",
+                    user_id = t.user_id.as_str(),
+                    error = %e,
+                    "Failed to delete access tokens after reuse detection"
+                );
+            }
+
+            let logout_marker = format!("user:logout_all:{}", t.user_id);
+            let now = Utc::now().timestamp();
+            self.cache.set_raw(&logout_marker, &now.to_string(), super::TOKEN_CACHE_TTL_SECS).await;
+
             ::tracing::warn!(
                 target: "security_audit",
                 event = "refresh_token_reuse_detected",
                 user_id = t.user_id.as_str(),
-                "Revoked refresh token replayed; revoking all user refresh tokens"
+                revoked_access_tokens,
+                "Revoked refresh token replayed; revoked all user refresh tokens **and** access tokens"
             );
             return Err(ApiError::unauthorized("Refresh token has been revoked".to_string()));
         }

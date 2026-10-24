@@ -10,9 +10,9 @@
 //! 2. `POST /_matrix/client/v3/refresh` → **新的 access_token + 新的 refresh_token**
 //!    （同一个 `device_id`，`expires_in > 0`）；
 //! 3. 新 access_token 必须真的能用（`/account/whoami` 认得出同一个用户）；
-//! 4. **复用旧 refresh_token ⇒ 401**（`auth::session::refresh_token` 命中 `is_revoked` 时调
-//!    `revoke_all_user_tokens`，原因串 `refresh_token_reuse_detected`）—— 这是防盗刷的核心契约。
-//!    但**只吊销 refresh_tokens 表**，已下发的 access_token 仍活到自然过期（审计 NEW-18）。
+//! 4. **复用旧 refresh_token ⇒ 401，且已下发的 access token 也立刻失效**（NEW-18 已修：
+//!    复用分支除 `revoke_all_user_tokens` 外，还会按 hash 拉黑、失效 `revocation_ok` 缓存、
+//!    删 `access_tokens` 行并置 `user:logout_all:` 标记）—— 这是防盗刷的核心契约。
 
 use axum::{
     body::Body,
@@ -143,13 +143,13 @@ async fn reusing_old_refresh_token_revokes_all_tokens() {
     let errcode = reused["errcode"].as_str().unwrap_or_default();
     assert!(errcode.starts_with("M_"), "必须带 Matrix errcode：{reused}");
 
-    // ⚠️ NEW-18：复用被识别后确实会调 `revoke_all_user_tokens`，但那个函数（
-    // `synapse-storage/src/refresh_token/mod.rs:624`）**只 UPDATE `refresh_tokens` 表**，
-    // 不动 access token ⇒ 刚才那个新 access_token **仍然可用**，直到它自然过期。
-    // 也就是说「检出重放」只断了下一次续期，没有把已下发的会话立即掐断。
-    // 这里断言**实际行为**（200）：修好后应改为 401，本用例届时会红、按 401 改断言。
+    // NEW-18（已修）：复用检出必须**同时掐断已下发的 access token**。此前只吊销
+    // `refresh_tokens` 表（`refresh_token/mod.rs:624` 只 UPDATE 那一张），刚换到的
+    // access_token 仍能用到自然过期 —— 实测确实是 200。现在复用分支会
+    // 按 hash 拉黑 + 失效 `revocation_ok` 缓存 + 删 `access_tokens` 行 + 置 `user:logout_all:` 标记，
+    // 所以同一个 token 必须立刻 401。
     let (status, whoami) = call(&app, get("/_matrix/client/v3/account/whoami", &new_access)).await;
-    assert_eq!(status, StatusCode::OK, "当前实现只吊销 refresh_tokens，access_token 仍有效（见 NEW-18）：{whoami}");
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "检出重放后必须立刻掐断已下发的 access token（NEW-18）：{whoami}");
 }
 
 /// 缺 `refresh_token` 字段 ⇒ 400（不是 500，也不是 401）。
