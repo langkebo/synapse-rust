@@ -163,7 +163,6 @@
 807 synapse-services/src/invite_blocklist_service.rs
 803 synapse-services/src/sliding_sync_service/extensions.rs
 798 synapse-storage/src/test_mocks/member.rs
-787 synapse-federation/src/device_sync.rs
 782 synapse-services/src/room/lifecycle/create.rs
 776 synapse-services/src/uia_service.rs
 774 src/common/config/tests.rs

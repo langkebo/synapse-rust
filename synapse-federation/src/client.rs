@@ -1352,6 +1352,7 @@ impl FederationClient {
     /// `animated` **必须透传**：它决定上游生成静图还是动图（WebP）。此前本函数没有这个参数，
     /// 而调用方 `routes/media/download.rs` 却按客户端的 `animated` 设置 `Content-Type` ——
     /// 于是 `animated=true` 的**远端**缩略图是 JPEG 字节却标着 `image/webp`（审计 NEW-01）。
+    #[expect(clippy::too_many_arguments, reason = "同 trait 声明：联邦缩略图端点有 5 个查询参数，签名必须一一对应")]
     pub async fn media_thumbnail(
         &self,
         destination: &str,

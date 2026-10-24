@@ -145,10 +145,15 @@ fn the_dead_device_revocation_job_does_not_come_back() {
     for rel in
         ["synapse-federation/src/device_sync.rs", "src/bin/synapse_worker.rs", "synapse-common/src/background_job.rs"]
     {
+        // `device_sync` 模块已整体删除（NEW-08）：文件不存在是**期望状态**，跳过即可。
+        // 若有人把它加回来，下面的扫描仍会盯住那条死路径。
+        let Ok(src) = fs::read_to_string(repo_root().join(rel)) else {
+            continue;
+        };
         // 剥注释（与上一条同一理由）：文件里写"这里删过什么"是正当的记录，
         // 门禁只该盯**代码**。
         let live: String =
-            read(rel).lines().filter(|line| !line.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
+            src.lines().filter(|line| !line.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
         if live.contains("notify_device_revocation") || live.contains("BackgroundJob::Generic") {
             hits.push(rel);
         }

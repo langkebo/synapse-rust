@@ -904,6 +904,12 @@ fn full_workspace_lib_runners_enable_e2ee_interop() {
             if !command.contains("--workspace --lib") {
                 continue;
             }
+            // `cargo clippy` 不是测试运行器：它只 lint，不会执行 `vodozemac_interop_tests`，
+            // 因此 CODE-01 的 `clippy --workspace --lib --bins` 步骤不需要 `E2EE_INTEROP=1`
+            // （该步骤加上后反而会改变 lint 输入）。
+            if command.contains("clippy") && !command.contains("nextest") && !command.contains("cargo test") {
+                continue;
+            }
             // 只有**正向收窄**的过滤器才会排除 interop 用例（例如延迟车道只跑
             // `test(/bench_friend_list_/)`）；`-E 'not test(…)'` 这类**否定**过滤器仍会跑到
             // interop 用例，因此不能当成"已收窄"跳过（第一版就是把它误跳过的）。

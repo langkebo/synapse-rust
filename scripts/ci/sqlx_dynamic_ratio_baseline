@@ -3545,7 +3545,11 @@ BASELINE_DYNAMIC_PRODUCTION=141
 #   测量对齐（棘轮是上限，留 5 点余量等于允许 5 次静默新增）。**收紧方向**：等
 #   census 把无条件编译的测试基础设施划入 test 分区（与上方 2026-10-20 条目同一件事）
 #   时，逐点核对后回落。
-BASELINE_DYNAMIC_TEST_INFRA=791
+# 2026-10-24: 791 → **784**（−7，NEW-08 / B5；只因查询随死模块一起被删）。
+#   `synapse-federation/src/device_sync.rs` 整体删除，其 `#[cfg(test)]` 模块里 7 处动态
+#   `sqlx::query(` / `query_scalar(` / `query_as(` 一并消失；生产动态度未变（141）。
+#   **收紧方向**：同上方各条 —— 基线是上限，只随"确实被删"下调。
+BASELINE_DYNAMIC_TEST_INFRA=784
 # 2026-10-15: 1353 → 1354（+1，方案 B4.3）。新增
 #   `synapse-storage/src/schema_health_check.rs` 的 `check_invalid_indexes()` —— 它让
 #   **半建索引**（`pg_index.indisvalid = false`）可见；此前只查"缺表/缺列/缺索引名"，
@@ -3626,7 +3630,14 @@ BASELINE_DYNAMIC_TEST_INFRA=791
 #      消费者**（`git grep` 证据见审计关闭行）。这是有意的死代码删除，不是"静态改动态"。
 #   ② −4 属基线滞后：干净的 HEAD 工作树实测已是 1359（基线 1363），本批只做测量对齐。
 #   **收紧方向**：基线是下限，若将来有死静态查询被删除，同样按"确属删除"下调并就地登记。
-BASELINE_STATIC=1357
+# 2026-10-24: 1357 → **1354**（−3，NEW-08 / B5；只因查询确实被删，非"静态改动态"）。
+#   `synapse-federation/src/device_sync.rs` 整体删除（生产零调用，构造点只有它自己的单测
+#   与 `tests/integration/federation_service_tests_migrated.rs`），带走的 3 条生产静态查询：
+#     * `get_local_devices` 的 `query_as!`（原 L217）
+#     * `cleanup_expired_devices` 的 `query!`（原 L279）
+#     * `revoke_device` 的 `query!`（原 L330）
+#   **收紧方向**：基线下限随删除下移；若重新加回等价查询，须同批上调并就地登记。
+BASELINE_STATIC=1354
 # 兼容旧接口：总数 = 生产 + 测试基础设施（132 + 767 = 899；本项不入棘轮，仅保持一致）
 # 2026-10-21: 883 → 884，随 `BASELINE_DYNAMIC_PRODUCTION` 的 +1（`get_space_visibility_batch`）同步。
 # 2026-10-21: 884 → 887，随 `BASELINE_DYNAMIC_PRODUCTION` 的 +3（`get_rooms_batch` 与两条
@@ -3642,7 +3653,8 @@ BASELINE_STATIC=1357
 #   （133 + 779 = 912；生产侧本批 136 → 133，已回到 `BASELINE_DYNAMIC_PRODUCTION` 无余量）。
 # 2026-10-23: 912 → **926**，随跨进程 schema 池复用（133 + 779 = 912 → 140 + 786 = 926；
 #   生产侧 +7 与测试侧 +6 的逐点归因见上方两条同名条目）。
-BASELINE_DYNAMIC=926
+# 2026-10-24: 926 → **925**，随上述两条同步（141 + 784 = 925；NEW-08 / B5 删 7 处测试动态）。
+BASELINE_DYNAMIC=925
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

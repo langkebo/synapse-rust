@@ -608,6 +608,10 @@ fn converge_drops_the_frozen_list_and_never_re_consults_the_reference() {
         &[],
         &[
             ("TEST_DATABASE_URL", "postgresql://stub/synapse_test"),
+            // 栏杆 7b 现在用 `pg_class` 分别数 public 与**参考 schema** 的对象数，
+            // 而桩是按 `n.nspname` 的取值分流的 ⇒ 两者必须是**不同**的 schema 名，
+            // 否则两次查询都落到 `PUBLIC_OBJECTS`，`survivors < reference` 恒成立。
+            ("TEST_DB_TEMPLATE_SCHEMA", "test_template_ci"),
             ("PUBLIC_OBJECTS", "221"),
             ("REFERENCE_OBJECTS", "220"),
         ],
@@ -643,6 +647,9 @@ fn converge_rejects_a_vacuous_post_check_when_the_reference_collapses_mid_apply(
         &[],
         &[
             ("TEST_DATABASE_URL", "postgresql://stub/synapse_test"),
+            // 同 `converge_drops_the_frozen_list…`：栏杆 7b 的前置统计要靠 distinct schema
+            // 才能区分 public 与参考集，否则会在 7b 就退出，走不到栏杆 8 的"判定不可信"。
+            ("TEST_DB_TEMPLATE_SCHEMA", "test_template_ci"),
             ("REF_FIRST", "220"),
             ("REF_LATER", "220"),
             ("REF_POST", "0"),

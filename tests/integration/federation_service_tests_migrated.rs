@@ -2,7 +2,6 @@
 use base64::Engine;
 use std::sync::atomic::{AtomicU64, Ordering};
 use synapse_common::current_timestamp_millis;
-use synapse_web::federation::device_sync::DeviceSyncManager;
 use synapse_web::federation::key_rotation::KeyRotationManager;
 
 use sqlx::{Pool, Postgres};
@@ -102,22 +101,4 @@ async fn test_load_or_create_key_persists_a_signing_key() {
         .expect("Failed to count federation signing keys");
 
     assert!(count >= 1, "Expected at least 1 key, found {count}");
-}
-
-#[tokio::test]
-async fn test_device_sync_cache() {
-    let pool = crate::require_test_pool().await;
-    let manager = DeviceSyncManager::new(&pool, None, None);
-
-    let devices = manager.get_local_devices("@test:example.com").await.unwrap();
-    assert!(devices.is_empty());
-}
-
-#[tokio::test]
-async fn test_device_revocation() {
-    let pool = crate::require_test_pool().await;
-    let manager = DeviceSyncManager::new(&pool, None, None);
-
-    let result = manager.revoke_device("DEVICE123", "@test:example.com").await;
-    assert!(result.is_ok());
 }

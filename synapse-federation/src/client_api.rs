@@ -220,6 +220,10 @@ pub trait FederationClientApi: Send + Sync {
     /// Download a media thumbnail from a remote server.
     ///
     /// `animated` 必须透传：它决定上游生成静图还是动图（审计 NEW-01）。
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "联邦缩略图端点本身有 5 个查询参数（width/height/method/animated）加目标三元组"
+    )]
     async fn media_thumbnail(
         &self,
         destination: &str,

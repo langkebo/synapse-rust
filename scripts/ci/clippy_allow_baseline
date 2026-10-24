@@ -20,7 +20,6 @@
 2 synapse-e2ee/src/key_request/service.rs
 2 synapse-e2ee/src/test_mocks.rs
 2 synapse-federation/src/dead_letter_queue.rs
-2 synapse-federation/src/device_sync.rs
 2 synapse-federation/src/make_response_validation.rs
 2 synapse-services/src/account_data_service.rs
 2 synapse-services/src/dehydrated_device_service.rs

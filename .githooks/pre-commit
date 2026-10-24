@@ -38,6 +38,12 @@ if ! bash ./scripts/quality/preflight.sh $preflight_args; then
   exit 1
 fi
 
+# 成功路径的提示：clippy 默认没跑，`-D warnings` 的回归只有 CI（或手动那次）看得见。
+if [ -z "$preflight_args" ]; then
+  echo "ℹ️  提醒：本次提交**没有**跑 clippy。推之前建议再跑一次"
+  echo "   SYNAPSE_PRECOMMIT_CLIPPY=1 git commit --amend --no-edit   # 或直接 cargo clippy …"
+fi
+
 # preflight 里的 `cargo fmt --all` 可能刚改过工作区文件 ⇒ 暂存快照过期，必须重新 add。
 #
 # ⚠️ 判据必须取「**已暂存 ∩ 未暂存**」的交集，而不是「未暂存集合非空」：

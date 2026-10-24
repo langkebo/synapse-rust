@@ -22,8 +22,6 @@ pub mod client;
 pub mod client_api;
 /// The `dead_letter_queue` module.
 pub mod dead_letter_queue;
-/// The `device_sync` module.
-pub mod device_sync;
 /// The `edu` module.
 pub mod edu;
 /// The `event_auth` module.
@@ -58,7 +56,6 @@ pub use client::FederationClient;
 pub use dead_letter_queue::{
     DeadLetterQueueApi, DeadLetterQueueError, DlqEntry, InMemoryDeadLetterQueue, PgDeadLetterQueue,
 };
-pub use device_sync::DeviceSyncManager;
 pub use event_auth::EventAuthChain;
 pub use event_broadcaster::EventBroadcaster;
 #[cfg(feature = "friends")]

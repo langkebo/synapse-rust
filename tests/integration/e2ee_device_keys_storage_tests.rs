@@ -98,7 +98,8 @@ async fn record_device_list_change_propagates_a_stream_insert_failure() {
 }
 
 /// Failure injection, second statement: the stream row is written, then the change row is
-/// rejected — the half that used to be swallowed by `let _ =`.
+/// rejected — the half that used to be swallowed by `let _ =`. Since CODE-03 the two statements
+/// share one transaction, so the rejected second insert must roll the first one back too.
 #[tokio::test]
 async fn record_device_list_change_propagates_a_changes_insert_failure() {
     let (_isolated, pool) = test_pool().await;
@@ -118,7 +119,8 @@ async fn record_device_list_change_propagates_a_changes_insert_failure() {
         .expect_err("a rejected device_lists_changes insert must surface as an error");
     assert!(!error.to_string().is_empty(), "the error must carry the database message");
 
-    // The partial failure is visible in the data: the stream row landed, the change row did not.
+    // 游标行与变更行同生共死（`record_device_list_change_tx`）：第二条被拒时，
+    // 第一条写入的 stream 行必须一并回滚，否则 `/sync` 的 device_lists 增量会永久错位。
     let streamed: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM device_lists_stream WHERE user_id = $1")
         .bind(&user_id)
         .fetch_one(&*pool)
@@ -129,7 +131,7 @@ async fn record_device_list_change_propagates_a_changes_insert_failure() {
         .fetch_one(&*pool)
         .await
         .expect("count must succeed");
-    assert_eq!(streamed, 1, "the first statement had already written its row");
+    assert_eq!(streamed, 0, "the rejected change insert must roll the stream row back");
     assert_eq!(changed, 0, "the rejected change row must not exist");
 }
 

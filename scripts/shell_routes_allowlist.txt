@@ -37,6 +37,10 @@
 # 2026-10-22：`e2ee/devices.rs` 378 → 386（+8）。`721e71e1f` 在该文件的
 # `cancel_request` 段上方插入了 8 行（契约 sidecar 治理），未同步本清单；
 # 这条在我做 RustCrypto 升级跑 `--test unit` 时才暴露 —— 与本轮依赖升级无关。
+#
+# 2026-10-24：`e2ee/devices.rs` 386 → 394（+8）。`1093f265f`（CODE-08）给
+# `room_key_distribution` 补了 8 行文档注释（by-design 恒 403 的理由），同样在
+# 清单未跟改时由 `placeholder_scan_tests` 抓到。
 app_service.rs:680
 app_service.rs:699
 app_service.rs:718
@@ -60,4 +64,4 @@ voip.rs:309
 # `verify_secure_backup_passphrase` 补了两行注释、删掉一行 `#[axum::debug_handler]`
 # （该属性宏会吞掉 `#[allow(clippy::unused_async)]`），净增 1 行。
 e2ee/backup.rs:178
-e2ee/devices.rs:386
+e2ee/devices.rs:394
