@@ -218,6 +218,8 @@ pub trait FederationClientApi: Send + Sync {
     ) -> Result<reqwest::Response, FederationClientError>;
 
     /// Download a media thumbnail from a remote server.
+    ///
+    /// `animated` 必须透传：它决定上游生成静图还是动图（审计 NEW-01）。
     async fn media_thumbnail(
         &self,
         destination: &str,
@@ -226,6 +228,7 @@ pub trait FederationClientApi: Send + Sync {
         width: u32,
         height: u32,
         method: &str,
+        animated: bool,
     ) -> Result<reqwest::Response, FederationClientError>;
 
     /// Look up a cached server key (non-persistent, TTL-based).
@@ -486,8 +489,10 @@ impl FederationClientApi for FederationClient {
         width: u32,
         height: u32,
         method: &str,
+        animated: bool,
     ) -> Result<reqwest::Response, FederationClientError> {
-        FederationClient::media_thumbnail(self, destination, server_name, media_id, width, height, method).await
+        FederationClient::media_thumbnail(self, destination, server_name, media_id, width, height, method, animated)
+            .await
     }
 
     async fn get_cached_key(&self, server_name: &str) -> Option<ServerKeys> {

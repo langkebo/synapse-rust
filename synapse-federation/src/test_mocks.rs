@@ -441,6 +441,7 @@ impl crate::client_api::FederationClientApi for MockFederationClient {
         _width: u32,
         _height: u32,
         _method: &str,
+        _animated: bool,
     ) -> Result<reqwest::Response, FederationClientError> {
         Err(FederationClientError::InvalidResponse("mock: media_thumbnail not configured".into()))
     }

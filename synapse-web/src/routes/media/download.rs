@@ -176,7 +176,7 @@ async fn fetch_remote_thumbnail_via_federation(
 ) -> Result<synapse_services::media::MediaResponsePayload, ApiError> {
     let federation_client = ctx.federation_client.clone();
     let resp = federation_client
-        .media_thumbnail(server_name, server_name, media_id, width, height, method)
+        .media_thumbnail(server_name, server_name, media_id, width, height, method, animated)
         .await
         .map_err(|e| ApiError::not_found(format!("Remote thumbnail not reachable: {e}")))?;
 

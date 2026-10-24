@@ -1347,7 +1347,11 @@ impl FederationClient {
         self.send_signed_request("GET", &path, destination, None).await
     }
 
-    /// See [`media_thumbnail`.
+    /// See [`media_thumbnail`].
+    ///
+    /// `animated` **必须透传**：它决定上游生成静图还是动图（WebP）。此前本函数没有这个参数，
+    /// 而调用方 `routes/media/download.rs` 却按客户端的 `animated` 设置 `Content-Type` ——
+    /// 于是 `animated=true` 的**远端**缩略图是 JPEG 字节却标着 `image/webp`（审计 NEW-01）。
     pub async fn media_thumbnail(
         &self,
         destination: &str,
@@ -1356,15 +1360,9 @@ impl FederationClient {
         width: u32,
         height: u32,
         method: &str,
+        animated: bool,
     ) -> Result<reqwest::Response, FederationClientError> {
-        let path = format!(
-            "/_matrix/federation/v1/media/thumbnail/{}/{}?width={}&height={}&method={}",
-            urlencoding::encode(server_name),
-            urlencoding::encode(media_id),
-            width,
-            height,
-            method
-        );
+        let path = media_thumbnail_path(server_name, media_id, width, height, method, animated);
         self.send_signed_request("GET", &path, destination, None).await
     }
 
@@ -1418,10 +1416,58 @@ impl FederationClient {
     }
 }
 
+/// 联邦缩略图请求的路径（含 query）。
+///
+/// 抽成自由函数是为了**能被单测**：`media_thumbnail` 本身要发签名请求，没有远端就没法断言
+/// URL。`animated` 是唯一一个"看起来不影响 URL、实际决定上游产物格式"的参数 ——
+/// 审计 NEW-01 的缺陷正是它被漏传，所以这里用一条只断言字符串的用例把它钉住。
+pub(crate) fn media_thumbnail_path(
+    server_name: &str,
+    media_id: &str,
+    width: u32,
+    height: u32,
+    method: &str,
+    animated: bool,
+) -> String {
+    let mut path = format!(
+        "/_matrix/federation/v1/media/thumbnail/{}/{}?width={}&height={}&method={}",
+        urlencoding::encode(server_name),
+        urlencoding::encode(media_id),
+        width,
+        height,
+        method
+    );
+    if animated {
+        path.push_str("&animated=true");
+    }
+    path
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::dead_letter_queue::InMemoryDeadLetterQueue;
+
+    /// `animated=true` 必须真的出现在联邦请求 URL 里（审计 NEW-01）。
+    ///
+    /// 缺陷原状：`media_thumbnail` 根本没有这个参数，调用方却按 `animated` 设 `Content-Type`
+    /// ⇒ 远端缩略图是 JPEG 字节标成 `image/webp`。所以本用例断言的是**两个方向**：
+    /// 传 `true` 必须带 `animated=true`，传 `false` 必须不带（后者防止有人为了"修绿"
+    /// 无条件拼上参数 —— 那会让所有静态缩略图都被上游当动图处理）。
+    #[test]
+    fn media_thumbnail_path_forwards_the_animated_flag() {
+        let still = media_thumbnail_path("remote.example", "m1", 64, 64, "scale", false);
+        assert_eq!(
+            still, "/_matrix/federation/v1/media/thumbnail/remote.example/m1?width=64&height=64&method=scale",
+            "静态缩略图不得携带 animated 参数"
+        );
+
+        let animated = media_thumbnail_path("remote.example", "m1", 64, 64, "scale", true);
+        assert!(
+            animated.ends_with("&method=scale&animated=true"),
+            "animated=true 必须透传给上游（否则返回的是静图，却被标成 image/webp）：{animated}"
+        );
+    }
 
     fn create_test_client() -> (tokio::runtime::Runtime, FederationClient) {
         let rt = tokio::runtime::Runtime::new().unwrap();
