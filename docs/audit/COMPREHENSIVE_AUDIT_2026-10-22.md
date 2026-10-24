@@ -28,7 +28,8 @@
 > 来源 = §0.1 的 3 条 open `NEW-*`（NEW-09 / NEW-10 / NEW-11）+ §0.2.2 的 2 条 + §0.2.3 的 12 条，
 > **去重后 17**（上一版写 18 是因为 `NEW-08` 同时出现在 §0.1 与 §0.2.3，多算了一条）。
 > 其中 **15 条是"登记项"**（明确不做或只等外部条件），真正还没动手的只有
-> NEW-09（24 个端点族没有 HTTP 往返用例）与 NEW-11（state 组装层未共享）。
+> NEW-09（**21** 个端点族仍无 HTTP 往返用例；第一波已补 push / event_report / reactions）与
+> NEW-11（state 组装层未共享）。
 
 **结论摘要**：**P0 = 0，P1 = 0**（原 9 条 P1 全部有实现 + 能失败的门禁，逐条见附录 D）。
 ⚠️ 第八轮曾把一条误报成 P1（NEW-06「设备吊销通知静默丢失」），**已撤回**：真实广播路径在
@@ -62,7 +63,7 @@
 |---|---|---|---|
 | **NEW-11** | P3 | `sync` 与滑动同步的 **state 组装层**（`lazy_load` / `required_state` / MSC4222 `state_after`）仍各写一遍 —— ARCH-02 只共享了 **timeline** 层 | 要先写「同一房间状态下两条路径的**可见状态集合**一致」的等价断言（懒加载成员集 + `include_redundant_members` + `state_after` 三组语义），没有断言就不抽 —— 与 ARCH-02 同一条原则 |
 | **NEW-10** | P3 | 4 个"已带 `break` 条件的轮询循环"仍用裸 `sleep(50ms)` 做间隔（`room_service_tests_migrated` ×3、`api_msc3912_redaction_cascade_tests` ×1） | 折叠成 `tests/common/wait_until(deadline)` 可少 4 个站点并统一超时失败信息；但每个都要改完立刻跑一次真库用例（改坏的表现是"偶发超时"，静态检查看不出来）⇒ 独立一笔 |
-| **NEW-09** | P3 | 只锁形状的测试文件里有 **24 个端点族没有任何 HTTP 往返用例**（`shape_only_test_matrix` 里写 `NONE`） | 补真覆盖要逐端点「`setup_fresh_test_app` + 注册用户/建房 + 断言 status/body/errcode」，属独立批次；本轮只保证**不再假装有覆盖**（NEW-05） |
+| **NEW-09** | P3 | 只锁形状的测试文件里曾有 **24 个端点族没有 HTTP 往返用例**（`shape_only_test_matrix` 里写 `NONE`）—— 第一波已补 **3 族**（`push` / `event_report` / `reactions`），**剩 21 族** | 逐族「`setup_fresh_test_app` + 注册用户/建房 + 断言 status/body/errcode」，每族一笔提交、每笔都把登记行从 `NONE` 换成真覆盖文件（`check_shape_only_tests.py` 的 C2 会验证该文件**确实**发请求）。第一波判据：12 条用例全绿（push 4 / event_report 4 / reactions 4）；守卫实测 `有真覆盖 8 / 缺口 21`。剩下 21 族里较易：`room_summary` / `thread` / `space` / `friend` / `refresh_token` / `registration_token`；较难（要外部角色或签名）：`app_service` / `module` / `worker` / `federation` / `federation_cache` / `admin_extra` |
 
 ## 0.2 未完成任务清单
 
