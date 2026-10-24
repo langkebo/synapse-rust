@@ -66,3 +66,52 @@ pub(crate) fn merged_unsigned(stored: Option<&Value>, age: i64) -> Value {
     map.insert("age".to_string(), json!(age));
     Value::Object(map)
 }
+
+/// 存储层给出的时间线顺序。
+///
+/// 这是 `/sync` 与滑动同步在时间线上**唯一的**真实差异，必须显式化：以前的写法是
+/// 两个服务各自 `truncate` + 各自 `reverse`，谁少写一句就漂移。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TimelineOrder {
+    /// 按 `stream_ordering` **降序**给出（批量查询、分页查询 `direction=b`）。
+    NewestFirst,
+    /// 已按 `stream_ordering` **升序**给出（`get_room_events_after_stream_ordering`）。
+    OldestFirst,
+}
+
+/// 一条协议时间线窗口。
+pub struct TimelineWindow {
+    /// 事件，**升序**（`stream_ordering` 单调不减），最多 `limit` 条。
+    pub events: Vec<RoomEvent>,
+    /// 是否因为上限而丢弃了事件（客户端据此决定回翻）。
+    pub limited: bool,
+}
+
+/// 时间线窗口的**唯一**实现：保留**最新** `limit` 条，升序输出，并给出 `limited`。
+///
+/// 为什么要有它（ARCH-02）：「取哪 N 条、什么顺序、是否 limited」这三个语义原先在
+/// `/sync` 与滑动同步里各写了一遍，结果漂移成 `/sync` 拿**最旧** N 条、滑动同步拿
+/// **最新** N 条（由 `tests/integration/sync_path_equivalence_tests.rs` 抓到）。现在
+/// 只有这一份实现，两条路径都从这里取。
+///
+/// `limit == 0` 表示「不返回任何事件」，此时 `limited` 反映「原本是否有事件」——
+/// 这是 `/sync` 的既有语义（空窗口 + `limited=true` 让客户端回翻）。
+pub fn timeline_window(mut events: Vec<RoomEvent>, limit: usize, incoming: TimelineOrder) -> TimelineWindow {
+    let limited = events.len() > limit;
+    if limited {
+        match incoming {
+            // 最新在前 ⇒ 保留前 `limit` 条（即最新的 N 条），再翻成升序。
+            TimelineOrder::NewestFirst => {
+                events.truncate(limit);
+                events.reverse();
+            }
+            // 已经升序 ⇒ 丢掉最旧的头部，保留尾部 `limit` 条。
+            TimelineOrder::OldestFirst => {
+                events.drain(..events.len() - limit);
+            }
+        }
+    } else if incoming == TimelineOrder::NewestFirst {
+        events.reverse();
+    }
+    TimelineWindow { events, limited }
+}

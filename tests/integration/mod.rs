@@ -145,6 +145,7 @@ mod request_token_enumeration_tests;
 mod room_service_tests_migrated;
 mod sliding_sync_service_tests_migrated;
 mod sync_handlers_coverage_tests;
+mod sync_path_equivalence_tests;
 mod sync_service_tests_migrated;
 mod to_device_sync_tests_migrated;
 mod uia_service_tests_migrated;

@@ -320,15 +320,20 @@ impl SyncService {
     }
 
     /// See [`apply_timeline_limit`].
+    ///
+    /// 语义（取最新 N 条 / 升序 / `limited`）由 [`crate::sync_helpers::timeline_window`]
+    /// **单点实现** —— 滑动同步用的是同一个函数，避免两条路径再次漂移（ARCH-02）。
     pub(crate) fn apply_timeline_limit(events: &[RoomEvent], timeline_limit: i64) -> (Vec<RoomEvent>, bool) {
         if timeline_limit <= 0 {
             return (Vec::new(), !events.is_empty());
         }
 
-        let limited = events.len() as i64 > timeline_limit;
-        let mut events: Vec<RoomEvent> = events.iter().take(timeline_limit as usize).cloned().collect();
-        events.reverse();
-        (events, limited)
+        let window = crate::sync_helpers::timeline_window(
+            events.to_vec(),
+            timeline_limit as usize,
+            crate::sync_helpers::TimelineOrder::NewestFirst,
+        );
+        (window.events, window.limited)
     }
 }
 

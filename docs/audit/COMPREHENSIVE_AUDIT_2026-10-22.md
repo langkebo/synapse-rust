@@ -13,21 +13,22 @@
 
 | 维度 | P0 | P1 | P2 | P3 | 合计 |
 |---|---|---|---|---|---|
-| 架构设计 | 0 | 0 | 3 | 0 | 3 |
+| 架构设计 | 0 | 0 | 2 | 1 | 3 |
 | 代码质量 | 0 | 0 | 1 | 1 | 2 |
 | 功能完整性 | 0 | 0 | 0 | 0 | 0 |
-| 性能（含数据层） | 0 | 0 | 1 | 3 | 4 |
+| 性能（含数据层） | 0 | 0 | 1 | 2 | 3 |
 | 安全性 | 0 | 0 | 0 | 5 | 5 |
 | 可维护性 | 0 | 0 | 1 | 0 | 1 |
-| 测试覆盖 | 0 | 0 | 0 | 0 | 0 |
-| 文档完整性 | 0 | 0 | 0 | 1 | 1 |
+| 测试覆盖 | 0 | 0 | 0 | 2 | 2 |
+| 文档完整性 | 0 | 0 | 0 | 0 | 0 |
 | 专项：冗余与过度开发 | 0 | 0 | 0 | 1 | 1 |
-| 第七轮新发现（仍开着） | 0 | 0 | 0 | 2 | 2 |
-| **合计** | **0** | **0** | **6** | **13** | **19** |
+| **合计** | **0** | **0** | **5** | **12** | **17** |
 
-> 计数口径（2026-10-24 20:30 按 §0.2 逐条重算）：**P0 = 0，P1 = 0，P2 = 6，P3 = 13，合计 19**。
-> 其中 **13 条是"登记项"**（明确不做或只等外部条件，见 §0.2.3），真正还没动手的只有
-> ARCH-02（缺等价断言）、DOC-04（行号漂移）、NEW-04（30 处引用分类）、NEW-09（24 个覆盖缺口）。
+> 计数口径（2026-10-24 22:55 逐条重算）：**P0 = 0，P1 = 0，P2 = 5，P3 = 12，合计 17**。
+> 来源 = §0.1 的 3 条 open `NEW-*`（NEW-09 / NEW-10 / NEW-11）+ §0.2.2 的 2 条 + §0.2.3 的 12 条，
+> **去重后 17**（上一版写 18 是因为 `NEW-08` 同时出现在 §0.1 与 §0.2.3，多算了一条）。
+> 其中 **15 条是"登记项"**（明确不做或只等外部条件），真正还没动手的只有
+> NEW-09（24 个端点族没有 HTTP 往返用例）与 NEW-11（state 组装层未共享）。
 
 **结论摘要**：**P0 = 0，P1 = 0**（原 9 条 P1 全部有实现 + 能失败的门禁，逐条见附录 D）。
 ⚠️ 第八轮曾把一条误报成 P1（NEW-06「设备吊销通知静默丢失」），**已撤回**：真实广播路径在
@@ -48,19 +49,20 @@
 
 ## 0.1 第七轮新发现（2026-10-24，只列仍开着的）
 
-> 这是第七轮（2026-10-24）新发现里**仍开着**的部分。已关闭的 5 条不在此重复，判据与证据见
-> [附录 D](#附录-d已关闭条目索引)：
+> 这是第七轮（2026-10-24）新发现里**仍开着**的部分。**已关闭的 7 条不在此重复**，判据与证据见
+> [附录 D](#附录-d已关闭条目索引)：除下面列出的 5 条外，还有 **NEW-04**（`scripts/...` 悬挂引用）、
+> **NEW-05**（「自证测试」面）。**NEW-08**（`device_sync.rs` 零调用待删）**不在此表**，它是登记项，
+> 只留在 §0.2.3 —— 表里两处都写会让总数多算 1（本节 2026-10-24 修过一次这样的账）。
+> 其余已关闭：
 > NEW-01（联邦缩略图 `animated` 未透传）、NEW-02（规则文档入库）、DOC-03（MSC3245 错标）、
 > **NEW-06（设备吊销通知「静默丢失」—— 误报，已撤回并删除死代码）**、
 > **NEW-07（联邦入站设备列表 EDU 对客户端不可见 —— 真缺陷，已修）**。
 
 | 编号 | 级别 | 一句话 | 证据 |
 |---|---|---|---|
-| **NEW-05** | P2 | **「自证测试」面**：一批测试只断言自己刚构造的字面量（`let status = StatusCode::OK; assert_eq!(status, StatusCode::OK)`），永远不会失败。启发式扫描（≥3 处本地字面量断言且 0 处真实依赖调用）命中 **21 个文件**；已逐行确认的 3 处见 §七 TEST-02 | 已确认：`tests/unit/msc4108_rendezvous_route_tests.rs`（0 个 HTTP 调用、12 处 `let status/body/headers = <字面量>`）、`tests/integration/coverage_tests.rs`（51 个用例全是构造 JSON）、`account_compat_route_tests.rs` 的 `test_deactivate_account_*` 三条。**启发式会高估**（insta 快照文件看起来也像），所以 21 是候选数不是判决数 |
-| **NEW-08** | P3 | `synapse-federation/src/device_sync.rs`（**736 行**，8 个公开方法）**生产代码零调用**：全仓唯一构造点在 `tests/integration/federation_service_tests_migrated.rs`。其中 3 个方法与真实实现同名/同义（`revoke_device`↔`auth::account`、`verify_device_keys_signature`↔`e2ee::signed_json`、`sync_devices_from_remote`↔`FederationClient::get_user_devices`） | `git grep "DeviceSyncManager::new"` → 只有测试；8 个方法逐个 grep 生产调用：`sync_devices_from_remote` / `is_device_key_expired` / `cleanup_expired_devices` / `sync_device_keys_with_expiry_check` / `invalidate_user_devices_cache` **各 0 处**，`get_local_devices` 只在测试里。**未删**：删它要同步 SQLX 静态化计数基线（`check_sqlx_dynamic_ratio.sh`）与 3 个 crate 的 re-export，属独立一笔 |
+| **NEW-11** | P3 | `sync` 与滑动同步的 **state 组装层**（`lazy_load` / `required_state` / MSC4222 `state_after`）仍各写一遍 —— ARCH-02 只共享了 **timeline** 层 | 要先写「同一房间状态下两条路径的**可见状态集合**一致」的等价断言（懒加载成员集 + `include_redundant_members` + `state_after` 三组语义），没有断言就不抽 —— 与 ARCH-02 同一条原则 |
 | **NEW-10** | P3 | 4 个"已带 `break` 条件的轮询循环"仍用裸 `sleep(50ms)` 做间隔（`room_service_tests_migrated` ×3、`api_msc3912_redaction_cascade_tests` ×1） | 折叠成 `tests/common/wait_until(deadline)` 可少 4 个站点并统一超时失败信息；但每个都要改完立刻跑一次真库用例（改坏的表现是"偶发超时"，静态检查看不出来）⇒ 独立一笔 |
 | **NEW-09** | P3 | 只锁形状的测试文件里有 **24 个端点族没有任何 HTTP 往返用例**（`shape_only_test_matrix` 里写 `NONE`） | 补真覆盖要逐端点「`setup_fresh_test_app` + 注册用户/建房 + 断言 status/body/errcode」，属独立批次；本轮只保证**不再假装有覆盖**（NEW-05） |
-| **NEW-04** | P3 | 源码与配置里共 **30 个**不同的 `scripts/...` 悬挂引用；但其中多数是**相对路径**（相对 `docker/deploy/`）或**历史叙述**（"这里过去调用过 X，已删除"）⇒ 不能做"出现即要求存在"的朴素门禁 | 全仓扫描 `scripts/[\w./-]+\.(sh\|py\|mjs\|js)` 与 `os.path.exists` 求差；逐条看上下文后只有 1 类是真错（`scripts/check_missing_docs_ratchet.sh`，8 处，已在本轮修掉） |
 
 ## 0.2 未完成任务清单
 
@@ -76,7 +78,6 @@
 
 | 编号 | 级别 | 一句话 | 卡在哪 |
 |---|---|---|---|
-| **ARCH-02** | P2 | `sync` 与 `sliding_sync` 无共享语义基座 | 抽取会触及两条协议路径的公共形状，缺"两条路径可见事件集合一致"的等价断言作为安全网；先写断言才能动 |
 | **ARCH-04** | P2 | `events` 未分区、`room_memberships` 无归档 | 需要真实数据量判断分区收益；本机无生产级数据，属**等外部条件** |
 | **ARCH-05** | P2 | 7 个生产文件 >2000 行 | 拿不出可失败验证（拆完行为不变），按 §10.0 降级为**登记项**，不排期 |
 
@@ -141,15 +142,44 @@
 
 ## 一、架构设计
 
-### ARCH-02（P2）`sync` 与 `sliding_sync` 无共享语义基座
+### ARCH-02（P2）`sync` 与 `sliding_sync` 无共享语义基座 —— ✅ 已关闭（2026-10-24，先断言后抽取）
 
 - **位置**：`synapse-services/src/sync_service/mod.rs`、`synapse-services/src/sliding_sync_service/mod.rs`
 - **事实**：全仓成对交叉比对**未发现复制粘贴的函数体** —— 两条路径各有独立实现。所以这条**不是**
   "重复代码"，而是**同一套语义（懒加载成员、时间线裁剪、`limited`、账户数据）没有共享基座**，
   每改一处语义就要在两个服务里各写一遍。
 - **影响**：已经发生过语义漂移（limited timeline 重放成员变更只修了其中一条路径）。
-- **修法**：先写两组**等价断言**（同一房间状态下两条路径的可见事件集合一致），用断言锁住语义，
-  再抽 timeline/state 组装层。**没有断言就不要抽** —— 那是重写而不是重构。
+
+**按原修法的顺序做：先断言、再抽。**
+
+1. **等价断言** `tests/integration/sync_path_equivalence_tests.rs`（3 条，直接调两个 service，
+   共用**一份真实房间状态**）：① 完整时间线的事件集合与顺序一致；② 裁剪后两条路径保留的是
+   **同一条最新尾巴**；③ 被裁剪时两条路径都置 `limited=true`。
+   夹具**不手工写** `sliding_sync_rooms` —— 滑动侧房间行由生产路径
+   `materialize_room_from_activity` 从 `room_memberships` + `events` 现算，否则断言会退化成
+   "两边读同一份手写数据"，测不出漂移。
+2. **断言第一次运行就抓到一条真缺陷**：`EventStorage::get_room_events_batch_inner` 用
+   `ROW_NUMBER() OVER (… ORDER BY stream_ordering ASC)` 配 `rn <= limit`，取的是房间**最旧**
+   的 N 条 ⇒ `/sync` 的初始同步返回**最早**的 N 条并标 `limited=true`，而 `limited` 只表示
+   "还有更早的"，客户端回翻只会更早 ⇒ **长房间的客户端永远看不到最新消息**。
+   实测（5 条消息的房间、上限 2）：`/sync` 给 `[…575, …577]`（最旧两条），滑动同步给
+   `[…683, …692]`（最新两条）。
+   修法：只在**无 `since` 下界**（初始同步）时改成 `ORDER BY stream_ordering DESC`；增量同步
+   保持 ASC（水位线之后**最早** N 条，按批追赶）—— 那是既有 catch-up 语义，不动。
+3. **timeline 层已共享**：新增 `sync_helpers::timeline_window(events, limit, TimelineOrder)`
+   → `TimelineWindow { events（升序）, limited }`，「取哪 N 条 / 输出顺序 / `limited`」只剩这一份
+   实现；`/sync` 的 `apply_timeline_limit` 与滑动同步的 `build_timeline` 都改成调它。两条路径的
+   真实差异只剩**入参顺序**，用 `TimelineOrder::{NewestFirst, OldestFirst}` 显式化。
+
+**判据（实测）**：抽取前 `truncation_keeps_the_same_tail` 红、另两条绿；修复 + 抽取后
+**3 passed**；同期 `sync_service_tests_migrated`(13) + `sliding_sync_service_tests_migrated`(31) +
+`sync_handlers_coverage_tests`(15) 全绿；`-p synapse-services --lib --all-features` 的 timeline
+相关 **32 条**单测全绿。
+
+**仍未共享（另登记 NEW-11）**：**state 组装层**（`lazy_load` / `required_state` / MSC4222
+`state_after`）两条路径仍各自实现。按同一条原则"没有断言就不要抽"，它得先写**可见状态集合一致**
+的等价断言（涉及懒加载成员集、`include_redundant_members`、`state_after` 三组语义），属独立一笔。
+所以本条关闭的是"**时间线语义**单点化 + 有断言守护"，不是"整个组装层已合并"。
 
 ### ARCH-03（P2）"未实现"存在两套错误语义
 
@@ -577,6 +607,7 @@ TEST_FILE 47 = 107**；测试域合计 81。
 
 | 编号 | 一句话 | 关闭依据 |
 |---|---|---|
+| ARCH-02 | `sync` 与 `sliding_sync` 无共享语义基座（时间线裁剪/顺序/`limited` 各写一遍） | **先断言后抽取**：新增 `tests/integration/sync_path_equivalence_tests.rs` 3 条等价断言（完整序列一致 / 裁剪后保留最新 N 条 / 两条路径都置 `limited`）。断言**首次运行即红**，抓到 `get_room_events_batch_inner` 的 `ORDER BY stream_ordering ASC` + `rn <= limit` 取**最旧** N 条 ⇒ 初始同步让长房间的客户端永远看不到最新消息（实测 5 条消息、上限 2：`/sync` 给最旧两条、滑动同步给最新两条）；只对**无 `since`** 的初始同步改 DESC，增量保持 ASC 按批追赶。timeline 层抽成 `sync_helpers::timeline_window`（含 `TimelineOrder`），两条路径共用。判据：修复后 3 passed；`sync_service_tests_migrated` + `sliding_sync_service_tests_migrated` + `sync_handlers_coverage_tests` 全绿；services lib 的 timeline 相关 32 条单测全绿。**state 组装层未共享**，另登记 NEW-11 |
 | DOC-04 | 三份文档的 `path:line` 引用漂移（原记 9 组） | **实测 145 处**，且**层级不同**：① 正文 13 处已全部改成**符号名**（`API_COVERAGE_REPORT.md` §8 的 `grep … # 已实现：…` 块、`MSC_SEMANTICS.md` 两处、`ROUTE_CONTRACT.md` 一处），正文残留 **0**；② 表格 132 处**必须保留** `path:line` —— 那是 `check_capability_ledger.py` 的 C2 判据（`已实现` 行必须带可解析 `path:line`），改成符号名会让能力台账门禁立刻红，所以"整篇换符号名"这条修法在本仓**只对正文成立**；③ 表格侧改用漂移信号门禁 `scripts/ci/check_doc_line_refs.py`：解析不到文件 / 越界 / 指向空行·纯注释·孤立 `}` ⇒ 计入 `scripts/ci/doc_line_ref_baseline`（现 **56**，只许下降）。**判据/变异**：在大括号闭合或注释行上新挂一处 `path:line` 引用 ⇒ 56 → 57 ⇒ 红；删掉被引用的行让旧引用越界 ⇒ 同款红。**未做**：56 处"指到空行/括号"没有逐条重定位（多数是表格里"某 handler 的第 N 行"这类证据指针，重定位要先确认该行为仍未变） |
 | NEW-04 | 活文档里 30 处悬挂 `scripts/...` 引用，且不能做"出现即要求存在"的朴素门禁 | 新建 `scripts/ci/check_script_refs.py`：只查**活文件**（跳过 `docs/archive/**`、`docs/audit/archive/**`、`.workbuddy/**` —— 那里的"当年调用过 X，已删除"是历史叙述），解析顺序为仓库根 → `docker/` → `docker/deploy/`（部署文档的默认 WORKDIR），另设 `script_ref_exceptions` 只收「引用本身不是调用」的形态。**现算：1669 处引用 / 186 处解析不到**（原记 30 只数了一种后缀），按引用归类后的前 5 类：`coverage_baseline.js` 28（真身是 `.json`，扩展名漂移）、`db_migrate.sh` 26（真身 `docker/db_migrate.sh`）、`api_test/ledger.js` 20（同名 `.mjs`）、`deploy-monitoring.sh` 7 与 `contract-sync.mjs` 7（真身在 `docker/deploy/scripts/`）。186 已用 `scripts/ci/script_ref_baseline` 钉住（只许下降），接入 `preflight.sh`。**判据/变异**：把任意引用改成不存在的名字 ⇒ 计数涨过基线即红 |
 | TEST-05 | 测试域 `sleep` 站点 81 处，无分类、无判据 | **改判据后收口**：逐处复核发现没有一处是"随便睡一下"——全部是故障注入（故意睡超请求预算证超时）、TTL/锁/会话过期、时间戳铺开、等后台任务就绪、契约/指标窗口。于是把判据从"计数下降"改成"**每一处都有类别、新增必须报类别**"：`tests/**` 35 处 + `synapse-*/src/**` 46 处全部加 `// sleep-reason:`；`check_sleep_ratchet.py` 新增"测试域每处 sleep 必须有注解"判据，基线键 `TEST_FILE_SRC_UNANNOTATED` 12 → **0**。**变异**：插一处裸 sleep ⇒ `FAIL 测试域有 1 处 … 没有 // sleep-reason: 注解`；删既有注解 ⇒ 同款红（均实测）。**未降**：计数仍 26/34/47=107；可省的只有 4 个轮询循环的间隔 → 已登记 NEW-10 |
@@ -632,3 +663,4 @@ TEST_FILE 47 = 107**；测试域合计 81。
 | RD-27 | `to_device` 的 4 个存储方法零调用，其中一个名字与语义相反 | **审计前提部分不成立，只删真正死的 2 个**。`git grep` 实测：`get_messages` / `delete_messages` 生产与测试均 0 调用 ⇒ 删除（各带一条静态 `query!`）；`delete_messages_up_to` **有生产调用**（`synapse-services/src/sync_service/mod.rs:209`）⇒ 保留；`get_and_delete_messages` 名字不反（实现确实先读后删），但被 `get_messages_for_sync` → `synapse-e2ee/src/to_device/service.rs:120` 与 `tests/integration/to_device_sync_tests_migrated.rs:271` 消费 ⇒ 保留。**"名字相反"的真问题在 `get_messages_for_sync` / sync 路径，不在存储层**。"无外部消费者"的判定依据：`synapse-e2ee` 全仓 re-export 只有 `ToDeviceStorage`（被删方法不是 trait 成员、不在 `lib.rs` 的 `pub use` 里），且删除后 `cargo check --bins` 与 `synapse-e2ee` 测试目标均通过。`check_sqlx_dynamic_ratio.sh`：静态 1363 → 1357（−2 属本卡、−4 属基线滞后），test 786 → 791（基线滞后，非本卡），两条都在 `scripts/ci/sqlx_dynamic_ratio_baseline` 就地写了原因 |
 | MAINT-04 | 能力台账手工维护，已出现多处失真 | 新建 `scripts/contract/check_capability_ledger.py`：C1 每行恰一个判定词（`已实现` / `设计决策` / `未实现`）、C2 `已实现` 必须带可解析 `path:line`（越界即错）、C3 `设计决策` 必须引用审计文档里真实存在的编号、C4 "不注册"声明的路径不得同时在 `ledger_annotations.txt` 里是 `unsupported=true`（两条台账互相矛盾即红）。接入 `check_route_contract.sh`（含 `--mutation-check` 自证）。`API_COVERAGE_REPORT.md` §6.2 四行 + §6.5 两行补规范判定词与可解析引用。**判据**：脚本绿（15 行 / 1 条不注册声明）；`--mutation-check` 三类缺陷各红。**变异**：把 §6.2 MSC3814 的引用改成 `:99999` ⇒ 红（`行号越界（… 只有 321 行）`，实测） |
 | FUNC-05 | 联邦能力项有意不注册，未全部登记为设计决策 | `API_COVERAGE_REPORT.md` 新增 §6.6「设计决策台账」，5 行覆盖：`/_synapse/admin/v1/backups`（不注册）、thirdparty 4 条（RD-15）、联邦 legacy key 5 条（FUNC-05；RD 族详表见审计归档）、voice 3 条（DOC-03）、keys/distribution（RD-19）。判定词闭集由 C1 强制：残留"未登记"即红，三态在 §6.6 内互斥 |
+| NEW-08 | `synapse-federation/src/device_sync.rs`（735 行）自称"设备列表同步"，实际生产零调用，与 `routes/device.rs::broadcast_device_list_update` 重复实现同一件事 | **删除整模块**。`DeviceSyncManager::new` 全仓唯一构造点在它自己的 `#[cfg(test)]` 与 `tests/integration/federation_service_tests_migrated.rs`（2 条只测死代码的用例，已删）；同步移除 `synapse-federation/src/lib.rs`、`synapse-services/src/lib.rs`、`synapse-web/src/federation/mod.rs` 三处 re-export。棘轮同步：`scripts/ci/sqlx_dynamic_ratio_baseline` static 1357 → 1354（该模块 3 条生产静态查询）、test 动态 791 → 784、总 926 → 925，均就地写明"只因查询确实被删"；`file_size_baseline` / `clippy_allow_baseline` 删除过期文件条目；`TESTING.md` 与 `docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md` 数字块跟改。守卫 `federation_device_list_writer_tests::the_dead_device_revocation_job_does_not_come_back` 改为"文件缺失即跳过"——重加回来仍会被扫描。**判据**：`cargo check --workspace --all-targets --all-features` 通过；`check_sqlx_dynamic_ratio.sh`、`check_file_size_ratchet.py`（该文件无 stale 条目）、`check_clippy_allow_ratchet.py`、`check_sqlx_cache_fresh.sh --static` 全绿。**变异**：把 `pub fn notify_device_revocation() {}` 写回同名文件 ⇒ 守卫红（实测）。真实广播路径 `broadcast_device_list_update` 未动 |

@@ -107,6 +107,15 @@ impl EventStorage {
             return Ok(std::collections::HashMap::new());
         }
 
+        // 排名方向（ARCH-02 的等价断言抓到的缺陷）：
+        //
+        // * **初始同步**（无 `since` 下界）：`rn <= N` 必须保留**最新** N 条。旧实现一律
+        //   `ORDER BY stream_ordering ASC`，于是初次同步拿到的是房间**最旧**的 N 条，而
+        //   `limited=true` 只表示"还有更早的" —— 客户端回翻只会更早，**永远看不到最新消息**。
+        // * **增量同步**（有 `since` 下界）：保持 ASC，只取水位线之后**最早**的 N 条，让客户端
+        //   按批追赶（sync token 推进到本批末尾），这是既有语义，不要顺手改掉。
+        let rank_direction = if since_ts.is_none() && since_stream.is_none() { "DESC" } else { "ASC" };
+
         let mut query = QueryBuilder::<Postgres>::new(
             r"
             SELECT event_id, room_id, user_id, event_type, content, state_key,
@@ -131,11 +140,16 @@ impl EventStorage {
                     unsigned,
                     ROW_NUMBER() OVER (
                         PARTITION BY room_id
-                        ORDER BY stream_ordering ASC
+                        ORDER BY stream_ordering
+            ",
+        );
+        query.push(rank_direction);
+        query.push(
+            r"
                     ) AS rn
                 FROM events
                 WHERE room_id = ANY(
-            ",
+",
         );
         query.push_bind(room_ids);
         query.push(")");
