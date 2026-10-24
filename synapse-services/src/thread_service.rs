@@ -217,11 +217,22 @@ pub struct CanonicalThreadEvent {
 /// 线程在协议上不是新对象：根就是那条既有事件，回复是携带
 /// `m.relates_to: {rel_type: "m.thread", event_id: <root>}` 的普通 `m.room.message`。
 /// 因此 `thread_roots` / `thread_replies` 只能是这些规范事件的**索引**，
-/// 服务层需要事件层提供的也只有两件事：根是否存在、回复落成哪条事件。
+/// 服务层需要事件层提供的也只有三件事：根是否存在、回复落成哪条事件、
+/// 既有事件（标准 `/send` 已经写进 `events` 的那条）的时间戳是多少。
 #[async_trait::async_trait]
 pub trait ThreadEventPort: Send + Sync {
     /// 确认线程根是房间里真实存在的事件；不存在时返回 404。
     async fn ensure_canonical_root(&self, room_id: &str, root_event_id: &str) -> Result<(), ApiError>;
+
+    /// 已落库事件的 `origin_server_ts`；事件不存在或不属于该房间时回 `Ok(None)`。
+    ///
+    /// `thread_replies` 是事件的**索引**，时间戳必须抄事件本体上的那个值：读侧按
+    /// `(origin_server_ts, event_id)` 排序与翻页（`get_thread_replies_page` 的复合游标），
+    /// 且客户端会拿它和 `/sync` 时间线比顺序。抄本地时钟会得到"线程内顺序与房间时间线不一致"。
+    ///
+    /// 回 `None` 而不是报错：调用点（标准 `/send` 的索引补写）是 best-effort，
+    /// 事件读不到时跳过索引即可，不能让一次索引补写把一条已经发出去的消息判成失败。
+    async fn canonical_event_origin_server_ts(&self, room_id: &str, event_id: &str) -> Result<Option<i64>, ApiError>;
 
     /// 把一条回复写成规范 `m.thread` 事件，返回定稿后的事件。
     async fn send_thread_reply(
@@ -257,6 +268,18 @@ impl ThreadEventPort for CanonicalThreadEvents {
         Ok(())
     }
 
+    async fn canonical_event_origin_server_ts(&self, room_id: &str, event_id: &str) -> Result<Option<i64>, ApiError> {
+        // 按 id 单查（不额外校验房间），房间归属在本地比较：`get_event_record` 只回
+        // `Option`，缺事件时是 `None` 而不是 404 —— 正好映射成本方法的 `Ok(None)`。
+        let Some(event) = self.messaging.get_event_record(event_id).await? else {
+            return Ok(None);
+        };
+        if event.room_id != room_id {
+            return Ok(None);
+        }
+        Ok(Some(event.origin_server_ts))
+    }
+
     async fn send_thread_reply(
         &self,
         room_id: &str,
@@ -280,6 +303,29 @@ impl ThreadEventPort for CanonicalThreadEvents {
 
         Ok(CanonicalThreadEvent { event_id: relation.event_id, content: relation.content })
     }
+}
+
+/// 标准 `/send` 的线程回复里，`thread_replies.in_reply_to_event_id` 该抄哪个值。
+///
+/// 取 `m.relates_to.m.in_reply_to.event_id`（MSC3440 的 fallback 结构）：没有它就是
+/// `None` —— 线程回复**不必**同时是一条回复（`is_falling_back` 只是给老客户端的兼容层），
+/// 所以这里不能拿根事件 id 顶替。
+fn threaded_in_reply_to(content: &serde_json::Value) -> Option<String> {
+    content
+        .get("m.relates_to")
+        .and_then(|relates_to| relates_to.get("m.in_reply_to"))
+        .and_then(|in_reply_to| in_reply_to.get("event_id"))
+        .and_then(|event_id| event_id.as_str())
+        .map(str::to_string)
+}
+
+/// `true` 表示这次 `thread_replies` 插入撞了 `uq_thread_replies_room_event`。
+///
+/// 撞它就是"这条回复已经索引过"（客户端重试同一 txn 会带着同一个 `event_id` 再走一遍
+/// `ensure_thread_root_for_reply`），不是错误；其它任何数据库错误都必须上报，
+/// 否则真故障会被当成"重复"静默吞掉。
+fn is_duplicate_thread_reply(err: &sqlx::Error) -> bool {
+    err.as_database_error().map(|e| e.is_unique_violation()).unwrap_or(false)
 }
 
 /// The `ThreadService` struct.
@@ -355,23 +401,32 @@ impl ThreadService {
     }
 
     /// See [`create_thread`].
-    /// NEW-13①：标准 `/send` 带 `m.relates_to.rel_type = m.thread` 时**幂等**登记线程根与关系行。
+    /// NEW-13① + NEW-19：标准 `/send` 带 `m.relates_to.rel_type = m.thread` 时，
+    /// **幂等**登记线程根、关系行，以及回复本体在 `thread_replies` 里的索引。
     ///
     /// 本仓此前只有 vendor 的 `POST /_matrix/vendor/v1/threads`（建根）与
-    /// `POST /_matrix/client/v1/.../replies`（建回复）会写这两张表，于是"用标准 `/send`
+    /// `POST /_matrix/client/v1/.../replies`（建回复）会写这几张表，于是"用标准 `/send`
     /// 发线程回复"的客户端**写得进事件、却读不到线程**（`GET /threads/{root}` 404，
     /// 或者能读到根但 `replies` 永远是空）。
     ///
-    /// 这里补两件事：① 确保 `thread_roots` 有根（按根事件查，缺了才建，撞唯一约束就重读确认）；
-    /// ② 把本条回复登记进 `thread_relations`（`/send` 的事件已经落库，只差这条索引）。
-    /// 关系行的插入**不覆盖**已存在的记录：`/send` 的 txn 去重保证同一 event 只会走到这里一次，
-    /// 万一重复插入撞约束，记 debug 即可 —— 索引已经在，读路径不受影响。
+    /// 这里补三件事：① 确保 `thread_roots` 有根（按根事件查，缺了才建，撞唯一约束就重读确认）；
+    /// ② 把本条回复登记进 `thread_relations`；③ 把本条回复登记进 `thread_replies`
+    /// —— ③ 需要 `content` 与 `origin_server_ts`：前者就是客户端发上来的 body，
+    /// 后者从**刚落库的事件**回查（`ThreadEventPort::canonical_event_origin_server_ts`），
+    /// 不用本地时钟替代，否则线程内顺序会与房间时间线不一致。
+    ///
+    /// 三处写都是幂等的：`/send` 的 txn 去重保证正常路径只走一次，而客户端**重试**
+    /// 同一 txn 时会带着同一个 `reply_event_id` 再进来一次 —— 那时 ③ 会撞
+    /// `uq_thread_replies_room_event`，按"已经索引过"处理（debug），不能升级成错误。
+    /// 撞约束时 `create_thread_reply` 的第二个语句（`thread_roots.reply_count + 1`）
+    /// 与 INSERT 同事务、未执行即随事务回滚，所以计数不会被重复累加。
     pub async fn ensure_thread_root_for_reply(
         &self,
         sender: &str,
         room_id: &str,
         root_event_id: &str,
         reply_event_id: &str,
+        content: &serde_json::Value,
     ) -> Result<(), ApiError> {
         let root = match self.get_thread_root_by_event(room_id, root_event_id).await? {
             Some(root) => root,
@@ -407,6 +462,41 @@ impl ThreadService {
             // 其它错误也只记 debug —— 调用方（`/send`）已经把事件写进去了，不能因此失败。
             debug!(error = %e, room_id = %room_id, reply_event_id = %reply_event_id,
                 "Thread relation already recorded or could not be recorded for a threaded /send");
+        }
+
+        // ③ NEW-19：回复本体的索引。`thread_id` 取影子根行上的值，取不到时退回根事件 id
+        // —— 与 `get_thread` 读侧的 `root.thread_id.unwrap_or(请求里的 thread_id)` 同一口径，
+        // 否则写进 A、读按 B，仍然读不到。
+        let thread_id = root.thread_id.clone().unwrap_or_else(|| root_event_id.to_string());
+
+        let Some(origin_server_ts) = self.events.canonical_event_origin_server_ts(room_id, reply_event_id).await?
+        else {
+            // 事件查不到（极少见：刚 commit 的读，或房间归属不符）⇒ 跳过索引。
+            // 下一次回复会再试一次，`/send` 已经把消息发出去了，不能因此失败。
+            debug!(room_id = %room_id, reply_event_id = %reply_event_id,
+                "Threaded /send reply is not resolvable; skipping the thread_replies index for now");
+            return Ok(());
+        };
+
+        let params = CreateThreadReplyParams {
+            room_id: room_id.to_string(),
+            thread_id,
+            event_id: reply_event_id.to_string(),
+            root_event_id: root_event_id.to_string(),
+            sender: sender.to_string(),
+            in_reply_to_event_id: threaded_in_reply_to(content),
+            content: content.clone(),
+            origin_server_ts,
+        };
+
+        if let Err(e) = self.storage.create_thread_reply(params).await {
+            if is_duplicate_thread_reply(&e) {
+                // 客户端重试同一 txn ⇒ 同一个 event 又走到这里。索引已经在，什么都不用做。
+                debug!(room_id = %room_id, reply_event_id = %reply_event_id,
+                    "Thread reply is already indexed; the retry changed nothing");
+            } else {
+                return Err(ApiError::internal_with_cause("Failed to index thread reply", e));
+            }
         }
 
         Ok(())
@@ -1171,6 +1261,16 @@ mod tests {
     impl super::ThreadEventPort for StubThreadEvents {
         async fn ensure_canonical_root(&self, _room_id: &str, _root_event_id: &str) -> Result<(), ApiError> {
             Ok(())
+        }
+
+        /// 固定时间戳：单测只关心"索引里有没有这条回复"与字段抄得对不对，
+        /// 时间戳取值由集成用例（真库）钉。
+        async fn canonical_event_origin_server_ts(
+            &self,
+            _room_id: &str,
+            _event_id: &str,
+        ) -> Result<Option<i64>, ApiError> {
+            Ok(Some(1_700_000_000_000))
         }
 
         async fn send_thread_reply(

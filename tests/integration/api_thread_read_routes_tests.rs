@@ -19,9 +19,10 @@
 //! 因此主干用例仍走 vendor 登记（覆盖那条写入路径），另加一条 `threaded_send_alone_is_readable`
 //! 走**纯 `/send`**，把 ①+② 一起钉住。
 //!
-//! ⚠️ **仍未修（NEW-19）**：`/send` 的线程回复不会进 `thread_replies` 索引（该表由 `/replies`
-//! 端点写），所以纯 `/send` 的线程**读得到根、`replies` 仍为空**。修它需要 `origin_server_ts`
-//! 与 `content`（`send_message_with_txn` 只回 `{event_id}`），属独立一笔。
+//! **NEW-19（已修）**：同一处还补写 `thread_replies` 索引 —— 写它需要 `content` 与
+//! `origin_server_ts`，后者从**刚落库的事件**回查（不用本地时钟顶替）。所以纯 `/send`
+//! 的线程现在**既能读到根、`replies` 里也有那条回复**；`threaded_send_txn_retry_does_not_double_index`
+//! 钉住"重试同一 txn 不会把 `reply_count` 累加两次"。
 //!
 //! 另加三条边界：非成员 403、房间不存在 404、`thread_id` 不是 `$…` 形状 400 `M_INVALID_PARAM`。
 
@@ -93,8 +94,9 @@ async fn send(app: &axum::Router, token: &str, room_id: &str, txn: &str, body: &
     value["event_id"].as_str().expect("发消息必须返回 event_id").to_string()
 }
 
-/// NEW-13①+②：**只用标准 `/send`**（不碰 vendor 端点）也要能读到线程 ——
-/// 根消息 + 带 `m.thread` 的回复发完，`GET /threads/{根事件 id}` 必须 200。
+/// NEW-13①+② + NEW-19：**只用标准 `/send`**（不碰 vendor 端点）也要能读到线程 ——
+/// 根消息 + 带 `m.thread` 的回复发完，`GET /threads/{根事件 id}` 必须 200，
+/// 且 `replies` 里必须真有那条回复（NEW-19 之前这里是空的）。
 #[tokio::test]
 async fn threaded_send_alone_is_readable() {
     let Some(app) = super::setup_fresh_test_app().await else {
@@ -132,12 +134,65 @@ async fn threaded_send_alone_is_readable() {
 
     assert!(reply_event.starts_with('$'), "发消息必须返回事件 id：{reply_event}");
 
-    // ⚠️ NEW-19：回复**尚未**进 `thread_replies` 索引 —— 该表由 `/replies` 端点写，
-    // 而 `/send` 只落了事件本体（`send_message_with_txn` 只回 `{event_id}`，拿不到
-    // `origin_server_ts`，写索引需要它）。所以这里只断言 `replies` 是数组（形状对），
-    // **不**断言包含刚才那条；NEW-19 修好后应改为断言包含。
+    // NEW-19：回复本体必须进 `thread_replies` 索引（此前恒为空）
     let replies = value["replies"].as_array().unwrap_or_else(|| panic!("replies 必须是数组：{value}"));
-    let _ = replies;
+    let indexed = replies
+        .iter()
+        .find(|event| event["event_id"] == reply_event.as_str())
+        .unwrap_or_else(|| panic!("纯 /send 的回复必须出现在 replies 里（reply={reply_event}）：{value}"));
+    assert_eq!(value["reply_count"], json!(1), "reply_count 必须与索引一致：{value}");
+    assert_eq!(
+        indexed["root_event_id"],
+        root.as_str(),
+        "索引行的 root_event_id 必须是根事件（写错会让回复挂到别的线程）：{indexed}"
+    );
+    assert_eq!(
+        indexed["in_reply_to_event_id"],
+        root.as_str(),
+        "`m.relates_to.m.in_reply_to.event_id` 必须抄进索引：{indexed}"
+    );
+    assert_eq!(indexed["content"]["body"], "reply in thread", "索引行必须抄落库后的 content（不是空壳）：{indexed}");
+
+    // 时间戳必须是**事件本体**上的那个值，不能是本地时钟：线程内排序/翻页都按它算，
+    // 抄错会让线程顺序与房间时间线不一致。拿单事件端点对照。
+    let event_uri = format!("/_matrix/client/v3/rooms/{room_id}/event/{reply_event}");
+    let (status, event) = call(&app, get(&event_uri, Some(&token))).await;
+    assert_eq!(status, StatusCode::OK, "读单事件必须 200：{event}");
+    assert_eq!(
+        indexed["origin_server_ts"], event["origin_server_ts"],
+        "索引行的 origin_server_ts 必须等于事件本体的时间戳（indexed={indexed} / event={event}）"
+    );
+}
+
+/// NEW-19 幂等：客户端**重试同一 txn** 时 `/send` 返回同一个 `event_id`，
+/// 索引补写会再走一遍 —— 不能把 `reply_count` 累加两次，也不能让重试变成 5xx。
+#[tokio::test]
+async fn threaded_send_txn_retry_does_not_double_index() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+    let token = register(&app, "thread_retry_user").await;
+    let room_id = create_room(&app, &token).await;
+
+    let root = send(&app, &token, &room_id, "txn-retry-root", &json!({ "msgtype": "m.text", "body": "root" })).await;
+    let body = json!({
+        "msgtype": "m.text",
+        "body": "reply once",
+        "m.relates_to": { "rel_type": "m.thread", "event_id": root }
+    });
+
+    // 同一 txn 发两次：第二次被 `room_event_txn_dedup` 挡下，返回同一个 event_id
+    let first = send(&app, &token, &room_id, "txn-retry-reply", &body).await;
+    let second = send(&app, &token, &room_id, "txn-retry-reply", &body).await;
+    assert_eq!(first, second, "同一 txn 的重试必须返回同一个 event_id");
+
+    let uri = format!("/_matrix/client/v3/rooms/{room_id}/threads/{root}");
+    let (status, value) = call(&app, get(&uri, Some(&token))).await;
+    assert_eq!(status, StatusCode::OK, "读线程详情必须 200：{value}");
+    assert_eq!(value["reply_count"], json!(1), "重试同一 txn 不得让 reply_count 变成 2：{value}");
+    let replies = value["replies"].as_array().unwrap_or_else(|| panic!("replies 必须是数组：{value}"));
+    assert_eq!(replies.len(), 1, "重试同一 txn 不得在 replies 里出现两条：{value}");
+    assert_eq!(replies[0]["event_id"], first.as_str(), "留下的必须是那条事件：{value}");
 }
 
 /// 主干：登记线程根 → 加回复 → 读详情，`thread_id`/`root`/`replies`/`reply_count` 自洽。

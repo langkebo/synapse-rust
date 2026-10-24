@@ -411,6 +411,7 @@ pub(crate) async fn send_message(
     // NEW-13①：标准 `/send` 带 `m.relates_to.rel_type = m.thread` 时必须**补登记线程根** ——
     // 此前只有 vendor 的 `POST /_matrix/vendor/v1/threads` 会建 `thread_roots` 阴影行，
     // 所以用标准 `/send` 发线程回复的客户端"写得进事件、读不到线程"。
+    // NEW-19：同一处补 `thread_replies` 索引（否则读得到根、`replies` 恒空）。
     // **best-effort**：事件已经落库，登记失败不能让整条发送失败（否则客户端会重试消息）；
     // 失败只记 warn，下一次回复会再试（`ensure_thread_root_for_reply` 本身就是幂等的）。
     if let Some(event_id) = result.get("event_id").and_then(|v| v.as_str()) {
@@ -418,7 +419,7 @@ pub(crate) async fn send_message(
             if root_event_id != event_id {
                 if let Err(e) = ctx
                     .thread_service
-                    .ensure_thread_root_for_reply(&auth_user.user_id, &room_id, &root_event_id, event_id)
+                    .ensure_thread_root_for_reply(&auth_user.user_id, &room_id, &root_event_id, event_id, &body)
                     .await
                 {
                     ::tracing::warn!(
