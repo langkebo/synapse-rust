@@ -71,6 +71,7 @@ mod api_sync_filter_tests;
 mod api_sync_isolation_rate_limit_tests;
 mod api_telemetry_alerts_tests;
 mod api_telemetry_routes_tests;
+mod api_thread_read_routes_tests;
 mod api_to_device_rate_limit_tests;
 mod api_typing_routes_tests;
 mod api_verification_relay_tests;
