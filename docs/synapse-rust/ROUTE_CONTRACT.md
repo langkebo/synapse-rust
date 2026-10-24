@@ -1868,9 +1868,31 @@ EXTERNAL_TYPE_FILES = ("synapse-storage/src/sliding_sync/models.rs",)
 > 　· 计数口径（2026-10-24 复核）：**979** = `all` profile 去重后的 `method + path` 条目数，三处独立读数一致 ——
 > 　　`tests/unit/fixtures/ledger_export_sdk/all.json` 的 `entry_count`、`docs/synapse-rust/ROUTE_HANDLERS.json` 的 `counts.routes`、
 > 　　以及 `derived_route_table_*.inc.rs` 的 981 行去重结果（960 `always` + 11 `worker` + 10 `oidc`）。
-> 　· **模块口径**（同一份 sidecar 现算，2026-10-24）：含路由注册的源文件 `file` 共 **113** 个；`registered_by` 标签 **74** 个；
-> 　　其首段（模块）**51** 个。⚠️ 旧文本的「**66** 模块 / **75** 标签」**没有任何可复现定义**（按上面三种口径都算不出来），已废止，勿再引用。
-> 　· 复算：`python3 -c "import json;d=json.load(open('docs/synapse-rust/ROUTE_HANDLERS.json'));print(len(d['routes']), len({r['file'] for r in d['routes']}), len({r['registered_by'] for r in d['routes']}), len({r['registered_by'].split('::')[0] for r in d['routes']}))"`
+> 　· **模块口径有三种，混用就会互相"打假"**（2026-10-24 逐一实跑复核）：
+> 　　① **生成器口径**（本文件「总览」那两行用的就是它）：`artifacts/registered_routes.json["modules"]` 中**有路由的模块** = **66**；
+> 　　　`derived_routes.rs` + `derived_route_table_*.inc.rs` 的 `RouteEntry::new(…, "<label>")` 去重 = **75** 个标签；
+> 　　② **sidecar 口径**（`ROUTE_HANDLERS.json` 现算）：源文件 `file` **113** / `registered_by` **74** / 其首段（模块）**51**；
+> 　　③ 两者只差 **1** 个标签：`oidc_fallback` —— 它是 `/.well-known/{jwks.json,openid-configuration}` 的
+> 　　　**always 孪生**合成标签（见 `derived_routes.rs` 头部注释：同一路径在 `Oidc` 车道另有一条，cfg 裁掉后由它兜底），
+> 　　　sidecar 把这两条路径记在 `oidc` 名下，所以不含这个字面量。
+> 　　⇒ **66/75 与 113/74/51 都是可复现的**，不是"算不出来"，引用时必须写明口径。
+> 　· 复算（一次跑完三种口径；`artifacts/registered_routes.json` 未受版本控制，缺失时先跑 `python3 scripts/contract/extract_registered.py`）：
+>
+> ```bash
+> python3 - <<'PY'
+> import glob, json, re
+> mods = json.load(open("artifacts/registered_routes.json"))["modules"]
+> print("生成器口径 模块:", sum(1 for v in mods.values() if v))
+> pat = re.compile(r'RouteEntry::new\(\s*axum::http::Method::[A-Z]+,\s*"[^"]*",\s*"([^"]+)"')
+> files = ["synapse-web/src/routes/derived_routes.rs",
+>          *sorted(glob.glob("synapse-web/src/routes/derived_route_table*.inc.rs"))]
+> print("生成器口径 标签:", len({m for p in files for m in pat.findall(open(p).read())}))
+> r = json.load(open("docs/synapse-rust/ROUTE_HANDLERS.json"))["routes"]
+> print("sidecar 口径:", len(r), len({x["file"] for x in r}),
+>       len({x["registered_by"] for x in r}), len({x["registered_by"].split("::")[0] for x in r}))
+> PY
+> # 实测：66 / 75 / 979 113 74 51
+> ```
 > **证据产物**：`artifacts/sdk-contract-gap-report.md`、`artifacts/sdk-contract-gap.json`、`scripts/quality/path-contract-coverage.json`；镜像 commit **`2946e19eb`**（2026-10-17）。
 > ⚠️ **时点提示**：本节 B.1–B.7 的**所有数字**（覆盖率、分桶、缺口条数）都是 **2026-10-09 审计时点**的口径，此后后端与 SDK 均有前进；
 > 　　需要当前值请以 `compare-routes.mjs` 的当次输出为准。**结论层面的复核见 B.8（2026-10-17）**。
