@@ -15,17 +15,17 @@
 |---|---|---|---|---|---|
 | 架构设计 | 0 | 0 | 2 | 1 | 3 |
 | 代码质量 | 0 | 0 | 1 | 1 | 2 |
-| 功能完整性 | 0 | 0 | 2 | 0 | 2 |
+| 功能完整性 | 0 | 0 | 1 | 0 | 1 |
 | 性能（含数据层） | 0 | 0 | 1 | 3 | 4 |
 | 安全性 | 0 | 0 | 0 | 5 | 5 |
 | 可维护性 | 0 | 0 | 1 | 1 | 2 |
 | 测试覆盖 | 0 | 0 | 0 | 2 | 2 |
 | 文档完整性 | 0 | 0 | 0 | 0 | 0 |
 | 专项：冗余与过度开发 | 0 | 0 | 0 | 0 | 0 |
-| **合计** | **0** | **0** | **7** | **13** | **20** |
+| **合计** | **0** | **0** | **6** | **13** | **19** |
 
-> 计数口径（2026-10-25 06:30 逐条重算）：**P0 = 0，P1 = 0，P2 = 7，P3 = 13，合计 20**。
-> 来源 = §0.1 的 8 条 open `NEW-*`（NEW-09 / NEW-10 / NEW-11 / NEW-13 / NEW-15 / NEW-16 / NEW-17，NEW-14 / NEW-18 已关闭）、
+> 计数口径（2026-10-25 06:40 逐条重算）：**P0 = 0，P1 = 0，P2 = 6，P3 = 13，合计 19**。
+> 来源 = §0.1 的 7 条 open `NEW-*`（NEW-09 / NEW-10 / NEW-11 / NEW-13 / NEW-15 / NEW-16，NEW-14 / NEW-17 / NEW-18 已关闭）、
 > §0.2.2 的 2 条，以及 §0.2.3 的 11 条。
 > ✅ **NEW-14 已收口**：C3 审计面 15 → 95 个文件（零误伤），14 个 `NONE` 族已逐族重跑 ⇒
 > 4 族误判（改登记）、3 族幽灵、7 族真缺口（见 §0.1.1）。
@@ -53,7 +53,7 @@
 
 ## 0.1 第七轮新发现（2026-10-24，只列仍开着的）
 
-> 这是第七轮（2026-10-24）新发现里**仍开着**的部分。**已关闭的 9 条不在此重复**，判据与证据见
+> 这是第七轮（2026-10-24）新发现里**仍开着**的部分。**已关闭的 10 条不在此重复**，判据与证据见
 > [附录 D](#附录-d已关闭条目索引)：除下面列出的 5 条外，还有 **NEW-04**（`scripts/...` 悬挂引用）、
 > **NEW-05**（「自证测试」面）。
 > 其余已关闭：
@@ -70,7 +70,6 @@
 | **NEW-13** | P2 | `thread` 有两处 **MSC3440 偏差**：① 标准 `/send` 带 `m.relates_to.rel_type=m.thread` **不登记线程根**（事件写进去了，随后 `GET /threads/{root}` 回 404 `Thread not found`）；② 本仓 `thread_id` 是服务端生成的 `$<uuid>`（`thread_service::create_thread`），**不等于根事件 id** —— MSC3440 客户端用根事件 id 当 `thread_id`，因此对外部客户端而言线程"写了但读不到" | 修 ① 要在 `/send` 落库路径里检测 `m.thread` 关系并 upsert 线程根（与 vendor 的 `create_thread` 走同一服务方法）；修 ② 要动 `thread_roots.thread_id` 的语义（回填成根事件 id并迁移既有行）—— 两者都属协议兼容改动，需单独排期；本轮只把它们**钉成可复现的测试事实** （`tests/integration/api_thread_read_routes_tests.rs` 的主干用例显式断言 `thread_id != root`） |
 | **NEW-15** | P3 | **删除语义不对称**：`DELETE /_synapse/admin/v1/background_updates/{job}` 对**未知任务返回 204**（`background_update_service::delete_update` 只调 `storage.delete_update`，不查存在性），而 `DELETE /registration_tokens/{token}` 会先 `get_token` 再删、未知返回 404 | 写 `api_background_update_routes_tests` 时实测（同一场景两条断言：GET 404 / DELETE 204）。DELETE 幂等返回 204 本身符合 HTTP 语义，但**打错任务名的删除会静默成功**，运维会以为删掉了。两条路统一成哪种（都 404 / 都 204）属 API 契约决策，需要单独裁决；当前测试钉住的是**实际行为**，不是理想行为 |
 | **NEW-16** | P3 | **不限额时 `remaining` 报 0**：`GET /_matrix/media/v1/quota/check` 用 `if used >= limit { 0 } else { limit - used }` 算剩余空间，而 `limit == 0` 在本仓表示**不限额**（写入路径靠 `if max_storage > 0` 才拦，实测 limit=0 时上传成功）⇒ 不限额的用户看到的是"剩余 0 字节"，客户端会渲染成"空间已满" | 写 `api_media_quota_routes_tests` 时实测（默认配置 `{"limit":0,"used":0,"remaining":0}`，同一条链上传 1KB 成功且 `used` 正常增长）。修法是把 `limit == 0` 明确映射成 `remaining: null`（或 `limit: null`），属对外 JSON 契约变更，需与客户端确认后再改；测试当前断言**实际行为**并在注释里标 NEW-16 |
-| **NEW-17** | P2 | **滑动同步的 `rooms` 结构不符合 MSC3575/MSC4186**：规范要求 `rooms: {join: {<room_id>: …}, invite: …, leave: …}`，本仓返回**扁平**的 `rooms: {<room_id>: …}`（`sliding_sync_service::filters::build_rooms_response` 里直接 `rooms_json.insert(room_id, payload)`，没有按 membership 分组）⇒ 按规范读 `rooms.join` 的客户端会拿到 `undefined`，**房间列表显示为空**（`lists.<key>.ops[].room_ids` 是对的，但客户端只用它算增量，房间内容仍从 `rooms.join` 取） | 写 `api_sliding_sync_routes_tests` 时实测（首轮断言 `rooms.join` 直接红，响应里 `rooms` 的键就是 `!room:server`）。修法：`build_rooms_response` 末尾按 membership 分三层（join/invite/leave）包装，属对外 JSON 契约变更 + 需要同步改 service 层单测；测试当前断言**实际形状**并在注释里标 NEW-17（修好后该用例会红，按 `rooms.join[...]` 改断言） |
 
 ### 0.1.1 NEW-14 重跑结果：14 个 `NONE` 族的逐族判定（2026-10-25）
 
@@ -644,6 +643,7 @@ TEST_FILE 47 = 107**；测试域合计 81。
 | 编号 | 一句话 | 关闭依据 |
 |---|---|---|
 | ARCH-02 | `sync` 与 `sliding_sync` 无共享语义基座（时间线裁剪/顺序/`limited` 各写一遍） | **先断言后抽取**：新增 `tests/integration/sync_path_equivalence_tests.rs` 3 条等价断言（完整序列一致 / 裁剪后保留最新 N 条 / 两条路径都置 `limited`）。断言**首次运行即红**，抓到 `get_room_events_batch_inner` 的 `ORDER BY stream_ordering ASC` + `rn <= limit` 取**最旧** N 条 ⇒ 初始同步让长房间的客户端永远看不到最新消息（实测 5 条消息、上限 2：`/sync` 给最旧两条、滑动同步给最新两条）；只对**无 `since`** 的初始同步改 DESC，增量保持 ASC 按批追赶。timeline 层抽成 `sync_helpers::timeline_window`（含 `TimelineOrder`），两条路径共用。判据：修复后 3 passed；`sync_service_tests_migrated` + `sliding_sync_service_tests_migrated` + `sync_handlers_coverage_tests` 全绿；services lib 的 timeline 相关 32 条单测全绿。**state 组装层未共享**，另登记 NEW-11 |
+| NEW-17 | 滑动同步 `rooms` 结构不符合 MSC3575/MSC4186（扁平 map，规范要 `{join, invite, leave}`） | **已修**：在**序列化边界**分组（新增 `filters::group_rooms_by_membership`），内部仍保留扁平 map —— 因为 `extensions.rs` 的 4 处房间枚举与长轮询的 `has_new_timeline_events` 都按扁平读，改内部会让三处一起漂。分桶依据 payload 的 `invited` 布尔；`leave` 无数据来源但**键必须存在**。判据：`sliding_sync_lists_joined_room` 的断言从"房间在 rooms 顶层"翻成"在 `rooms.join` 里、且顶层不再有该房间"并转绿；`api_sliding_sync_routes_tests`(5) + 滑动同步 service 单测(74) 全绿 |
 | NEW-18 | refresh token 复用检测只吊销 `refresh_tokens`，不断已下发的 access token | **已修**：复用分支在 `revoke_all_user_tokens` 之外补齐 access 侧四步 —— ① 按 `token_hash` 拉黑（校验路径里黑名单检查**早于** token 缓存命中，最可靠）；② `invalidate_revocation_ok_for_user` （必须在删行**之前**，否则枚举为空、标记漏删）；③ `delete_user_tokens` 删 `access_tokens` 行；④ 置 `user:logout_all:{uid}` 标记作纵深防御。`security_audit` 事件补 `revoked_access_tokens` 计数。判据：`reusing_old_refresh_token_revokes_all_tokens` 的断言从 200 翻成 **401** 并转绿；`api_refresh_token_routes_tests`(5) + `api_auth_routes_tests`(8) 共 13 条全绿 |
 | NEW-14 | 「缺口清单不可信」：C3 只审计 `*_api_tests.rs` / `*_route_tests.rs`（15 个文件），而 79 个 `api_<family>_tests.rs` 不在视野内 ⇒ 缺口判定本身失真 | **扩面 + 逐族重跑**：`CLAIM_NAME` 覆盖仓里实际四种命名 ⇒ 审计面 15 → **95** 个文件、不碰生产代码 **0** 个（零误伤）；14 个 `NONE` 族按「路由模块 → 端点字面量 → 真请求文件」三步重跑 ⇒ **4 族误判**（`admin`/`app_service`/`federation_cache`/`worker`，已改登记行）、**3 族幽灵**（`admin_extra`/`coverage`/`formatting`）、**7 族真缺口**（转 NEW-09）。逐族证据见 §0.1.1 |
 | DOC-04 | 三份文档的 `path:line` 引用漂移（原记 9 组） | **实测 145 处**，且**层级不同**：① 正文 13 处已全部改成**符号名**（`API_COVERAGE_REPORT.md` §8 的 `grep … # 已实现：…` 块、`MSC_SEMANTICS.md` 两处、`ROUTE_CONTRACT.md` 一处），正文残留 **0**；② 表格 132 处**必须保留** `path:line` —— 那是 `check_capability_ledger.py` 的 C2 判据（`已实现` 行必须带可解析 `path:line`），改成符号名会让能力台账门禁立刻红，所以"整篇换符号名"这条修法在本仓**只对正文成立**；③ 表格侧改用漂移信号门禁 `scripts/ci/check_doc_line_refs.py`：解析不到文件 / 越界 / 指向空行·纯注释·孤立 `}` ⇒ 计入 `scripts/ci/doc_line_ref_baseline`（现 **56**，只许下降）。**判据/变异**：在大括号闭合或注释行上新挂一处 `path:line` 引用 ⇒ 56 → 57 ⇒ 红；删掉被引用的行让旧引用越界 ⇒ 同款红。**未做**：56 处"指到空行/括号"没有逐条重定位（多数是表格里"某 handler 的第 N 行"这类证据指针，重定位要先确认该行为仍未变） |

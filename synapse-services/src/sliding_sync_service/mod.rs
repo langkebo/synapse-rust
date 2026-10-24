@@ -697,7 +697,9 @@ impl SlidingSyncService {
                 pos: new_token.pos.to_string(),
                 conn_id: request.conn_id,
                 lists: lists_response,
-                rooms: rooms_response,
+                // NEW-17：规范要求 `rooms: {join, invite, leave}`；内部仍是扁平 map，
+                // 只在序列化边界分组（`extensions` / `has_new_timeline_events` 依赖扁平）。
+                rooms: filters::group_rooms_by_membership(rooms_response),
                 extensions: extensions_response,
             },
             idle_wait_ms,

@@ -11,8 +11,9 @@
 //! * `POST /_matrix/client/unstable/org.matrix.simplified_msc3575/sync`
 //! * `POST /_matrix/client/v1/sync`
 //!
-//! ⚠️ **NEW-17（实测）**：`rooms` 返回的是扁平 `room_id → 房间对象`，而规范要求
-//! `rooms: {join, invite, leave}` ⇒ 按规范读 `rooms.join` 的客户端会看到空房间列表。
+//! ✅ **NEW-17（已修）**：`rooms` 现在按规范返回 `{join, invite, leave}` 三层
+//! （此前是扁平 `room_id → 房间对象`，按规范读 `rooms.join` 的客户端会看到空房间列表）。
+//! 分组发生在**序列化边界**（`filters::group_rooms_by_membership`），内部仍用扁平 map。
 //!
 //! 四条路径在台账里都有，但**名字对不等于接通**：本文件用同一份请求体依次打四条，
 //! 任何一条落到 404/405 就会红（这正是"路由注册了但 handler 没接上"的典型症状）。
@@ -128,18 +129,23 @@ async fn sliding_sync_lists_joined_room() {
         "刚建的房间 {room_id} 必须出现在 lists.main.ops[].room_ids 里：{value}"
     );
 
-    // ② ⚠️ NEW-17：`rooms` 目前是**扁平**的 `room_id → 房间对象`，
-    //    而 MSC3575/MSC4186 规定是 `rooms: {join: {...}, invite: {...}, leave: {...}}`。
-    //    构造处 `sliding_sync_service::filters::build_rooms_response` 里是
-    //    `rooms_json.insert(room_id, payload)`，没有按 membership 分组 ⇒
-    //    **按规范读 `rooms.join` 的客户端会拿到 undefined，房间列表显示为空**。
-    //    这里断言**实际形状**（不是理想形状）：修好后 `rooms[room_id]` 会消失、本用例会红，
-    //    那时按 `rooms.join[room_id]` 改断言即可。
+    // ② NEW-17（已修）：`rooms` 必须是规范的 `{join, invite, leave}` 三层。
+    //    此前返回**扁平** `room_id → 房间对象`（`build_rooms_response` 里直接 insert），
+    //    按规范读 `rooms.join` 的客户端会拿到 undefined、房间列表显示为空。
+    //    修法是在**序列化边界**分组（`filters::group_rooms_by_membership`），内部仍用扁平 map。
     let rooms = value["rooms"].as_object().unwrap_or_else(|| panic!("rooms 必须是对象：{value}"));
+    for bucket in ["join", "invite", "leave"] {
+        assert!(
+            rooms.get(bucket).is_some_and(|v| v.is_object()),
+            "rooms 必须有三层 {{join, invite, leave}}，`{bucket}` 缺失或不是对象：{value}"
+        );
+    }
+    let join = rooms["join"].as_object().expect("rooms.join 必须是对象");
     assert!(
-        rooms.contains_key(&room_id),
-        "当前 rooms 是扁平 map，房间 {room_id} 必须直接作为键出现（见 NEW-17）：{value}"
+        join.contains_key(&room_id),
+        "刚建的房间 {room_id} 必须出现在 rooms.join 里（客户端就是从这里取房间内容）：{value}"
     );
+    assert!(!rooms.contains_key(&room_id), "房间不能再直接挂在 rooms 顶层（扁平形状已废弃）：{value}");
 }
 
 /// 四条路径必须**都接通**（台账里有名字 ≠ handler 接上了）。

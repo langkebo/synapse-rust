@@ -435,3 +435,32 @@ impl SlidingSyncService {
         }
     }
 }
+
+/// NEW-17：MSC3575 / MSC4186 规定 `rooms` 是 `{join, invite, leave}` 三层，而本模块内部
+/// 一直用**扁平**的 `room_id → 房间对象`（`extensions.rs` 与 `has_new_timeline_events` 都按扁平读）。
+/// 因此在**序列化边界**分组，内部契约不动 —— 改内部会让 4 处扩展读取点与长轮询的空判断一起漂。
+///
+/// 分桶依据是 payload 里的 `invited` 布尔（`room_to_json` 写的 `room.is_invited`）：
+/// 受邀的进 `invite`，其余进 `join`。`leave` 目前没有数据来源（房间只来自
+/// `room_memberships` 的 joined/invited），保持空对象，但**键必须存在** —— 客户端按三层读。
+pub(super) fn group_rooms_by_membership(rooms: Value) -> Value {
+    let mut join = serde_json::Map::new();
+    let mut invite = serde_json::Map::new();
+
+    if let Value::Object(map) = rooms {
+        for (room_id, payload) in map {
+            let is_invite = payload.get("invited").and_then(Value::as_bool).unwrap_or(false);
+            if is_invite {
+                invite.insert(room_id, payload);
+            } else {
+                join.insert(room_id, payload);
+            }
+        }
+    }
+
+    json!({
+        "join": join,
+        "invite": invite,
+        "leave": serde_json::Map::new(),
+    })
+}
