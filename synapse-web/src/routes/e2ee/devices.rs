@@ -97,8 +97,16 @@ pub(crate) async fn device_list_update(
     })))
 }
 
+/// Returns a constant 403: room key distribution is server-internal bookkeeping, so a
+/// client has no legitimate use for it. Registered as by-design unsupported in
+/// `docs/synapse-rust/ROUTE_CONTRACT.md`（“16 条”表）and pinned on both sides by
+/// `scripts/contract/check_unsupported_endpoints.py`（handler 恒失败 ⇔ `unsupported=true`）。
 /// See [`room_key_distribution`].
-#[allow(clippy::unused_async)]
+#[allow(
+    clippy::unused_async,
+    reason = "by-design unsupported endpoint: the handler never awaits anything because it \
+              always answers 403 (see ROUTE_CONTRACT.md's by-design table)"
+)]
 pub(crate) async fn room_key_distribution(
     State(_ctx): State<DeviceContext>,
     _auth_user: AuthenticatedUser,

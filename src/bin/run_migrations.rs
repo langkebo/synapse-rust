@@ -8,6 +8,7 @@ use tokio::process::Command;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    synapse_rust::common::crypto::ensure_token_hash_secret_or_exit("run_migrations");
     let script_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("docker").join("db_migrate.sh");
 
     if !script_path.exists() {

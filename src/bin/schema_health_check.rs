@@ -35,6 +35,7 @@ use synapse_storage::schema_health_check::{detailed_report, run_schema_health_ch
 
 #[tokio::main]
 async fn main() -> ExitCode {
+    synapse_rust::common::crypto::ensure_token_hash_secret_or_exit("schema_health_check");
     let args: Vec<String> = std::env::args().collect();
     let detailed = args.iter().any(|a| a == "--detailed" || a == "-d");
     let auto_repair = args.iter().any(|a| a == "--auto-repair" || a == "-r");

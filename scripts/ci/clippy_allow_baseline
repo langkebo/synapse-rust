@@ -93,7 +93,6 @@
 1 synapse-web/src/routes/admin/policy.rs
 1 synapse-web/src/routes/app_service.rs
 1 synapse-web/src/routes/derived_routes.rs
-1 synapse-web/src/routes/e2ee/devices.rs
 1 synapse-web/src/routes/federation/keys.rs
 1 synapse-web/src/routes/federation/membership/join.rs
 1 synapse-web/src/routes/federation/transaction/edus.rs

@@ -2191,11 +2191,21 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 <!-- sqlx-plan-numbers:start -->
 <!-- 以下数字由 `scripts/ci/check_plan_numbers_fresh.sh` 与基线/实测现算比对；改基线必须同步改这里。 -->
 BASELINE_DYNAMIC_PRODUCTION=141
-BASELINE_DYNAMIC_TEST_INFRA=786
-BASELINE_STATIC=1363
+BASELINE_DYNAMIC_TEST_INFRA=791
+BASELINE_STATIC=1357
 BASELINE_QUERY_BUILDER=17
 SQLX_CACHE_ENTRIES=1323
 <!-- sqlx-plan-numbers:end -->
+
+> **2026-10-24 更新（W8 成员 B 批：死代码删除 + 基线滞后对齐）**，数字块两项：
+> - `BASELINE_STATIC` **1363 → 1357**（−6）：−2 是 RD-27 删除
+>   `synapse-e2ee/src/to_device/storage.rs` 的两个零调用方法（各带一条静态 `query!`，
+>   无测试消费者）；−4 是**基线滞后**——在干净的 HEAD 工作树上实测已是 1359，
+>   本批只做测量对齐，不是"静态改动态"。
+> - `BASELINE_DYNAMIC_TEST_INFRA` **786 → 791**（+5）：同样属基线滞后（干净 HEAD
+>   实测 `dynamic_test = 791`），本批未新增任何测试区动态 SQL。棘轮是上限，
+>   留着 5 点余量等于允许 5 次静默新增，故按实测归零余量。
+> - 其余三项不变；逐条归因写在 `scripts/ci/sqlx_dynamic_ratio_baseline` 的就地注记里。
 
 > **2026-10-24 更新（空转 SQL 条目清理）**，数字块一处：
 > - `SQLX_CACHE_ENTRIES` **1324 → 1323**（−1）：`device_lists_changes` 的

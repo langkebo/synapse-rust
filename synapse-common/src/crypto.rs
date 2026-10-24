@@ -207,64 +207,135 @@ pub fn content_hash(data: &[u8]) -> String {
 /// The known dev/test fallback secret. In production, this value must NEVER be used.
 const DEV_TEST_TOKEN_HASH_SECRET: &str = "dev-test-token-hash-secret-do-not-use-in-production";
 
+/// Exit code shared by every binary entry point when the startup secret check fails.
+///
+/// `2` is already "bad usage" in the CLIs under `src/bin/` (see
+/// `federation_sign_request.rs`), so a missing/weak `TOKEN_HASH_SECRET` gets its own code.
+pub const TOKEN_HASH_SECRET_EXIT_CODE: i32 = 3;
+
+/// Outcome of inspecting a `TOKEN_HASH_SECRET` value.
+///
+/// Split out from [`validate_token_hash_secret`] so the decision table can be unit
+/// tested without mutating process-global environment variables (which would race with
+/// every other test in the same lib test binary that calls [`hash_token`]).
+#[derive(Debug, PartialEq, Eq)]
+enum TokenHashSecretVerdict {
+    /// Usable secret, nothing to say.
+    Configured,
+    /// Debug build intentionally falling back to the well-known dev/test value.
+    DevFallbackInDebug,
+    /// Debug build with no secret at all: allowed, warned, never safe for production.
+    MissingInDebug,
+    /// Refuse to serve. Message is shown verbatim on stderr / in the startup error.
+    Rejected(String),
+}
+
+/// Pure decision function behind [`validate_token_hash_secret`].
+///
+/// `release_build` mirrors `!cfg!(debug_assertions)`; taking it as a parameter keeps
+/// both branches testable in one build profile.
+fn classify_token_hash_secret(secret: Option<&str>, release_build: bool) -> TokenHashSecretVerdict {
+    match secret {
+        // 空串是最容易发生的 fail-open：env 存在但没赋值（`TOKEN_HASH_SECRET=`）。
+        // 以前只查"变量是否存在"，于是空 key 会被拿去算 HMAC —— 这里按长度统一拒掉。
+        Some(value) if value.len() < 32 => TokenHashSecretVerdict::Rejected(format!(
+            "TOKEN_HASH_SECRET must be at least 32 bytes, got {} bytes",
+            value.len()
+        )),
+        Some(value) if value == DEV_TEST_TOKEN_HASH_SECRET => {
+            if release_build {
+                TokenHashSecretVerdict::Rejected(
+                    "TOKEN_HASH_SECRET is set to the known dev/test fallback value. This is NOT safe for production."
+                        .to_string(),
+                )
+            } else {
+                TokenHashSecretVerdict::DevFallbackInDebug
+            }
+        }
+        Some(_) => TokenHashSecretVerdict::Configured,
+        None => {
+            if release_build {
+                TokenHashSecretVerdict::Rejected(
+                    "TOKEN_HASH_SECRET environment variable must be set in production".to_string(),
+                )
+            } else {
+                TokenHashSecretVerdict::MissingInDebug
+            }
+        }
+    }
+}
+
 /// Validate that `TOKEN_HASH_SECRET` is properly configured for the current build mode.
 ///
 /// In production (release builds): the secret must be set, at least 32 bytes, and must
 /// not equal the known dev/test fallback. Returns `Err` if any check fails.
 ///
 /// In dev/test (debug builds): a missing or weak secret is allowed with a warning.
+/// An **empty** value (variable present, no value) is rejected in every build mode —
+/// that is the one shape that used to fail open silently.
 ///
-/// Call this at server startup before any request is processed.
+/// Call this at server startup before any request is processed. Every binary under
+/// `src/bin/` does so through [`ensure_token_hash_secret_or_exit`].
 pub fn validate_token_hash_secret() -> Result<(), String> {
-    match std::env::var("TOKEN_HASH_SECRET") {
-        Ok(secret) => {
-            if secret.len() < 32 {
-                return Err(format!("TOKEN_HASH_SECRET must be at least 32 bytes, got {} bytes", secret.len()));
-            }
-            if secret == DEV_TEST_TOKEN_HASH_SECRET && !cfg!(debug_assertions) {
-                return Err("TOKEN_HASH_SECRET is set to the known dev/test fallback value. \
-                     This is NOT safe for production."
-                    .to_string());
-            }
-            if secret == DEV_TEST_TOKEN_HASH_SECRET {
-                tracing::warn!(
-                    "TOKEN_HASH_SECRET is set to the dev/test fallback. \
-                     This is NOT safe for production."
-                );
-            }
+    let secret = std::env::var("TOKEN_HASH_SECRET").ok();
+    match classify_token_hash_secret(secret.as_deref(), !cfg!(debug_assertions)) {
+        TokenHashSecretVerdict::Configured => Ok(()),
+        TokenHashSecretVerdict::DevFallbackInDebug => {
+            tracing::warn!(
+                "TOKEN_HASH_SECRET is set to the dev/test fallback. \
+                 This is NOT safe for production."
+            );
             Ok(())
         }
-        Err(_) => {
-            if cfg!(debug_assertions) {
-                tracing::warn!(
-                    "TOKEN_HASH_SECRET not set, using dev/test fallback. \
-                     This is NOT safe for production."
-                );
-                Ok(())
-            } else {
-                Err("TOKEN_HASH_SECRET environment variable must be set in production".to_string())
-            }
+        TokenHashSecretVerdict::MissingInDebug => {
+            tracing::warn!(
+                "TOKEN_HASH_SECRET not set, using dev/test fallback. \
+                 This is NOT safe for production."
+            );
+            Ok(())
         }
+        TokenHashSecretVerdict::Rejected(message) => Err(message),
+    }
+}
+
+/// Startup guard for **every** executable entry point under `src/bin/`.
+///
+/// Calls [`validate_token_hash_secret`] and terminates the process with
+/// [`TOKEN_HASH_SECRET_EXIT_CODE`] instead of letting the first real lookup reach
+/// `hash_token`'s `unreachable!()` (CODE-01b: in a release build a missing secret used
+/// to mean "start fine, then panic on the first token hash").
+///
+/// Put this as the **first statement** of `main` (the one exception is `synapse_worker`,
+/// which runs its offline `--validate-topology` check first because that mode needs no
+/// secret, and validates immediately after). The guard test
+/// `every_binary_entry_point_validates_the_token_hash_secret` fails if any binary is
+/// added or edited without it.
+pub fn ensure_token_hash_secret_or_exit(component: &str) {
+    if let Err(reason) = validate_token_hash_secret() {
+        eprintln!("[{component}] startup aborted: TOKEN_HASH_SECRET check failed: {reason}");
+        eprintln!("[{component}] set TOKEN_HASH_SECRET to >= 32 bytes (deployment env / docker/.env) and retry.");
+        std::process::exit(TOKEN_HASH_SECRET_EXIT_CODE);
     }
 }
 
 /// hash token.
 ///
 /// ⚠️ **本函数在 release 构建且 `TOKEN_HASH_SECRET` 缺失时是 panic 的**（fail-closed：
-/// 用弱默认值算哈希比直接停更危险 —— 那会让所有人以为登录态还在）。主服务在启动时
-/// `validate_token_hash_secret`（`src/server/mod.rs`）已经挡掉这一路，但 `src/bin` 下
-/// 其余入口各自没有调用它，所以从库的角度留下了一个 panic 面。
+/// 用弱默认值算哈希比直接停更危险 —— 那会让所有人以为登录态还在）。
 ///
-/// 这里用 `#[expect(clippy::unreachable)]` 把这件事**显式登记**，而不是让它躲过
-/// `-D clippy::unreachable` 门禁：一旦这一行被删掉，expectation 落空、编译失败，
-/// 提醒后来人删掉本属性。真正的修法（把签名改成 `Result`，并让所有二进制在启动时
-/// 校验/注入 secret）**未做**，记在 `docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md`
-/// 的 CODE-01 里（CODE-01b）：它要动 `verify_token_hash` 与全部调用点，不是一条门禁
-/// 该顺手带走的改动。
+/// 这个 panic 面在**进程层**已被封死（CODE-01b）：主服务在 `src/server/mod.rs`、
+/// `src/bin/` 下 8 个可执行入口在 `main` 第一行调用
+/// [`ensure_token_hash_secret_or_exit`] ⇒ 空/缺失/过短的 secret 在启动期就非零退出，
+/// 走不到这里。守卫见 `every_binary_entry_point_validates_the_token_hash_secret`。
+///
+/// 库层仍保留 `Result` 化的余地（签名改 `Result` 要动 `verify_token_hash` 与
+/// `tests/**` 里的调用点，属另一笔），所以这里继续用 `#[expect(clippy::unreachable)]`
+/// **显式登记**，而不是让它躲过 `-D clippy::unreachable` 门禁：一旦这一行被删掉，
+/// expectation 落空、编译失败。
 #[expect(
     clippy::unreachable,
-    reason = "fail-closed defence-in-depth: startup validation covers the server path, the signature \
-              refactor is tracked as CODE-01b"
+    reason = "fail-closed defence-in-depth: the server and all 8 src/bin entry points validate the \
+              secret at startup; a Result-returning signature is tracked separately"
 )]
 pub fn hash_token(token: &str) -> String {
     let server_secret = std::env::var("TOKEN_HASH_SECRET").unwrap_or_else(|_| {
@@ -957,6 +1028,105 @@ mod tests {
         assert!(
             verify_password("correct horse battery staple", LEGACY_PHC, false).unwrap(),
             "an Argon2id hash written by the previous dependency version must still verify"
+        );
+    }
+
+    // ── CODE-01b：TOKEN_HASH_SECRET 启动校验 ───────────────────────────────
+    //
+    // 判据不是"函数返回 Ok"，而是"**空键与缺键都不会走到 hash_token 的 unreachable**"。
+    // 决策表做成纯函数（`classify_token_hash_secret`）就是为了不碰进程级 env ——
+    // 同一个 lib test 二进制里所有 hash_token 用例都读 TOKEN_HASH_SECRET，set_var 会串扰。
+
+    #[test]
+    fn empty_token_hash_secret_is_rejected_in_every_build_mode() {
+        // `TOKEN_HASH_SECRET=`（变量在、值为空）以前能过 `std::env::var` 的 Ok 分支，
+        // 于是空 key 被拿去算 HMAC ⇒ 所有人共享同一个可预测的哈希。这是 fail-open。
+        for release_build in [false, true] {
+            match classify_token_hash_secret(Some(""), release_build) {
+                TokenHashSecretVerdict::Rejected(msg) => {
+                    assert!(msg.contains("at least 32 bytes"), "release_build={release_build}: {msg}");
+                }
+                other => panic!("empty secret must be rejected (release_build={release_build}), got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn missing_token_hash_secret_is_fatal_in_release_and_warned_in_debug() {
+        assert_eq!(
+            classify_token_hash_secret(None, true),
+            TokenHashSecretVerdict::Rejected(
+                "TOKEN_HASH_SECRET environment variable must be set in production".to_string()
+            ),
+            "release build without the secret must refuse to start rather than panic on first use"
+        );
+        assert_eq!(classify_token_hash_secret(None, false), TokenHashSecretVerdict::MissingInDebug);
+    }
+
+    #[test]
+    fn dev_fallback_secret_is_fatal_in_release_only() {
+        assert_eq!(
+            classify_token_hash_secret(Some(DEV_TEST_TOKEN_HASH_SECRET), true),
+            TokenHashSecretVerdict::Rejected(
+                "TOKEN_HASH_SECRET is set to the known dev/test fallback value. This is NOT safe for production."
+                    .to_string()
+            )
+        );
+        assert_eq!(
+            classify_token_hash_secret(Some(DEV_TEST_TOKEN_HASH_SECRET), false),
+            TokenHashSecretVerdict::DevFallbackInDebug
+        );
+    }
+
+    #[test]
+    fn a_32_byte_secret_is_accepted_in_both_modes() {
+        let secret = "x".repeat(32);
+        assert_eq!(classify_token_hash_secret(Some(&secret), false), TokenHashSecretVerdict::Configured);
+        assert_eq!(classify_token_hash_secret(Some(&secret), true), TokenHashSecretVerdict::Configured);
+    }
+
+    /// 每个 `src/bin/` 入口的 `main` 必须**第一件事**就是校验 secret（CODE-01b）。
+    ///
+    /// 为什么是源码扫描而不是起进程：debug 构建下缺 secret 是允许的（dev fallback），
+    /// 真跑起来也只会打警告，所以"启动即非零退出"只能在 release 里观察；而 release
+    /// 编译 8 个二进制不适合放进默认测试车道。这条守卫钉的是**接线本身**：新增/删改
+    /// 二进制时漏掉 guard ⇒ 红。
+    #[test]
+    fn every_binary_entry_point_validates_the_token_hash_secret() {
+        const GUARD: &str = "ensure_token_hash_secret_or_exit(";
+        let bin_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/bin");
+        let mut checked: Vec<String> = Vec::new();
+        for entry in std::fs::read_dir(&bin_dir).unwrap_or_else(|e| panic!("read {}: {e}", bin_dir.display())) {
+            let path = entry.expect("readable dir entry").path();
+            if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+                continue;
+            }
+            let name = path.file_name().and_then(|n| n.to_str()).expect("utf-8 file name").to_string();
+            let source = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+            // 只在**代码**里找，不认注释：否则把调用注释掉（`// ensure_...(...)`）仍能骗过守卫。
+            let code: String =
+                source.lines().map(|line| line.split("//").next().unwrap_or("")).collect::<Vec<_>>().join("\n");
+            assert!(
+                code.contains(GUARD),
+                "src/bin/{name} 没有调用 {GUARD}：release 构建缺 TOKEN_HASH_SECRET 时，\
+                 它会在第一次 hash_token 调用处 panic，而不是启动即退出"
+            );
+            checked.push(name);
+        }
+        checked.sort();
+        assert_eq!(
+            checked,
+            vec![
+                "federation_sign_request.rs",
+                "generate_test_keypair.rs",
+                "healthcheck.rs",
+                "run_migrations.rs",
+                "schema_health_check.rs",
+                "synapse_ledger_export.rs",
+                "synapse_ledger_fingerprint.rs",
+                "synapse_worker.rs",
+            ],
+            "src/bin 的入口集合变了 —— 新增入口必须在 main 第一行调用 {GUARD}，然后更新本清单"
         );
     }
 

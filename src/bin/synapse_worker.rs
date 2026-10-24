@@ -38,6 +38,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(synapse_rust::cli::run_offline_topology_check());
     }
 
+    // Daemon mode only: the offline topology check above needs no token secret, but every
+    // path that touches access/refresh tokens does (CODE-01b — release builds used to start
+    // fine and then panic inside `hash_token` on the first lookup).
+    synapse_rust::common::crypto::ensure_token_hash_secret_or_exit("synapse_worker");
+
     tracing_subscriber::fmt::init();
 
     let config = Config::load()?;

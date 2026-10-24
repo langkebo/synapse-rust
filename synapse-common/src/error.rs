@@ -2439,4 +2439,42 @@ mod tests {
         assert_eq!(err.kind, ApiErrorKind::Internal);
         assert_eq!(err.message, "A database error occurred");
     }
+
+    /// ARCH-03「未实现语义表」的可执行版本 —— 契约文档
+    /// `docs/synapse-rust/ROUTE_CONTRACT.md` 的同名表就是这三行。
+    ///
+    /// 三者必须**同时**不同：把 `not_supported` 改回 404、或把 `internal` 映射成 501，
+    /// 都会让"端点不存在 / 端点存在但不支持 / 服务器坏了"重新混成一套语义。
+    #[test]
+    fn arch03_unimplemented_semantics_table_is_pinned() {
+        use axum::http::StatusCode;
+
+        let not_provided = ApiError::not_implemented("endpoint not provided");
+        // 注意 wire 值：`MatrixErrorCode::Unimplemented` 与 `Unrecognized` **共用**同一个
+        // 线上字符串 `M_UNRECOGNIZED`（见 `MatrixErrorCode::as_str` 的既有用例），
+        // 内部靠 `is_not_implemented()` 区分。契约只承诺 wire 值，所以这里断言 wire 值。
+        assert_eq!(not_provided.code.as_str(), "M_UNRECOGNIZED", "404 配 M_UNRECOGNIZED（端点/能力整体不提供）");
+        assert_eq!(not_provided.http_status(), StatusCode::NOT_FOUND);
+        assert!(not_provided.is_not_implemented(), "「未实现」的内部标记必须保留，否则运维侧分不清缺端点与打错路径");
+
+        let field_unsupported = ApiError::not_supported("erase=true is not supported");
+        assert_eq!(field_unsupported.code, MatrixErrorCode::Unknown, "501 配 M_UNKNOWN（端点可用，字段/扩展被拒）");
+        assert_eq!(field_unsupported.http_status(), StatusCode::NOT_IMPLEMENTED);
+
+        // 404 与 501 是两个不同状态码，ARCH-03 明确禁止合并。
+        assert_ne!(
+            not_provided.http_status(),
+            field_unsupported.http_status(),
+            "404 与 501 的区分是刻意的：合并后客户端分不清「换端点」还是「去掉某个字段」"
+        );
+        assert_ne!(not_provided.code.as_str(), field_unsupported.code.as_str());
+
+        // 反向：真实内部错误不能被伪装成 404/501。
+        let internal = ApiError::internal("database unavailable");
+        assert_eq!(internal.http_status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(internal.code.as_str(), "M_UNKNOWN");
+        assert!(!internal.is_not_implemented());
+        assert_ne!(internal.http_status(), not_provided.http_status());
+        assert_ne!(internal.http_status(), field_unsupported.http_status());
+    }
 }

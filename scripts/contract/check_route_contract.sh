@@ -112,6 +112,19 @@ echo "==> Coverage metrics drift gate (route_metrics.py) ..."
 python3 scripts/contract/route_metrics.py --self-test
 python3 scripts/contract/route_metrics.py --check
 
+# MAINT-04 / FUNC-05: §6.2 / §6.5 / §6.6 of API_COVERAGE_REPORT.md are hand-written
+# ledgers, and historically the same capability was recorded in three different
+# states in different subsections with no way to falsify either claim. This gate
+# makes every row machine-checkable: exactly one verdict word (`已实现` /
+# `设计决策` / `未实现`), `已实现` rows must carry a resolvable `path:line`, and
+# `设计决策` rows must cite a decision id that really exists in the audit doc.
+# It also rejects a path declared "not registered" in §6.6 while being listed as
+# `unsupported=true` in the route ledger (the two ledgers contradicting each
+# other). `--mutation-check` injects one defect per rule and requires red.
+echo "==> Capability ledger traceability (MAINT-04 / FUNC-05, check_capability_ledger.py) ..."
+python3 scripts/contract/check_capability_ledger.py --mutation-check
+python3 scripts/contract/check_capability_ledger.py
+
 # F-4.1 (second half): catch "fake success" bodies that are entirely constants and
 # carry an empty array/object (e.g. `{"keys": []}`). Cheap static scan, so it runs
 # here rather than in review. Exemptions live in

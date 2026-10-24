@@ -117,10 +117,11 @@ pub fn create_voice_router(state: &AppState) -> Router<AppState> {
 ///
 /// The three POST routes `/{media_id}/convert`, `/{media_id}/optimize` and
 /// `/{media_id}/transcription` are registered so the route ledger stays
-/// complete, but they intentionally return `M_UNRECOGNIZED` (501) because
-/// MSC3245 keeps all media processing client-side. The `server_side_processing`
-/// block below advertises that explicitly, so SDKs can gate on the capability
-/// declaration instead of discovering the hard 501 at call time.
+/// complete, but they intentionally return `404 M_UNRECOGNIZED` because
+/// MSC3245 keeps all media processing client-side (ARCH-03 语义表第 1 行：
+/// "端点/能力整体不提供" ⇒ 404，不是"端点存在但字段被拒"的 501)。The
+/// `server_side_processing` block below advertises that explicitly, so SDKs can
+/// gate on the capability declaration instead of discovering the hard 404 at call time.
 #[axum::debug_handler]
 async fn get_voice_config(
     State(ctx): State<RoomContext>,
@@ -366,15 +367,21 @@ async fn delete_voice_message(
     Ok(Json(result))
 }
 
+/// MSC3245 规定语音的编码/优化/转写**在客户端**完成，服务端三个端点只是"登记在册的不
+/// 接受"。语义上属于「该端点整体不提供」而不是「端点存在但某个字段不支持」，所以固定
+/// 404 `M_UNRECOGNIZED`（见 `docs/synapse-rust/ROUTE_CONTRACT.md` 的「未实现语义表」，
+/// ARCH-03）。抽成函数是为了让语义被用例钉住：改回 501 会被 `arch03_*` 用例判红。
+fn voice_operation_not_provided(operation: &str, client_hint: &str) -> ApiError {
+    ApiError::not_implemented(format!("Voice {operation} is handled client-side per MSC3245. {client_hint}"))
+}
+
 #[axum::debug_handler]
 async fn convert_voice_message(
     _state: State<RoomContext>,
     _auth_user: AuthenticatedUser,
     Path(_media_id): Path<MediaId>,
 ) -> Result<Json<Value>, ApiError> {
-    Err(ApiError::not_implemented(
-        "Voice conversion is handled client-side per MSC3245. Server-side processing is not supported",
-    ))
+    Err(voice_operation_not_provided("conversion", "Server-side processing is not supported"))
 }
 
 #[axum::debug_handler]
@@ -383,9 +390,7 @@ async fn optimize_voice_message(
     _auth_user: AuthenticatedUser,
     Path(_media_id): Path<MediaId>,
 ) -> Result<Json<Value>, ApiError> {
-    Err(ApiError::not_implemented(
-        "Voice optimization is handled client-side per MSC3245. Server-side processing is not supported",
-    ))
+    Err(voice_operation_not_provided("optimization", "Server-side processing is not supported"))
 }
 
 #[axum::debug_handler]
@@ -394,9 +399,7 @@ async fn transcribe_voice_message(
     _auth_user: AuthenticatedUser,
     Path(_media_id): Path<MediaId>,
 ) -> Result<Json<Value>, ApiError> {
-    Err(ApiError::not_implemented(
-        "Voice transcription is handled client-side per MSC3245. Use Web Speech API or local Whisper model on the client",
-    ))
+    Err(voice_operation_not_provided("transcription", "Use Web Speech API or local Whisper model on the client"))
 }
 
 #[axum::debug_handler]
@@ -456,4 +459,46 @@ async fn register_encrypted_voice(
         "content_uri": content_uri,
         "exists": false
     })))
+}
+
+#[cfg(test)]
+mod arch03_voice_unimplemented_semantics_tests {
+    use super::*;
+    use axum::http::StatusCode;
+
+    /// ARCH-03 语义表：**端点整体不提供** ⇒ 404 + `M_UNRECOGNIZED`。
+    ///
+    /// 这三个 handler 的整个行为就这么一句 Err，所以钉住 `voice_operation_not_provided`
+    /// 等于钉住三个端点的响应。变异：把 `not_implemented` 换成 `not_supported` ⇒ 红。
+    #[test]
+    fn voice_convert_optimize_transcribe_are_404_m_unrecognized() {
+        for (operation, hint) in [
+            ("conversion", "Server-side processing is not supported"),
+            ("optimization", "Server-side processing is not supported"),
+            ("transcription", "Use Web Speech API or local Whisper model on the client"),
+        ] {
+            let err = voice_operation_not_provided(operation, hint);
+            assert_eq!(
+                err.code.as_str(),
+                "M_UNRECOGNIZED",
+                "{operation}: 端点整体不提供 ⇒ M_UNRECOGNIZED（wire 值），不能与「字段不支持」的 M_UNKNOWN 混用"
+            );
+            assert!(err.is_not_implemented(), "{operation}: 内部「未实现」标记必须保留");
+            assert_eq!(err.http_status(), StatusCode::NOT_FOUND, "{operation}: 状态码必须是 404");
+            assert!(
+                err.message.contains("MSC3245") && err.message.contains("client-side"),
+                "{operation}: message 必须指路（MSC3245 客户端处理），实际是 {:?}",
+                err.message
+            );
+        }
+    }
+
+    /// 反向：语音端点的 404 不能掩盖真实内部错误（真实错误仍是 500 + `M_UNKNOWN`）。
+    #[test]
+    fn voice_internal_errors_stay_500_not_404() {
+        let err = ApiError::internal("voice storage unavailable");
+        assert_eq!(err.http_status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(err.code.as_str(), "M_UNKNOWN");
+        assert_ne!(err.code.as_str(), "M_UNRECOGNIZED");
+    }
 }

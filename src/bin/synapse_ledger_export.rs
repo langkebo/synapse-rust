@@ -175,6 +175,7 @@ fn is_broken_pipe(error: &std::io::Error) -> bool {
 }
 
 fn main() -> ExitCode {
+    synapse_rust::common::crypto::ensure_token_hash_secret_or_exit("synapse_ledger_export");
     let raw: Vec<String> = std::env::args().collect();
     let args = match parse_args(&raw) {
         Ok(a) => a,

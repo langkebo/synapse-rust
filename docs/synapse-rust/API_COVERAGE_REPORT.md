@@ -521,12 +521,12 @@
 |---|---|---|
 | **App Service 登录**（`m.login.application_service`） | ✅ **已实现**（`auth_compat.rs:455-468`）；~~整体缺失~~ | 仍缺 pushers、设备管理、虚拟用户以 C-S 身份调用（稳定错误码 `M_APPSERVICE_LOGIN_UNSUPPORTED` 已于 2026-10-24 订正为已实现，见 §5.2） |
 | **MSC4512** App Service 命名空间代理 | ✅ **代理已实现**（`app_service.rs:722-723`）；~~缺失~~ | 联邦侧代理请求（上游 #19977 的另一半）未做；上游整体仍 experimental + opt-in |
-| **MSC3912 / v11 撤回格式** | ✅ **格式已修且级联已通**（v11+ 写 `content.redacts`；**订正（2026-10-04）**：客户端与管理端均可达级联——`handlers/room/events.rs:1134-1169` 在 `with_rel_types` 非空时调 `cascade_redact_related_events`；原"仅管理端可达 / `:990` 不级联"旧判作废） | `with_rel_types` 为空时与上游一致仅撤回单条；非空时单层级联（不递归、不触碰父事件） |
-| **v12/v13 房间创建** | ✅ **仅 v12 可创建**（2026-09-27 G-1，`7489b247f`；`room_versions.rs:151` `stable("12")`） | v1–v11 为 `stable_no_create`、v13 已移除（Q5(b)）；**订正（2026-10-02）**：MSC4297（state resolution v2.1）已实现并接线到生产路径（写入分叉时 `resolve_forked_state` → `resolve_state_for_version_with_rules`），已无遗留项 |
+| **MSC3912 / v11 撤回格式** | ✅ **已实现**（格式已修且级联已通：v11+ 写 `content.redacts`；**订正（2026-10-04）**：客户端与管理端均可达级联——`handlers/room/events.rs:1134-1169` 在 `with_rel_types` 非空时调 `cascade_redact_related_events`；原"仅管理端可达 / `:990` 不级联"旧判作废） | `with_rel_types` 为空时与上游一致仅撤回单条；非空时单层级联（不递归、不触碰父事件） |
+| **v12/v13 房间创建** | ✅ **已实现**（仅 v12 可创建；2026-09-27 G-1，`7489b247f`；`room_versions.rs:151` `stable("12")`） | v1–v11 为 `stable_no_create`、v13 已移除（Q5(b)）；**订正（2026-10-02）**：MSC4297（state resolution v2.1）已实现并接线到生产路径（写入分叉时 `resolve_forked_state` → `resolve_state_for_version_with_rules`），已无遗留项 |
 | **`rc_reports` 限流桶** | ✅ **已实现**（`directory_reporting.rs:235,293`）；~~缺失~~ | — |
-| **MSC4140 联邦 EDU** | ✅ **已实现**（`edu.rs:37,67,83`）；~~缺失~~ | 仍缺：schedule 的 `state_key` 硬编码 `None`（`delayed_event_service.rs:94`） |
-| **MSC3814 `/events` 方法** | ✅ **GET + POST 双形态**（2026-10-16 订正）：`POST` = 规范形态（游标在 body）、`GET` = 上游兼容别名（游标在 query）；~~曾收紧为 GET-only~~ | — |
-| **Content Scanner** | ✅ **已装配且已接入生产路径**（**订正（2026-10-04）**：`wiring/core.rs:66,179` 构造 + `config/mod.rs:242` 配置；消费点 `media/upload.rs:89,137` `scan_when_enabled`、`handlers/room/events.rs:317` `scan_text_when_enabled`；原"已装配但无消费者 / 0 调用点 / 孤儿模块"旧判作废） | 仍无持久化（扫描 verdict 不落库） |
+| **MSC4140 联邦 EDU** | ✅ **已实现**（`synapse-federation/src/edu.rs:37,67,83`）；~~缺失~~ | 仍缺：schedule 的 `state_key` 硬编码 `None`（`delayed_event_service.rs:94`） |
+| **MSC3814 `/events` 方法** | ✅ **已实现**（`synapse-web/src/routes/handlers/dehydrated_device.rs`；GET + POST 双形态；2026-10-16 订正）：`POST` = 规范形态（游标在 body）、`GET` = 上游兼容别名（游标在 query）；~~曾收紧为 GET-only~~ | — |
+| **Content Scanner** | ✅ **已实现**（已装配且已接入生产路径；**订正（2026-10-04）**：`wiring/core.rs:66,179` 构造 + `synapse-common/src/config/mod.rs:242` 配置；消费点 `media/upload.rs:89,137` `scan_when_enabled`、`handlers/room/events.rs:317` `scan_text_when_enabled`；原"已装配但无消费者 / 0 调用点 / 孤儿模块"旧判作废） | 仍无持久化（扫描 verdict 不落库） |
 
 ### 6.3 Admin 媒体端点（2026-09 补齐、2026-10-05 去重，差距已收敛）
 
@@ -594,12 +594,28 @@
 
 | 能力 | 状态 | 说明 |
 |---|---|---|
-| **账号注销**（`POST /_matrix/client/v3/account/deactivate`） | ✅ 支持 | `erase` 缺省（`false`）时走完整注销：取消 MSC4140 延迟事件 → 退出全部房间 → 删 pusher → 吊销 token/设备 |
-| **GDPR 内容擦除**（同端点 `{"erase": true}`） | ❌ **不支持，显式 501** | 服务端没有"擦除用户内容"这一层。请求在**任何副作用之前**被拒（`synapse-web/src/routes/account_compat.rs`）：接受 `erase: true` 却只注销，等于对一个没执行的指令回"成功"，比诚实拒绝更糟。客户端需把 501 当作"注销未发生"处理 |
+| **账号注销**（`POST /_matrix/client/v3/account/deactivate`） | ✅ **已实现**（`synapse-web/src/routes/account_compat.rs`） | `erase` 缺省（`false`）时走完整注销：取消 MSC4140 延迟事件 → 退出全部房间 → 删 pusher → 吊销 token/设备 |
+| **GDPR 内容擦除**（同端点 `{"erase": true}`） | ❌ **设计决策：不实现**（显式 501 `M_UNKNOWN`，见 FUNC-01） | 服务端没有"擦除用户内容"这一层。请求在**任何副作用之前**被拒（`synapse-web/src/routes/account_compat.rs`）：接受 `erase: true` 却只注销，等于对一个没执行的指令回"成功"，比诚实拒绝更糟。客户端需把 501 当作"注销未发生"处理 |
 
 > 这条属审计 **FUNC-01**（原判 P1"账号注销能力缺失"已在第二轮更正为 P2"擦除语义未实现"）。
 > **决策：不实现内容擦除**，只登记 —— 理由是实现它需要一套跨房间的内容删除管线（事件、媒体、
 > 状态、联邦对端），而当前没有任何客户端依赖该语义；真要做，应作为独立特性设计而非顺手补。
+
+### 6.6 设计决策台账（FUNC-05）
+
+> 这一节收口 **FUNC-05**："上游声明了、我们有意不做"的能力必须**逐条登记为设计决策**，
+> 否则读者只会看到"没实现"，然后把它当成遗漏重报一次。判定词是闭集：
+> `已实现`（→ 必须给可解析的代码引用）/ `设计决策`（→ 必须给决策编号）/ `未实现`（→ 待排期缺陷）。
+> 门禁 `scripts/contract/check_capability_ledger.py` 对 §6.2 / §6.5 / §6.6 逐行检查这三件事，
+> 并额外校验"声明**不注册**的路径不得出现在路由台账里"（两条台账互相矛盾即红）。
+
+| 能力 | 路径 | 判定 | 依据 / 决策 |
+|---|---|---|---|
+| 上游 admin 备份管理（实验性） | `/_synapse/admin/v1/backups` | 设计决策：不注册（本仓无备份管理 API） | FUNC-05：只登记不下架；若将来上游转正再按端点排期 |
+| 第三方网络查询（4 条） | `/_matrix/client/v3/thirdparty/{location,user}[/{protocol}]` | 设计决策：登记为 by-design unsupported（不实现） | RD-15：路由在册、恒定 404 `M_UNRECOGNIZED`，契约见 `ROUTE_CONTRACT.md`「有意不实现的端点」 |
+| 联邦 legacy 设备密钥交换（5 条） | `/_matrix/federation/v1/user/keys/upload`、`/_synapse/federation/v1/keys/{upload,claim,query}`、`/_synapse/federation/v1/query/auth` | 设计决策：登记为 by-design unsupported（不实现） | FUNC-05：与 RD-15 同批登记（RD 族详表见审计归档）；对端若依赖该族，需要一次独立的联邦兼容性评估 |
+| MSC3245 语音服务端处理（3 条） | `/_matrix/vendor/v1/voice/{media_id}/{convert,optimize,transcription}` | 设计决策：登记为 by-design unsupported（不实现） | DOC-03：MSC3245 规定编码/转写在客户端完成，服务端不实现即符合规范 |
+| 房间密钥分发 | `/_matrix/client/v3/rooms/{room_id}/keys/distribution` | 设计决策：登记为 by-design unsupported（恒 403） | RD-19：服务端内部簿记，客户端无合法用途 |
 
 ---
 

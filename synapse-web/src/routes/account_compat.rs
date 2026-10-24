@@ -575,6 +575,24 @@ pub(crate) struct DeactivateAccountBody {
     erase: Option<bool>,
 }
 
+/// `erase: true` 的拒绝语义（ARCH-03 语义表：**端点可用、请求字段被拒** ⇒ 501 + `M_UNKNOWN`）。
+///
+/// 为什么是 501 而不是 404：`/account/deactivate` 这个端点是提供了的，只有 `erase` 这个
+/// 字段/操作没实现；404 `M_UNRECOGNIZED` 表示"端点不存在"，会误导客户端去换端点。
+/// 为什么必须在任何副作用之前返回：接受 `erase: true` 却只做"不擦除的停用"，等于对一条
+/// 从未执行的指令回了 success。
+///
+/// 这条 message 刻意带上文档路径：客户端作者拿到 501 时要知道"能做什么、不能做什么"，
+/// 而不是去猜是不是服务端坏了（`.trae/rules/project_rules.md` 里 MSC3245 那类
+/// "能力台账与实现不符"的坑，就是靠 message 指路才不再复发）。
+fn reject_unsupported_account_erasure() -> ApiError {
+    ApiError::not_supported(
+        "erase=true is not supported by this server (account deactivation without erasure is; \
+         see docs/synapse-rust/API_COVERAGE_REPORT.md §6.5); the account was not deactivated"
+            .to_string(),
+    )
+}
+
 /// See [`deactivate_account`].
 pub(crate) async fn deactivate_account(
     State(ctx): State<AuthContext>,
@@ -596,19 +614,9 @@ pub(crate) async fn deactivate_account(
         return Ok((StatusCode::UNAUTHORIZED, Json(uia_response)).into_response());
     }
 
-    // Checked before any side effect: accepting `erase: true` and deactivating
-    // without erasing would answer "success" to an instruction we never carried
-    // out, which is worse than an honest 501.
-    //
-    // 这条 message 刻意带上文档路径：客户端作者拿到 501 时要知道"能做什么、不能做什么"，
-    // 而不是去猜是不是服务端坏了（`.trae/rules/project_rules.md` 里 MSC3245 那类
-    // "能力台账与实现不符"的坑，就是靠 message 指路才不再复发）。
+    // Checked before any side effect (rationale: `reject_unsupported_account_erasure`).
     if body.erase == Some(true) {
-        return Err(ApiError::not_supported(
-            "erase=true is not supported by this server (account deactivation without erasure is; \
-             see docs/synapse-rust/API_COVERAGE_REPORT.md §6.5); the account was not deactivated"
-                .to_string(),
-        ));
+        return Err(reject_unsupported_account_erasure());
     }
 
     let user_id = auth_user.user_id.clone();
@@ -992,7 +1000,7 @@ mod rc_profile_limit_tests {
 // ============================================================================
 #[cfg(test)]
 mod spec_body_field_tests {
-    use super::{ChangePasswordBody, DeactivateAccountBody};
+    use super::{reject_unsupported_account_erasure, ChangePasswordBody, DeactivateAccountBody};
 
     /// `logout_devices` is a top-level body field, defaulting to true.
     #[test]
@@ -1027,5 +1035,25 @@ mod spec_body_field_tests {
 
         let off: DeactivateAccountBody = serde_json::from_value(serde_json::json!({"erase": false})).unwrap();
         assert_eq!(off.erase, Some(false), "erase=false 仍按常规停用流程处理");
+    }
+
+    /// ARCH-03 语义表：**端点可用、请求字段被拒** ⇒ 501 + `M_UNKNOWN`（不是 404）。
+    ///
+    /// 变异：把 `reject_unsupported_account_erasure` 换成 `not_implemented`（404）⇒ 红。
+    #[test]
+    fn erase_true_pins_501_m_unknown() {
+        let err = reject_unsupported_account_erasure();
+        assert_eq!(
+            err.code.as_str(),
+            "M_UNKNOWN",
+            "erase 是字段级不支持，必须用 M_UNKNOWN，不能复用「端点不存在」的 M_UNRECOGNIZED"
+        );
+        assert_eq!(
+            err.http_status(),
+            axum::http::StatusCode::NOT_IMPLEMENTED,
+            "端点本身可用 ⇒ 501；404 会让客户端以为 /account/deactivate 不存在"
+        );
+        assert!(err.message.contains("erase=true is not supported"));
+        assert!(err.message.contains("API_COVERAGE_REPORT.md"), "message 要指路，别让客户端猜");
     }
 }

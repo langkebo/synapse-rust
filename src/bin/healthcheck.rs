@@ -16,6 +16,7 @@ fn env_flag(name: &str) -> bool {
 
 #[tokio::main]
 async fn main() {
+    synapse_rust::common::crypto::ensure_token_hash_secret_or_exit("healthcheck");
     let host = std::env::var("SYNAPSE_HEALTHCHECK_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
     let port = std::env::var("SYNAPSE_HEALTHCHECK_PORT").unwrap_or_else(|_| "8008".to_string());
     let base_url = std::env::var("SYNAPSE_HEALTHCHECK_BASE_URL").unwrap_or_else(|_| format!("http://{host}:{port}"));

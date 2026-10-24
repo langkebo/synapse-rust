@@ -11,6 +11,7 @@ use synapse_rust::common::crypto::decode_base64_32;
 use synapse_web::federation::signing::canonical_federation_request_bytes;
 
 fn main() {
+    synapse_rust::common::crypto::ensure_token_hash_secret_or_exit("federation_sign_request");
     let method = std::env::args().nth(1).unwrap_or_default();
     let uri = std::env::args().nth(2).unwrap_or_default();
     let origin = std::env::args().nth(3).unwrap_or_default();

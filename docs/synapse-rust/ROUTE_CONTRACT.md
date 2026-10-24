@@ -2544,3 +2544,48 @@ SDK 门禁只能落到 `backend-query-unknown`；类型化后 `query` 分类为 
    `synapse-web/src/routes/handlers/thread.rs`（`CreateReplyBody`）。
    门禁用例：`test_thread_reply_writes_canonical_m_thread_event`、
    `test_create_thread_rejects_unknown_root_event`。
+
+## 附录 F — 未实现语义表（ARCH-03，2026-10-24）
+
+> ⚠️ 本节位于「`## 附录`」之后，因此 `gen_contract_doc.py` 重新生成契约时会**保留**它
+> （生成器只重建附录之前的路由派生部分）。语义的可执行版本见
+> `synapse-common/src/error.rs` 的 `arch03_unimplemented_semantics_table_is_pinned`。
+
+这张表回答一个问题：**客户端拿到 404/501/500 时应该改什么**。
+三个状态码刻意为三件事服务，**不允许合并**（合并后客户端分不清「换端点」「去掉某个字段」「等运维修」）。
+
+| # | 情形（判定条件） | HTTP | errcode | 构造器 | 客户端该做什么 |
+|---|---|---|---|---|---|
+| 1 | **端点/能力整体不提供**：路由未注册；或端点只由本服务器未采纳的 MSC/厂商扩展定义；或该部署整体未启用该交付通道（SMTP / SMS provider / 后台队列） | `404` | `M_UNRECOGNIZED` | `ApiError::not_implemented()` | 换一条路径或换一种能力，**重试无用** |
+| 2 | **端点可用，请求的字段/扩展/取值被拒**：路由已注册、请求合法，但其中某个字段或整个响应所依赖的能力未实现（静默忽略会把"没做"伪装成"成功"） | `501` | `M_UNKNOWN` | `ApiError::not_supported()` | 去掉该字段/改用受支持的取值后重试 |
+| 3 | **服务器自身出错**：端点本应可用，失败源于缺陷或配置缺失 | `500` | `M_UNKNOWN` | `ApiError::internal*()` | 报障；**不得**把它映射成 404/501 来"降级" |
+
+判定顺序：先问"路径/方法在派生路由表里命中吗"（不命中 ⇒ #1），再问"失败是否只由请求内容决定"（是 ⇒ #1 或 #2，取决于整条能力是否存在），最后才知道是不是 #3。
+
+**wire 值与内部值**：`MatrixErrorCode::Unrecognized` 与 `MatrixErrorCode::Unimplemented` **共用**线上字符串
+`M_UNRECOGNIZED`（`MatrixErrorCode::as_str` 有既有用例），本仓用后者构造"未实现"。对外只承诺**状态码 + wire errcode**；
+内部用 `ApiError::is_not_implemented()` 区分"缺端点/未实现"与"路径打错"，运维排障时才用得上。
+这也解释了 ARCH-03 的"混用"观感：两个内部变体、一个线上值，责任在生成端不在客户端。
+
+### F.1 全部调用点（`ApiError::not_implemented` / `not_supported` 在生产代码中的每一处）
+
+口径：`grep -rn 'ApiError::not_(implemented|supported)(' synapse-*/src src`，排除构造器定义与 `#[cfg(test)]`。
+当前 **10 处生产调用**（另有 2 处在 `#[cfg(test)]` 里钉住语义，见末行）。
+
+| 文件 | 位置（符号） | 语义行 | 改前 | 改后 | 说明 |
+|---|---|---|---|---|---|
+| `synapse-web/src/routes/voice.rs` | `voice_operation_not_provided` ← `convert_voice_message` | #1 | `404 M_UNRECOGNIZED` | `404 M_UNRECOGNIZED` | 保持：MSC3245 规定转换在客户端，服务端不提供整条能力。抽成函数只是为了让 `arch03_voice_unimplemented_semantics_tests` 能钉住它 |
+| `synapse-web/src/routes/voice.rs` | 同上 ← `optimize_voice_message` | #1 | `404 M_UNRECOGNIZED` | `404 M_UNRECOGNIZED` | 保持 |
+| `synapse-web/src/routes/voice.rs` | 同上 ← `transcribe_voice_message` | #1 | `404 M_UNRECOGNIZED` | `404 M_UNRECOGNIZED` | 保持 |
+| `synapse-web/src/routes/account_compat.rs` | `reject_unsupported_account_erasure` ← `deactivate_account` | #2 | `501 M_UNKNOWN` | `501 M_UNKNOWN` | 保持：端点可用、`erase` 字段被拒。抽成函数以便钉住 |
+| `synapse-web/src/routes/handlers/room/events.rs` | `get_event_keys`（实际路径 `/_matrix/vendor/v1/rooms/{room_id}/keys/{event_id}`，见 by-design 表） | #2 | `501 M_UNKNOWN` | `501 M_UNKNOWN` | 保持：不能回 `200 {"keys": []}`（读起来像"这个事件没有密钥"） |
+| `synapse-services/src/captcha_service.rs` | `send_email`（SMTP 未启用分支） | #1 | `404 M_UNRECOGNIZED` | `404 M_UNRECOGNIZED` | 保持：email-captcha 交付通道整体未启用 ⇒ 客户端换验证方式。**偏离登记**：Synapse 对同类情况回 `400 M_THREEPID_DENIED`；改成本表 #2（501）会动注册/三方 ID 业务分支，不属 ARCH-03 改动面 |
+| `synapse-services/src/captcha_service.rs` | `send_email`（任务队列未配置分支） | #1 | `404 M_UNRECOGNIZED` | `404 M_UNRECOGNIZED` | 同上（偏离登记同上） |
+| `synapse-services/src/captcha_service.rs` | `send_sms_async`（无 provider） | #1 | `404 M_UNRECOGNIZED` | `404 M_UNRECOGNIZED` | 同上（偏离登记同上） |
+| `synapse-services/src/sms_provider/mod.rs` | `NoopSmsProvider::send` | #1 | `404 M_UNRECOGNIZED` | `404 M_UNRECOGNIZED` | 同上；no-op provider 就是"该通道未接入"的显式表示 |
+| `synapse-services/src/auth/credential_auth.rs` | `CredentialAuth::register_without_login`（默认实现） | #1 | `404 M_UNRECOGNIZED` | `404 M_UNRECOGNIZED` | 内部 trait 默认值，只给测试替身用，不直接产出对外响应；保留以便漏实现时**响亮失败**而不是静默 |
+| `#[cfg(test)]`（不计入 10） | `synapse-web/src/routes/handlers/room/events.rs`、`synapse-common/src/error.rs` | — | — | — | 钉住语义的用例，不是调用点 |
+
+**已知偏离（登记，不在本卡修）**：上表 4 处"交付通道未启用"按 #1 回 404，而 Synapse 对同一情形回 `400 M_THREEPID_DENIED`。
+两者都满足"客户端应改走别的路径"，差别只在 errcode 的提示强度；改它要动 `synapse-services` 的注册/三方 ID 分支与对应测试，
+留给能力台账重做（MAINT-04）时统一处理。

@@ -96,6 +96,7 @@ fn read_artifact(dir: &Path, profile: &str) -> Result<LedgerArtifact, String> {
 }
 
 fn main() -> ExitCode {
+    synapse_rust::common::crypto::ensure_token_hash_secret_or_exit("synapse_ledger_fingerprint");
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let dir = match parse_args(&argv) {
         Ok(dir) => dir,

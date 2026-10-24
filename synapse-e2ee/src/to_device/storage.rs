@@ -328,39 +328,6 @@ impl ToDeviceStorage {
         Ok(out)
     }
 
-    /// See [`get_messages`].
-    pub async fn get_messages(&self, user_id: &str, device_id: &str) -> Result<Vec<Value>, ApiError> {
-        let rows = sqlx::query!(
-            r#"
-            SELECT id, stream_id, sender_user_id, event_type, content, message_id, created_ts
-            FROM to_device_messages
-            WHERE recipient_user_id = $1 AND recipient_device_id = $2
-            ORDER BY stream_id ASC
-            "#,
-            user_id,
-            device_id,
-        )
-        .fetch_all(&*self.pool)
-        .await
-        .map_err(map_database!("get_messages"))?;
-
-        let mut messages = Vec::new();
-        for row in rows {
-            messages.push(serde_json::json!({
-                "type": row.event_type,
-                "sender": row.sender_user_id,
-                "content": row.content
-            }));
-            if let Some(mid) = row.message_id {
-                if let Some(obj) = messages.last_mut().and_then(|v| v.as_object_mut()) {
-                    obj.insert("message_id".to_string(), serde_json::json!(mid));
-                }
-            }
-        }
-
-        Ok(messages)
-    }
-
     /// See [`get_messages_since`].
     pub async fn get_messages_since(
         &self,
@@ -497,22 +464,6 @@ impl ToDeviceStorage {
         }
 
         Ok(messages)
-    }
-
-    /// See [`delete_messages`].
-    pub async fn delete_messages(&self, ids: &[i64]) -> Result<(), ApiError> {
-        sqlx::query!(
-            r#"
-            DELETE FROM to_device_messages
-            WHERE id = ANY($1)
-            "#,
-            ids,
-        )
-        .execute(&*self.pool)
-        .await
-        .map_err(map_database!("delete_messages"))?;
-
-        Ok(())
     }
 
     /// See [`delete_messages_up_to`].

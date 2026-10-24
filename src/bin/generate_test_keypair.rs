@@ -8,6 +8,7 @@ use synapse_rust::common::federation_test_keys::generate_federation_test_keypair
 
 #[cfg(feature = "test-utils")]
 fn main() {
+    synapse_rust::common::crypto::ensure_token_hash_secret_or_exit("generate_test_keypair");
     println!("Generating federation test keypair...");
     println!();
 

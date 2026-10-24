@@ -3539,7 +3539,13 @@ BASELINE_DYNAMIC_PRODUCTION=141
 #   本就不能参数化。全仓 `static_test = 0` 是这条约束的一致结果。
 #   **收紧方向**：③④ 两处 `to_regnamespace` 可合并为一个 `schema_exists(pool, name)`
 #   夹具（同一文件内单点），随下一次触及该测试时回落 1–2 点。
-BASELINE_DYNAMIC_TEST_INFRA=786
+# 2026-10-24: 786 → **791**（按实测对齐；**本批未新增任何查询**）。
+#   在干净的 HEAD 工作树上实测 `dynamic_test = 791`，而基线停留在 786 ⇒ 这 5 处是
+#   上一次钉版之后其它批次累积的**基线滞后**，不是 RD-27 清理引入的。本项只做一次
+#   测量对齐（棘轮是上限，留 5 点余量等于允许 5 次静默新增）。**收紧方向**：等
+#   census 把无条件编译的测试基础设施划入 test 分区（与上方 2026-10-20 条目同一件事）
+#   时，逐点核对后回落。
+BASELINE_DYNAMIC_TEST_INFRA=791
 # 2026-10-15: 1353 → 1354（+1，方案 B4.3）。新增
 #   `synapse-storage/src/schema_health_check.rs` 的 `check_invalid_indexes()` —— 它让
 #   **半建索引**（`pg_index.indisvalid = false`）可见；此前只查"缺表/缺列/缺索引名"，
@@ -3614,7 +3620,13 @@ BASELINE_DYNAMIC_TEST_INFRA=786
 #   `AS "pending_bytes!"`）。等式：1367 − 5 + 1 − 1 + 1 = 1363 = 实测（零余量）。
 #   **扩张方向**：若将来把 ④⑤ 再退回运行时（例如 `.sqlx` 无法生成 `FOR UPDATE`
 #   条目），本项需同步下调并在本条就地登记。
-BASELINE_STATIC=1363
+# 2026-10-24: 1363 → **1357**（−6，按实测收紧；静态是**下限**，下调只因查询确实被删）。
+#   ① −2 属本批 RD-27（B4）：删除 `synapse-e2ee/src/to_device/storage.rs` 的两个零调用
+#      方法 `get_messages` / `delete_messages`，各带一条静态 `query!`，且**无任何测试
+#      消费者**（`git grep` 证据见审计关闭行）。这是有意的死代码删除，不是"静态改动态"。
+#   ② −4 属基线滞后：干净的 HEAD 工作树实测已是 1359（基线 1363），本批只做测量对齐。
+#   **收紧方向**：基线是下限，若将来有死静态查询被删除，同样按"确属删除"下调并就地登记。
+BASELINE_STATIC=1357
 # 兼容旧接口：总数 = 生产 + 测试基础设施（132 + 767 = 899；本项不入棘轮，仅保持一致）
 # 2026-10-21: 883 → 884，随 `BASELINE_DYNAMIC_PRODUCTION` 的 +1（`get_space_visibility_batch`）同步。
 # 2026-10-21: 884 → 887，随 `BASELINE_DYNAMIC_PRODUCTION` 的 +3（`get_rooms_batch` 与两条
