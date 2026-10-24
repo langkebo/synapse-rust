@@ -60,7 +60,7 @@
 | **NEW-08** | P3 | `synapse-federation/src/device_sync.rs`（**736 行**，8 个公开方法）**生产代码零调用**：全仓唯一构造点在 `tests/integration/federation_service_tests_migrated.rs`。其中 3 个方法与真实实现同名/同义（`revoke_device`↔`auth::account`、`verify_device_keys_signature`↔`e2ee::signed_json`、`sync_devices_from_remote`↔`FederationClient::get_user_devices`） | `git grep "DeviceSyncManager::new"` → 只有测试；8 个方法逐个 grep 生产调用：`sync_devices_from_remote` / `is_device_key_expired` / `cleanup_expired_devices` / `sync_device_keys_with_expiry_check` / `invalidate_user_devices_cache` **各 0 处**，`get_local_devices` 只在测试里。**未删**：删它要同步 SQLX 静态化计数基线（`check_sqlx_dynamic_ratio.sh`）与 3 个 crate 的 re-export，属独立一笔 |
 | **NEW-10** | P3 | 4 个"已带 `break` 条件的轮询循环"仍用裸 `sleep(50ms)` 做间隔（`room_service_tests_migrated` ×3、`api_msc3912_redaction_cascade_tests` ×1） | 折叠成 `tests/common/wait_until(deadline)` 可少 4 个站点并统一超时失败信息；但每个都要改完立刻跑一次真库用例（改坏的表现是"偶发超时"，静态检查看不出来）⇒ 独立一笔 |
 | **NEW-09** | P3 | 只锁形状的测试文件里有 **24 个端点族没有任何 HTTP 往返用例**（`shape_only_test_matrix` 里写 `NONE`） | 补真覆盖要逐端点「`setup_fresh_test_app` + 注册用户/建房 + 断言 status/body/errcode」，属独立批次；本轮只保证**不再假装有覆盖**（NEW-05） |
-| **NEW-04** | P3 | 源码与配置里共 **30 个**不同的 `scripts/...` 悬挂引用；但其中多数是**相对路径**（相对 `docker/deploy/`）或**历史叙述**（"这里过去调用过 X，已删除"）⇒ 不能做"出现即要求存在"的朴素门禁 | 全仓扫描 `scripts/[\w./-]+\.(sh\|py\|mjs\|js)` 与 `os.path.exists` 求差；逐条看上下文后只有 1 类是真错（`scripts/quality/check_missing_docs_ratchet.sh`，8 处，已在本轮修掉） |
+| **NEW-04** | P3 | 源码与配置里共 **30 个**不同的 `scripts/...` 悬挂引用；但其中多数是**相对路径**（相对 `docker/deploy/`）或**历史叙述**（"这里过去调用过 X，已删除"）⇒ 不能做"出现即要求存在"的朴素门禁 | 全仓扫描 `scripts/[\w./-]+\.(sh\|py\|mjs\|js)` 与 `os.path.exists` 求差；逐条看上下文后只有 1 类是真错（`scripts/check_missing_docs_ratchet.sh`，8 处，已在本轮修掉） |
 
 ## 0.2 未完成任务清单
 
@@ -98,7 +98,6 @@
 | **SEC-13** | P3 | 联邦鉴权 DEBUG 日志打印签名原文 | DEBUG 默认关闭；改它要同时改运维的排障手册 |
 | **SEC-15** | P3 | 鉴权覆盖率约 94.4%，client/media 面存在未覆盖路由 | 覆盖率本身未重测；补测要先有"哪些路由该公开"的白名单口径 |
 | **DOC-04** | P3 | 三份文档共 9 组行号漂移 | 修法是"改引用符号名而非行号"，与各文档下一轮触达时一并做 |
-| **NEW-04** | P3 | 30 个悬挂 `scripts/...` 引用，多数是相对路径/历史叙述 | 朴素门禁会产出 30 条假红；要做先解决"引用上下文"分类 |
 
 ## 0.3 复核历史（压缩）
 
@@ -579,6 +578,7 @@ TEST_FILE 47 = 107**；测试域合计 81。
 
 | 编号 | 一句话 | 关闭依据 |
 |---|---|---|
+| NEW-04 | 活文档里 30 处悬挂 `scripts/...` 引用，且不能做"出现即要求存在"的朴素门禁 | 新建 `scripts/ci/check_script_refs.py`：只查**活文件**（跳过 `docs/archive/**`、`docs/audit/archive/**`、`.workbuddy/**` —— 那里的"当年调用过 X，已删除"是历史叙述），解析顺序为仓库根 → `docker/` → `docker/deploy/`（部署文档的默认 WORKDIR），另设 `script_ref_exceptions` 只收「引用本身不是调用」的形态。**现算：1669 处引用 / 186 处解析不到**（原记 30 只数了一种后缀），按引用归类后的前 5 类：`coverage_baseline.js` 28（真身是 `.json`，扩展名漂移）、`db_migrate.sh` 26（真身 `docker/db_migrate.sh`）、`api_test/ledger.js` 20（同名 `.mjs`）、`deploy-monitoring.sh` 7 与 `contract-sync.mjs` 7（真身在 `docker/deploy/scripts/`）。186 已用 `scripts/ci/script_ref_baseline` 钉住（只许下降），接入 `preflight.sh`。**判据/变异**：把任意引用改成不存在的名字 ⇒ 计数涨过基线即红 |
 | TEST-05 | 测试域 `sleep` 站点 81 处，无分类、无判据 | **改判据后收口**：逐处复核发现没有一处是"随便睡一下"——全部是故障注入（故意睡超请求预算证超时）、TTL/锁/会话过期、时间戳铺开、等后台任务就绪、契约/指标窗口。于是把判据从"计数下降"改成"**每一处都有类别、新增必须报类别**"：`tests/**` 35 处 + `synapse-*/src/**` 46 处全部加 `// sleep-reason:`；`check_sleep_ratchet.py` 新增"测试域每处 sleep 必须有注解"判据，基线键 `TEST_FILE_SRC_UNANNOTATED` 12 → **0**。**变异**：插一处裸 sleep ⇒ `FAIL 测试域有 1 处 … 没有 // sleep-reason: 注解`；删既有注解 ⇒ 同款红（均实测）。**未降**：计数仍 26/34/47=107；可省的只有 4 个轮询循环的间隔 → 已登记 NEW-10 |
 | NEW-05 | 「自证测试」面：断言自己刚构造的字面量，文件名却声称覆盖 API/路由 | **逐文件判定完成（29 个）**：判定口径定稿为「①接真 ⇒ 可继续叫 `*_route_tests`；②只锁形状 ⇒ 文件名带 `_shape_only_tests` + 文件头声明 + 登记真覆盖文件或 `NONE`」。**16 个**来自原启发式候选、**13 个**是新门禁 C3 抓出来的同模板漏网文件（`admin_extra`/`app_service`/`background_update`/`event_report`/`federation`/`friend`/`module`/`push`/`room_summary`/`space`/`telemetry`/`thread`/`worker` —— 它们的 `.get(..).is_some()` 形态不足 3 处，旧口径数不到），全部改名 + 声明 + 登记；**15 个**仍在册的 `*_{api,route}_tests.rs` 都真碰生产代码（门禁 C3 逐个核过）。新门禁 `check_shape_only_tests.py`：C1 登记+声明 / C2 登记的"真覆盖"文件必须真的发请求或碰 DB / C3 名字承诺必须兑现 / C4 过期条目。**判据**：改名+登记后 `OK —— 29 个只锁形状（5 个有真覆盖 / 24 个已登记缺口）`；变异实测：删掉 `captcha_shape_only_tests.rs` 的声明 ⇒ C1 红；把任一 `*_shape_only_tests.rs` 改回 `*_api_tests.rs` ⇒ C3 红。**未做**：24 个 `NONE` 是真覆盖缺口，另登记为 NEW-09 |
 | TEST-02 | 断言强度不足（原记 6 个文件只断言状态码） | 3 个文件补了 `errcode` + 字段断言（403/401/404）、2 个判定不适用（安全头 / 路由台账），本轮把**最后一个盲区** `msc4108` 收口：unit 文件删掉 12 个自证用例（`let status = StatusCode::OK; assert_eq!(status, StatusCode::OK)` 形态），handler 的真实往返新增 `tests/integration/msc4108_rendezvous_route_tests.rs` —— **12 条真 router + 真库**用例，覆盖 200+ETag/Expires/Last-Modified/Cache-Control/Pragma、304（If-None-Match 命中，无 body）、400（缺/错 Content-Type，`M_MISSING_PARAM` / `M_INVALID_PARAM`）、413（`M_TOO_LARGE`）、404（GET/DELETE 未知会话，`M_NOT_FOUND`）、412（If-Match 过期，`org.matrix.msc4108.errcode = M_CONCURRENT_WRITE`）、202+新 ETag+落库、204 后 GET 变 404。**实测**：`--test integration --features test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications,widgets -E 'test(msc4108_rendezvous_route_tests) \/ …'` = **47 passed**（其中 msc4108 12 条）。**变异**：把期望 errcode 改成 `M_UNKNOWN` ⇒ `left: "M_MISSING_PARAM" / right: "M_UNKNOWN"` 红（实测，已还原） |

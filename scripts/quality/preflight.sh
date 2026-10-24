@@ -149,6 +149,13 @@ run "check_test_feature_gates.py" python3 scripts/ci/check_test_feature_gates.py
 step "测试：只锁形状的测试文件必须自报家门（NEW-05）"
 run "check_shape_only_tests.py" python3 scripts/ci/check_shape_only_tests.py
 
+# 活文档里的 `scripts/...` 引用必须解析到真实文件（NEW-04）。归档与 .workbuddy 笔记不查：
+# 那里写"当年调用过 X，已删除"是**历史叙述**，要求它存在就是错的。部署文档的相对路径
+# 按 `docker/` 与 `docker/deploy/` 两个工作目录解析。当前未解析数由
+# `scripts/ci/script_ref_baseline` 钉住，只许下降。~90ms。
+step "文档：scripts 引用可达性（NEW-04）"
+run "check_script_refs.py" python3 scripts/ci/check_script_refs.py
+
 step "Schema：updated_ts 可空性棘轮"
 run "check_schema_timestamp_convention.py" python3 scripts/ci/check_schema_timestamp_convention.py
 

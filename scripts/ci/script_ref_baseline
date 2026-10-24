@@ -1,0 +1,3 @@
+# NEW-04：活文档里解析不到的 `scripts/...` 引用数（只许下降）。
+# 明细用 `python3 scripts/ci/check_script_refs.py --print` 取。
+UNRESOLVED=185
