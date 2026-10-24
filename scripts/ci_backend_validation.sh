@@ -236,13 +236,10 @@ run_rust_checks() {
         -E 'not test(/friend_room_service::tests::bench_friend_list_/)'
     cargo nextest run --test unit --features test-utils --locked --test-threads 4
     cargo nextest run --test integration --all-features --locked --test-threads 4 --no-fail-fast
-    # NOTE: the skipped-test classification report used to run here via
-    # `emit_skip_report || true`. Its analyzer
-    # (scripts/quality/analyze_skipped_tests.py) no longer exists, so the helper
-    # could never produce a report, and `|| true` discarded whatever it did
-    # return — a check that reported nothing and could not fail. Both the helper
-    # and the call were removed rather than left as a dead reference. Re-adding
-    # the capability means writing the analyzer AND a call site without `|| true`.
+    # 跳过分类报告：nextest 只报告总数，这里区分「设计内跳过」与「覆盖缺口」，
+    # 并要求每一类的覆盖车道真实存在。分析器为源码级扫描，不依赖构建产物；
+    # 不带 `|| true`——出现未归类用例或车道缺失时门禁必须失败。
+    python3 scripts/quality/analyze_skipped_tests.py
 }
 
 run_migration_checks() {
