@@ -1606,3 +1606,45 @@ fn production_code_denies_unreachable_macro() {
     }
     assert!(total >= 3, "三处应各有一条，实际命中 {total} 条");
 }
+
+/// 设备删除不许再退回"删了设备、清理失败只 warn"的形态（CODE-03）。
+///
+/// ## 判据为什么是这两条字符串
+///
+/// 缺陷的指纹就是那两句日志：`"… lazy-loaded member rows were not cleaned up"` /
+/// `"… device-list changes were not recorded"`。它们只在**非事务**的删除路径里说得通
+/// —— 那时设备行已经 autocommit 删掉，重试也补不回来，于是只能 warn 了事。四个删除函数
+/// （`delete_device` / `delete_user_devices` / `delete_devices_batch` /
+/// `delete_user_devices_batch`）曾一共有 **8 处**这样的分支。
+///
+/// 现在删设备、清 `lazy_loaded_members`、记 `device_lists_changes` 在**同一笔事务**里，
+/// 失败即回滚并向上传播，于是这两句话不该再出现。行为层面的证据在
+/// `synapse-storage/src/device/mod.rs::test_delete_device_rolls_back_when_lazy_member_cleanup_fails`
+/// （用触发器让清理必然失败，断言设备行仍在）；这条守的是"别把 warn 写法拷回来"。
+#[test]
+fn device_deletion_never_reintroduces_partial_state_warns() {
+    const SRC: &str = "synapse-storage/src/device/mod.rs";
+    let src = fs::read_to_string(repo_root().join(SRC)).expect("read device storage");
+
+    let fingerprints = ["lazy-loaded member rows were not cleaned up", "device-list changes were not recorded"];
+    let found: Vec<&str> = fingerprints.iter().copied().filter(|needle| src.contains(needle)).collect();
+    assert!(
+        found.is_empty(),
+        "{SRC} 里又出现了「删了设备但只 warn」的日志 {found:?}：\n\
+         设备删除、懒加载成员清理、device_lists 变更必须在**同一笔事务**里\
+         （失败即回滚，让调用方重试），否则会留下 stale `lazy_loaded_members`，\
+         而 `/sync` 会把这些成员当作「客户端已知」抑制状态事件。\n\
+         判据与改法见 docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md 的 CODE-03。"
+    );
+
+    // 反向：四个删除入口都必须自己开事务（防止有人把 `begin()` 删掉却保留调用）。
+    for entry in ["delete_device", "delete_user_devices", "delete_devices_batch", "delete_user_devices_batch"] {
+        let needle = format!("pub async fn {entry}(");
+        let start = src.find(&needle).unwrap_or_else(|| panic!("找不到 `{entry}`，守卫前提失效"));
+        let body: String = src[start..].chars().take(1200).collect();
+        assert!(
+            body.contains("self.pool.begin()"),
+            "`{entry}` 必须自己开事务（CODE-03：设备删除 + 懒加载清理 + device_lists 记变更 三者同生共死）"
+        );
+    }
+}

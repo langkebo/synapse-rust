@@ -212,6 +212,23 @@ impl DeviceStorage {
         device_id: Option<&str>,
         change_type: &str,
     ) -> Result<i64, sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
+        let stream_id = Self::record_device_list_change_tx(&mut tx, user_id, device_id, change_type).await?;
+        tx.commit().await?;
+        Ok(stream_id)
+    }
+
+    /// [`Self::record_device_list_change`] 的**事务内**实现。
+    ///
+    /// 游标行（`device_lists_stream`）与变更行（`device_lists_changes`）必须同生共死：
+    /// 分两条语句各自 autocommit 时，进程在中间退出会留下"游标前进了但没有变更记录"
+    /// （或反过来），`/sync` 的 device_lists 增量就永久错位 —— 而两者都只写不删。
+    async fn record_device_list_change_tx(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        user_id: &str,
+        device_id: Option<&str>,
+        change_type: &str,
+    ) -> Result<i64, sqlx::Error> {
         let now = current_timestamp_millis();
         let stream_id: i64 = sqlx::query_scalar!(
             r"
@@ -223,7 +240,7 @@ impl DeviceStorage {
             device_id,
             now
         )
-        .fetch_one(&*self.pool)
+        .fetch_one(&mut **tx)
         .await?;
 
         sqlx::query!(
@@ -237,14 +254,18 @@ impl DeviceStorage {
             stream_id,
             now
         )
-        .execute(&*self.pool)
+        .execute(&mut **tx)
         .await?;
 
         Ok(stream_id)
     }
 
-    async fn record_device_list_changes_batch(
-        &self,
+    /// 批量记录 device-list 变更（`device_lists_stream` + `device_lists_changes`），**事务内**。
+    ///
+    /// 与 [`Self::record_device_list_change_tx`] 同一理由：游标行与变更行同生共死，
+    /// 否则 `/sync` 的 device_lists 增量会永久错位。
+    async fn record_device_list_changes_batch_tx(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         user_id: &str,
         device_ids: &[String],
         change_type: &str,
@@ -268,7 +289,7 @@ impl DeviceStorage {
             device_ids,
             change_type
         )
-        .execute(&*self.pool)
+        .execute(&mut **tx)
         .await?;
         Ok(())
     }
@@ -386,35 +407,9 @@ impl DeviceStorage {
         Ok(result.rows_affected())
     }
 
-    async fn delete_lazy_loaded_members_for_user(&self, user_id: &str) -> Result<u64, sqlx::Error> {
-        sqlx::query!(
-            r#"
-            DELETE FROM lazy_loaded_members
-            WHERE user_id = $1
-            "#,
-            user_id
-        )
-        .execute(&*self.pool)
-        .await
-        .map(|result| result.rows_affected())
-    }
-
-    async fn delete_lazy_loaded_members_for_device(&self, user_id: &str, device_id: &str) -> Result<u64, sqlx::Error> {
-        sqlx::query!(
-            r#"
-            DELETE FROM lazy_loaded_members
-            WHERE user_id = $1 AND device_id = $2
-            "#,
-            user_id,
-            device_id
-        )
-        .execute(&*self.pool)
-        .await
-        .map(|result| result.rows_affected())
-    }
-
-    async fn delete_lazy_loaded_members_for_devices_batch(
-        &self,
+    /// 批量清掉某用户若干设备上的懒加载成员行，**事务内**（CODE-03）。
+    async fn delete_lazy_loaded_members_for_devices_batch_tx(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         user_id: &str,
         device_ids: &[String],
     ) -> Result<u64, sqlx::Error> {
@@ -429,7 +424,24 @@ impl DeviceStorage {
             user_id,
             device_ids
         )
-        .execute(&*self.pool)
+        .execute(&mut **tx)
+        .await
+        .map(|result| result.rows_affected())
+    }
+
+    /// [`Self::delete_lazy_loaded_members_for_user`] 的事务内版本（CODE-03：与删设备同一笔事务）。
+    async fn delete_lazy_loaded_members_for_user_tx(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        user_id: &str,
+    ) -> Result<u64, sqlx::Error> {
+        sqlx::query!(
+            r#"
+            DELETE FROM lazy_loaded_members
+            WHERE user_id = $1
+            "#,
+            user_id
+        )
+        .execute(&mut **tx)
         .await
         .map(|result| result.rows_affected())
     }
@@ -616,49 +628,44 @@ impl DeviceStorage {
     }
 
     /// See [`delete_device`].
+    ///
+    /// ## 为什么是一笔事务（CODE-03）
+    ///
+    /// 这里原本是"删设备 → 清 `lazy_loaded_members` → 记 device_lists 变更"三步各自 autocommit，
+    /// 后两步失败只 `warn!`。当时的理由是"行已经删了，重试也补不回来"，但那个理由只在**非事务**
+    /// 的前提下成立：剩下的 `lazy_loaded_members` 行会让 `/sync` 把这些成员当成"客户端已知"
+    /// 而抑制状态事件（用户看不到本该出现的成员变更），而 device_lists 少一条则让其它设备
+    /// 永远不知道这个设备没了。
+    ///
+    /// 放进同一笔事务后，失败即整体回滚：设备还在、可以重试，也不会留下半截状态 —— 于是
+    /// 那两条 `warn!` 变成了不该存在的分支，直接用 `?` 传播。
+    ///
+    /// 顺带把"先查后删"的 TOCTOU 收进事务：`existing` 只是用来拿 `user_id`，
+    /// 真正决定是否记账的是事务内 `DELETE` 的 `rows_affected()` —— 若设备在这两步之间
+    /// 已被并发删除，这一笔就什么都不做（由抢先的那笔负责记账，不重复也不遗漏）。
     pub async fn delete_device(&self, device_id: &str) -> Result<(), sqlx::Error> {
         let existing = self.get_device(device_id).await?;
-        let result = sqlx::query!(
+        let mut tx = self.pool.begin().await?;
+
+        let rows_affected = sqlx::query!(
             r#"
             DELETE FROM devices WHERE device_id = $1
             "#,
             device_id
         )
-        .execute(&*self.pool)
-        .await;
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
 
-        match result {
-            Ok(res) => {
-                if res.rows_affected() > 0 {
-                    if let Some(device) = existing {
-                        // D-37: logged rather than propagated — the row is already deleted, so a
-                        // retry would find `existing == None` and could never re-record the
-                        // change; failing the request would just strand the client.
-                        if let Err(error) = self.delete_lazy_loaded_members_for_device(&device.user_id, device_id).await
-                        {
-                            tracing::warn!(
-                                %error,
-                                user_id = %device.user_id,
-                                device_id,
-                                "device deleted but its lazy-loaded member rows were not cleaned up"
-                            );
-                        }
-                        if let Err(error) =
-                            self.record_device_list_change(&device.user_id, Some(device_id), "deleted").await
-                        {
-                            tracing::warn!(
-                                %error,
-                                user_id = %device.user_id,
-                                device_id,
-                                "device deleted but the device-list change was not recorded"
-                            );
-                        }
-                    }
-                }
-                Ok(())
+        if rows_affected > 0 {
+            if let Some(device) = existing {
+                Self::delete_lazy_loaded_members_for_device_tx(&mut tx, &device.user_id, device_id).await?;
+                Self::record_device_list_change_tx(&mut tx, &device.user_id, Some(device_id), "deleted").await?;
             }
-            Err(e) => Err(e),
         }
+
+        tx.commit().await?;
+        Ok(())
     }
 
     /// See [`delete_user_device`].
@@ -679,33 +686,8 @@ impl DeviceStorage {
 
         if rows_affected > 0 {
             Self::delete_lazy_loaded_members_for_device_tx(&mut tx, user_id, device_id).await?;
-
-            let now = current_timestamp_millis();
-            let stream_id: i64 = sqlx::query_scalar!(
-                r#"
-                INSERT INTO device_lists_stream (user_id, device_id, created_ts)
-                VALUES ($1, $2, $3)
-                RETURNING stream_id
-                "#,
-                user_id,
-                device_id,
-                now
-            )
-            .fetch_one(&mut *tx)
-            .await?;
-
-            sqlx::query!(
-                r#"
-                INSERT INTO device_lists_changes (user_id, device_id, change_type, stream_id, created_ts)
-                VALUES ($1, $2, 'deleted', $3, $4)
-                "#,
-                user_id,
-                device_id,
-                stream_id,
-                now
-            )
-            .execute(&mut *tx)
-            .await?;
+            // 与 `delete_device` 共用同一个 `_tx` 实现，不再内联一份 SQL。
+            Self::record_device_list_change_tx(&mut tx, user_id, Some(device_id), "deleted").await?;
         }
 
         tx.commit().await?;
@@ -714,44 +696,39 @@ impl DeviceStorage {
 
     /// See [`delete_user_devices`].
     pub async fn delete_user_devices(&self, user_id: &str) -> Result<(), sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
+
+        // 取 id 列表与删设备放进同一笔事务：原来在事务外先 `SELECT` 再 `DELETE`，
+        // 中间新建/删除的设备会漏记或错记 device_lists 变更。
+        // （SQL 文本与事务外版本逐字相同，只是换了执行器 —— 这样 `.sqlx` 缓存无需重生成。）
         let device_ids: Vec<String> = sqlx::query_scalar!(
             r#"
             SELECT device_id FROM devices WHERE user_id = $1
             "#,
             user_id
         )
-        .fetch_all(&*self.pool)
+        .fetch_all(&mut *tx)
         .await?;
 
-        let result = sqlx::query!(
+        let rows_affected = sqlx::query!(
             r#"
             DELETE FROM devices WHERE user_id = $1
             "#,
             user_id
         )
-        .execute(&*self.pool)
-        .await;
+        .execute(&mut *tx)
+        .await
+        .map(|result| result.rows_affected())?;
 
-        match result {
-            Ok(res) => {
-                if res.rows_affected() > 0 {
-                    // D-37: same "rows already gone, retry cannot re-record" reasoning as
-                    // `delete_device`, so the failure is logged instead of propagated.
-                    if let Err(error) = self.delete_lazy_loaded_members_for_user(user_id).await {
-                        tracing::warn!(
-                            %error,
-                            %user_id,
-                            "devices deleted but their lazy-loaded member rows were not cleaned up"
-                        );
-                    }
-                    if let Err(error) = self.record_device_list_changes_batch(user_id, &device_ids, "deleted").await {
-                        tracing::warn!(%error, %user_id, "devices deleted but their device-list changes were not recorded");
-                    }
-                }
-                Ok(())
-            }
-            Err(e) => Err(e),
+        if rows_affected > 0 {
+            // CODE-03：清理与变更记录原来是"失败只 warn"，导致 stale `lazy_loaded_members`
+            // 让 `/sync` 抑制成员状态事件。放进事务后失败即回滚，用 `?` 直接传播。
+            Self::delete_lazy_loaded_members_for_user_tx(&mut tx, user_id).await?;
+            Self::record_device_list_changes_batch_tx(&mut tx, user_id, &device_ids, "deleted").await?;
         }
+
+        tx.commit().await?;
+        Ok(())
     }
 
     /// See [`delete_devices_batch`].
@@ -760,17 +737,21 @@ impl DeviceStorage {
             return Ok(0);
         }
 
+        let mut tx = self.pool.begin().await?;
+
+        // 取 (user_id, device_id) 与删设备在同一笔事务里：原来在事务外先 `SELECT` 再 `DELETE`，
+        // 并发删同一批设备时会重复记账或漏记。
         let rows = sqlx::query!(
             r"
             SELECT user_id, device_id FROM devices WHERE device_id = ANY($1)
             ",
             device_ids
         )
-        .fetch_all(&*self.pool)
+        .fetch_all(&mut *tx)
         .await?;
 
         let rows_affected = sqlx::query!(r#"DELETE FROM devices WHERE device_id = ANY($1)"#, device_ids)
-            .execute(&*self.pool)
+            .execute(&mut *tx)
             .await
             .map(|result| result.rows_affected())?;
 
@@ -781,20 +762,14 @@ impl DeviceStorage {
                 by_user.entry(row.user_id.as_str()).or_default().push(row.device_id.clone());
             }
             for (user_id, user_device_ids) in &by_user {
-                // D-37: logged, not propagated (rows already deleted).
-                if let Err(error) = self.delete_lazy_loaded_members_for_devices_batch(user_id, user_device_ids).await {
-                    tracing::warn!(
-                        %error,
-                        %user_id,
-                        "devices deleted but their lazy-loaded member rows were not cleaned up"
-                    );
-                }
-                if let Err(error) = self.record_device_list_changes_batch(user_id, user_device_ids, "deleted").await {
-                    tracing::warn!(%error, %user_id, "devices deleted but their device-list changes were not recorded");
-                }
+                // CODE-03：原来"失败只 warn"，stale `lazy_loaded_members` 会让 `/sync`
+                // 抑制成员状态事件；现在同一笔事务，失败即回滚。
+                Self::delete_lazy_loaded_members_for_devices_batch_tx(&mut tx, user_id, user_device_ids).await?;
+                Self::record_device_list_changes_batch_tx(&mut tx, user_id, user_device_ids, "deleted").await?;
             }
         }
 
+        tx.commit().await?;
         Ok(rows_affected)
     }
 
@@ -804,26 +779,20 @@ impl DeviceStorage {
             return Ok(0);
         }
 
+        let mut tx = self.pool.begin().await?;
         let rows_affected =
             sqlx::query!(r#"DELETE FROM devices WHERE user_id = $1 AND device_id = ANY($2)"#, user_id, device_ids)
-                .execute(&*self.pool)
+                .execute(&mut *tx)
                 .await
                 .map(|result| result.rows_affected())?;
 
         if rows_affected > 0 {
-            // D-37: logged, not propagated (rows already deleted).
-            if let Err(error) = self.delete_lazy_loaded_members_for_devices_batch(user_id, device_ids).await {
-                tracing::warn!(
-                    %error,
-                    %user_id,
-                    "devices deleted but their lazy-loaded member rows were not cleaned up"
-                );
-            }
-            if let Err(error) = self.record_device_list_changes_batch(user_id, device_ids, "deleted").await {
-                tracing::warn!(%error, %user_id, "devices deleted but their device-list changes were not recorded");
-            }
+            // CODE-03：同上，放进事务后不再有"删了但没清干净"的半截状态。
+            Self::delete_lazy_loaded_members_for_devices_batch_tx(&mut tx, user_id, device_ids).await?;
+            Self::record_device_list_changes_batch_tx(&mut tx, user_id, device_ids, "deleted").await?;
         }
 
+        tx.commit().await?;
         Ok(rows_affected)
     }
 
@@ -2218,6 +2187,92 @@ mod db_tests {
         storage.delete_device(device_id).await.expect("delete_device should succeed");
 
         assert!(storage.get_device(device_id).await.expect("get_device").is_none());
+    }
+
+    /// CODE-03：设备删除与懒加载成员清理必须**同一笔事务**。
+    ///
+    /// ## 为什么用触发器而不是 mock
+    ///
+    /// 这条缺陷的形态是"删了设备、清理失败、只剩一行 warn"：要证明修复，必须让**清理这一步真的失败**，
+    /// 再看设备行是否还在。用触发器在隔离 schema 里让 `DELETE FROM lazy_loaded_members` 必然抛错，
+    /// 是最省事且不改生产代码的注入方式。
+    ///
+    /// ## 判据（三条都可失败）
+    ///
+    /// 1. 清理失败 ⇒ `delete_device` 返回 `Err`（旧实现返回 `Ok(())` 并只 warn）；
+    /// 2. 失败后**设备行还在**（事务回滚）——旧实现这里设备已经没了，重试也补不回
+    ///    `device_lists_changes`，这正是当时"只 warn"的理由；
+    /// 3. 拆掉触发器后重试 ⇒ `Ok`，且设备与懒加载成员行都清干净。
+    #[tokio::test]
+    async fn test_delete_device_rolls_back_when_lazy_member_cleanup_fails() {
+        let (_isolated, pool) = test_pool().await;
+        let storage = DeviceStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4().simple().to_string().split_at(12).0.to_string();
+        let user_id = format!("@c03_{suffix}:example.com");
+        let device_id = format!("C03_{suffix}");
+        let room_id = format!("!c03_{suffix}:example.com");
+
+        ensure_test_user(&pool, &user_id).await;
+        storage.create_device(&device_id, &user_id, None).await.expect("create_device");
+
+        // 造一行懒加载成员记录，让清理阶段"有东西可删"（触发器是 BEFORE DELETE FOR EACH ROW）。
+        let now = current_timestamp_millis();
+        sqlx::query(
+            r#"INSERT INTO lazy_loaded_members
+                   (user_id, device_id, room_id, member_user_id, created_ts, updated_ts, last_sent_position)
+               VALUES ($1, $2, $3, $4, $5, $5, 1)"#,
+        )
+        .bind(&user_id)
+        .bind(&device_id)
+        .bind(&room_id)
+        .bind("@member_c03:example.com")
+        .bind(now)
+        .execute(&*pool)
+        .await
+        .expect("seed lazy_loaded_members row");
+
+        // 让清理必然失败。
+        sqlx::query(
+            r#"CREATE OR REPLACE FUNCTION c03_block_lazy_delete() RETURNS trigger
+               LANGUAGE plpgsql AS $$
+               BEGIN
+                   RAISE EXCEPTION 'blocked by CODE-03 test';
+               END
+               $$"#,
+        )
+        .execute(&*pool)
+        .await
+        .expect("create trigger function");
+        sqlx::query(
+            r#"CREATE TRIGGER c03_block_lazy_delete
+               BEFORE DELETE ON lazy_loaded_members
+               FOR EACH ROW EXECUTE FUNCTION c03_block_lazy_delete()"#,
+        )
+        .execute(&*pool)
+        .await
+        .expect("create trigger");
+
+        let result = storage.delete_device(&device_id).await;
+        assert!(result.is_err(), "清理失败必须让 delete_device 返回 Err（旧实现只 warn 并返回 Ok）");
+        assert!(
+            storage.get_device(&device_id).await.expect("get_device").is_some(),
+            "事务必须整体回滚：清理失败时设备行不能消失（否则 `device_lists_changes` 永远补不回来）"
+        );
+
+        // 拆掉触发器后重试，必须成功且不留残留。
+        sqlx::query(r#"DROP TRIGGER c03_block_lazy_delete ON lazy_loaded_members"#)
+            .execute(&*pool)
+            .await
+            .expect("drop trigger");
+        storage.delete_device(&device_id).await.expect("delete_device after trigger removed");
+
+        assert!(storage.get_device(&device_id).await.expect("get_device").is_none());
+        let remaining: i64 = sqlx::query_scalar(r#"SELECT count(*) FROM lazy_loaded_members WHERE device_id = $1"#)
+            .bind(&device_id)
+            .fetch_one(&*pool)
+            .await
+            .expect("count lazy rows");
+        assert_eq!(remaining, 0, "设备删除必须连带清掉它的懒加载成员行");
     }
 
     #[tokio::test]
