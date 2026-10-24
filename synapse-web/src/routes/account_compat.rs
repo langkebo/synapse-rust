@@ -599,9 +599,15 @@ pub(crate) async fn deactivate_account(
     // Checked before any side effect: accepting `erase: true` and deactivating
     // without erasing would answer "success" to an instruction we never carried
     // out, which is worse than an honest 501.
+    //
+    // 这条 message 刻意带上文档路径：客户端作者拿到 501 时要知道"能做什么、不能做什么"，
+    // 而不是去猜是不是服务端坏了（`.trae/rules/project_rules.md` 里 MSC3245 那类
+    // "能力台账与实现不符"的坑，就是靠 message 指路才不再复发）。
     if body.erase == Some(true) {
         return Err(ApiError::not_supported(
-            "erase=true is not supported by this server; the account was not deactivated".to_string(),
+            "erase=true is not supported by this server (account deactivation without erasure is; \
+             see docs/synapse-rust/API_COVERAGE_REPORT.md §6.5); the account was not deactivated"
+                .to_string(),
         ));
     }
 
