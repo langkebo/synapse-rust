@@ -15,21 +15,24 @@
 |---|---|---|---|---|---|
 | 架构设计 | 0 | 0 | 2 | 1 | 3 |
 | 代码质量 | 0 | 0 | 1 | 1 | 2 |
-| 功能完整性 | 0 | 0 | 0 | 0 | 0 |
+| 功能完整性 | 0 | 0 | 1 | 0 | 1 |
 | 性能（含数据层） | 0 | 0 | 1 | 2 | 3 |
 | 安全性 | 0 | 0 | 0 | 5 | 5 |
 | 可维护性 | 0 | 0 | 1 | 0 | 1 |
-| 测试覆盖 | 0 | 0 | 0 | 2 | 2 |
+| 测试覆盖 | 0 | 0 | 1 | 2 | 3 |
 | 文档完整性 | 0 | 0 | 0 | 0 | 0 |
 | 专项：冗余与过度开发 | 0 | 0 | 0 | 0 | 0 |
-| **合计** | **0** | **0** | **5** | **11** | **16** |
+| **合计** | **0** | **0** | **7** | **11** | **18** |
 
-> 计数口径（2026-10-25 重算）：**P0 = 0，P1 = 0，P2 = 5，P3 = 11，合计 16**。
-> 来源 = §0.1 的 3 条 open `NEW-*`（NEW-09 / NEW-10 / NEW-11）+ §0.2.2 的 2 条 + §0.2.3 的 11 条。
+> 计数口径（2026-10-25 05:10 逐条重算）：**P0 = 0，P1 = 0，P2 = 7，P3 = 11，合计 18**。
+> 来源 = §0.1 的 5 条 open `NEW-*`（NEW-09 / NEW-10 / NEW-11 / NEW-13 / NEW-14）、
+> §0.2.2 的 2 条，以及 §0.2.3 的 11 条。
+> ⚠️ **NEW-14 质疑「缺口数」本身**：NEW-09 的 14 来自一个只审计 15/94 个文件的判据，
+> 在 C3 扩面之前它是**上界**，不是实测缺口数。
 > `NEW-08` 已于 2026-10-25 关闭（`device_sync.rs` 整模块删除，判据与变异证据见附录 D），不再计入。
 > 其中 **14 条是"登记项"**（明确不做或只等外部条件），真正还没动手的只有
-> NEW-09（**18** 个端点族仍无 HTTP 往返用例；两波已补 6 族：push / event_report / reactions /
-> friend / telemetry / server_notification）与 NEW-11（state 组装层未共享）。
+> NEW-09（**14** 个端点族仍无 HTTP 往返用例；三波已补 8 族、并更正 2 族误判，见该行）与
+> NEW-11（state 组装层未共享）。
 
 **结论摘要**：**P0 = 0，P1 = 0**（原 9 条 P1 全部有实现 + 能失败的门禁，逐条见附录 D）。
 ⚠️ 第八轮曾把一条误报成 P1（NEW-06「设备吊销通知静默丢失」），**已撤回**：真实广播路径在
@@ -63,7 +66,9 @@
 |---|---|---|---|
 | **NEW-11** | P3 | `sync` 与滑动同步的 **state 组装层**（`lazy_load` / `required_state` / MSC4222 `state_after`）仍各写一遍 —— ARCH-02 只共享了 **timeline** 层 | 要先写「同一房间状态下两条路径的**可见状态集合**一致」的等价断言（懒加载成员集 + `include_redundant_members` + `state_after` 三组语义），没有断言就不抽 —— 与 ARCH-02 同一条原则 |
 | **NEW-10** | P3 | 4 个"已带 `break` 条件的轮询循环"仍用裸 `sleep(50ms)` 做间隔（`room_service_tests_migrated` ×3、`api_msc3912_redaction_cascade_tests` ×1） | 折叠成 `tests/common/wait_until(deadline)` 可少 4 个站点并统一超时失败信息；但每个都要改完立刻跑一次真库用例（改坏的表现是"偶发超时"，静态检查看不出来）⇒ 独立一笔 |
-| **NEW-09** | P3 | 只锁形状的测试文件里曾有 **24 个端点族没有 HTTP 往返用例**（`shape_only_test_matrix` 里写 `NONE`）—— **两波共补 6 族**（第一波 `push` / `event_report` / `reactions`，第二波 `friend` / `telemetry` / `server_notification`），**剩 18 族** | 逐族「`setup_fresh_test_app` + 注册用户/建房 + 断言 status/body/errcode」，每族一笔提交、每笔都把登记行从 `NONE` 换成真覆盖文件（`check_shape_only_tests.py` 的 C2 会验证该文件**确实**发请求）。判据：两波共 24 条用例全绿（每族 4 条）；守卫实测 `有真覆盖 11 / 缺口 18`（累计新增 6 个 integration 文件，均按「每族一笔提交」落地）。剩下 21 族里较易：`room_summary` / `thread` / `space` / `friend` / `refresh_token` / `registration_token`；较难（要外部角色或签名）：`app_service` / `module` / `worker` / `federation` / `federation_cache` / `admin_extra` |
+| **NEW-09** | P3 | 只锁形状的测试文件里曾有 **24 个端点族没有 HTTP 往返用例**（`shape_only_test_matrix` 里写 `NONE`）—— **三波共补 8 族**（一：`push`/`event_report`/`reactions`；二：`friend`/`telemetry`/`server_notification`；三：`space`/`thread`）+ **更正 2 族误判**（`room_summary`/`federation` 其实早有真覆盖，见 NEW-14），**剩 14 族** | 逐族「`setup_fresh_test_app` + 注册用户/建房 + 断言 status/body/errcode」，每族一笔提交、每笔都把登记行从 `NONE` 换成真覆盖文件（`check_shape_only_tests.py` 的 C2 会验证该文件**确实**发请求）。判据：三波共 33 条用例全绿（push/event_report/reactions/friend/telemetry/server_notification/space 各 4 条，thread 5 条）；守卫实测 `有真覆盖 15 / 缺口 14`（三波新增 8 个 integration 文件，按「每族一笔提交」落地）。剩下 21 族里较易：`room_summary` / `thread` / `space` / `friend` / `refresh_token` / `registration_token`；较难（要外部角色或签名）：`app_service` / `module` / `worker` / `federation` / `federation_cache` / `admin_extra` |
+| **NEW-13** | P2 | `thread` 有两处 **MSC3440 偏差**：① 标准 `/send` 带 `m.relates_to.rel_type=m.thread` **不登记线程根**（事件写进去了，随后 `GET /threads/{root}` 回 404 `Thread not found`）；② 本仓 `thread_id` 是服务端生成的 `$<uuid>`（`thread_service::create_thread`），**不等于根事件 id** —— MSC3440 客户端用根事件 id 当 `thread_id`，因此对外部客户端而言线程"写了但读不到" | 修 ① 要在 `/send` 落库路径里检测 `m.thread` 关系并 upsert 线程根（与 vendor 的 `create_thread` 走同一服务方法）；修 ② 要动 `thread_roots.thread_id` 的语义（回填成根事件 id并迁移既有行）—— 两者都属协议兼容改动，需单独排期；本轮只把它们**钉成可复现的测试事实** （`tests/integration/api_thread_read_routes_tests.rs` 的主干用例显式断言 `thread_id != root`） |
+| **NEW-14** | P2 | 「缺口清单不可信」：`check_shape_only_tests.py` 的 **C3 只审计 `*_api_tests.rs` / `*_route_tests.rs` 后缀**（实测 **15** 个文件），而仓里 **79** 个 `tests/integration/api_<family>_tests.rs`（其中 **78** 个真发请求）**完全不在 C3 视野内** ⇒ NEW-05 当初判定的「24 个缺口」里至少 `room_summary` / `federation` 两族是**误判**（早有真覆盖） | 先把 C3 的匹配面扩到 `api_*_tests.rs` 与 `*_routes_tests.rs`，再重跑一遍 14 个 `NONE` 族逐条核对；扩面会一次暴露一批「名字像覆盖、其实只锁形状」的文件（预期数十），属独立批次，不宜混在补用例的提交里。当前已按证据改掉 2 行（`room_summary`→`api_room_summary_routes_tests.rs`、`federation`→`api_federation_tests.rs`），`worker` / `admin` 仍是**待核**（有候选文件但未证实同族） |
 
 ## 0.2 未完成任务清单
 
