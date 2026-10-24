@@ -17,17 +17,25 @@ cargo tree -d --workspace
 cargo tree -i <crate>@<version> --depth 1 --workspace
 ```
 
-**当前基线统计（2026-10-21 复核）：**
+**当前基线统计（2026-10-24 复核）：**
 
-> 复核方式：`cargo tree -d --workspace` 按 crate 名聚合。产出 54 个 crate 名，其中 **38 个真正多版本**、**16 个同版本多来源** —— 与 2026-10-04 的 38 / 16 一致。
-> ⚠️ 不要用 `Cargo.lock` 直接数「同名包的 major.minor 不同」来复算本表：该口径会把「同版本多来源」和 tree 的目标差异化结果混进来（实测会得到 51，是错的）。
+> 复核方式：`cargo tree -d --workspace --locked` 按 crate 名聚合。产出 **47** 个 crate 名，其中
+> **32 个真正多版本**、**15 个同版本多来源**。
+> ⚠️ **`--workspace` 不可省**：不加时实测是 80 个 crate 名 / 31 组 —— 那是另一个口径（少了成员 crate 的
+> dev 依赖），与本节数字不可比。2026-10-24 第一遍就是不加该 flag，得出了"38 → 31"的错误结论。
+> ⚠️ 也不要用 `Cargo.lock` 直接数「同名包的 major.minor 不同」来复算本表：该口径会把「同版本多来源」
+> 和 tree 的目标差异化结果混进来（实测会得到 51，是错的）。
 
 | 指标 | 值 |
 |------|-----|
-| 版本分裂组（同名 ≥2 个不同版本） | **38 组** |
-| 同版本多来源出现（非 SemVer 分裂） | 16 个 crate（见 §5） |
+| 版本分裂组（同名 ≥2 个不同版本） | **32 组**（2026-10-21 记 38；`Cargo.lock` 在 10-24 有 46 处版本变更） |
+| 同版本多来源出现（非 SemVer 分裂） | 15 个 crate（见 §5；2026-10-21 记 16） |
 | 可本地 `[patch]` 解决 | 0 组（全部跨主版本，`[patch]` 只能锁定同主版本） |
 | 最大根因 | `vodozemac 0.11`（新一代码）与本项目直连的旧一代 RustCrypto 并存 |
+
+> **§2 的"10 个根因族"表尚未按 32 组重算**（各组计数仍是 38 组时的快照）。组数下降 6 组、
+> 来源数下降 1 个，方向是好的，但"哪 6 组消失了、是否被上游升级解决"需要逐族重跑才能回答 ——
+> 在那之前，§2 的**逐族组数只当历史**，不要拿它做进度判断。审计 NEW-03 记的就是这件事。
 
 ---
 
@@ -208,9 +216,9 @@ cargo tree -i <crate>@<version> --depth 1 --workspace
 
 | 指标 | 值 |
 |------|-----|
-| 版本分裂组数 | 38 组 |
+| 版本分裂组数 | 32 组（2026-10-24 复核；§2 的逐族拆分仍是 38 组时的快照） |
 | 可本地 `[patch]` 解决 | 0 组（全部跨主版本） |
-| 需上游升级 | 38 组 |
+| 需上游升级 | 32 组 |
 | 最高杠杆本地动作 | 升级本项目直连的旧一代 RustCrypto（族 A）+ 统一 `rand` 到单一主版本（族 B） |
 | 主要阻塞上游 | `sqlx 0.8`、`rsa 0.9`、`argon2 0.5`、`vodozemac 0.11`、`redis 0.29`、`config 0.14`、`dashmap 6`、`opentelemetry` |
 | 编译体积影响 | 较小（Cargo 已做去重/LTO，重复主要体现为编译时间与 target 目录体积） |
@@ -245,3 +253,4 @@ cargo audit
 | 2026-10-14 | **安全升级 `rustls` 0.23.45 → 0.23.46**（`cargo update -p rustls --precise`），消除**当日发布**的 4 条漏洞：`RUSTSEC-2026-0346`（`Debug` 实现泄漏 TLS 会话秘密）、`RUSTSEC-2026-0347`（ECH 被拒后仍向外部服务器发送已缓冲应用数据）、`RUSTSEC-2026-0348`（Brotli 证书解压可在认证前分配至 1 GiB）、`RUSTSEC-2026-0349`（未认证 ServerHello 可把后续连接降级到经典密钥交换）。四条修复区间同为 `>= 0.23.46`。rustls 是**传递依赖**（`lettre`（SMTP）、`redis` TLS），清单里没有可钉的位置，防降级由 CI 的 supply-chain gate 每次重跑覆盖。 |
 | 2026-10-14 | **消除 `RUSTSEC-2024-0449`**（`unsafe-libyaml` 未维护，经 `serde_yaml 0.9` 传入）：把 `serde_yaml 0.9` 迁到维护中的同源代码 fork **`serde_norway 0.9.42`**（底层 `unsafe-libyaml-norway 0.2.15`）。调用面 49 处 / 14 个 `.rs`（`from_str` 32、`to_string` 13、`Value` 2、`Error` 1），全仓无 `use serde_yaml` 别名 ⇒ 纯文本替换。`Cargo.lock` 恰 20 增 / 20 删（只换那两个 package 块）。**未在 `deny.toml` / `.cargo/audit.toml` 新增任何 ignore** —— 是消除而非遮蔽。结果：`cargo deny check advisories` = `advisories ok`、`cargo audit` EXIT=0（1314 条 advisory，零命中）⇒ **供应链门禁首次转绿**。 |
 | 2026-10-14 | **安全升级 `ammonia` 4.1.4 → 4.2.3**，消除 `RUSTSEC-2021-0157`（CSS `url("")` 转义注入）与 `RUSTSEC-2021-0158`（SVG `animateMotion`/`animateTransform`/`animateColor` XSS）。`"4.1"` 是 caret 语义 ⇒ 连带升级 `cssparser` 0.37→0.38、`html5ever` 0.39→0.40.1、`markup5ever` 0.39→0.40、`phf`×4 0.13.1→0.14、`string_cache` 0.9→0.11、`string_cache_codegen`、`web_atoms`，**共 11 个包**；依赖图核查确认它们**只属 ammonia → html5ever → markup5ever → web_atoms 这一条链**，workspace 内无其他消费者 ⇒ 影响面收敛在净化器。清单下限显式抬到 `"4.2.3"`，防止 `-Z minimal-versions` 或一次 lock 重建把依赖降回脆弱版本。行为由新增 golden（`tests/unit/sanitizer_golden_tests.rs`，45 例，含两条 advisory 的 PoC 形状）锁定为**升级前后逐字节一致**。**遗留 1 条**：`cargo deny` 当时仍报 `RUSTSEC-2024-0449`（`unsafe-libyaml` 未维护，经 `serde_yaml 0.9` 传入；无已知漏洞，消除需迁出 serde_yaml）—— **2026-10-14 已消除**，见本表同日的 `RUSTSEC-2024-0449` 行。 |
+| 2026-10-24 | **重算版本分裂组数：38 → 32 组**（crate 名 54 → 47、同版本多来源 16 → 15；口径 `cargo tree -d --workspace --locked` 按 crate 名聚合）。组数下降 6 的来源未逐族归因 —— §2 的逐族表仍是旧快照，见 §0 的说明。同时把「必须带 `--workspace`」写进复现命令：不加时实测 80 名 / 31 组，是不可比的口径（审计 NEW-03）。 |
