@@ -184,7 +184,12 @@ TEST_FILES_UNIT=129
 >   （整个目标耗时 48 ms）。函数已改名为 `simulated_*` 并就地说明，
 >   `tests/unit/e2e_honesty_tests.rs` 会阻止它悄悄获得真实 I/O 而不更新文档。
 > - `user_flow_tests.rs`：**真正的 HTTP**（`reqwest`，`E2E_BASE_URL`），
->   但全部用例 `#[ignore]` 且需 `E2E_RUN=1` —— 属手动/夜间入口，不是 CI 门禁。
+>   7 条用例全部 `#[ignore]` 且需 `E2E_RUN=1`。它们有**唯一的可执行入口**：
+>   `bash scripts/ci_backend_validation.sh e2e`（起栈 + 只跑这 7 条），
+>   CI 侧入口是 `.github/workflows/e2e-http.yml`（`workflow_dispatch` + 每日 03:30 UTC），
+>   **刻意不进 PR 车道** —— 该车道要构建 release 镜像并起栈，挂在 PR 上只会变成所有人的 flake 源。
+>   2026-10-24 之前它只有 `#[ignore]` 里的一句"手动怎么跑"，没有任何 workflow 设过 `E2E_RUN`，
+>   即这 7 条从未被任何自动化执行过（`tests/unit/e2e_honesty_tests.rs` 现在守着整条链）。
 >
 > 因此 **`e2e` 目标被接入 CI 的目的仅是防止编译腐坏**，不是行为验证。
 > 会被 CI 判红的真实端到端覆盖在 `tests/integration/`（约 115 个模块，
@@ -326,7 +331,12 @@ cargo test --test unit --features test-utils e2ee_api_tests
 - **已知问题**：部分集成测试在高并发时会因数据库连接池耗尽而失败，使用 `--test-threads=1` 或 `--test-threads=2` 可避免此问题。详见 `docs/INDEX.md` 第 3.1 节。
 - **不要用 `cargo nextest run` 跑本地全量集成**：nextest 一用例一进程，`synapse-test-utils` 进程内的 `SCHEMA_POOL` 无法跨用例复用，每个用例都要完整克隆 ~255 表模板（实测 40–88s/例，全量 ~5.9h）。`cargo test` 单进程跑同一二进制时池生效，实测 ~0.26s/例。详见 §9.1.1。
 - `cargo test --test unit --features test-utils e2ee_api_tests` 会默认以 `TEST_ISOLATED_SCHEMAS=1` 顺序运行 3 条 `test_key_changes_*` 精确用例，以及 `test_sync_device_lists_`、`sliding_sync_extensions_e2ee_` 两组 composite regression，适合作为 nightly smoke 或本地回归入口
-- `user_flow_tests.rs` 真实 HTTP 流程依赖运行中的服务与 `E2E_RUN=1`，当前应通过 `#[ignore]` + 显式执行方式运行，而不是默认早退后显示通过
+- `user_flow_tests.rs` 的真实 HTTP 流程（7 条 `#[ignore]`）只能对着运行中的 homeserver 跑：
+  `bash scripts/ci_backend_validation.sh e2e`（本地，与 CI 同一份实现）或
+  `.github/workflows/e2e-http.yml`（dispatch / 每晚 03:30 UTC）。该脚本会叠加
+  `docker/docker-compose.e2e.yml` 打开注册、等 `/_matrix/client/versions` 就绪、
+  再用注册探针确认覆盖层生效，最后 `nextest --run-ignored only --no-tests=fail` 只跑这 7 条
+  （`--no-tests=fail` 保证"用例被删光"不会再呈现为绿）。
 - `tests/performance/mod.rs` 已拆分为手动性能测试入口 `performance_manual`，仅在显式启用 `--features performance-tests` 时执行
 - Criterion 基准入口已拆分为 `performance_api_benchmarks` 与 `performance_federation_benchmarks`，对应 `benches/` 目录下的独立基准文件
 - `performance_manual` 属于手动验证套件，不计入常规发布门禁

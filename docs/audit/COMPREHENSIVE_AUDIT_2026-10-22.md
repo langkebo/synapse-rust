@@ -270,7 +270,7 @@ README 那段描述的是**当时**的状态，且没写"已修"。已就地订�
 | MAINT-01 | 测试替身/工具二进制与生产 crate 未做特性隔离 | RD-07/08 只覆盖了两个模块，其余未做 |
 | MAINT-04 | 能力台账手工维护，已出现多处失真 | 无生成器 |
 | TEST-02 | 6 个测试文件只断言状态码，不断言响应体 | — |
-| TEST-03 | e2e 中 7 条 `#[ignore]`，CI 实际不执行 | ✅ 复核：`tests/e2e/user_flow_tests.rs` 恰好 **7** 条 |
+| TEST-03 | e2e 中 7 条 `#[ignore]`，CI 实际不执行 | ⚠️ **本轮已建专用车道**（此前只有 reason 里一句"怎么手动跑"，没有任何入口）：`scripts/ci_backend_validation.sh e2e` + `.github/workflows/e2e-http.yml`（dispatch + 每日 03:30 UTC，**不进 PR**）；7 条确实 **7** 条 |
 | TEST-04 | 8 个 CI 脚本从未被任何 workflow 调用 | 批次 5 只处理了 `check_feature_matrix.py` 这一个 |
 | TEST-05 | 27 处 `tokio::time::sleep` / 14 文件，构成时序 flake 面 | — |
 | TEST-06 | 5 个整文件以 feature 门控，默认测试不参与 | 与批次 5 同源，但即便 RD-14 落地，默认车道仍不跑它们 |
@@ -939,6 +939,16 @@ git ls-files '*.rs' | grep -vE '(^|/)tests?/|/tests?\.rs$|_tests\.rs$|^tests/' \
 - **类型**：测试名义存在但未运行
 - **影响范围**：完整用户流程（注册→建房→发消息→同步）无自动化保护。
 - **修法**：CI 加一条起本地 homeserver 的 job 专门跑这 7 条。
+- **状态（2026-10-24）**：**车道已建**，`#[ignore]` 保留（这是正确的形态 —— 它们需要一个真栈）。
+  入口只有一处实现：`bash scripts/ci_backend_validation.sh e2e`，CI 侧是
+  `.github/workflows/e2e-http.yml`（`workflow_dispatch` + 每日 03:30 UTC，**刻意不进 PR**：
+  它要构建 release 镜像并起栈，挂在 PR 上就是给所有提交加一条 flake 源）。
+  该脚本叠加 `docker/docker-compose.e2e.yml`（唯一覆盖项 = `SYNAPSE__SERVER__ENABLE_REGISTRATION=true`，
+  因为 `homeserver.yaml` 默认关注册而 7 条的第一句就是 register），等
+  `/_matrix/client/versions` 就绪后用**注册探针**确认覆盖层生效，再
+  `nextest --run-ignored only --no-tests=fail` 只跑这 7 条。
+  守卫：`tests/unit/e2e_honesty_tests.rs::user_flow_tests_have_an_executable_dispatch_lane`
+  （钉住整条链：不进 PR / 有 schedule / 有 `E2E_RUN=1` / 只跑 ignored / 没有用例就算失败）。
 
 ### TEST-04（P2）8 个 CI 脚本从未被任何 workflow 调用
 - **位置**：`check_axum_path_syntax.py`（仅出现在 `paths:` 触发器）、`check_feature_matrix.py`、`check_plan_doc_sections.py`、`check_plan_numbers_fresh.sh`、`check_root_canonical_ledger.py`、`check_ts_order_tiebreak.py`、`converge_public_schema.sh`、`run_complement_tests.sh`

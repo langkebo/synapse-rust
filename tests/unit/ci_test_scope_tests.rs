@@ -1469,3 +1469,92 @@ fn benchmark_manual_performance_job_runs_the_ignored_suite() {
         );
     }
 }
+
+/// `scripts/ci_backend_validation.sh` 生成的 `docker/.env` 必须覆盖**每一条**必填变量。
+///
+/// ## 为什么需要这条守卫
+///
+/// 那个脚本在 `docker/.env` **不存在**时自己写一份（CI runner 的全新 checkout 永远是
+/// 这种情况），然后 `docker compose up`。而变量有两个独立的必填来源：
+///
+/// 1. `docker/docker-compose.yml` 的 `${VAR:?…}` —— 由 compose 在**插值阶段**强制，
+///    缺一条就是 `error while interpolating … required variable VAR is missing a value`，
+///    一个容器都起不来；
+/// 2. `docker/config/homeserver.yaml` 的 `${VAR:?…}` —— 由
+///    `synapse_common::config::loader::resolve_env_in_string_with` 在**配置加载阶段**强制，
+///    缺一条容器直接退出。
+///
+/// 实测（2026-10-24）该脚本同时漏了三条：`TOKEN_HASH_SECRET`（compose 里）、
+/// `TURN_SHARED_SECRET` 与 `WORKER_REPLICATION_SECRET`（homeserver.yaml 里）。本机看不出来
+/// —— `docker/.env` 被 gitignore、每人一份且历史上手写过，脚本的"已存在就跳过"分支把缺口
+/// 全遮住了；在 CI 上是必然失败。而 `backend-validation.yml` 只是**每周**跑一次，
+/// 这种"只在干净环境里坏"的缺陷可以红很久而没人归因。
+///
+/// **判据**：把两处 `${VAR:?…}` 的变量名全抽出来，逐个在 heredoc 块里找 `VAR=`。
+#[test]
+fn ci_env_seeds_every_required_variable() {
+    const SCRIPT: &str = "scripts/ci_backend_validation.sh";
+    let script = fs::read_to_string(repo_root().join(SCRIPT)).expect("read ci_backend_validation.sh");
+
+    // 只认 `ensure_docker_env` 里那段 heredoc，别把脚本里别处的 `VAR=` 当成"已播种"。
+    let block = script
+        .split("cat >\"$DOCKER_DIR/.env\" <<'EOF'")
+        .nth(1)
+        .expect("ensure_docker_env 必须用 heredoc 写 docker/.env（本守卫靠它定位块）")
+        .split("\nEOF")
+        .next()
+        .expect("heredoc 必须有 EOF 终止行");
+    assert!(
+        block.contains("DB_PASSWORD="),
+        "定位到的 heredoc 块里连 DB_PASSWORD 都没有，说明分块方式失效了，先修守卫再谈绿"
+    );
+    let seeded: Vec<&str> = block
+        .lines()
+        .filter_map(|l| l.trim().split('=').next().filter(|k| !k.is_empty() && !k.starts_with('#')))
+        .collect();
+
+    let mut required: Vec<(String, String)> = Vec::new();
+    for rel in ["docker/docker-compose.yml", "docker/config/homeserver.yaml"] {
+        let text = fs::read_to_string(repo_root().join(rel)).unwrap_or_else(|e| panic!("read {rel}: {e}"));
+        let mut rest = text.as_str();
+        while let Some(open) = rest.find("${") {
+            let after = &rest[open + 2..];
+            let Some(close) = after.find('}') else { break };
+            let inner = &after[..close];
+            rest = &after[close..];
+            // 只要 `${VAR:?msg}` 这一种形态；`${VAR:-default}` 不是必填。
+            let Some((name, _)) = inner.split_once(":?") else { continue };
+            let is_identifier =
+                !name.is_empty() && name.chars().all(|c| c == '_' || c.is_ascii_uppercase() || c.is_ascii_digit());
+            if is_identifier {
+                required.push((name.to_string(), rel.to_string()));
+            }
+        }
+    }
+    required.sort();
+    required.dedup();
+    assert!(
+        required.len() >= 5,
+        "只从 compose/config 里抽出 {} 条必填变量，明显解析失败（期望 ≥5）：{required:?}",
+        required.len()
+    );
+
+    let missing: Vec<String> = required
+        .iter()
+        .filter(|(name, _)| !seeded.contains(&name.as_str()))
+        .map(|(name, rel)| format!("{name}（{rel}）"))
+        .collect();
+
+    assert!(
+        missing.is_empty(),
+        "`{SCRIPT}` 生成的 `docker/.env` 缺少必填变量：{}\n\
+         这些变量在 CI runner 上**一定**取不到（`docker/.env` 被 gitignore，脚本只在它不存在时才写），\
+         结果是 compose 插值报错或容器在配置加载阶段退出。请把缺的行补进 `ensure_docker_env` 的 heredoc：\n  {}",
+        missing.join("、"),
+        missing
+            .iter()
+            .map(|m| format!("{}={}", m.split('（').next().unwrap_or("VAR"), "<非空值>"))
+            .collect::<Vec<_>>()
+            .join("\n  ")
+    );
+}

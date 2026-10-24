@@ -58,17 +58,30 @@ mod e2e_tests {
         event_id: String,
     }
 
+    /// `POST /_matrix/media/v3/upload` 的响应体。
+    ///
+    /// 按 Matrix 规范它**只有** `content_uri`（本仓额外返回一个非规范的 `media_id`，
+    /// 这里刻意不建模 —— 测试不应依赖非规范字段）。
+    /// `content_type` / `size` 也**不在**响应里：这两字段此前被写进本结构体并被
+    /// `test_e2e_complete_user_flow` 断言为 `"image/png"` / `8`，所以那两条断言
+    /// 从来不可能成立；而因为整个目标没有任何入口执行（见
+    /// `.github/workflows/e2e-http.yml`），这个缺陷一直没被触发。
+    /// 现在改为「上传后用 `download_media` 取回字节逐字节比对」——
+    /// 断言的是行为，而不是回读响应里的自述。
     #[derive(Debug, Serialize, Deserialize)]
     struct UploadMediaResponse {
         content_uri: String,
-        content_type: String,
-        size: i64,
-        media_id: String,
     }
 
+    /// 好友请求的响应体。
+    ///
+    /// ⚠️ `request_id` 是**字符串**，不是数字：`synapse-web/src/routes/friend_room.rs`
+    /// 里 `request_id_val.to_string()` 之后才放进 `json!`（DB 里是 i64，出网即转字符串，
+    /// 避免 JS 客户端的 2^53 精度问题）。这里原写 `i64`，serde 直接报
+    /// `invalid type: string "1", expected i64` —— 又一条"从没执行过所以一直没发现"。
     #[derive(Debug, Serialize, Deserialize)]
     struct FriendRequestResponse {
-        request_id: i64,
+        request_id: String,
         status: String,
     }
 
@@ -198,6 +211,24 @@ mod e2e_tests {
         json_ok(response, "upload_media").await
     }
 
+    /// 按 `mxc://server/media_id` 下载媒体并返回原始字节。
+    ///
+    /// 上传响应对 `content_type` / `size` 什么都不说（规范里只有 `content_uri`），
+    /// 所以「上传成功没有」只能用**取回来是不是同一串字节**来回答。
+    async fn download_media(access_token: &str, content_uri: &str) -> Vec<u8> {
+        let path = content_uri
+            .strip_prefix("mxc://")
+            .unwrap_or_else(|| panic!("content_uri 必须以 mxc:// 开头，实际 {content_uri}"));
+        let response = Client::new()
+            .get(format!("{}/_matrix/media/v3/download/{path}", base_url()))
+            .header("Authorization", format!("Bearer {access_token}"))
+            .send()
+            .await
+            .unwrap_or_else(|e| panic!("download_media: failed to download media: {e}"));
+
+        bytes_ok(response, "download_media").await
+    }
+
     async fn search_user(access_token: &str, username: &str) -> Vec<serde_json::Value> {
         let client = Client::new();
         let response = client
@@ -308,11 +339,13 @@ mod e2e_tests {
 
             let image_data = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
 
-            let upload_response = upload_media(&alice.access_token, image_data, "image/png").await;
+            let upload_response = upload_media(&alice.access_token, image_data.clone(), "image/png").await;
 
             assert!(!upload_response.content_uri.is_empty());
-            assert_eq!(upload_response.content_type, "image/png");
-            assert_eq!(upload_response.size, 8);
+            // 上传响应对 content_type/size 不作承诺（规范只有 content_uri），
+            // 真正的验收是「取回来的是同一串字节」。
+            let downloaded = download_media(&alice.access_token, &upload_response.content_uri).await;
+            assert_eq!(downloaded, image_data, "上传后下载的字节必须与上传内容一致");
 
             println!("✅ E2E test passed: Complete user flow");
         });
@@ -343,7 +376,13 @@ mod e2e_tests {
             let friend_request =
                 send_friend_request(&alice.access_token, &bob.user_id, Some("Let's be friends!")).await;
 
-            assert!(friend_request.request_id > 0);
+            // `request_id` 在线上是十进制字符串（见 `FriendRequestResponse` 的注释），
+            // 断言它可解析为正数，而不是断言类型。
+            assert!(
+                friend_request.request_id.parse::<i64>().is_ok_and(|id| id > 0),
+                "request_id 必须是正整数的十进制字符串，实际 {:?}",
+                friend_request.request_id
+            );
             assert_eq!(friend_request.status, "pending");
 
             let accept_response = accept_friend_request(&bob.access_token, &alice.user_id).await;
@@ -419,25 +458,8 @@ mod e2e_tests {
             let upload_response = upload_media(&alice.access_token, image_data.clone(), "image/png").await;
 
             assert!(!upload_response.content_uri.is_empty());
-            assert_eq!(upload_response.content_type, "image/png");
-            assert_eq!(upload_response.size, 16);
-
-            let client = Client::new();
-            let mxc = upload_response.content_uri.trim_start_matches("mxc://");
-            let mut parts = mxc.split('/');
-            let server_name = parts.next().unwrap_or_else(|| {
-                panic!("mxc:// must include server_name, content_uri={}", upload_response.content_uri)
-            });
-            let media_id = parts.next().unwrap_or(upload_response.media_id.as_str());
-
-            let response = client
-                .get(format!("{}/_matrix/media/v3/download/{}/{}", base_url(), server_name, media_id))
-                .header("Authorization", format!("Bearer {}", alice.access_token))
-                .send()
-                .await
-                .unwrap_or_else(|e| panic!("download_media: failed to download media: {e}"));
-
-            let downloaded_content = bytes_ok(response, "download_media").await;
+            // 同上：响应体不承诺 content_type/size，用下载字节证明内容真的存下来了。
+            let downloaded_content = download_media(&alice.access_token, &upload_response.content_uri).await;
 
             assert_eq!(downloaded_content, image_data);
 
@@ -462,7 +484,12 @@ mod e2e_tests {
             let bob = register_user(&bob_username, "Password456!").await;
             let charlie = register_user(&charlie_username, "Password789!").await;
 
-            let room = create_public_room(&alice.access_token, Some("Group Chat")).await;
+            // 房间名必须唯一：公开房间会据此派生 alias，重名时服务端按规范回
+            // `409 M_ROOM_IN_USE`（实测：第二次跑本用例就撞上，因为第一次留下的
+            // "Group Chat" 还在库里）。用户已经用 `unique_username` 去重了，
+            // 房间名同理 —— 否则这条用例只能在新库上跑一次。
+            let room_name = format!("Group Chat {}", unique_username("room"));
+            let room = create_public_room(&alice.access_token, Some(&room_name)).await;
 
             join_room(&bob.access_token, &room.room_id).await;
             join_room(&charlie.access_token, &room.room_id).await;

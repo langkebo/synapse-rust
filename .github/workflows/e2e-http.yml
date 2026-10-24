@@ -1,0 +1,107 @@
+name: E2E HTTP (live stack)
+
+# =============================================================================
+# 唯一会执行 `tests/e2e/user_flow_tests.rs` 那 7 条 `#[ignore]` 用例的车道
+# =============================================================================
+# 它们验证的是「完整用户流程」（注册 → 登录 → 建房 → 发消息 → 上传/下载媒体 →
+# 好友请求 → 多房间），只能对着**真实运行的 homeserver** 跑：
+#   · PR 车道跑的是 `e2e_scenarios.rs` 的 19 条 `simulated_*`（无 I/O，只防腐坏）；
+#   · `integration` 车道跑的是 router 级（`tests/integration/`，进程内，不监听端口）。
+# 因此这 7 条此前只有 `#[ignore = "…"]` 里的一句"手动怎么跑"，**没有任何入口执行过**。
+#
+# 为什么不挂在 PR 上：起栈要构建 release 镜像（冷构建 20–40 min），7 条用例串行且对
+# 时序/限流敏感。挂进 PR 等于让"别人的提交"卡在 flake 上 —— 这类车道一旦开始 flake，
+# 第一个反应就是加 `continue-on-error`，然后它就永久失效了。
+# ⇒ dispatch + nightly：它是**回归探测器**，不是合并闸门。
+on:
+  workflow_dispatch:
+  schedule:
+    # 03:30 UTC（11:30 CST）每日一次。刻意错开 e2ee-interop 的 02:00 UTC，
+    # 两条都要构建镜像，撞在一起会互相排队。
+    - cron: '30 3 * * *'
+
+# 夜间跑到一半被下一次 push 取消没有意义（它是定时任务，不是 per-commit 校验），
+# 而且取消会把取证日志一起丢掉。
+concurrency:
+  group: e2e-http-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  E2E_ARTIFACT_DIR: artifacts/e2e-http
+
+jobs:
+  live-stack:
+    name: user_flow (7 ignored tests, live homeserver)
+    runs-on: ubuntu-latest
+    # 冷构建镜像 + 7 条串行用例。宁可超时暴露"变慢了"，也不要无限挂着占 runner。
+    timeout-minutes: 75
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.93.0
+
+      # 宿主侧要编译 e2e target（用例是 reqwest 客户端，不连库）。
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: e2e-http
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # 用 buildx + gha 层缓存建镜像，而不是让 `scripts/ci_backend_validation.sh` 里的
+      # `docker compose build` 现建：
+      #   · compose build 不吃 buildx 的缓存 exporter ⇒ 每次夜间都全量 release 编译；
+      #   · `load: true` 把镜像灌回本地 docker，compose 的 `image:` 直接命中它，
+      #     脚本侧用 `SKIP_IMAGE_BUILD=1` 跳过重复构建。
+      # build-args 必须与 compose 的默认值一致（`DOCKER_CARGO_FEATURE_ARGS` 的缺省），
+      # 否则"CI 起的那台"和"开发者本机起的那台"编进不同的能力集，
+      # `/_matrix/vendor/v1/friends/*` 这类 feature-gated 端点会在一边 404。
+      - name: Build synapse-rust image (gha layer cache)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          target: tools
+          tags: synapse-rust:latest
+          load: true
+          build-args: |
+            CARGO_FEATURE_ARGS=--features core-private-chat,widgets,external-services,voice-extended,cas-sso,saml-sso,friends --no-default-features
+            CARGO_BUILD_JOBS=4
+          cache-from: type=gha,scope=e2e-http
+          cache-to: type=gha,mode=max,scope=e2e-http
+
+      # 一行入口。起栈/等就绪/注册探针/跑 7 条/dump 日志/拆栈全在脚本里，
+      # 这样本地复刻与 CI 是同一份实现（`scripts/ci_backend_validation.sh e2e`）。
+      # `set -o pipefail` 不可省：`tee` 会把退出码换成自己的 0，测试失败时这步照样"成功"。
+      - name: Run E2E lane (live stack)
+        env:
+          SKIP_IMAGE_BUILD: '1'
+          # 串行：7 条会并发注册 + 搜用户目录，撞 `docker/config/rate_limit.yaml` 时
+          # 失败信息会互相污染（分不清是限流还是真缺陷）。
+          E2E_TEST_THREADS: '1'
+        run: |
+          set -o pipefail
+          mkdir -p "${E2E_ARTIFACT_DIR}"
+          bash scripts/ci_backend_validation.sh e2e 2>&1 | tee "${E2E_ARTIFACT_DIR}/e2e-lane.log"
+
+      # 失败时脚本的 ERR trap 会把 `docker compose ps` + 各容器最近 300 行日志写进
+      # 上面那份 log（走 stderr，被 tee 抓住），所以只需上传这一份。
+      - name: Upload lane log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-http-lane-log
+          path: ${{ env.E2E_ARTIFACT_DIR }}
+          retention-days: 30

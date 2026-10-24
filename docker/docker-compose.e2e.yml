@@ -1,0 +1,32 @@
+# =============================================================================
+# docker-compose.e2e.yml —— 真实 HTTP 端到端车道的**覆盖层**（只叠在 dev 栈上）
+# =============================================================================
+# 唯一职责：让 `tests/e2e/{user_flow_tests,e2e_scenarios}.rs` 能在真实运行的
+# homeserver 上跑起来。它只覆盖一件事 —— **开放注册**。
+#
+# 为什么需要覆盖：
+#   `docker/config/homeserver.yaml` 把 `enable_registration` 硬编码为 `false`
+#   （生产/开发栈的正确默认；任何人都能自助注册 = 垃圾账号 + 资源耗尽）。
+#   而 e2e 的第一句就是 `POST /_matrix/client/v3/register`（随后 login /
+#   createRoom / send / upload / friends），注册被关时 7 条用例会整片 403。
+#
+# 为什么用覆盖层，而不是改另外三处：
+#   - `enable_registration` 是 bool，YAML 里**无法**用 `${VAR}` 插值（bool 不是
+#     字符串，config crate 不替换），只能走 `SYNAPSE__` 环境变量 —— 见
+#     `docker/config/homeserver.yaml` 该字段上方的注释；
+#   - 塞进 `docker/.env`：该文件被 gitignore、每人一份，等于要求每个开发者在自己
+#     机器上永久开放注册，且 CI 上的 `.env` 是脚本生成的，一处改动两处语义；
+#   - 改 `homeserver.yaml` 默认值：连生产栈一起开放注册。
+#   ⇒ 只有显式 `-f docker-compose.e2e.yml` 时才生效，base 栈与 deploy 栈行为零变化
+#     （`tests/unit/ci_test_scope_tests.rs` 有守卫断言本文件的唯一覆盖项就是这一条）。
+#
+# 用法（`scripts/ci_backend_validation.sh e2e` 已封装，无需手敲）：
+#   cd docker && docker compose --env-file .env \
+#     -f docker-compose.yml -f docker-compose.e2e.yml up -d db redis synapse-rust
+services:
+  synapse-rust:
+    environment:
+      # 覆盖 homeserver.yaml 的 `server.enable_registration: false`。
+      # 用字符串 "true"：compose 的 environment 值一律是字符串，由 config crate 的
+      # `Value::into_bool` 解析；写裸 true 会在某些 compose 版本被序列化成 "True"。
+      SYNAPSE__SERVER__ENABLE_REGISTRATION: "true"

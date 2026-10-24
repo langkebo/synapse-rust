@@ -279,3 +279,105 @@ fn tests_must_not_skip_their_own_assertions() {
 
     assert!(offenders.is_empty(), "tests that silently skip their assertions:\n  {}", offenders.join("\n  "));
 }
+
+// ── the opt-in harness must have an executable entry point ──────────────
+
+/// 取脚本里一个顶层函数的**命令**部分（从签名到下一个独占一行的 `}`），
+/// 剥掉整行注释**和 `log` 诊断行**。
+///
+/// 为什么要剥：`run_e2e_http` 的注释里写着 `--run-ignored only` 的说明，
+/// 日志行 `log "… --run-ignored only …"` 也把旗标名字念了一遍。两者都属于
+/// 「**描述**旗标」而不是「**使用**旗标」。实测两次变异才把这个洞堵上：
+/// 把命令行里的 `only` 改成 `ignored` 之后，守卫先是因为注释命中而**绿**，
+/// 剥掉注释后又因为那行 log 命中而**绿**。
+///
+/// 这与 `e2e_scenarios_performs_no_io_and_says_so` 剥注释的理由完全同源：
+/// 文件里写着某个词，不等于代码里做了那件事。
+fn shell_function_commands(source: &str, signature: &str) -> String {
+    let start = source.find(signature).unwrap_or_else(|| panic!("脚本里找不到 `{signature}`"));
+    let rest = &source[start..];
+    let end = rest.find("\n}\n").map_or(rest.len(), |i| i + 2);
+    rest[..end]
+        .lines()
+        .filter(|l| {
+            let t = l.trim_start();
+            !t.starts_with('#') && !t.starts_with("log ")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// 那 7 条需要真栈的 `#[ignore]` 用例，必须有一个**可执行且只跑它们**的入口。
+///
+/// ## 为什么需要这条守卫
+///
+/// `user_flow_tests_remain_an_explicit_opt_in` 只保证它们"仍然要显式开启"。而"显式开启"
+/// 在 2026-10-24 之前只存在于 **`#[ignore]` 的理由字符串里**：一句
+/// `E2E_RUN=1 cargo test --test e2e -- --ignored`，没有任何 workflow 设过 `E2E_RUN`。
+/// 有 reason 的 ignore 与"永远不跑"在外观上完全一致 —— `cargo nextest` 把它们记成
+/// `skipped`，看板上是一个正常数字。
+///
+/// 这条守卫钉住整条链，任一环被删都会红：
+///   - workflow 若加上 `pull_request`：一条要构建镜像 + 起栈的车道会卡住所有 PR，
+///     而它一旦 flake，第一个反应就是 `continue-on-error`，然后永久失效；
+///   - 脚本丢了 `--run-ignored only`：跑的是 19 条 `simulated_*`（PR 车道已跑），
+///     这 7 条一条都不跑，日志还是绿的；
+///   - 脚本丢了 `--no-tests=fail`：7 条被改名或删除后，nextest 的 `auto` 在本地是 pass；
+///   - 覆盖层丢了 `SYNAPSE__SERVER__ENABLE_REGISTRATION`：7 条会一起 403，
+///     而 `homeserver.yaml` 的默认值就是 `false`。
+#[test]
+fn user_flow_tests_have_an_executable_dispatch_lane() {
+    const WORKFLOW: &str = ".github/workflows/e2e-http.yml";
+    let workflow = read(WORKFLOW);
+
+    assert!(
+        !workflow.contains("pull_request"),
+        "{WORKFLOW} 不能挂在 `pull_request` 上：这条车道要构建 release 镜像并起栈，\
+         挂到 PR 上会把它变成所有提交的 flake 来源"
+    );
+    assert!(workflow.contains("workflow_dispatch"), "{WORKFLOW} 必须可手动触发（workflow_dispatch）");
+    assert!(workflow.contains("schedule:"), "{WORKFLOW} 必须有 nightly schedule —— 手动触发的门禁等于没有门禁");
+    assert!(
+        workflow.contains("scripts/ci_backend_validation.sh e2e"),
+        "{WORKFLOW} 必须调用 `scripts/ci_backend_validation.sh e2e`（起栈逻辑的唯一实现），\
+         不要在 workflow 里重写一遍 compose up / 等就绪"
+    );
+    assert!(
+        workflow.contains("SKIP_IMAGE_BUILD"),
+        "{WORKFLOW} 必须设 `SKIP_IMAGE_BUILD=1`：镜像已由 buildx 步骤构建，\
+         否则脚本会再用 `docker compose build` 全量编译一次"
+    );
+
+    const SCRIPT: &str = "scripts/ci_backend_validation.sh";
+    let script = read(SCRIPT);
+    assert!(script.contains("\n    e2e)"), "{SCRIPT} 缺少 `e2e)` 分支（workflow 调的就是它）");
+    assert!(
+        script.contains("-f docker-compose.e2e.yml"),
+        "{SCRIPT} 的 e2e 分支必须叠加 `docker/docker-compose.e2e.yml`，否则注册仍然是关的"
+    );
+
+    let lane = shell_function_commands(&script, "run_e2e_http() {");
+    for needle in ["E2E_RUN=1", "--test e2e", "--run-ignored only", "--no-tests=fail"] {
+        assert!(
+            lane.contains(needle),
+            "`run_e2e_http` 里缺少 `{needle}`：\n\
+             · 缺 `E2E_RUN=1` ⇒ 用例自己 `return`，7 条全变「通过」；\n\
+             · 缺 `--run-ignored only` ⇒ 跑的是 19 条 simulated_*；\n\
+             · 缺 `--no-tests=fail` ⇒ 7 条消失后仍绿。\n实际函数体：\n{lane}"
+        );
+    }
+
+    let overlay = read("docker/docker-compose.e2e.yml");
+    assert!(
+        overlay.contains("SYNAPSE__SERVER__ENABLE_REGISTRATION: \"true\""),
+        "`docker/docker-compose.e2e.yml` 必须把注册打开（7 条用例的第一句就是 register）"
+    );
+    for forbidden in ["image:", "build:", "ports:"] {
+        assert!(
+            !overlay.contains(forbidden),
+            "`docker/docker-compose.e2e.yml` 不应覆盖 `{forbidden}`：\
+             覆盖层只允许改「让 e2e 能跑起来」的那一项（开放注册）。\
+             一旦它改镜像/构建参数/端口，CI 测的就是与开发栈不同的东西"
+        );
+    }
+}
