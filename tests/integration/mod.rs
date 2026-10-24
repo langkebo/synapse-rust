@@ -79,6 +79,10 @@ mod database_integrity_tests;
 mod federation_error_tests;
 mod federation_existence_leak_tests;
 mod metrics_tests;
+// W8 / NEW-05：MSC4108 rendezvous 的**真实 HTTP 往返**（真 router + 真库）。
+// 与 `tests/unit/msc4108_rendezvous_route_tests.rs`（只锁路由台账面）互补，
+// 后者此前有 12 个"断言自己抄的字面量"的用例，改坏生产代码也不会红。
+mod msc4108_rendezvous_route_tests;
 mod password_hash_pool_tests;
 mod protocol_compliance_tests;
 mod regex_cache_tests;

@@ -135,6 +135,14 @@ run "check_gate_reachability.py" python3 scripts/ci/check_gate_reachability.py
 step "测试：sleep 站点棘轮"
 run "check_sleep_ratchet.py" python3 scripts/ci/check_sleep_ratchet.py
 
+# 整文件 feature 门控的测试文件（TEST-06）：`#![cfg(feature = "X")]` 写在测试文件里时，
+# X 不在测试车道的 feature 集里就**整个文件不参与编译**，nextest 连"0 个用例"都不报。
+# 静态检查（~20ms，只读 git ls-files + ci.yml）：每个这样的文件都必须在
+# `scripts/ci/feature_gated_test_matrix` 登记，且登记的车道真的显式启用了该 feature。
+# 与上面那条同理每次都跑：故障形态是"新增/改名一个门控测试文件"，与改动集无关。
+step "测试：整文件 feature 门控的覆盖（TEST-06）"
+run "check_test_feature_gates.py" python3 scripts/ci/check_test_feature_gates.py
+
 step "Schema：updated_ts 可空性棘轮"
 run "check_schema_timestamp_convention.py" python3 scripts/ci/check_schema_timestamp_convention.py
 
@@ -175,7 +183,16 @@ fi
 
 printf '\n== 结论 ==\n'
 if [ "$fail" -eq 0 ]; then
-    echo "全部通过（跑的是 CI 同名门禁）"
+    # ⚠️ 不能笼统写"全部通过"：默认**不跑** clippy（`--clippy` 才跑）。
+    # 2026-10-24 实测两次：`media_thumbnail` 加到 8 个参数（too_many_arguments）、
+    # 删掉 `notify_device_revocation` 后 `json`/`BackgroundJob` 变成未用导入 ——
+    # 两次都是 `-D warnings` 会红，而提交时看到的是"OK 一大片 + 全部通过"，
+    # 直到手工跑 CI 那条 clippy 才发现。结论行必须把这件事说出来。
+    if [ "${1:-}" = "--clippy" ]; then
+        echo "全部通过（CI 同名门禁 + clippy 两档）"
+    else
+        echo "通过（⚠️ 未跑 clippy：加 --clippy 或设 SYNAPSE_PRECOMMIT_CLIPPY=1 才会跑；CI 每 push 跑两档）"
+    fi
 else
     echo "有失败项 —— 修完再提交"
 fi

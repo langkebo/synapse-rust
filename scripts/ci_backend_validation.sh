@@ -237,8 +237,15 @@ run_rust_checks() {
     fi
     cargo nextest run --workspace --lib --all-features --locked --test-threads 4 \
         -E 'not test(/friend_room_service::tests::bench_friend_list_/)'
-    cargo nextest run --test unit --features test-utils --locked --test-threads 4
+    # `--features test-utils,burn-after-read,server-notifications`：后两个 feature 是
+    # W8/TEST-06 加进来的 —— 它们是**整文件门控**的测试文件
+    # （`tests/unit/burn_after_read_route_tests.rs` / `tests/unit/server_notification_service_tests.rs`）
+    # 的开关，不加就整个文件不参与编译。与 `ci.yml` 的「Run unit test target」逐字一致，
+    # 由 `scripts/ci/check_test_feature_gates.py` 校验两侧都没漂。
+    cargo nextest run --test unit --features test-utils,burn-after-read,server-notifications --locked --test-threads 4
     cargo nextest run --test integration --all-features --locked --test-threads 4 --no-fail-fast
+    # W8/TEST-06：3 个整文件门控的 integration 文件用**显式 feature** 单跑一条（与 ci.yml 同款）。
+    bash scripts/ci/require_tests_ran.sh cargo nextest run --test integration --features test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications,widgets --locked --test-threads 4 -E 'test(e2ee_audit_service_tests) | test(space_children_service_tests) | test(api_widget_tests)'
     # 跳过分类报告：nextest 只报告总数，这里区分「设计内跳过」与「覆盖缺口」，
     # 并要求每一类的覆盖车道真实存在。分析器为源码级扫描，不依赖构建产物；
     # 不带 `|| true`——出现未归类用例或车道缺失时门禁必须失败。

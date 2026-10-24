@@ -675,6 +675,14 @@ jobs:
             cargo nextest run --workspace --lib --all-features --locked --test-threads 1 \
             -E 'test(/friend_room_service::tests::bench_friend_list_/)'
 
+      # ── W8 / TEST-06：整文件 feature 门控的测试文件必须在**默认车道**真的跑 ──
+      # `tests/unit/burn_after_read_route_tests.rs`（`#![cfg(feature = "burn-after-read")]`）
+      # 与 `tests/unit/server_notification_service_tests.rs`（`server-notifications`）是两个
+      # **整文件**门控的测试文件：feature 没开时它们不参与编译，nextest 连"0 个用例"都不报
+      # —— 改坏了也绿。它们此前只被下面那条 `--all-features` 的 B17 步骤命中，而默认车道
+      # （本步骤）不跑它们。把这两个 feature 显式加进默认车道，整条车道就是它们真正执行的地方。
+      # ⚠️ 不要再退回 `--features test-utils`：那会让本步骤与 `scripts/ci/feature_gated_test_matrix`
+      #    的登记脱钩，由 `scripts/ci/check_test_feature_gates.py` 判红。
       - name: Run unit test target (--test unit)
         if: matrix.features-args == '--all-features'
         env:
@@ -684,7 +692,7 @@ jobs:
           REDIS_URL: redis://localhost:6379
           RUST_BACKTRACE: 1
           RUST_LOG: info
-        run: cargo nextest run --test unit --features test-utils --locked --test-threads 4
+        run: cargo nextest run --test unit --features test-utils,burn-after-read,server-notifications --locked --test-threads 4
 
       # ── W5 / D-25：门控模块的"0 tests 假绿" ──
       # `#[cfg(feature = "X")] pub mod m;` 在 X 未打开时不参与编译，`-E 'test(m)'`
@@ -1080,6 +1088,25 @@ jobs:
           RUST_BACKTRACE: 1
           RUST_LOG: info
         run: cargo nextest run --test integration --all-features --locked --test-threads 4 --no-fail-fast
+
+      # ── W8 / TEST-06：3 个整文件门控的 integration 文件要有一条**显式 feature** 的车道 ──
+      # `e2ee_audit_service_tests.rs` / `space_children_service_tests.rs` 是
+      # `#![cfg(feature = "test-utils")]`，`api_widget_tests.rs` 是 `#![cfg(feature = "widgets")]`。
+      # 上面那条全量车道用 `--all-features`（门控必开），能跑它们，但"仅靠 --all-features 命中"
+      # 无法区分「文件真的被编译了」与「门控名写错了所以整文件消失」—— 卡片判据明确不允许用
+      # `--all-features` 掩盖这一面。这里用**显式 feature 列表**（不是 --all-features）单独跑这 3 个
+      # 文件，并用 `require_tests_ran.sh` 把"命中 0 个用例"变成退出码。
+      # 登记处：`scripts/ci/feature_gated_test_matrix`；守卫：`check_test_feature_gates.py`。
+      - name: Run whole-file feature-gated integration tests (TEST-06)
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DB_TEMPLATE_SCHEMA: test_template_ci
+          TEST_DB_ISOLATION: ${{ matrix.isolation }}
+          REDIS_URL: redis://localhost:6379
+          RUST_BACKTRACE: 1
+          RUST_LOG: info
+        run: bash scripts/ci/require_tests_ran.sh cargo nextest run --test integration --features test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications,widgets --locked --test-threads 4 -E 'test(e2ee_audit_service_tests) | test(space_children_service_tests) | test(api_widget_tests)'
 
       # 隔离单元是整库，"漏一个"就是 20 MB + 一行 `pg_database`。把本地验收的
       # "残留 0"带进 CI：非零即红。挂在 `always()` 上，测试失败时也能分清是

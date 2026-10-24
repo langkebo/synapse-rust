@@ -1,0 +1,23 @@
+# 整文件 feature 门控的**测试文件**登记表（W8 / TEST-06）
+#
+# 与 `gated_module_test_matrix`（生产 lib 的 `#[cfg(feature)] pub mod m;`）是**两张不同的表**：
+# 那张管"模块被门控后过滤器还能不能命中"，这张管"整文件被门控后到底有没有一条车道在跑它"。
+#
+# 为什么单列一张表：`#![cfg(feature = "X")]` 写在测试文件里时，X 不在测试车道的 feature 集里
+# 就**整个文件不参与编译** —— nextest/libtest 都不会报"0 个用例"，它只是不存在。5 个文件
+# 因此长期处于"存在但从未运行"的状态（TEST-06）。本表的每一行把「文件 → 门控 feature →
+# 哪条车道 → 怎么选中它」钉在一起，由 `scripts/ci/check_test_feature_gates.py` 校验。
+#
+# 格式：`<tests 文件>|<门控 feature>|<nextest target>|<过滤器 token 或 *>`
+#   * token = `*`            → 该车道跑**整个 target**（没有 `-E`），文件编译进来就会执行；
+#   * token = `<模块名>`     → 车道必须用 `-E 'test(<模块名>)'` 显式选中它。
+# 校验器还要求：命中行**必须真的启用了这条 feature**（显式 `--features`），用 `--all-features`
+# 命中的行会被单列为 `ALL_FEATURES` —— 卡片判据不允许用 `--all-features` 掩盖"其实没编译"。
+#
+# 加一行的做法：先确认该文件确实是整文件门控，再把它挂到一条**显式启用该 feature** 的车道上
+# （优先复用既有车道；新增车道会多一次 cargo 构建，需在提交信息里写明理由）。
+tests/unit/burn_after_read_route_tests.rs|burn-after-read|unit|*
+tests/unit/server_notification_service_tests.rs|server-notifications|unit|*
+tests/integration/e2ee_audit_service_tests.rs|test-utils|integration|e2ee_audit_service_tests
+tests/integration/space_children_service_tests.rs|test-utils|integration|space_children_service_tests
+tests/integration/api_widget_tests.rs|widgets|integration|api_widget_tests

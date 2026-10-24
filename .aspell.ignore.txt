@@ -274,7 +274,6 @@ devicerepository
 devicestorage
 devops
 dingtalk
-dingtalk
 dir
 directoryservice
 dirs
@@ -708,6 +707,7 @@ postgres
 postgresql
 powerset
 pqh
+pragma
 pre
 preconditionfailed
 preflight
@@ -1120,7 +1120,6 @@ webpush
 webrtc
 websocket
 webview
-wecom
 wecom
 whitespace
 whoami
