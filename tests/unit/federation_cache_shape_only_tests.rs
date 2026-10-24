@@ -1,3 +1,7 @@
+// ⚠️ **只锁形状**（NEW-05，2026-10-24 逐文件判定）：本文件的断言对象是**自己构造的 JSON / DTO 字面量**
+// （以及本地镜像的 handler 分支），不构造 router、不发请求、不碰 DB ⇒ **改坏生产 handler 不会红**。
+// 文件名刻意不再叫 `_api_tests` / `_route_tests`：原名会让人以为这条链路有 HTTP 覆盖。
+// 真覆盖（HTTP 往返）：**无** —— 已登记为覆盖缺口（`scripts/ci/shape_only_test_matrix` 里写 `NONE`）
 // Federation Cache API Tests - API Endpoint Coverage
 // These tests cover the federation cache API endpoints from synapse-web/src/routes/federation_cache.rs
 

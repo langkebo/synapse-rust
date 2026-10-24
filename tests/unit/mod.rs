@@ -8,12 +8,12 @@
 #[path = "../common/mod.rs"]
 mod common;
 
-mod admin_api_tests;
-mod admin_extra_api_tests;
+mod admin_extra_shape_only_tests;
+mod admin_shape_only_tests;
 mod api_optimized_features_tests;
 mod api_test_ledger_source_tests;
-mod app_service_api_tests;
-mod background_update_api_tests;
+mod app_service_shape_only_tests;
+mod background_update_shape_only_tests;
 
 mod canonical_json_vectors;
 mod ci_test_scope_tests;
@@ -25,59 +25,59 @@ mod doc_credibility_guard_tests;
 
 #[cfg(feature = "beacons")]
 mod beacon_info_parse_tests;
-mod captcha_api_tests;
+mod captcha_shape_only_tests;
 mod client_push_service_tests;
 mod core_api_tests;
 mod coverage_ratchet_exemption_tests;
-mod e2ee_api_tests;
-mod event_report_api_tests;
-mod federation_api_tests;
-mod federation_cache_api_tests;
+mod e2ee_shape_only_tests;
+mod event_report_shape_only_tests;
+mod federation_cache_shape_only_tests;
 mod federation_device_list_writer_tests;
+mod federation_shape_only_tests;
 mod federation_state_pdu_tests;
-mod friend_api_tests;
-mod key_backup_api_tests;
+mod friend_shape_only_tests;
+mod key_backup_shape_only_tests;
 mod key_rotation_route_tests;
 mod key_rotation_service_tests;
 mod ledger_export_tests;
 mod ledger_fingerprint_tests;
 mod matrix_json_contract_tests;
-mod media_api_tests;
-mod media_quota_api_tests;
+mod media_quota_shape_only_tests;
 mod media_service_tests;
+mod media_shape_only_tests;
 mod metric_instrumentation_gate_tests;
 mod migration_consistency_tests;
 mod migration_replayability_guard_tests;
 mod migration_search_path_tests;
 mod mod_guard_tests;
-mod module_api_tests;
+mod module_shape_only_tests;
 mod msc4108_rendezvous_route_tests;
 mod msc_semantics_guard_tests;
 mod msc_tests;
 mod placeholder_scan_tests;
-mod push_api_tests;
 mod push_notification_route_tests;
 mod push_provider_wiring_tests;
-mod rate_limit_api_tests;
-mod reactions_api_tests;
-mod refresh_token_api_tests;
-mod registration_token_api_tests;
-mod retention_api_tests;
+mod push_shape_only_tests;
+mod rate_limit_shape_only_tests;
+mod reactions_shape_only_tests;
+mod refresh_token_shape_only_tests;
+mod registration_token_shape_only_tests;
+mod retention_shape_only_tests;
 
-mod room_summary_api_tests;
+mod room_summary_shape_only_tests;
 
 mod sanitizer_golden_tests;
 mod search_service_tests;
 mod self_silencing_config_tests;
-mod server_notification_api_tests;
-mod sliding_sync_api_tests;
-mod space_api_tests;
-mod telemetry_api_tests;
+mod server_notification_shape_only_tests;
+mod sliding_sync_shape_only_tests;
+mod space_shape_only_tests;
+mod telemetry_shape_only_tests;
 mod test_db_url_convention_tests;
-mod thread_api_tests;
+mod thread_shape_only_tests;
 mod ts_order_tiebreak_tests;
 
-mod worker_api_tests;
+mod worker_shape_only_tests;
 // L-3: explicit MSC4140 delayed-events path set pinned to the real route ledger.
 mod worker_delayed_events_ownership_tests;
 
@@ -137,7 +137,7 @@ mod burn_after_read_route_tests;
 mod context_route_tests;
 mod e2e_honesty_tests;
 mod ephemeral_route_tests;
-mod formatting_route_tests;
+mod formatting_shape_only_tests;
 mod gated_module_test_gate_tests;
 mod guest_route_tests;
 mod mock_fidelity_tests;

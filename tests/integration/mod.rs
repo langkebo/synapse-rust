@@ -165,7 +165,7 @@ mod stream_position_tests;
 mod nullable_decode_tests;
 
 #[cfg(test)]
-mod coverage_tests;
+mod coverage_shape_only_tests;
 
 use std::sync::Arc;
 use std::sync::Once;

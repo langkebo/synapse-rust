@@ -55,6 +55,7 @@
 |---|---|---|---|
 | **NEW-05** | P2 | **「自证测试」面**：一批测试只断言自己刚构造的字面量（`let status = StatusCode::OK; assert_eq!(status, StatusCode::OK)`），永远不会失败。启发式扫描（≥3 处本地字面量断言且 0 处真实依赖调用）命中 **21 个文件**；已逐行确认的 3 处见 §七 TEST-02 | 已确认：`tests/unit/msc4108_rendezvous_route_tests.rs`（0 个 HTTP 调用、12 处 `let status/body/headers = <字面量>`）、`tests/integration/coverage_tests.rs`（51 个用例全是构造 JSON）、`account_compat_route_tests.rs` 的 `test_deactivate_account_*` 三条。**启发式会高估**（insta 快照文件看起来也像），所以 21 是候选数不是判决数 |
 | **NEW-08** | P3 | `synapse-federation/src/device_sync.rs`（**736 行**，8 个公开方法）**生产代码零调用**：全仓唯一构造点在 `tests/integration/federation_service_tests_migrated.rs`。其中 3 个方法与真实实现同名/同义（`revoke_device`↔`auth::account`、`verify_device_keys_signature`↔`e2ee::signed_json`、`sync_devices_from_remote`↔`FederationClient::get_user_devices`） | `git grep "DeviceSyncManager::new"` → 只有测试；8 个方法逐个 grep 生产调用：`sync_devices_from_remote` / `is_device_key_expired` / `cleanup_expired_devices` / `sync_device_keys_with_expiry_check` / `invalidate_user_devices_cache` **各 0 处**，`get_local_devices` 只在测试里。**未删**：删它要同步 SQLX 静态化计数基线（`check_sqlx_dynamic_ratio.sh`）与 3 个 crate 的 re-export，属独立一笔 |
+| **NEW-09** | P3 | 只锁形状的测试文件里有 **24 个端点族没有任何 HTTP 往返用例**（`shape_only_test_matrix` 里写 `NONE`） | 补真覆盖要逐端点「`setup_fresh_test_app` + 注册用户/建房 + 断言 status/body/errcode」，属独立批次；本轮只保证**不再假装有覆盖**（NEW-05） |
 | **NEW-04** | P3 | 源码与配置里共 **30 个**不同的 `scripts/...` 悬挂引用；但其中多数是**相对路径**（相对 `docker/deploy/`）或**历史叙述**（"这里过去调用过 X，已删除"）⇒ 不能做"出现即要求存在"的朴素门禁 | 全仓扫描 `scripts/[\w./-]+\.(sh\|py\|mjs\|js)` 与 `os.path.exists` 求差；逐条看上下文后只有 1 类是真错（`scripts/quality/check_missing_docs_ratchet.sh`，8 处，已在本轮修掉） |
 
 ## 0.2 未完成任务清单
@@ -375,110 +376,53 @@
 **变异实测**：把 `create_session_without_content_type_is_rejected` 的期望 errcode 改成 `M_UNKNOWN`
 ⇒ `left: "M_MISSING_PARAM" / right: "M_UNKNOWN"`，红；还原后绿。同类文件的规模见 NEW-05。
 
-### NEW-05（P2）「自证测试」面：断言自己刚构造的字面量
+### NEW-05（P2）「自证测试」面 —— ✅ 已关闭（W8，逐文件判定完成）
 
-- **形态**（`tests/unit/msc4108_rendezvous_route_tests.rs` 是标本）：
+**形态**（标本是 `tests/unit/msc4108_rendezvous_route_tests.rs` 的旧版）：
 
-  ```rust
-  #[test]
-  fn create_session_returns_ok_with_etag_and_expires() {
-      let status = StatusCode::OK;                     // ← 自己造一个值
-      let headers = [("etag", "\"1700000000000\""), …];
-      assert_eq!(status, StatusCode::OK);              // ← 再断言自己刚造的值
-      assert_eq!(headers[0].1, "\"1700000000000\"");
-  }
-  ```
+```rust
+#[test]
+fn test_send_captcha_request() {
+    let captcha = json!({ "captcha_type": "image", "target": "@user:@localhost" });
+    assert!(captcha.get("captcha_type").is_some());   // 断言自己刚放进去的字段
+}
+```
 
-  它不接触 router、不碰 DB、不调被测函数 —— **改坏生产代码它也不会红**。
-  文件里 20 个用例中 12 个是这种形态，而文件名叫 `..._route_tests`，读的人会以为路由被覆盖了。
-- **规模（启发式，21 个候选文件）**：判据 = 同一文件里 ≥3 处 `let <status|body|headers> = <字面量>`
-  且 0 处真实依赖调用（`oneshot` / `Request::builder` / `create_router` / `setup_fresh_test_app` /
-  `sqlx::query` / `with_local_connect_info`）。命中 21 个文件、合计约 400 个用例。
-  **这个数会高估**：`insta` 快照文件（如 `security_endpoint_snapshots_tests.rs`）也是"无真实调用"，
-  但它断言的是**真结构体的序列化结果**，是有效的；`key_rotation_route_tests.rs` 则有一半是真的
-  （断言路由台账）。所以 21 是**候选数**，逐文件判定后才是结论。
-- **已逐行确认的三处**：`msc4108_rendezvous_route_tests.rs`（12/20，**W8 已修**）、
-  `tests/integration/coverage_tests.rs`（51/51，全是 `json!` 构造后断言字段存在）、
-  `account_compat_route_tests.rs` 的 `test_deactivate_account_*`（3 条，含
-  `assert_eq!(expected_status, 401)` 这种）。
-- **2026-10-24（W8）复扫：29 个候选**（口径放宽到 `let <status|body|headers|resp|response|value|json> = <字面量>`
-  且 0 处真实依赖标记，脚本一次性跑 `git ls-files tests`）。按「文件里有没有调用真生产符号
-  （`synapse_*::…`）」再切一刀：
-  - **13 个 0 符号**（纯字面量，判决 = 自证）：`captcha_api_tests` / `e2ee_api_tests` /
-    `federation_cache_api_tests` / `formatting_route_tests` / `media_api_tests` / `media_quota_api_tests` /
-    `reactions_api_tests` / `refresh_token_api_tests` / `registration_token_api_tests` /
-    `retention_api_tests` / `server_notification_api_tests` / `sliding_sync_api_tests` /
-    `integration/coverage_tests`；
-  - **16 个有真符号但仍含字面量断言**（判决 = 逐用例判定，未做完）：`admin_api_tests` /
-    `api_optimized_features_tests` / `burn_after_read_route_tests` / `canonical_json_vectors` /
-    `guest_route_tests` / `key_backup_api_tests` / `key_rotation_route_tests` /
-    `key_rotation_service_tests` / `pinned_route_tests` / `push_notification_route_tests` /
-    `rate_limit_api_tests` / `security_endpoint_snapshots_tests` / `sso_cas_tests` / `voice_route_tests` /
-    `integration/sync_handlers_coverage_tests` / `integration/admin_registration_service_tests_migrated`。
-- **W8 已做的两处（样板）**：
-  1. `msc4108`：unit 文件删掉 12 个自证用例（`rg '^\s*let (status|body|headers) ='` 无命中），
-     只留路由台账 + `delete_success_response()` + `ApiError` 映射（都是真函数）；handler 的真实往返
-     新增 `tests/integration/msc4108_rendezvous_route_tests.rs`（12 条，真 router + 真库，覆盖
-     200/304/400/404/412/413/204 与 ETag 变化）。
-  2. `burn_after_read_route_tests`：它此前**只在 `--all-features` 车道**跑（默认车道不编译它），
-     已进默认 unit 车道（见 TEST-06）。它内部仍有"抄 handler 逻辑"的用例，未判定。
-- **仍开着**：29 个候选里 **13 个纯自证文件未改**、16 个未逐用例判定。**这一面没有缩小到可关闭**，
-  但已经从"21 个模糊候选"收敛成"13 + 16 两份带名字的清单"，下一批可直接按清单领取。
-- **影响**：这是"改坏了也绿"的极值形态。它比"只断言状态码"更危险 —— 后者至少在发真请求，
-  前者连请求都没有，却占用着"已覆盖"的名字与看板数字。
-- **修法**：不做启发式门禁（假阳性太高，同 NEW-04 的教训）。做法是**逐文件二选一**：
-  ① 接到真 router（`setup_fresh_test_app` + `oneshot`）/ 真函数上；
-  ② 若确实只能测形状，就**改名**去掉 `_route_tests` / `_api_tests`，并在文件头写明
-  "本文件只锁 JSON 形状，不覆盖路由行为"。
-  判据：把被测 handler 的返回字段改名 ⇒ 该文件必须红；改不红的就是②类。
+它不构造 router、不发请求、不碰 DB ⇒ **改坏生产 handler 也不会红**，而文件名是
+`*_api_tests.rs` / `*_route_tests.rs` —— 看板与审查者都以为这条链路被覆盖了。
 
-### TEST-05（P2）`sleep` 站点：三桶计数棘轮（2026-10-24 重写）
+**判定口径（定稿，写进 `scripts/ci/shape_only_test_matrix` 头部以免下一轮重猜）**：
 
-原条目写"27 处 / 14 文件"。实测（`tokio::time::sleep` + `thread::sleep`，含 `sleep(Duration…)`）
-是一个**混着三种东西**的集合，合成一个数字没有意义：
+- ① 接真（真 router + 真库，或真调生产函数）⇒ 文件名可以继续叫 `*_route_tests`；
+- ② 只能测形状 ⇒ 文件名必须带 `_shape_only_tests`，文件头 20 行内写明「只锁形状」，
+  并在 `scripts/ci/shape_only_test_matrix` 登记「真覆盖文件」或 `NONE`（= 已登记的覆盖缺口）。
 
-| 桶 | 含义 | 处数 | 判据 |
-|---|---|---|---|
-| `PROD` | 非测试文件、且不在 `#[cfg(test)]` 区里 | **26** | 多为重试退避 / 长轮询等待，**有正当理由**；但也是"启动时睡一下等对端"的藏身处 |
-| `TEST_INLINE` | 生产文件里的 `#[cfg(test)] mod` 内 | **34** | 纯 flake 面：`sleep(200ms)` 等后台任务跑完，机器慢就红 |
-| `TEST_FILE` | `tests/**` 与 `*_tests.rs` | **47** | 同上 |
-| 合计 | | **107** | |
+**做了什么（2026-10-24）**：
 
-> 三个数由 `python3 scripts/ci/check_sleep_ratchet.py --print` 现算（含逐文件明细）。
-> 早先记的 "27 / 14" 与上一轮记的 "90 / 43" 都不可复现：前者口径不明，后者只数了
-> `tokio::time::sleep` 且没区分 `cfg(test)`。**以脚本输出为准**。
+| 动作 | 数量 | 明细 |
+|---|---|---|
+| 改名 + 声明 + 登记（②） | **29** | 16 个来自"≥3 处本地字面量"的启发式候选（`captcha`/`e2ee`/`federation_cache`/`formatting`/`media`/`media_quota`/`reactions`/`refresh_token`/`registration_token`/`retention`/`server_notification`/`sliding_sync`/`admin`/`key_backup`/`rate_limit` + `integration/coverage`），**13 个是 C3 规则新发现的**（启发式漏掉的同模板文件：`admin_extra`/`app_service`/`background_update`/`event_report`/`federation`/`friend`/`module`/`push`/`room_summary`/`space`/`telemetry`/`thread`/`worker`）——它们的 `.get(..).is_some()` 形态不足 3 处，所以旧口径数不到 |
+| 保留原名（①/有效） | **15** | `*_{api,route}_tests.rs` 里仍在册的那些都**真的碰生产代码**（路由台账 `declared_ledger_all()`、DTO 反序列化与 validator、`resolve_rotation_interval_ms` 等），由门禁 C3 逐个核过 |
+| 真覆盖存在 | **5** | `e2ee`→`api_e2ee_advanced_tests`、`media`→`api_media_routes_tests`、`retention`→`api_room_retention_tests`、`key_backup`→`api_key_backup_route_table_tests`、`rate_limit`→`api_rate_limit_contract_tests`（门禁会验证这些文件**真的**发请求/碰 DB，填了不真的也算红） |
+| 覆盖缺口（登记为 `NONE`） | **24** | 这些端点族**至今没有任何 HTTP 往返用例** —— 见下面的新登记项 |
 
-**本轮新增门禁**：`scripts/ci/check_sleep_ratchet.py`（`scripts/ci/sleep_baseline`）——
-任一分桶增加即红；`--update` 只接受"变小"。**为什么不做逐处意图分类的自动判定**：
-`loop` / `select!` / `timeout` 的邻近关系判不出意图（`sleep(100ms)` 既可能是"等后台任务"
-也可能是"空闲轮询"），自动分桶会得出"已治理"的假象。门禁只做能被证明的"总量不增长"，
-逐处意图分类留在这张表 + 各文件的注释里。
+**新门禁** `scripts/ci/check_shape_only_tests.py`（接入 `preflight.sh`，每次提交都跑）：
 
-**典型站点（PROD 桶，值得单独看一眼的）**：
+- C1 登记：`*_shape_only_tests.rs` 必须在表里 + 文件头有声明（只有名字不算说清楚）；
+- C2 真覆盖：表里填的覆盖文件必须存在且含真实依赖标记（`oneshot`/`Request::builder`/
+  `create_router`/`setup_fresh_test_app`/`sqlx::query`）；
+- C3 名字承诺：`*_{api,route}_tests.rs` 必须「调生产符号」或「发请求」，否则红；
+- C4 过期条目：文件删了 / 声明被摘 / 改名没同步 ⇒ 红。
 
-| 站点 | 判断 |
-|---|---|
-| `synapse-federation/src/client.rs`（重试退避） | 正当：退避是必需的，且由 `delay` 决定 |
-| `synapse-services/src/sync_service/event_fetch.rs`（长轮询） | 正当：`poll_interval.min(remaining)` 有界 |
-| `synapse-common/src/test_isolation.rs` × 4（握手重试） | 正当：固定 `ACQUIRE_ATTEMPTS` + 线性退避 |
-| `synapse-web/src/routes/admin/server.rs`（重启等待） | 待评估：按 `delay_ms` 睡等自身重启，属"等固定窗口" |
-| `synapse-common/src/task_queue.rs`（空闲轮询 1s） | 待评估：可用 `NOTIFY`/stream 阻塞读替代 |
+**判据（实测）**：首次运行 C3 直接抓出 **13 个**启发式漏掉的文件（`admin_extra` 等），
+改名前 `结论：14 项违规`（含 `msc4108` 的误报 —— C3 最初只认 `synapse_*::`，已补"发请求也算"）；
+改名+登记后 `OK —— 29 个只锁形状、5 个有真覆盖、24 个缺口已登记`。
+**变异**：把 `captcha_shape_only_tests.rs` 的文件头声明删掉 ⇒ C1 红；把任一 `*_shape_only_tests.rs`
+改回 `*_api_tests.rs` ⇒ C3 红（两者都实测）。
 
-**已减少**：NEW-06 修掉 worker 里 4 个空壳分支的 `sleep(500/200/300/100ms)`，PROD 桶因此
-从 30 降到 26（基线是修完之后建立的，所以基线里已经是 26）。
-
-**仍开着**：81 处测试域 `sleep` 未逐处改造（改法是"等真实事件"：条件轮询 + deadline，
-或 `oneshot`/`notify`）。本轮的产出是**让它不再增长 + 有一份可引用的分布**，
-不是"清零"。
-
-### TEST-06（P2）5 个整文件以 feature 门控，默认测试不参与 —— ✅ 已关闭（W8）
-
-- **事实（重核）**：5 个文件是 `#![cfg(feature = …)]` **整文件**门控：`e2ee_audit_service_tests` /
-  `space_children_service_tests`（`test-utils`）、`burn_after_read_route_tests`（`burn-after-read`）、
-  `server_notification_service_tests`（`server-notifications`）、`api_widget_tests`（`widgets`）。
-  feature 不在车道的 feature 集里时它们**根本不参与编译**，nextest 连"0 个用例"都不打印。
-- **修法与判据**见[附录 D](#附录-d已关闭条目索引) 的 TEST-06 行（`check_test_feature_gates.py` +
-  `scripts/ci/feature_gated_test_matrix`，首次运行=红）。
+**残留（不在本条内，另登记为 NEW-09）**：24 个 `NONE` 是**真覆盖缺口**，不是"测过了"。
+本条只负责把"假的覆盖"变成"显式的缺口"，补真覆盖是另一件事（每个都要 `setup_fresh_test_app`
+- 注册用户 + 逐端点断言，属独立批次）。
 
 ---
 
@@ -587,6 +531,7 @@
 
 | 编号 | 一句话 | 关闭依据 |
 |---|---|---|
+| NEW-05 | 「自证测试」面：断言自己刚构造的字面量，文件名却声称覆盖 API/路由 | **逐文件判定完成（29 个）**：判定口径定稿为「①接真 ⇒ 可继续叫 `*_route_tests`；②只锁形状 ⇒ 文件名带 `_shape_only_tests` + 文件头声明 + 登记真覆盖文件或 `NONE`」。**16 个**来自原启发式候选、**13 个**是新门禁 C3 抓出来的同模板漏网文件（`admin_extra`/`app_service`/`background_update`/`event_report`/`federation`/`friend`/`module`/`push`/`room_summary`/`space`/`telemetry`/`thread`/`worker` —— 它们的 `.get(..).is_some()` 形态不足 3 处，旧口径数不到），全部改名 + 声明 + 登记；**15 个**仍在册的 `*_{api,route}_tests.rs` 都真碰生产代码（门禁 C3 逐个核过）。新门禁 `check_shape_only_tests.py`：C1 登记+声明 / C2 登记的"真覆盖"文件必须真的发请求或碰 DB / C3 名字承诺必须兑现 / C4 过期条目。**判据**：改名+登记后 `OK —— 29 个只锁形状（5 个有真覆盖 / 24 个已登记缺口）`；变异实测：删掉 `captcha_shape_only_tests.rs` 的声明 ⇒ C1 红；把任一 `*_shape_only_tests.rs` 改回 `*_api_tests.rs` ⇒ C3 红。**未做**：24 个 `NONE` 是真覆盖缺口，另登记为 NEW-09 |
 | TEST-02 | 断言强度不足（原记 6 个文件只断言状态码） | 3 个文件补了 `errcode` + 字段断言（403/401/404）、2 个判定不适用（安全头 / 路由台账），本轮把**最后一个盲区** `msc4108` 收口：unit 文件删掉 12 个自证用例（`let status = StatusCode::OK; assert_eq!(status, StatusCode::OK)` 形态），handler 的真实往返新增 `tests/integration/msc4108_rendezvous_route_tests.rs` —— **12 条真 router + 真库**用例，覆盖 200+ETag/Expires/Last-Modified/Cache-Control/Pragma、304（If-None-Match 命中，无 body）、400（缺/错 Content-Type，`M_MISSING_PARAM` / `M_INVALID_PARAM`）、413（`M_TOO_LARGE`）、404（GET/DELETE 未知会话，`M_NOT_FOUND`）、412（If-Match 过期，`org.matrix.msc4108.errcode = M_CONCURRENT_WRITE`）、202+新 ETag+落库、204 后 GET 变 404。**实测**：`--test integration --features test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications,widgets -E 'test(msc4108_rendezvous_route_tests) \/ …'` = **47 passed**（其中 msc4108 12 条）。**变异**：把期望 errcode 改成 `M_UNKNOWN` ⇒ `left: "M_MISSING_PARAM" / right: "M_UNKNOWN"` 红（实测，已还原） |
 | TEST-06 | 5 个**整文件** feature 门控的测试文件在默认车道不参与 | **先红后绿**：新建 `scripts/ci/check_test_feature_gates.py` + 登记表 `scripts/ci/feature_gated_test_matrix`（C1 扫描 `git ls-files tests` 的 `#![cfg(feature = "…")]`、C2 要求 ci.yml 的一条 `nextest run --test <target>` **显式启用**该 feature（用 `--all-features` 命中的行会被单列为 `ALL_FEATURES`，不允许混成一个绿）、C3 反向查过期登记）。**首次运行 = 红**：3 个 integration 文件「无车道」、2 个 unit 文件「仅 ALL_FEATURES」。改法：默认 unit 车道的 `--features test-utils` → `test-utils,burn-after-read,server-notifications`（`ci.yml` 与 `scripts/ci_backend_validation.sh` 同步），并为 3 个 integration 文件新增一条显式 feature 车道（`require_tests_ran.sh` 包裹，命中 0 个用例即失败）。**实测**：`cargo nextest run --test unit --features test-utils,burn-after-read,server-notifications -E 'test(burn_after_read_route_tests) \/ test(server_notification_service_tests)'` = **86 passed**；integration 那条 = `e2ee_audit_service_tests` + `space_children_service_tests` + `api_widget_tests` 全绿。**踩到的坑**：integration target 的 `required-features` 是 6 个（`test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications`），只写 `test-utils,widgets` 会被 cargo 直接拒（exit 101）—— 这条只有真跑才会发现 |
 | NEW-03 | 依赖分裂组数与处置进度整表过期（38 → 32 组） | `docs/synapse-rust/DEPENDENCY_UPGRADE_TRACKER.md` 按 `cargo tree -d --workspace --locked` **现算重写**：统计口径写进 §0（列 0 行 → 按 crate 名连续聚合 → 47 名 → **32 分裂组 + 15 同版本多来源**，附「不加 `--workspace` 会得 80 名/31 组」的反例）。§2 从「10 族 / 38 组」改为「**11 族 / 32 组**（16+4+3+2+1×7）」，并把「哪 6 组消失了」回答掉：`aead`/`aes`/`chacha20`/`chacha20poly1305`/`cipher`/`inout`/`poly1305`/`universal-hash` 8 组 + `socket2` + `typenum` 已收敛（进 §1 已消除表），新增 `deadpool`/`deadpool-runtime`/`num-bigint` 归入 §3.4。§3.1 的逐组引入者 14 行全部用 `cargo tree -i <crate>@<ver> --depth 1 --workspace --locked` 重跑，**推翻了旧结论**「本项目直连旧一代 RustCrypto」——`sha2 0.11` / `hkdf 0.13` / `hmac 0.13` 的直连侧已在新一代，唯一还能本地收窄的是 `ed25519-dalek 2 → 3`。§4「需上游升级 32 组」→ 31 组 |

@@ -1,0 +1,45 @@
+# 只锁形状（`*_shape_only_tests.rs`）的测试文件登记表（W8 / NEW-05）
+#
+# 为什么要有这张表：一批测试文件的断言对象是**自己刚构造的字面量**，不构造 router、不发请求、
+# 不碰 DB —— 改坏生产 handler 也不会红，但文件名 `*_api_tests.rs` / `*_route_tests.rs` 让人
+# 以为这条链路有 HTTP 覆盖。2026-10-24 逐文件判定后 29 个文件改名为 `*_shape_only_tests.rs`
+# + 文件头声明；这张表把「那这条链路到底有没有真覆盖」记下来。
+#
+# 格式：`<只锁形状的文件>|<真覆盖文件或 NONE>`
+#   * `tests/integration/xxx.rs` ⇒ 校验器会检查该文件**真的**发请求 / 碰 DB
+#     （`oneshot` / `Request::builder` / `create_router` / `setup_fresh_test_app` / `sqlx::query`）；
+#   * `NONE` ⇒ **已登记的覆盖缺口**（允许存在，但单独计数；不许悄悄消失，也不许假装有覆盖）。
+#
+# 判定口径（写在这里免得下一轮重猜）：
+#   ① 接真（真 router + 真库 / 真调生产函数）⇒ 不进本表，名字可继续叫 `*_route_tests`；
+#   ② 只锁形状 ⇒ 名字必须带 `_shape_only_tests`，文件头 20 行内写明「只锁形状」，登记在本表。
+
+tests/unit/captcha_shape_only_tests.rs|NONE
+tests/unit/e2ee_shape_only_tests.rs|tests/integration/api_e2ee_advanced_tests.rs
+tests/unit/federation_cache_shape_only_tests.rs|NONE
+tests/unit/formatting_shape_only_tests.rs|NONE
+tests/unit/media_shape_only_tests.rs|tests/integration/api_media_routes_tests.rs
+tests/unit/media_quota_shape_only_tests.rs|NONE
+tests/unit/reactions_shape_only_tests.rs|NONE
+tests/unit/refresh_token_shape_only_tests.rs|NONE
+tests/unit/registration_token_shape_only_tests.rs|NONE
+tests/unit/retention_shape_only_tests.rs|tests/integration/api_room_retention_tests.rs
+tests/unit/server_notification_shape_only_tests.rs|NONE
+tests/unit/sliding_sync_shape_only_tests.rs|NONE
+tests/unit/admin_shape_only_tests.rs|NONE
+tests/unit/key_backup_shape_only_tests.rs|tests/integration/api_key_backup_route_table_tests.rs
+tests/unit/rate_limit_shape_only_tests.rs|tests/integration/api_rate_limit_contract_tests.rs
+tests/integration/coverage_shape_only_tests.rs|NONE
+tests/unit/admin_extra_shape_only_tests.rs|NONE
+tests/unit/app_service_shape_only_tests.rs|NONE
+tests/unit/background_update_shape_only_tests.rs|NONE
+tests/unit/event_report_shape_only_tests.rs|NONE
+tests/unit/federation_shape_only_tests.rs|NONE
+tests/unit/friend_shape_only_tests.rs|NONE
+tests/unit/module_shape_only_tests.rs|NONE
+tests/unit/push_shape_only_tests.rs|NONE
+tests/unit/room_summary_shape_only_tests.rs|NONE
+tests/unit/space_shape_only_tests.rs|NONE
+tests/unit/telemetry_shape_only_tests.rs|NONE
+tests/unit/thread_shape_only_tests.rs|NONE
+tests/unit/worker_shape_only_tests.rs|NONE

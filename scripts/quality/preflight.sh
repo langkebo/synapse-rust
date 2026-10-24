@@ -143,6 +143,12 @@ run "check_sleep_ratchet.py" python3 scripts/ci/check_sleep_ratchet.py
 step "测试：整文件 feature 门控的覆盖（TEST-06）"
 run "check_test_feature_gates.py" python3 scripts/ci/check_test_feature_gates.py
 
+# 「自证测试」面（NEW-05）：`*_shape_only_tests.rs` 必须登记 + 文件头声明，且登记的真覆盖文件
+# 真的发请求/碰 DB；`*_{api,route}_tests.rs` 要么调生产符号、要么发请求，否则就是"名字在
+# 声称覆盖、内容在自己造字面量"。静态检查（~40ms），与改动集无关 ⇒ 每次都跑。
+step "测试：只锁形状的测试文件必须自报家门（NEW-05）"
+run "check_shape_only_tests.py" python3 scripts/ci/check_shape_only_tests.py
+
 step "Schema：updated_ts 可空性棘轮"
 run "check_schema_timestamp_convention.py" python3 scripts/ci/check_schema_timestamp_convention.py
 
