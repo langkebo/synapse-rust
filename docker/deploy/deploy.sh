@@ -1775,6 +1775,7 @@ LOG_WARNING_ALLOWLIST=(
     'update-alternatives|基础镜像包安装信息'
     'rehash: warning: skipping ca-certificates.crt|基础镜像 ca-certificates 提示'
     'Server-side Megolm rotation is not running|server.megolm_device_id 未设置时的预期状态：本项目 Megolm 在客户端持有（Matrix 标准模型），仅服务端会话部署才需配置该键'
+    'Prometheus /metrics 允许匿名抓取|SEC-04 的显式设计：部署栈 Prometheus 走容器内网直连 synapse-app:9090 抓取，故 homeserver.yaml 声明 public=true；docker-compose.yml 已将 9090 仅绑定 127.0.0.1，nginx 也未代理该端口，公网不可达'
     'Rate limiting is DISABLED|测试/联调阶段显式关闭 rate_limit.enabled（审计 §6.5）；恢复 true 后该告警自动消失'
     'Login lockout is DISABLED|测试/联调阶段显式关闭 security.login_lockout_enabled（审计 §6.5）；恢复 true 后该告警自动消失'
 )
