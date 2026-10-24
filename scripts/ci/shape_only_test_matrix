@@ -20,7 +20,7 @@ tests/unit/federation_cache_shape_only_tests.rs|NONE
 tests/unit/formatting_shape_only_tests.rs|NONE
 tests/unit/media_shape_only_tests.rs|tests/integration/api_media_routes_tests.rs
 tests/unit/media_quota_shape_only_tests.rs|NONE
-tests/unit/reactions_shape_only_tests.rs|NONE
+tests/unit/reactions_shape_only_tests.rs|tests/integration/api_reactions_send_routes_tests.rs
 tests/unit/refresh_token_shape_only_tests.rs|NONE
 tests/unit/registration_token_shape_only_tests.rs|NONE
 tests/unit/retention_shape_only_tests.rs|tests/integration/api_room_retention_tests.rs
