@@ -24,7 +24,7 @@ tests/unit/reactions_shape_only_tests.rs|tests/integration/api_reactions_send_ro
 tests/unit/refresh_token_shape_only_tests.rs|NONE
 tests/unit/registration_token_shape_only_tests.rs|NONE
 tests/unit/retention_shape_only_tests.rs|tests/integration/api_room_retention_tests.rs
-tests/unit/server_notification_shape_only_tests.rs|NONE
+tests/unit/server_notification_shape_only_tests.rs|tests/integration/api_server_notification_admin_routes_tests.rs
 tests/unit/sliding_sync_shape_only_tests.rs|NONE
 tests/unit/admin_shape_only_tests.rs|NONE
 tests/unit/key_backup_shape_only_tests.rs|tests/integration/api_key_backup_route_table_tests.rs
