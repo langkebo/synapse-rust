@@ -32,7 +32,7 @@ tests/unit/rate_limit_shape_only_tests.rs|tests/integration/api_rate_limit_contr
 tests/integration/coverage_shape_only_tests.rs|NONE
 tests/unit/admin_extra_shape_only_tests.rs|NONE
 tests/unit/app_service_shape_only_tests.rs|tests/integration/api_appservice_p1_tests.rs
-tests/unit/background_update_shape_only_tests.rs|NONE
+tests/unit/background_update_shape_only_tests.rs|tests/integration/api_background_update_routes_tests.rs
 tests/unit/event_report_shape_only_tests.rs|tests/integration/api_room_event_report_routes_tests.rs
 tests/unit/federation_shape_only_tests.rs|tests/integration/api_federation_tests.rs
 tests/unit/friend_shape_only_tests.rs|tests/integration/api_friend_routes_tests.rs

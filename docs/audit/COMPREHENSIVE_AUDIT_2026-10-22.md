@@ -18,14 +18,14 @@
 | 功能完整性 | 0 | 0 | 1 | 0 | 1 |
 | 性能（含数据层） | 0 | 0 | 1 | 2 | 3 |
 | 安全性 | 0 | 0 | 0 | 5 | 5 |
-| 可维护性 | 0 | 0 | 1 | 0 | 1 |
+| 可维护性 | 0 | 0 | 1 | 1 | 2 |
 | 测试覆盖 | 0 | 0 | 0 | 2 | 2 |
 | 文档完整性 | 0 | 0 | 0 | 0 | 0 |
 | 专项：冗余与过度开发 | 0 | 0 | 0 | 0 | 0 |
-| **合计** | **0** | **0** | **6** | **11** | **17** |
+| **合计** | **0** | **0** | **6** | **12** | **18** |
 
-> 计数口径（2026-10-25 05:25 逐条重算）：**P0 = 0，P1 = 0，P2 = 6，P3 = 11，合计 17**。
-> 来源 = §0.1 的 5 条 open `NEW-*`（NEW-09 / NEW-10 / NEW-11 / NEW-13 / NEW-14）、
+> 计数口径（2026-10-25 05:45 逐条重算）：**P0 = 0，P1 = 0，P2 = 6，P3 = 12，合计 18**。
+> 来源 = §0.1 的 6 条 open `NEW-*`（NEW-09 / NEW-10 / NEW-11 / NEW-13 / NEW-15，NEW-14 已关闭）、
 > §0.2.2 的 2 条，以及 §0.2.3 的 11 条。
 > ✅ **NEW-14 已收口**：C3 审计面 15 → 95 个文件（零误伤），14 个 `NONE` 族已逐族重跑 ⇒
 > 4 族误判（改登记）、3 族幽灵、7 族真缺口（见 §0.1.1）。
@@ -68,6 +68,7 @@
 | **NEW-10** | P3 | 4 个"已带 `break` 条件的轮询循环"仍用裸 `sleep(50ms)` 做间隔（`room_service_tests_migrated` ×3、`api_msc3912_redaction_cascade_tests` ×1） | 折叠成 `tests/common/wait_until(deadline)` 可少 4 个站点并统一超时失败信息；但每个都要改完立刻跑一次真库用例（改坏的表现是"偶发超时"，静态检查看不出来）⇒ 独立一笔 |
 | **NEW-09** | P3 | 只锁形状的测试文件里曾有 **24 个端点族没有 HTTP 往返用例**（`shape_only_test_matrix` 里写 `NONE`）—— **三波补 8 族**（一：`push`/`event_report`/`reactions`；二：`friend`/`telemetry`/`server_notification`；三：`space`/`thread`），**另更正 6 族误判**（`room_summary`/`federation`，以及 NEW-14 重跑查出的 `admin`/`app_service`/`federation_cache`/`worker`）；**真缺口只剩 7 族**，另有 **3 族是"幽灵族"**（见 §0.1.1） | 逐族「`setup_fresh_test_app` + 注册用户/建房 + 断言 status/body/errcode」，每族一笔提交、每笔把登记行从 `NONE` 换成真覆盖文件（C2 会验证该文件**确实**发请求）。判据：三波 33 条用例全绿；守卫 `有真覆盖 19 / 已登记缺口 10`。**7 个真缺口**：`background_update`（19 条路由 0 测试）、`captcha`（HTTP 层）、`media_quota`（`/quota/check`、`/quota/stats`、`/delete/{server}/{media_id}`）、`module`（23 条路由）、`refresh_token`（只有挂载烟测，无轮换语义）、`registration_token`（只有台账快照）、`sliding_sync`（只有 service/storage 级） |
 | **NEW-13** | P2 | `thread` 有两处 **MSC3440 偏差**：① 标准 `/send` 带 `m.relates_to.rel_type=m.thread` **不登记线程根**（事件写进去了，随后 `GET /threads/{root}` 回 404 `Thread not found`）；② 本仓 `thread_id` 是服务端生成的 `$<uuid>`（`thread_service::create_thread`），**不等于根事件 id** —— MSC3440 客户端用根事件 id 当 `thread_id`，因此对外部客户端而言线程"写了但读不到" | 修 ① 要在 `/send` 落库路径里检测 `m.thread` 关系并 upsert 线程根（与 vendor 的 `create_thread` 走同一服务方法）；修 ② 要动 `thread_roots.thread_id` 的语义（回填成根事件 id并迁移既有行）—— 两者都属协议兼容改动，需单独排期；本轮只把它们**钉成可复现的测试事实** （`tests/integration/api_thread_read_routes_tests.rs` 的主干用例显式断言 `thread_id != root`） |
+| **NEW-15** | P3 | **删除语义不对称**：`DELETE /_synapse/admin/v1/background_updates/{job}` 对**未知任务返回 204**（`background_update_service::delete_update` 只调 `storage.delete_update`，不查存在性），而 `DELETE /registration_tokens/{token}` 会先 `get_token` 再删、未知返回 404 | 写 `api_background_update_routes_tests` 时实测（同一场景两条断言：GET 404 / DELETE 204）。DELETE 幂等返回 204 本身符合 HTTP 语义，但**打错任务名的删除会静默成功**，运维会以为删掉了。两条路统一成哪种（都 404 / 都 204）属 API 契约决策，需要单独裁决；当前测试钉住的是**实际行为**，不是理想行为 |
 
 ### 0.1.1 NEW-14 重跑结果：14 个 `NONE` 族的逐族判定（2026-10-25）
 

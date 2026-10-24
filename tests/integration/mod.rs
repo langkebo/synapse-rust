@@ -10,6 +10,7 @@ mod api_admin_user_lifecycle_tests;
 mod api_appservice_p1_tests;
 mod api_appservice_tests;
 mod api_auth_routes_tests;
+mod api_background_update_routes_tests;
 mod api_beacon_location_tests;
 #[cfg(feature = "burn-after-read")]
 mod api_burn_after_read_redaction_tests;
