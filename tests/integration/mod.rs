@@ -54,6 +54,7 @@ mod api_public_rooms_tests;
 mod api_push_pushers_routes_tests;
 mod api_rate_limit_contract_tests;
 mod api_reactions_send_routes_tests;
+mod api_refresh_token_routes_tests;
 mod api_registration_token_admin_routes_tests;
 mod api_relations_authorization_tests;
 mod api_rendezvous_routes_tests;

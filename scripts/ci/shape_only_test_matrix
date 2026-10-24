@@ -21,7 +21,7 @@ tests/unit/formatting_shape_only_tests.rs|NONE
 tests/unit/media_shape_only_tests.rs|tests/integration/api_media_routes_tests.rs
 tests/unit/media_quota_shape_only_tests.rs|tests/integration/api_media_quota_routes_tests.rs
 tests/unit/reactions_shape_only_tests.rs|tests/integration/api_reactions_send_routes_tests.rs
-tests/unit/refresh_token_shape_only_tests.rs|NONE
+tests/unit/refresh_token_shape_only_tests.rs|tests/integration/api_refresh_token_routes_tests.rs
 tests/unit/registration_token_shape_only_tests.rs|tests/integration/api_registration_token_admin_routes_tests.rs
 tests/unit/retention_shape_only_tests.rs|tests/integration/api_room_retention_tests.rs
 tests/unit/server_notification_shape_only_tests.rs|tests/integration/api_server_notification_admin_routes_tests.rs

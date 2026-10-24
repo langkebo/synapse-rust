@@ -17,15 +17,15 @@
 | 代码质量 | 0 | 0 | 1 | 1 | 2 |
 | 功能完整性 | 0 | 0 | 2 | 0 | 2 |
 | 性能（含数据层） | 0 | 0 | 1 | 3 | 4 |
-| 安全性 | 0 | 0 | 0 | 5 | 5 |
+| 安全性 | 0 | 0 | 1 | 5 | 6 |
 | 可维护性 | 0 | 0 | 1 | 1 | 2 |
 | 测试覆盖 | 0 | 0 | 0 | 2 | 2 |
 | 文档完整性 | 0 | 0 | 0 | 0 | 0 |
 | 专项：冗余与过度开发 | 0 | 0 | 0 | 0 | 0 |
-| **合计** | **0** | **0** | **7** | **13** | **20** |
+| **合计** | **0** | **0** | **8** | **13** | **21** |
 
-> 计数口径（2026-10-25 06:05 逐条重算）：**P0 = 0，P1 = 0，P2 = 7，P3 = 13，合计 20**。
-> 来源 = §0.1 的 8 条 open `NEW-*`（NEW-09 / NEW-10 / NEW-11 / NEW-13 / NEW-15 / NEW-16 / NEW-17，NEW-14 已关闭）、
+> 计数口径（2026-10-25 06:15 逐条重算）：**P0 = 0，P1 = 0，P2 = 8，P3 = 13，合计 21**。
+> 来源 = §0.1 的 9 条 open `NEW-*`（NEW-09 / NEW-10 / NEW-11 / NEW-13 / NEW-15 / NEW-16 / NEW-17 / NEW-18，NEW-14 已关闭）、
 > §0.2.2 的 2 条，以及 §0.2.3 的 11 条。
 > ✅ **NEW-14 已收口**：C3 审计面 15 → 95 个文件（零误伤），14 个 `NONE` 族已逐族重跑 ⇒
 > 4 族误判（改登记）、3 族幽灵、7 族真缺口（见 §0.1.1）。
@@ -71,6 +71,7 @@
 | **NEW-15** | P3 | **删除语义不对称**：`DELETE /_synapse/admin/v1/background_updates/{job}` 对**未知任务返回 204**（`background_update_service::delete_update` 只调 `storage.delete_update`，不查存在性），而 `DELETE /registration_tokens/{token}` 会先 `get_token` 再删、未知返回 404 | 写 `api_background_update_routes_tests` 时实测（同一场景两条断言：GET 404 / DELETE 204）。DELETE 幂等返回 204 本身符合 HTTP 语义，但**打错任务名的删除会静默成功**，运维会以为删掉了。两条路统一成哪种（都 404 / 都 204）属 API 契约决策，需要单独裁决；当前测试钉住的是**实际行为**，不是理想行为 |
 | **NEW-16** | P3 | **不限额时 `remaining` 报 0**：`GET /_matrix/media/v1/quota/check` 用 `if used >= limit { 0 } else { limit - used }` 算剩余空间，而 `limit == 0` 在本仓表示**不限额**（写入路径靠 `if max_storage > 0` 才拦，实测 limit=0 时上传成功）⇒ 不限额的用户看到的是"剩余 0 字节"，客户端会渲染成"空间已满" | 写 `api_media_quota_routes_tests` 时实测（默认配置 `{"limit":0,"used":0,"remaining":0}`，同一条链上传 1KB 成功且 `used` 正常增长）。修法是把 `limit == 0` 明确映射成 `remaining: null`（或 `limit: null`），属对外 JSON 契约变更，需与客户端确认后再改；测试当前断言**实际行为**并在注释里标 NEW-16 |
 | **NEW-17** | P2 | **滑动同步的 `rooms` 结构不符合 MSC3575/MSC4186**：规范要求 `rooms: {join: {<room_id>: …}, invite: …, leave: …}`，本仓返回**扁平**的 `rooms: {<room_id>: …}`（`sliding_sync_service::filters::build_rooms_response` 里直接 `rooms_json.insert(room_id, payload)`，没有按 membership 分组）⇒ 按规范读 `rooms.join` 的客户端会拿到 `undefined`，**房间列表显示为空**（`lists.<key>.ops[].room_ids` 是对的，但客户端只用它算增量，房间内容仍从 `rooms.join` 取） | 写 `api_sliding_sync_routes_tests` 时实测（首轮断言 `rooms.join` 直接红，响应里 `rooms` 的键就是 `!room:server`）。修法：`build_rooms_response` 末尾按 membership 分三层（join/invite/leave）包装，属对外 JSON 契约变更 + 需要同步改 service 层单测；测试当前断言**实际形状**并在注释里标 NEW-17（修好后该用例会红，按 `rooms.join[...]` 改断言） |
+| **NEW-18** | P2 | **refresh token 复用检测只吊销 refresh_tokens，不断已下发的 access token**：`auth::session::refresh_token` 命中 `is_revoked` 时调 `revoke_all_user_tokens`，但该函数（`synapse-storage/src/refresh_token/mod.rs:624`）只 `UPDATE refresh_tokens … WHERE user_id=$1`，**不触碰 access token** ⇒ 检出重放后，被盗方/攻击方手里已下发的 access token 仍可用到自然过期 | 写 `api_refresh_token_routes_tests` 时实测：复用旧 refresh_token ⇒ 401（这一半是对的），但紧接着用**同一个会话新拿到的 access_token** 打 `/account/whoami` 仍返回 200。修法：复用命中时同时吊销该用户/该设备的 access token（或删 device 会话），并在 `security_audit` 里记录吊销数量；测试当前断言**实际行为**并在注释标 NEW-18（修好后该用例会红、按 401 改断言） |
 
 ### 0.1.1 NEW-14 重跑结果：14 个 `NONE` 族的逐族判定（2026-10-25）
 

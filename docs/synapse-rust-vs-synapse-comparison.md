@@ -420,8 +420,8 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 
 | 维度 | Synapse (Python) | synapse-rust |
 |------|-------------------|--------------|
-| **测试文件数** | ~500+ 测试文件 | 392 个文件（`git ls-files tests \| wc -l`，其中 `.rs` 304 个；另有各 crate 内联 `#[cfg(test)]` 模块）—— 数字由 `scripts/ci/check_doc_metrics.py` 校验 |
-| **测试分层** | Unit + Integration + System tests | 4 层：`tests/unit`(130 文件) + `tests/integration`(163) + `tests/e2e`(3) + `tests/performance`(5) |
+| **测试文件数** | ~500+ 测试文件 | 393 个文件（`git ls-files tests \| wc -l`，其中 `.rs` 305 个；另有各 crate 内联 `#[cfg(test)]` 模块）—— 数字由 `scripts/ci/check_doc_metrics.py` 校验 |
+| **测试分层** | Unit + Integration + System tests | 4 层：`tests/unit`(130 文件) + `tests/integration`(164) + `tests/e2e`(3) + `tests/performance`(5) |
 | **Mock 方式** | mock + patch | mockall 0.13 + wiremock 0.6 + insta 快照（Cargo.lock 实锁 1.48.0） |
 | **属性测试** | 无 | quickcheck 1.1（仅用于 `synapse-common/src/validation.rs` 的输入校验，覆盖面有限） |
 | **基准测试** | 基本无 | criterion 0.5（5 个 benchmark 套件） |
