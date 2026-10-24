@@ -19,19 +19,19 @@
 | 性能（含数据层） | 0 | 0 | 1 | 2 | 3 |
 | 安全性 | 0 | 0 | 0 | 5 | 5 |
 | 可维护性 | 0 | 0 | 1 | 0 | 1 |
-| 测试覆盖 | 0 | 0 | 1 | 2 | 3 |
+| 测试覆盖 | 0 | 0 | 0 | 2 | 2 |
 | 文档完整性 | 0 | 0 | 0 | 0 | 0 |
 | 专项：冗余与过度开发 | 0 | 0 | 0 | 0 | 0 |
-| **合计** | **0** | **0** | **7** | **11** | **18** |
+| **合计** | **0** | **0** | **6** | **11** | **17** |
 
-> 计数口径（2026-10-25 05:10 逐条重算）：**P0 = 0，P1 = 0，P2 = 7，P3 = 11，合计 18**。
+> 计数口径（2026-10-25 05:25 逐条重算）：**P0 = 0，P1 = 0，P2 = 6，P3 = 11，合计 17**。
 > 来源 = §0.1 的 5 条 open `NEW-*`（NEW-09 / NEW-10 / NEW-11 / NEW-13 / NEW-14）、
 > §0.2.2 的 2 条，以及 §0.2.3 的 11 条。
-> ⚠️ **NEW-14 质疑「缺口数」本身**：NEW-09 的 14 来自一个只审计 15/94 个文件的判据，
-> 在 C3 扩面之前它是**上界**，不是实测缺口数。
+> ✅ **NEW-14 已收口**：C3 审计面 15 → 95 个文件（零误伤），14 个 `NONE` 族已逐族重跑 ⇒
+> 4 族误判（改登记）、3 族幽灵、7 族真缺口（见 §0.1.1）。
 > `NEW-08` 已于 2026-10-25 关闭（`device_sync.rs` 整模块删除，判据与变异证据见附录 D），不再计入。
 > 其中 **14 条是"登记项"**（明确不做或只等外部条件），真正还没动手的只有
-> NEW-09（**14** 个端点族仍无 HTTP 往返用例；三波已补 8 族、并更正 2 族误判，见该行）与
+> NEW-09（**7** 个端点族仍无 HTTP 往返用例；三波补 8 族、另更正 6 族误判、3 族幽灵，见 §0.1.1）与
 > NEW-11（state 组装层未共享）。
 
 **结论摘要**：**P0 = 0，P1 = 0**（原 9 条 P1 全部有实现 + 能失败的门禁，逐条见附录 D）。
@@ -66,9 +66,37 @@
 |---|---|---|---|
 | **NEW-11** | P3 | `sync` 与滑动同步的 **state 组装层**（`lazy_load` / `required_state` / MSC4222 `state_after`）仍各写一遍 —— ARCH-02 只共享了 **timeline** 层 | 要先写「同一房间状态下两条路径的**可见状态集合**一致」的等价断言（懒加载成员集 + `include_redundant_members` + `state_after` 三组语义），没有断言就不抽 —— 与 ARCH-02 同一条原则 |
 | **NEW-10** | P3 | 4 个"已带 `break` 条件的轮询循环"仍用裸 `sleep(50ms)` 做间隔（`room_service_tests_migrated` ×3、`api_msc3912_redaction_cascade_tests` ×1） | 折叠成 `tests/common/wait_until(deadline)` 可少 4 个站点并统一超时失败信息；但每个都要改完立刻跑一次真库用例（改坏的表现是"偶发超时"，静态检查看不出来）⇒ 独立一笔 |
-| **NEW-09** | P3 | 只锁形状的测试文件里曾有 **24 个端点族没有 HTTP 往返用例**（`shape_only_test_matrix` 里写 `NONE`）—— **三波共补 8 族**（一：`push`/`event_report`/`reactions`；二：`friend`/`telemetry`/`server_notification`；三：`space`/`thread`）+ **更正 2 族误判**（`room_summary`/`federation` 其实早有真覆盖，见 NEW-14），**剩 14 族** | 逐族「`setup_fresh_test_app` + 注册用户/建房 + 断言 status/body/errcode」，每族一笔提交、每笔都把登记行从 `NONE` 换成真覆盖文件（`check_shape_only_tests.py` 的 C2 会验证该文件**确实**发请求）。判据：三波共 33 条用例全绿（push/event_report/reactions/friend/telemetry/server_notification/space 各 4 条，thread 5 条）；守卫实测 `有真覆盖 15 / 缺口 14`（三波新增 8 个 integration 文件，按「每族一笔提交」落地）。剩下 21 族里较易：`room_summary` / `thread` / `space` / `friend` / `refresh_token` / `registration_token`；较难（要外部角色或签名）：`app_service` / `module` / `worker` / `federation` / `federation_cache` / `admin_extra` |
+| **NEW-09** | P3 | 只锁形状的测试文件里曾有 **24 个端点族没有 HTTP 往返用例**（`shape_only_test_matrix` 里写 `NONE`）—— **三波补 8 族**（一：`push`/`event_report`/`reactions`；二：`friend`/`telemetry`/`server_notification`；三：`space`/`thread`），**另更正 6 族误判**（`room_summary`/`federation`，以及 NEW-14 重跑查出的 `admin`/`app_service`/`federation_cache`/`worker`）；**真缺口只剩 7 族**，另有 **3 族是"幽灵族"**（见 §0.1.1） | 逐族「`setup_fresh_test_app` + 注册用户/建房 + 断言 status/body/errcode」，每族一笔提交、每笔把登记行从 `NONE` 换成真覆盖文件（C2 会验证该文件**确实**发请求）。判据：三波 33 条用例全绿；守卫 `有真覆盖 19 / 已登记缺口 10`。**7 个真缺口**：`background_update`（19 条路由 0 测试）、`captcha`（HTTP 层）、`media_quota`（`/quota/check`、`/quota/stats`、`/delete/{server}/{media_id}`）、`module`（23 条路由）、`refresh_token`（只有挂载烟测，无轮换语义）、`registration_token`（只有台账快照）、`sliding_sync`（只有 service/storage 级） |
 | **NEW-13** | P2 | `thread` 有两处 **MSC3440 偏差**：① 标准 `/send` 带 `m.relates_to.rel_type=m.thread` **不登记线程根**（事件写进去了，随后 `GET /threads/{root}` 回 404 `Thread not found`）；② 本仓 `thread_id` 是服务端生成的 `$<uuid>`（`thread_service::create_thread`），**不等于根事件 id** —— MSC3440 客户端用根事件 id 当 `thread_id`，因此对外部客户端而言线程"写了但读不到" | 修 ① 要在 `/send` 落库路径里检测 `m.thread` 关系并 upsert 线程根（与 vendor 的 `create_thread` 走同一服务方法）；修 ② 要动 `thread_roots.thread_id` 的语义（回填成根事件 id并迁移既有行）—— 两者都属协议兼容改动，需单独排期；本轮只把它们**钉成可复现的测试事实** （`tests/integration/api_thread_read_routes_tests.rs` 的主干用例显式断言 `thread_id != root`） |
-| **NEW-14** | P2 | 「缺口清单不可信」：`check_shape_only_tests.py` 的 **C3 只审计 `*_api_tests.rs` / `*_route_tests.rs` 后缀**（实测 **15** 个文件），而仓里 **79** 个 `tests/integration/api_<family>_tests.rs`（其中 **78** 个真发请求）**完全不在 C3 视野内** ⇒ NEW-05 当初判定的「24 个缺口」里至少 `room_summary` / `federation` 两族是**误判**（早有真覆盖） | 先把 C3 的匹配面扩到 `api_*_tests.rs` 与 `*_routes_tests.rs`，再重跑一遍 14 个 `NONE` 族逐条核对；扩面会一次暴露一批「名字像覆盖、其实只锁形状」的文件（预期数十），属独立批次，不宜混在补用例的提交里。当前已按证据改掉 2 行（`room_summary`→`api_room_summary_routes_tests.rs`、`federation`→`api_federation_tests.rs`），`worker` / `admin` 仍是**待核**（有候选文件但未证实同族） |
+
+### 0.1.1 NEW-14 重跑结果：14 个 `NONE` 族的逐族判定（2026-10-25）
+
+判据不是"看文件名"，而是三步：**①** 从 shape-only 文件头解析它声称的路由模块；**②** 从该模块
+（含子目录）抽 `"/…"` 端点字面量；**③** 在**含真实依赖标记**（`oneshot` / `Request::builder` /
+`setup_fresh_test_app` / `create_router` / `sqlx::query`）的测试文件里找这些端点。只有第 ③ 步
+命中才算"有覆盖"，否则是真缺口。
+
+| 族 | 声称模块 | 实测证据 | 判定 |
+|---|---|---|---|
+| `admin` | `routes/admin/`（目录） | `api_admin_rbac_wire_tests.rs`（5 用例）真打 `/_synapse/admin/v1/users` | 误判，已改登记 |
+| `app_service` | `routes/app_service.rs` | `api_appservice_p1_tests.rs`（15 用例）用 `oneshot` 打 `/_matrix/app/v1/ping` 等 | 误判，已改登记 |
+| `federation_cache` | 无此文件（端点在 `routes/admin/`） | `api_admin_federation_tests.rs`（13 用例 / 80 处标记）打 `/_synapse/admin/v1/federation/cache*` | 误判，已改登记 |
+| `worker` | `routes/worker.rs`（MSC4140） | `api_delayed_event_schedule_tests.rs`（23 处标记）打 `delayed_events` | 误判，已改登记 |
+| `admin_extra` | `routes/admin_extra.rs` | **全仓无 `admin_extra` 生产引用**（`synapse-web` 里 0 命中） | **幽灵族**：镜像了一个不存在的模块 |
+| `coverage` | 无（无端点字面量） | 只有 `API_COVERAGE_REPORT.md` 这类文档引用，不是 HTTP 面 | **幽灵族** |
+| `formatting` | `routes/formatting.rs`（**0 个 `.route(`**） | 该文件是 DTO/格式化助手，不注册任何路由 | **幽灵族** |
+| `background_update` | `routes/background_update.rs`（19 条路由） | 测试里 0 命中 | 真缺口 |
+| `captcha` | `routes/captcha.rs`（5 条路由） | 只有 `captcha_tests_migrated.rs`（service 级，0 个 `oneshot`） | 真缺口（HTTP 层） |
+| `media_quota` | `routes/media/quota.rs` | 端点 `/quota/check`、`/quota/stats`、`/delete/{server}/{media_id}`，测试 0 命中 | 真缺口 |
+| `module` | `routes/module.rs`（23 条路由） | 测试里 0 命中 | 真缺口 |
+| `refresh_token` | `/refresh`（`routes/assembly.rs`） | 只有 `api_auth_routes_tests.rs:95` 的挂载烟测（断言 ≠404/405），**无轮换语义** | 真缺口 |
+| `registration_token` | `routes/admin/token.rs` | 只有 `route_ledger_*.snapshot` 台账快照 | 真缺口 |
+| `sliding_sync` | `routes/sliding_sync.rs`（4 条路由） | 只有 service/storage 级用例，无 HTTP 往返 | 真缺口（HTTP 层） |
+
+**这解释了为什么"缺口数"一直在动**：`24` 这个数字最初是"文件名判定"的产物，其中至少 6 个族要么
+早就有真覆盖（只是命名不在 C3 视野内），要么根本没有生产对应物。现在守卫的 `已登记缺口 10`
+里仍有 **3 个是幽灵族**（矩阵格式只允许 `NONE` 或文件名，无法区分"没测"与"不存在"）——
+真实待补的是 **7 族**。
 
 ## 0.2 未完成任务清单
 
@@ -613,6 +641,7 @@ TEST_FILE 47 = 107**；测试域合计 81。
 | 编号 | 一句话 | 关闭依据 |
 |---|---|---|
 | ARCH-02 | `sync` 与 `sliding_sync` 无共享语义基座（时间线裁剪/顺序/`limited` 各写一遍） | **先断言后抽取**：新增 `tests/integration/sync_path_equivalence_tests.rs` 3 条等价断言（完整序列一致 / 裁剪后保留最新 N 条 / 两条路径都置 `limited`）。断言**首次运行即红**，抓到 `get_room_events_batch_inner` 的 `ORDER BY stream_ordering ASC` + `rn <= limit` 取**最旧** N 条 ⇒ 初始同步让长房间的客户端永远看不到最新消息（实测 5 条消息、上限 2：`/sync` 给最旧两条、滑动同步给最新两条）；只对**无 `since`** 的初始同步改 DESC，增量保持 ASC 按批追赶。timeline 层抽成 `sync_helpers::timeline_window`（含 `TimelineOrder`），两条路径共用。判据：修复后 3 passed；`sync_service_tests_migrated` + `sliding_sync_service_tests_migrated` + `sync_handlers_coverage_tests` 全绿；services lib 的 timeline 相关 32 条单测全绿。**state 组装层未共享**，另登记 NEW-11 |
+| NEW-14 | 「缺口清单不可信」：C3 只审计 `*_api_tests.rs` / `*_route_tests.rs`（15 个文件），而 79 个 `api_<family>_tests.rs` 不在视野内 ⇒ 缺口判定本身失真 | **扩面 + 逐族重跑**：`CLAIM_NAME` 覆盖仓里实际四种命名 ⇒ 审计面 15 → **95** 个文件、不碰生产代码 **0** 个（零误伤）；14 个 `NONE` 族按「路由模块 → 端点字面量 → 真请求文件」三步重跑 ⇒ **4 族误判**（`admin`/`app_service`/`federation_cache`/`worker`，已改登记行）、**3 族幽灵**（`admin_extra`/`coverage`/`formatting`）、**7 族真缺口**（转 NEW-09）。逐族证据见 §0.1.1 |
 | DOC-04 | 三份文档的 `path:line` 引用漂移（原记 9 组） | **实测 145 处**，且**层级不同**：① 正文 13 处已全部改成**符号名**（`API_COVERAGE_REPORT.md` §8 的 `grep … # 已实现：…` 块、`MSC_SEMANTICS.md` 两处、`ROUTE_CONTRACT.md` 一处），正文残留 **0**；② 表格 132 处**必须保留** `path:line` —— 那是 `check_capability_ledger.py` 的 C2 判据（`已实现` 行必须带可解析 `path:line`），改成符号名会让能力台账门禁立刻红，所以"整篇换符号名"这条修法在本仓**只对正文成立**；③ 表格侧改用漂移信号门禁 `scripts/ci/check_doc_line_refs.py`：解析不到文件 / 越界 / 指向空行·纯注释·孤立 `}` ⇒ 计入 `scripts/ci/doc_line_ref_baseline`（现 **56**，只许下降）。**判据/变异**：在大括号闭合或注释行上新挂一处 `path:line` 引用 ⇒ 56 → 57 ⇒ 红；删掉被引用的行让旧引用越界 ⇒ 同款红。**未做**：56 处"指到空行/括号"没有逐条重定位（多数是表格里"某 handler 的第 N 行"这类证据指针，重定位要先确认该行为仍未变） |
 | NEW-04 | 活文档里 30 处悬挂 `scripts/...` 引用，且不能做"出现即要求存在"的朴素门禁 | 新建 `scripts/ci/check_script_refs.py`：只查**活文件**（跳过 `docs/archive/**`、`docs/audit/archive/**`、`.workbuddy/**` —— 那里的"当年调用过 X，已删除"是历史叙述），解析顺序为仓库根 → `docker/` → `docker/deploy/`（部署文档的默认 WORKDIR），另设 `script_ref_exceptions` 只收「引用本身不是调用」的形态。**现算：1669 处引用 / 186 处解析不到**（原记 30 只数了一种后缀），按引用归类后的前 5 类：`coverage_baseline.js` 28（真身是 `.json`，扩展名漂移）、`db_migrate.sh` 26（真身 `docker/db_migrate.sh`）、`api_test/ledger.js` 20（同名 `.mjs`）、`deploy-monitoring.sh` 7 与 `contract-sync.mjs` 7（真身在 `docker/deploy/scripts/`）。186 已用 `scripts/ci/script_ref_baseline` 钉住（只许下降），接入 `preflight.sh`。**判据/变异**：把任意引用改成不存在的名字 ⇒ 计数涨过基线即红 |
 | TEST-05 | 测试域 `sleep` 站点 81 处，无分类、无判据 | **改判据后收口**：逐处复核发现没有一处是"随便睡一下"——全部是故障注入（故意睡超请求预算证超时）、TTL/锁/会话过期、时间戳铺开、等后台任务就绪、契约/指标窗口。于是把判据从"计数下降"改成"**每一处都有类别、新增必须报类别**"：`tests/**` 35 处 + `synapse-*/src/**` 46 处全部加 `// sleep-reason:`；`check_sleep_ratchet.py` 新增"测试域每处 sleep 必须有注解"判据，基线键 `TEST_FILE_SRC_UNANNOTATED` 12 → **0**。**变异**：插一处裸 sleep ⇒ `FAIL 测试域有 1 处 … 没有 // sleep-reason: 注解`；删既有注解 ⇒ 同款红（均实测）。**未降**：计数仍 26/34/47=107；可省的只有 4 个轮询循环的间隔 → 已登记 NEW-10 |

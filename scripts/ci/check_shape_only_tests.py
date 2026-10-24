@@ -8,8 +8,9 @@
 * C1 登记：`tests/**/*_shape_only_tests.rs` 必须在表里，且文件头 20 行内有「只锁形状」声明；
 * C2 真覆盖：表里填的覆盖文件必须存在，且**真的**发请求 / 碰 DB
   （`oneshot` / `Request::builder` / `create_router` / `setup_fresh_test_app` / `sqlx::query` …）；
-* C3 名字承诺：`tests/**/*_{api,route}_tests.rs` 必须至少调用一个 `synapse_*::` 生产符号
-  **或**含真实请求标记 —— 名字声称覆盖 API/路由却两样都没有 ⇒ 红；
+* C3 名字承诺：`tests/**/*_{api,route,routes}_tests.rs` **与** `tests/integration/api_*.rs`
+  必须至少调用一个 `synapse_*::` 生产符号 **或**含真实请求标记 —— 名字声称覆盖 API/路由却
+  两样都没有 ⇒ 红（**NEW-14**：只认后两种后缀时本判据只看到 15/94 个文件）；
 * C4 过期条目：登记的文件不存在 / 改名没同步 / 声明被摘 ⇒ 红。
 
 为什么不做"内容启发式"门禁：按"≥3 处本地字面量断言"判会**高估**（insta 快照看起来一样可疑，
@@ -41,7 +42,15 @@ REAL_MARKERS = (
 PROD_CALL = re.compile(r"\bsynapse_[a-z_]+::")
 ROW_RE = re.compile(r"^(tests/[\w./-]+\.rs)\|(NONE|tests/[\w./-]+\.rs)$")
 SHAPE_NAME = re.compile(r"_shape_only_tests\.rs$")
-CLAIM_NAME = re.compile(r"_(api|route)_tests\.rs$")
+# 名字在声称「我覆盖某个 API/路由」。**必须覆盖仓里实际在用的四种命名**，否则判据等于没跑
+# （NEW-14：原版只认前两种后缀，实测只看到 15 个文件，而 `api_<family>_tests.rs` 这一种
+#  就有 79 个、其中 78 个真发请求 —— 于是 NEW-05 当初把 `room_summary` / `federation` /
+#  `app_service` / `worker` 都误判成「没有 HTTP 覆盖」）：
+#   ① `<name>_api_tests.rs`       ② `<name>_route_tests.rs`
+#   ③ `<name>_routes_tests.rs`（本轮新增的族用例都用这个）  ④ `api_<family>_tests.rs`
+CLAIM_NAME = re.compile(
+    r"(?:^tests/integration/api_[a-z0-9_]+\.rs$)|(?:_(?:api|route)s?_tests\.rs$)"
+)
 
 
 def tracked(prefix: str) -> list[str]:
@@ -145,7 +154,7 @@ def main() -> int:
     print()
     print(
         f"统计：只锁形状 {len(rows)} 个（有真覆盖 {covered} / 已登记缺口 {gaps}）；"
-        f"`*_api/_route_tests.rs` 共 {len(claims)} 个，其中不碰生产代码 {len(offenders)} 个"
+        f"名字声称覆盖的 {len(claims)} 个，其中不碰生产代码 {len(offenders)} 个"
     )
     if bad:
         print()
