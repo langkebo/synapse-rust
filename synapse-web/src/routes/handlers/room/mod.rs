@@ -142,6 +142,18 @@ pub(crate) const MSC4140_MAX_DELAY_MS: i64 = 86_400_000;
 ///
 /// `trim` before parsing mirrors Python's `int(str)`, which tolerates
 /// surrounding whitespace.
+/// NEW-13①：从消息内容里取出 `m.thread` 关系的**根事件 id**。
+///
+/// 只认 `m.relates_to.rel_type == "m.thread"`（规范值，不接受客户端自造的别名）；
+/// `event_id` 缺失或不是字符串一律当作"不是线程回复"，不做猜测。
+pub(crate) fn thread_root_event_id(body: &serde_json::Value) -> Option<String> {
+    let relates_to = body.get("m.relates_to")?;
+    if relates_to.get("rel_type").and_then(serde_json::Value::as_str) != Some("m.thread") {
+        return None;
+    }
+    relates_to.get("event_id").and_then(serde_json::Value::as_str).map(str::to_string)
+}
+
 pub(crate) fn msc4140_query_delay_ms(query: &RoomWriteQuery) -> Result<Option<i64>, ApiError> {
     let Some(raw) = query.delay.as_deref() else {
         return Ok(None);

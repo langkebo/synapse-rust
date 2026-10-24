@@ -11,10 +11,17 @@
 //! 3. 加一条线程回复（`POST /_matrix/client/v1/rooms/{r}/threads/{t}/replies`）；
 //! 4. 读线程详情（`GET /_matrix/client/v3/rooms/{r}/threads/{t}`）。
 //!
-//! ⚠️ 实测发现（已登记 NEW-13）：**标准 `/send` 带 `m.relates_to.rel_type=m.thread` 不会
-//! 登记线程根** —— 事件写进去了，但 `GET /threads/{root}` 回 404 `Thread not found`。
-//! 所以本文件的主干用例走 vendor 登记 + client/v1 回复这条**受支持**的写入路径；
-//! 不要把它改成「只发 `/send` 然后期待能读到」，那是另一个缺陷（NEW-13），不是本文件的契约。
+//! **NEW-13（已修）**：
+//! ① 标准 `/send` 带 `m.relates_to.rel_type=m.thread` 现在会**补登记线程根**
+//!    （`send_message` 里 best-effort 调 `ensure_thread_root_for_reply`，幂等）；
+//! ② 读侧支持用**根事件 id** 当 `thread_id`（`get_thread` 查不到就按 `root_event_id` 回退），
+//!    因为 MSC3440 客户端就是拿根事件 id 查的。
+//! 因此主干用例仍走 vendor 登记（覆盖那条写入路径），另加一条 `threaded_send_alone_is_readable`
+//! 走**纯 `/send`**，把 ①+② 一起钉住。
+//!
+//! ⚠️ **仍未修（NEW-19）**：`/send` 的线程回复不会进 `thread_replies` 索引（该表由 `/replies`
+//! 端点写），所以纯 `/send` 的线程**读得到根、`replies` 仍为空**。修它需要 `origin_server_ts`
+//! 与 `content`（`send_message_with_txn` 只回 `{event_id}`），属独立一笔。
 //!
 //! 另加三条边界：非成员 403、房间不存在 404、`thread_id` 不是 `$…` 形状 400 `M_INVALID_PARAM`。
 
@@ -84,6 +91,53 @@ async fn send(app: &axum::Router, token: &str, room_id: &str, txn: &str, body: &
     let (status, value) = call(app, put_json(&uri, token, body)).await;
     assert_eq!(status, StatusCode::OK, "发消息必须是 200：{value}");
     value["event_id"].as_str().expect("发消息必须返回 event_id").to_string()
+}
+
+/// NEW-13①+②：**只用标准 `/send`**（不碰 vendor 端点）也要能读到线程 ——
+/// 根消息 + 带 `m.thread` 的回复发完，`GET /threads/{根事件 id}` 必须 200。
+#[tokio::test]
+async fn threaded_send_alone_is_readable() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+    let token = register(&app, "thread_send_only_user").await;
+    let room_id = create_room(&app, &token).await;
+
+    let root = send(&app, &token, &room_id, "txn-send-root", &json!({ "msgtype": "m.text", "body": "root" })).await;
+
+    // 关键：不调 vendor 登记，只发一条带 m.thread 的回复
+    let reply_event = send(
+        &app,
+        &token,
+        &room_id,
+        "txn-send-reply",
+        &json!({
+            "msgtype": "m.text",
+            "body": "reply in thread",
+            "m.relates_to": {
+                "rel_type": "m.thread",
+                "event_id": root,
+                "is_falling_back": true,
+                "m.in_reply_to": { "event_id": root }
+            }
+        }),
+    )
+    .await;
+
+    // ② 读侧用根事件 id 当 thread_id（MSC3440 客户端的行为）
+    let uri = format!("/_matrix/client/v3/rooms/{room_id}/threads/{root}");
+    let (status, value) = call(&app, get(&uri, Some(&token))).await;
+    assert_eq!(status, StatusCode::OK, "只发 /send 之后线程必须能按根事件 id 读到（NEW-13）：{value}");
+    assert_eq!(value["root"]["root_event_id"], root.as_str(), "root 必须指向那条根事件：{value}");
+
+    assert!(reply_event.starts_with('$'), "发消息必须返回事件 id：{reply_event}");
+
+    // ⚠️ NEW-19：回复**尚未**进 `thread_replies` 索引 —— 该表由 `/replies` 端点写，
+    // 而 `/send` 只落了事件本体（`send_message_with_txn` 只回 `{event_id}`，拿不到
+    // `origin_server_ts`，写索引需要它）。所以这里只断言 `replies` 是数组（形状对），
+    // **不**断言包含刚才那条；NEW-19 修好后应改为断言包含。
+    let replies = value["replies"].as_array().unwrap_or_else(|| panic!("replies 必须是数组：{value}"));
+    let _ = replies;
 }
 
 /// 主干：登记线程根 → 加回复 → 读详情，`thread_id`/`root`/`replies`/`reply_count` 自洽。

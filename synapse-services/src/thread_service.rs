@@ -355,6 +355,64 @@ impl ThreadService {
     }
 
     /// See [`create_thread`].
+    /// NEW-13①：标准 `/send` 带 `m.relates_to.rel_type = m.thread` 时**幂等**登记线程根与关系行。
+    ///
+    /// 本仓此前只有 vendor 的 `POST /_matrix/vendor/v1/threads`（建根）与
+    /// `POST /_matrix/client/v1/.../replies`（建回复）会写这两张表，于是"用标准 `/send`
+    /// 发线程回复"的客户端**写得进事件、却读不到线程**（`GET /threads/{root}` 404，
+    /// 或者能读到根但 `replies` 永远是空）。
+    ///
+    /// 这里补两件事：① 确保 `thread_roots` 有根（按根事件查，缺了才建，撞唯一约束就重读确认）；
+    /// ② 把本条回复登记进 `thread_relations`（`/send` 的事件已经落库，只差这条索引）。
+    /// 关系行的插入**不覆盖**已存在的记录：`/send` 的 txn 去重保证同一 event 只会走到这里一次，
+    /// 万一重复插入撞约束，记 debug 即可 —— 索引已经在，读路径不受影响。
+    pub async fn ensure_thread_root_for_reply(
+        &self,
+        sender: &str,
+        room_id: &str,
+        root_event_id: &str,
+        reply_event_id: &str,
+    ) -> Result<(), ApiError> {
+        let root = match self.get_thread_root_by_event(room_id, root_event_id).await? {
+            Some(root) => root,
+            None => {
+                let request =
+                    CreateThreadRequest { room_id: room_id.to_string(), root_event_id: root_event_id.to_string() };
+                match self.create_thread(sender, request).await {
+                    Ok(root) => root,
+                    Err(e) => {
+                        // 并发：另一个回复刚刚建好 ⇒ 唯一约束拒了本请求。重读确认，确认到就继续。
+                        match self.get_thread_root_by_event(room_id, root_event_id).await? {
+                            Some(root) => root,
+                            None => return Err(e),
+                        }
+                    }
+                }
+            }
+        };
+
+        if let Err(e) = self
+            .storage
+            .create_thread_relation(
+                room_id,
+                reply_event_id,
+                root_event_id,
+                "m.thread",
+                root.thread_id.as_deref(),
+                false,
+            )
+            .await
+        {
+            // 重复插入（约束冲突）在这里是良性的：关系行已经在，读路径不受影响。
+            // 其它错误也只记 debug —— 调用方（`/send`）已经把事件写进去了，不能因此失败。
+            debug!(error = %e, room_id = %room_id, reply_event_id = %reply_event_id,
+                "Thread relation already recorded or could not be recorded for a threaded /send");
+        }
+
+        Ok(())
+    }
+
+    /// See [`create_thread`].
     pub async fn create_thread(&self, sender: &str, request: CreateThreadRequest) -> Result<ThreadRoot, ApiError> {
         info!(
             room_id = %request.room_id,
@@ -483,16 +541,31 @@ impl ThreadService {
             "Getting thread details"
         );
 
-        let root = self
+        // NEW-13②：MSC3440 客户端把**根事件 id** 当 `thread_id` 传（规范里两者就是同一个值）。
+        // 本仓的 `thread_id` 是服务端生成的 `$<uuid>`，所以先按 thread_id 查，查不到再按
+        // **根事件 id** 回退一次 —— 这是**读侧兼容**：不用迁移既有 `thread_roots.thread_id`
+        // 的值，也不会让已存数据与规范二选一。
+        let mut root_row = self
             .storage
             .get_thread_root(&request.room_id, &request.thread_id)
             .await
-            .map_err(|e| ApiError::internal_with_cause("Failed to get thread root", e))?
-            .ok_or_else(|| ApiError::not_found("Thread not found"))?;
+            .map_err(|e| ApiError::internal_with_cause("Failed to get thread root", e))?;
+        if root_row.is_none() {
+            root_row = self
+                .storage
+                .get_thread_root_by_event(&request.room_id, &request.thread_id)
+                .await
+                .map_err(|e| ApiError::internal_with_cause("Failed to get thread root by event", e))?;
+        }
+        let root = root_row.ok_or_else(|| ApiError::not_found("Thread not found"))?;
+
+        // 后面的 replies / receipt / subscription 都按**阴影行的 thread_id** 取；
+        // 走到回退分支时它与请求里传的根事件 id 不是同一个值。
+        let thread_id = root.thread_id.clone().unwrap_or_else(|| request.thread_id.clone());
 
         let replies = if request.include_replies {
             self.storage
-                .get_thread_replies(&request.room_id, &request.thread_id, request.reply_limit, None)
+                .get_thread_replies(&request.room_id, &thread_id, request.reply_limit, None)
                 .await
                 .map_err(|e| ApiError::internal_with_cause("Failed to get replies", e))?
         } else {
@@ -501,32 +574,32 @@ impl ThreadService {
 
         let reply_count = self
             .storage
-            .get_reply_count(&request.room_id, &request.thread_id)
+            .get_reply_count(&request.room_id, &thread_id)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to get reply count", e))?;
 
         let participants = self
             .storage
-            .get_thread_participants(&request.room_id, &request.thread_id)
+            .get_thread_participants(&request.room_id, &thread_id)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to get participants", e))?;
 
         let summary = self
             .storage
-            .get_thread_summary(&request.room_id, &request.thread_id)
+            .get_thread_summary(&request.room_id, &thread_id)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to get summary", e))?;
 
         let (user_receipt, user_subscription) = if let Some(uid) = user_id {
             let receipt = self
                 .storage
-                .get_read_receipt(&request.room_id, &request.thread_id, uid)
+                .get_read_receipt(&request.room_id, &thread_id, uid)
                 .await
                 .map_err(|e| ApiError::internal_with_cause("Failed to get receipt", e))?;
 
             let subscription = self
                 .storage
-                .get_thread_subscription(&request.room_id, &request.thread_id, uid)
+                .get_thread_subscription(&request.room_id, &thread_id, uid)
                 .await
                 .map_err(|e| ApiError::internal_with_cause("Failed to get subscription", e))?;
 
