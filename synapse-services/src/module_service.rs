@@ -1441,6 +1441,7 @@ mod tests {
         }
 
         async fn check(&self, _context: &ThirdPartyRuleContext) -> Result<ThirdPartyRuleOutput, ApiError> {
+            // sleep-reason: 故障注入（第三方规则故意睡超请求预算，证请求层先超时）
             tokio::time::sleep(std::time::Duration::from_secs(30)).await;
             Ok(ThirdPartyRuleOutput { is_allowed: true, reason: None, modified_content: None })
         }

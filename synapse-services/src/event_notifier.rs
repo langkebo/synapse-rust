@@ -583,6 +583,7 @@ mod tests {
             );
 
         // Give the waiter time to register
+        // sleep-reason: 等 waiter 注册（后台订阅者就绪）
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
         notifier.notify_room(&room_id);
@@ -603,6 +604,7 @@ mod tests {
                 async move { tokio::time::timeout(waiter_notifier.idle_timeout(), user_slot.notified()).await },
             );
 
+        // sleep-reason: 等 waiter 注册（后台订阅者就绪）
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
         notifier.notify_user(&user_id);
@@ -814,6 +816,7 @@ mod tests {
         });
 
         // Give the waiter time to register
+        // sleep-reason: 等 waiter 注册（后台订阅者就绪）
         tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
 
         // Simulate a Redis message from instance B
@@ -838,6 +841,7 @@ mod tests {
             tokio::time::timeout(tokio::time::Duration::from_secs(2), user_slot.notified()).await
         });
 
+        // sleep-reason: 等 waiter 注册（后台订阅者就绪）
         tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
 
         let msg =
@@ -866,6 +870,7 @@ mod tests {
             tokio::time::timeout(tokio::time::Duration::from_millis(200), room_slot.notified()).await
         });
 
+        // sleep-reason: 等 waiter 注册（后台订阅者就绪）
         tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
 
         // Simulate a Redis echo: same instance_id
@@ -933,6 +938,7 @@ mod tests {
         }
         let handle = notifier
             .start_idle_slot_evictor(std::time::Duration::from_millis(20), tokio_util::sync::CancellationToken::new());
+        // sleep-reason: 等空闲槽驱逐器跑够轮次（evictor interval=20ms）
         tokio::time::sleep(std::time::Duration::from_millis(120)).await;
         handle.abort();
         assert_eq!(notifier.broadcast_subscriber_count(), 0, "background evictor should reclaim idle slots");

@@ -19,6 +19,12 @@ while IFS= read -r -d '' file; do
     case "$file" in
         vendor/* | target/*) continue ;;
     esac
+    # 已跟踪但在工作区被删除的文件必须跳过：`git ls-files` 仍然列出它（删除还没提交），
+    # 而 `rustfmt --check <不存在的文件>` 退出码 1、报 `Error: file … does not exist`，
+    # 于是整条 Format 门禁因为一个"已经没有内容可格式化"的文件变红 —— 实测 2026-10-24：
+    # 工作区删掉 `synapse-federation/src/device_sync.rs`（未提交）后，每一次提交的 preflight
+    # 都挂在 `format_check.sh` 上，而 `ruff`/`shfmt`/`format_audit` 全部是绿的。
+    [ -f "$file" ] || continue
     rust_files+=("$file")
 done < <(git ls-files -z "*.rs")
 

@@ -655,6 +655,7 @@ mod tests {
 
         assert_eq!(cb.current_state(), CircuitState::Open);
 
+        // sleep-reason: 断路器时间窗（timeout_ms=150 的 open→half-open 冷却）
         thread::sleep(Duration::from_millis(150));
 
         assert!(cb.is_call_allowed());
@@ -673,6 +674,7 @@ mod tests {
 
         assert_eq!(cb.current_state(), CircuitState::Open);
 
+        // sleep-reason: 断路器时间窗（同上）
         thread::sleep(Duration::from_millis(150));
 
         assert!(cb.is_call_allowed());
@@ -698,6 +700,7 @@ mod tests {
 
         assert_eq!(cb.current_state(), CircuitState::Open);
 
+        // sleep-reason: 断路器时间窗（同上）
         thread::sleep(Duration::from_millis(150));
 
         assert!(cb.is_call_allowed());
@@ -816,6 +819,7 @@ mod tests {
         }
         assert_eq!(cb.current_state(), CircuitState::Open);
 
+        // sleep-reason: 断路器时间窗（同上）
         thread::sleep(Duration::from_millis(150));
 
         // 触发 Open → HalfOpen（该次走 Open 分支，不占在途名额）
@@ -969,6 +973,7 @@ mod tests {
         assert_eq!(state_gauge.get(), 1.0, "Open = 1");
 
         // 触发 Open → HalfOpen（等 timeout_ms 后 is_call_allowed）
+        // sleep-reason: 断路器时间窗（同上）
         std::thread::sleep(std::time::Duration::from_millis(150));
         let _ = cb.is_call_allowed();
         assert_eq!(cb.current_state(), CircuitState::HalfOpen);

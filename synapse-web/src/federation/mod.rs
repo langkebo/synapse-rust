@@ -1,5 +1,4 @@
 pub use synapse_federation::client;
-pub use synapse_federation::device_sync;
 /// The `edu` module.
 pub mod edu;
 pub use synapse_federation::event_auth;
@@ -11,7 +10,6 @@ pub use synapse_federation::key_rotation;
 pub use synapse_federation::signing;
 
 pub use client::FederationClient;
-pub use device_sync::DeviceSyncManager;
 pub use edu::{EduDispatcher, EduProcessResult, EduType};
 pub use event_auth::EventAuthChain;
 pub use event_broadcaster::EventBroadcaster;

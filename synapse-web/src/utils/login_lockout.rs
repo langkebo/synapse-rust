@@ -576,6 +576,7 @@ mod lockout_degradation_tests {
             let _ = check_login_lockout(&cache, &config, ip, username).await;
         }
 
+        // sleep-reason: 等锁定期窗口（1s 冷却）
         tokio::time::sleep(std::time::Duration::from_millis(1_100)).await;
 
         assert!(

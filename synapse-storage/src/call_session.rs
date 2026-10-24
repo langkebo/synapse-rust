@@ -487,6 +487,7 @@ mod db_tests {
         storage.create_session(params).await.unwrap();
 
         // Wait for the session to expire
+        // sleep-reason: 等会话过期（该用例的 session TTL 是 10ms）
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
 
         let affected = storage.cleanup_expired().await.expect("cleanup_expired should succeed");

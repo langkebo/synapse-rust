@@ -2130,6 +2130,7 @@ async fn s6d_wait_wakes_on_room_notification() {
     });
 
     // Give the waiter time to register.
+    // sleep-reason: 等 waiter 注册（后台订阅者就绪）
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
     // Add an event with stream_ordering > 0, then notify.

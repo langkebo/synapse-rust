@@ -1084,6 +1084,7 @@ mod tests {
         // Several janitor poll intervals, so the *background* janitor really does
         // get its chance at the released entry — before the fix this is where the
         // schema disappeared.
+        // sleep-reason: 等 schema 消失的宽限窗口
         tokio::time::sleep(Duration::from_millis(400)).await;
 
         let still_there: bool = sqlx::query_scalar("SELECT to_regnamespace($1) IS NOT NULL")
@@ -1151,6 +1152,7 @@ mod tests {
                      {still_registered}"
                 );
             }
+            // sleep-reason: 等后台 janitor 的扫描窗口
             tokio::time::sleep(Duration::from_millis(300)).await;
             drive_one_release_pass().await;
         }

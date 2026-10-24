@@ -277,6 +277,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn test_request_timeout_middleware_allows_sync_long_poll_request() {
         async fn slow_sync_handler() -> StatusCode {
+            // sleep-reason: 故障注入（慢 handler，验证超时中间件）
             tokio::time::sleep(Duration::from_secs(90)).await;
             StatusCode::OK
         }
@@ -311,6 +312,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn test_request_timeout_middleware_times_out_non_sync_request() {
         async fn slow_handler() -> StatusCode {
+            // sleep-reason: 故障注入（慢 handler，验证超时中间件）
             tokio::time::sleep(Duration::from_secs(40)).await;
             StatusCode::OK
         }

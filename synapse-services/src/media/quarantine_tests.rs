@@ -116,6 +116,7 @@ async fn media_fixture_keeps_its_isolated_schema_for_the_whole_test() {
     // several poll intervals (50ms each) to do its worst before the next
     // write. With the schema still leased by the returned services, no
     // janitor pass can touch it.
+    // sleep-reason: 等 janitor 扫描窗口（隔离任务周期）
     tokio::time::sleep(std::time::Duration::from_millis(400)).await;
 
     let upload_id = media_domain_service

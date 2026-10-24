@@ -1866,6 +1866,7 @@ mod tests {
 
         scheduler.run_once().await.expect("prometheus recovery tick one should complete");
         scheduler.run_once().await.expect("prometheus recovery tick two should complete");
+        // sleep-reason: 产品语义的恢复窗口（4.2s 让 4s 的指标恢复窗口过期）
         tokio::time::sleep(std::time::Duration::from_millis(4_200)).await;
         scheduler.run_once().await.expect("prometheus recovery tick three should complete");
 

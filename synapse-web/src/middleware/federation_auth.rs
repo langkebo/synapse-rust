@@ -36,6 +36,51 @@ fn compute_key_cache_ttl_secs(valid_until_ts: Option<i64>) -> u64 {
     FEDERATION_KEY_CACHE_TTL_SECS.min(spec_capped)
 }
 
+/// 签名时间戳（`X-Matrix` 的 `ts` 参数）应得的处理。
+///
+/// # 为什么"缺失"必须放行（SEC-14 的裁决）
+///
+/// Matrix Server-Server API 的「Authentication」一节列出的授权参数只有
+/// **`origin` / `destination` / `key` / `sig`**，随后一句是「Unknown parameters are
+/// ignored」—— **`ts` 根本不在规范里**。所以"接受但不强制"才是符合规范的读法，
+/// 强制要求它会直接切断联邦：
+///
+/// - 本仓**自己的出站请求就不带 `ts`**（`synapse-federation/src/client.rs:645` 拼的是
+///   `X-Matrix origin="…",destination="…",key="…",sig="…"`，与规范参数集逐字一致）；
+/// - `ruma` / `matrix-sdk` 的 `XMatrix` 结构体也只有这四个字段。
+///
+/// 也就是说，"缺 `ts` ⇒ 401" 会让本服务器**连自己发出的请求都拒掉**，并与所有按规范
+/// 实现的实现体断联邦。审计 SEC-14 的原建议（"增加拒绝分支"）就是这条，已被本裁决推翻：
+/// 保留「有则校验、无则放行」；重放保护靠签名缓存（`replay_protection_enabled`）。
+#[derive(Debug, PartialEq, Eq)]
+enum TimestampCheck {
+    /// 请求没带 `ts`。规范未定义该参数 ⇒ 放行（只记审计日志）。
+    Absent,
+    /// `federation.signing_ts_tolerance_ms <= 0`：运维显式关掉了这项检查。
+    Disabled,
+    /// 带了 `ts` 且在容差窗口内。
+    Fresh,
+    /// 带了 `ts` 但超出窗口 ⇒ 拒绝（附 `validate_federation_timestamp` 给出的原因）。
+    Stale(String),
+}
+
+/// 只决定"该拒绝还是该放行"，不写日志也不碰 ctx —— 这样四条分支都能被单测钉住。
+///
+/// 容差窗口的算术**没有**在这里重写一遍：`Some(ts)` 的情况直接委托给
+/// `SecurityValidator::validate_federation_timestamp`，避免出现第二份窗口实现。
+fn evaluate_signature_timestamp(ts: Option<i64>, tolerance_ms: i64) -> TimestampCheck {
+    match ts {
+        None => TimestampCheck::Absent,
+        Some(_) if tolerance_ms <= 0 => TimestampCheck::Disabled,
+        Some(ts) => {
+            match synapse_common::security::SecurityValidator::validate_federation_timestamp(ts, tolerance_ms) {
+                Ok(()) => TimestampCheck::Fresh,
+                Err(reason) => TimestampCheck::Stale(reason),
+            }
+        }
+    }
+}
+
 /// The `FederationRequestAuth` struct.
 #[derive(Clone, Debug)]
 pub struct FederationRequestAuth {
@@ -193,36 +238,34 @@ pub async fn authenticate_federation_request(
         return Err(ApiError::unauthorized("Invalid federation signature".to_string()).into_response());
     }
 
-    // S1 修复：签名时间戳校验。X-Matrix 头中的 `ts` 参数指示签名时间，
-    // 超出容差窗口的请求必须被拒绝，防止合法签名请求被无限重放。
-    // N2：Matrix 规范中 ts 为可选参数，但为了审计可见性，当 replay_protection
-    // 启用而 ts 缺失时，记录 warn 日志（Time-of-check 降级为仅靠 replay cache）。
-    if let Some(ts) = params.ts {
-        let tolerance_ms = ctx.config.federation.signing_ts_tolerance_ms;
-        if tolerance_ms > 0 {
-            if let Err(reason) =
-                synapse_common::security::SecurityValidator::validate_federation_timestamp(ts, tolerance_ms)
-            {
-                tracing::warn!(
-                    target: "security_audit",
-                    event = "federation_timestamp_rejected",
-                    origin = %params.origin,
-                    ts = ts,
-                    tolerance_ms = tolerance_ms,
-                    reason = %reason,
-                    "Federation request rejected: signature timestamp out of tolerance"
-                );
-                return Err(ApiError::unauthorized("Federation signature timestamp out of tolerance".to_string())
-                    .into_response());
-            }
+    // S1：带 `ts` 就校验容差窗口（防合法签名被无限重放）；缺失一律放行 ——
+    // `ts` 不在规范的授权参数集里，强制要求会切断联邦（连本仓自己的出站请求都不带它，
+    // 见 `TimestampCheck` 的文档与 `synapse-federation/src/client.rs:645`）。
+    match evaluate_signature_timestamp(params.ts, ctx.config.federation.signing_ts_tolerance_ms) {
+        TimestampCheck::Stale(reason) => {
+            tracing::warn!(
+                target: "security_audit",
+                event = "federation_timestamp_rejected",
+                origin = %params.origin,
+                ts = params.ts.unwrap_or_default(),
+                tolerance_ms = ctx.config.federation.signing_ts_tolerance_ms,
+                reason = %reason,
+                "Federation request rejected: signature timestamp out of tolerance"
+            );
+            return Err(
+                ApiError::unauthorized("Federation signature timestamp out of tolerance".to_string()).into_response()
+            );
         }
-    } else if ctx.config.federation.replay_protection_enabled {
-        tracing::warn!(
-            target: "security_audit",
-            event = "federation_timestamp_missing",
-            origin = %params.origin,
-            "Federation request is missing X-Matrix `ts` parameter; timestamp check skipped, relying solely on replay-protection cache"
-        );
+        TimestampCheck::Absent if ctx.config.federation.replay_protection_enabled => {
+            tracing::warn!(
+                target: "security_audit",
+                event = "federation_timestamp_missing",
+                origin = %params.origin,
+                "Federation request carries no X-Matrix `ts` (not a spec parameter); timestamp check skipped, relying solely on replay-protection cache"
+            );
+        }
+        // `Fresh` / `Disabled` / 未开 replay 的 `Absent`：都不需要动作。
+        TimestampCheck::Absent | TimestampCheck::Disabled | TimestampCheck::Fresh => {}
     }
 
     // S1 修复：重放保护。验签通过后，将签名哈希记入 ReplayProtectionCache，
@@ -888,6 +931,42 @@ mod tests {
     use synapse_cache::{CacheConfig, CacheManager};
     #[cfg(feature = "test-utils")]
     use synapse_services::ServiceContainer;
+
+    // ── SEC-14 裁决：缺 `ts` 必须放行（`ts` 不在规范的授权参数集里）─────────────
+    //
+    // 这几条钉的不是"实现细节"，而是**一个曾经被写成缺陷的裁决**：审计 SEC-14 建议
+    // "缺 ts ⇒ 401"，照做会让本服务器**拒掉自己发出的每一个联邦请求** ——
+    // `synapse-federation/src/client.rs` 拼的 X-Matrix 头只有 origin/destination/key/sig。
+    // 谁想再"加固"这一段，必须先让下面这四条里那条 `missing_is_absent` 改口。
+
+    #[test]
+    fn missing_signature_timestamp_is_accepted() {
+        // 关键：`None` 不是错误，是**规范允许的请求形态**。
+        assert_eq!(super::evaluate_signature_timestamp(None, 300_000), super::TimestampCheck::Absent);
+    }
+
+    #[test]
+    fn stale_signature_timestamp_is_rejected() {
+        let tolerance = 300_000; // 5 分钟
+        let stale = synapse_common::current_timestamp_millis() - tolerance - 60_000;
+        match super::evaluate_signature_timestamp(Some(stale), tolerance) {
+            super::TimestampCheck::Stale(reason) => assert!(!reason.is_empty(), "拒绝时必须给出原因"),
+            other => panic!("超出容差窗口的 ts 必须判 Stale，实际 {other:?}"),
+        }
+    }
+
+    #[test]
+    fn fresh_signature_timestamp_is_accepted() {
+        let now = synapse_common::current_timestamp_millis();
+        assert_eq!(super::evaluate_signature_timestamp(Some(now), 300_000), super::TimestampCheck::Fresh);
+    }
+
+    #[test]
+    fn non_positive_tolerance_disables_the_check() {
+        // `signing_ts_tolerance_ms <= 0` 是运维的关闭开关：带了 ts 也不校验。
+        assert_eq!(super::evaluate_signature_timestamp(Some(0), 0), super::TimestampCheck::Disabled);
+        assert_eq!(super::evaluate_signature_timestamp(Some(i64::MAX / 2), -1), super::TimestampCheck::Disabled);
+    }
 
     #[test]
     fn test_extract_verify_key_from_server_key_response() {

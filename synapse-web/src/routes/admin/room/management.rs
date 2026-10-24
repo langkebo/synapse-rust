@@ -610,9 +610,14 @@ async fn kick_user_internal(
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RedactRoomEventsRequest {
+    /// 只处理 `origin_server_ts < before_ts` 的事件（半开区间，边界不删）。
     pub before_ts: Option<i64>,
+    /// 只处理 `origin_server_ts > after_ts` 的事件；与 `before_ts` 同时给出时两端都生效。
     pub after_ts: Option<i64>,
+    /// 本次最多处理多少条，缺省 1000 —— 批量红act 不是一次扫描全房间，
+    /// 调用方需按返回的 `redacted` 数量决定是否继续。
     pub limit: Option<i64>,
+    /// 写进每条 redaction 事件的 `reason`，随 `m.room.redaction` 同步给房间成员。
     pub reason: Option<String>,
 }
 

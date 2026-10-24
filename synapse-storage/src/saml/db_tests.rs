@@ -347,6 +347,7 @@ async fn test_create_user_mapping_on_conflict_updates() {
     assert_eq!(m1.authentication_count, 1);
 
     // Brief sleep so last_authenticated_ts can change
+    // sleep-reason: 时间戳铺开（让 last_authenticated_ts 变化可观测）
     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
 
     // Second create with same (name_id, issuer) but different user_id

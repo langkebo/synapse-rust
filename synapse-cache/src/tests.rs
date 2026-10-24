@@ -250,6 +250,7 @@ async fn set_honours_per_write_ttl_for_local_tier() {
     manager.set("p1:ttl:probe", &42u32, 1).await.expect("set must succeed");
     assert_eq!(manager.get::<u32>("p1:ttl:probe").await.unwrap(), Some(42), "value must be readable immediately");
 
+    // sleep-reason: 等 TTL 过期（ttl=1s，取 2s 保证跨过）
     tokio::time::sleep(Duration::from_millis(2000)).await;
 
     assert_eq!(
@@ -389,6 +390,7 @@ async fn d1_set_raw_honors_per_key_ttl_in_local_cache() {
     manager.local.cache.run_pending_tasks();
     assert!(manager.get_raw("d1:short").is_some());
 
+    // sleep-reason: 等 TTL 过期（1s 窗口）
     tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
     assert!(manager.get_raw("d1:short").is_none(), "L1 entry must expire after its per-key TTL");
 }
@@ -400,6 +402,7 @@ async fn d1_set_raw_long_ttl_survives_short_window() {
     manager.set_raw("d1:long", "v", 600).await;
     manager.local.cache.run_pending_tasks();
 
+    // sleep-reason: 等 TTL 过期（1s 窗口）
     tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
     assert!(manager.get_raw("d1:long").is_some(), "600s TTL entry must survive a 1.1s window");
 }
@@ -565,6 +568,7 @@ async fn test_get_or_fetch_single_flight_only_one_fetch() {
                     let count = fetch_count.clone();
                     async move {
                         count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        // sleep-reason: 任务内节流（模拟慢任务，让并发计数可观测）
                         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                         Ok("single_flight_value".to_string())
                     }
@@ -779,6 +783,7 @@ async fn increment_counter_is_a_fixed_window() {
     // A read-back through the normal path sees the same count.
     assert_eq!(manager.get::<u32>("login_fail:test:fixed-window").await.unwrap(), Some(3));
 
+    // sleep-reason: 等 TTL 过期（1s 窗口）
     tokio::time::sleep(Duration::from_millis(1100)).await;
 
     assert_eq!(
@@ -801,6 +806,7 @@ async fn set_not_found_honours_per_write_ttl() {
     manager.set_not_found("p1:notfound:probe", 1).await.expect("set_not_found");
     assert!(manager.is_not_found("p1:notfound:probe").await);
 
+    // sleep-reason: 等 TTL 过期（1s 窗口）
     tokio::time::sleep(Duration::from_millis(1100)).await;
 
     assert!(!manager.is_not_found("p1:notfound:probe").await, "negative entry must expire on the requested ttl");
@@ -819,6 +825,7 @@ async fn set_batch_serialized_honours_per_entry_ttl() {
     manager.set_batch_serialized(&entries).await.expect("set_batch_serialized");
     assert_eq!(manager.get_raw("p1:batchttl:short").as_deref(), Some("v"));
 
+    // sleep-reason: 等 TTL 过期（1s 窗口）
     tokio::time::sleep(Duration::from_millis(1100)).await;
 
     assert_eq!(
@@ -850,6 +857,7 @@ async fn overwriting_a_key_keeps_its_per_key_ttl() {
     manager.set("p1:overwrite:probe", &2u32, 1).await.expect("overwrite");
     assert_eq!(manager.get::<u32>("p1:overwrite:probe").await.unwrap(), Some(2), "overwrite must take effect");
 
+    // sleep-reason: 等 TTL 过期（1s 窗口）
     tokio::time::sleep(Duration::from_millis(1100)).await;
 
     assert_eq!(

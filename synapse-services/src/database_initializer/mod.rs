@@ -799,6 +799,7 @@ mod tests {
         assert!(!init.check_cache_valid().await.expect("check_cache_valid on an empty table"), "空表必须判为无缓存");
 
         init.update_init_timestamp().await.expect("update_init_timestamp must upsert db_metadata");
+        // sleep-reason: 时间戳铺开（让初始化时间戳与上一次不同）
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
 
         assert!(init.check_cache_valid().await.expect("check_cache_valid after write"), "刚写入的时间戳必须命中");

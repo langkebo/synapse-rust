@@ -3163,6 +3163,7 @@ CREATE TABLE IF NOT EXISTS unify_short_b (id bigint PRIMARY KEY);
             if std::time::Instant::now() >= acquire_deadline {
                 break false;
             }
+            // sleep-reason: 等后台清理任务跑完一轮
             tokio::time::sleep(Duration::from_millis(50)).await;
         };
         assert!(held, "the probe must eventually be able to take the template advisory lock");
@@ -3282,6 +3283,7 @@ CREATE TABLE IF NOT EXISTS unify_short_b (id bigint PRIMARY KEY);
             let prune = async {
                 for _ in 0..20 {
                     let _ = prune_stale_isolation_templates(&admin, &keep).await;
+                    // sleep-reason: 时间戳铺开（让相邻模板的时间戳不同）
                     tokio::time::sleep(Duration::from_millis(1)).await;
                 }
             };

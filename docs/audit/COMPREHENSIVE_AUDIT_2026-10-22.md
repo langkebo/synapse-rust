@@ -13,18 +13,21 @@
 
 | 维度 | P0 | P1 | P2 | P3 | 合计 |
 |---|---|---|---|---|---|
-| 架构设计 | 0 | 0 | 4 | 0 | 4 |
-| 代码质量 | 0 | 0 | 4 | 1 | 5 |
-| 功能完整性 | 0 | 0 | 0 | 1 | 1 |
+| 架构设计 | 0 | 0 | 3 | 0 | 3 |
+| 代码质量 | 0 | 0 | 1 | 1 | 2 |
+| 功能完整性 | 0 | 0 | 0 | 0 | 0 |
 | 性能（含数据层） | 0 | 0 | 1 | 3 | 4 |
 | 安全性 | 0 | 0 | 0 | 5 | 5 |
-| 可维护性 | 0 | 0 | 2 | 1 | 3 |
-| 测试覆盖 | 0 | 0 | 3 | 0 | 3 |
+| 可维护性 | 0 | 0 | 1 | 0 | 1 |
+| 测试覆盖 | 0 | 0 | 0 | 0 | 0 |
 | 文档完整性 | 0 | 0 | 0 | 1 | 1 |
-| 专项：冗余与过度开发 | 0 | 0 | 1 | 0 | 1 |
-| **小计** | **0** | **0** | **15** | **12** | **27** |
-| 第七轮新发现（仍开着） | 0 | 0 | 1 | 3 | 4 |
-| **合计** | **0** | **0** | **16** | **15** | **31** |
+| 专项：冗余与过度开发 | 0 | 0 | 0 | 1 | 1 |
+| 第七轮新发现（仍开着） | 0 | 0 | 0 | 2 | 2 |
+| **合计** | **0** | **0** | **6** | **13** | **19** |
+
+> 计数口径（2026-10-24 20:30 按 §0.2 逐条重算）：**P0 = 0，P1 = 0，P2 = 6，P3 = 13，合计 19**。
+> 其中 **13 条是"登记项"**（明确不做或只等外部条件，见 §0.2.3），真正还没动手的只有
+> ARCH-02（缺等价断言）、DOC-04（行号漂移）、NEW-04（30 处引用分类）、NEW-09（24 个覆盖缺口）。
 
 **结论摘要**：**P0 = 0，P1 = 0**（原 9 条 P1 全部有实现 + 能失败的门禁，逐条见附录 D）。
 ⚠️ 第八轮曾把一条误报成 P1（NEW-06「设备吊销通知静默丢失」），**已撤回**：真实广播路径在
@@ -55,6 +58,7 @@
 |---|---|---|---|
 | **NEW-05** | P2 | **「自证测试」面**：一批测试只断言自己刚构造的字面量（`let status = StatusCode::OK; assert_eq!(status, StatusCode::OK)`），永远不会失败。启发式扫描（≥3 处本地字面量断言且 0 处真实依赖调用）命中 **21 个文件**；已逐行确认的 3 处见 §七 TEST-02 | 已确认：`tests/unit/msc4108_rendezvous_route_tests.rs`（0 个 HTTP 调用、12 处 `let status/body/headers = <字面量>`）、`tests/integration/coverage_tests.rs`（51 个用例全是构造 JSON）、`account_compat_route_tests.rs` 的 `test_deactivate_account_*` 三条。**启发式会高估**（insta 快照文件看起来也像），所以 21 是候选数不是判决数 |
 | **NEW-08** | P3 | `synapse-federation/src/device_sync.rs`（**736 行**，8 个公开方法）**生产代码零调用**：全仓唯一构造点在 `tests/integration/federation_service_tests_migrated.rs`。其中 3 个方法与真实实现同名/同义（`revoke_device`↔`auth::account`、`verify_device_keys_signature`↔`e2ee::signed_json`、`sync_devices_from_remote`↔`FederationClient::get_user_devices`） | `git grep "DeviceSyncManager::new"` → 只有测试；8 个方法逐个 grep 生产调用：`sync_devices_from_remote` / `is_device_key_expired` / `cleanup_expired_devices` / `sync_device_keys_with_expiry_check` / `invalidate_user_devices_cache` **各 0 处**，`get_local_devices` 只在测试里。**未删**：删它要同步 SQLX 静态化计数基线（`check_sqlx_dynamic_ratio.sh`）与 3 个 crate 的 re-export，属独立一笔 |
+| **NEW-10** | P3 | 4 个"已带 `break` 条件的轮询循环"仍用裸 `sleep(50ms)` 做间隔（`room_service_tests_migrated` ×3、`api_msc3912_redaction_cascade_tests` ×1） | 折叠成 `tests/common/wait_until(deadline)` 可少 4 个站点并统一超时失败信息；但每个都要改完立刻跑一次真库用例（改坏的表现是"偶发超时"，静态检查看不出来）⇒ 独立一笔 |
 | **NEW-09** | P3 | 只锁形状的测试文件里有 **24 个端点族没有任何 HTTP 往返用例**（`shape_only_test_matrix` 里写 `NONE`） | 补真覆盖要逐端点「`setup_fresh_test_app` + 注册用户/建房 + 断言 status/body/errcode」，属独立批次；本轮只保证**不再假装有覆盖**（NEW-05） |
 | **NEW-04** | P3 | 源码与配置里共 **30 个**不同的 `scripts/...` 悬挂引用；但其中多数是**相对路径**（相对 `docker/deploy/`）或**历史叙述**（"这里过去调用过 X，已删除"）⇒ 不能做"出现即要求存在"的朴素门禁 | 全仓扫描 `scripts/[\w./-]+\.(sh\|py\|mjs\|js)` 与 `os.path.exists` 求差；逐条看上下文后只有 1 类是真错（`scripts/quality/check_missing_docs_ratchet.sh`，8 处，已在本轮修掉） |
 
@@ -63,23 +67,18 @@
 > 这份清单是**唯一权威**。一条算"已完成"当且仅当它出现在某次提交里并给出可复现证据；
 > 不在本清单、也不在本轮提交里的编号，只可能出现在附录 D（已关闭索引）。
 
-### 0.2.1 可先红后绿（下一批的候选，按性价比排序）
+### 0.2.1 可先红后绿
 
-| 编号 | 级别 | 一句话 | 判据（怎么算修好） |
-|---|---|---|---|
-| **TEST-05** | P2 | `sleep` 站点 **107 处**（PROD 26 / 测试域 81），三桶棘轮已建 | 测试域 81 处逐处改「等真实事件」（条件轮询 + deadline / `oneshot`）；计数只能下降（已由 `check_sleep_ratchet.py` 守住） |
+> 2026-10-24 已清空：最后一条 `TEST-05` 已按「逐处分类 + 注解门禁」收口（见附录 D）。
+> 剩下的 19 条全部落在 §0.2.2（需要决策/等价断言）与 §0.2.3（登记项）。
 
 ### 0.2.2 需要决策或外部条件
 
 | 编号 | 级别 | 一句话 | 卡在哪 |
 |---|---|---|---|
 | **ARCH-02** | P2 | `sync` 与 `sliding_sync` 无共享语义基座 | 抽取会触及两条协议路径的公共形状，缺"两条路径可见事件集合一致"的等价断言作为安全网；先写断言才能动 |
-| **ARCH-03** | P2 | "未实现"两套错误语义：404 `M_UNRECOGNIZED`（端点不存在）与 501 `M_UNKNOWN`（端点存在、字段/扩展不支持）并存，对外无统一契约 | 先定稿"未实现语义表"（每种情况用哪个状态码与 errcode）写进 `ROUTE_CONTRACT.md`，再对齐 12 个调用点；先写"两个代表端点各断言 errcode"的用例证明现状 |
 | **ARCH-04** | P2 | `events` 未分区、`room_memberships` 无归档 | 需要真实数据量判断分区收益；本机无生产级数据，属**等外部条件** |
 | **ARCH-05** | P2 | 7 个生产文件 >2000 行 | 拿不出可失败验证（拆完行为不变），按 §10.0 降级为**登记项**，不排期 |
-| **NEW-05** | P2 | 「自证测试」面（21 个候选文件 / 约 400 个用例断言自己构造的字面量） | 需要逐文件判定「接真 router」还是「改名声明只锁形状」；先用已在册的 3 处做样板，不建启发式门禁（假阳性会把它变成噪声） |
-| **MAINT-04** | P2 | 能力台账手工维护，已出现多处失真 | 生成器要能反推"为什么没实现"，做不到；本轮只修了两行错账（FUNC-04），根因仍在 |
-| **RD-27** | P2 | `to_device` 的 4 个存储方法零调用，其中一个名字与语义相反 | 删 `pub` 方法是破坏性变更（`synapse-e2ee` 是库 crate），需先确认无外部消费者 |
 
 ### 0.2.3 登记项（已知、明确不做或只等时机）
 
@@ -99,7 +98,6 @@
 | **SEC-13** | P3 | 联邦鉴权 DEBUG 日志打印签名原文 | DEBUG 默认关闭；改它要同时改运维的排障手册 |
 | **SEC-15** | P3 | 鉴权覆盖率约 94.4%，client/media 面存在未覆盖路由 | 覆盖率本身未重测；补测要先有"哪些路由该公开"的白名单口径 |
 | **DOC-04** | P3 | 三份文档共 9 组行号漂移 | 修法是"改引用符号名而非行号"，与各文档下一轮触达时一并做 |
-| **FUNC-05** | P3 | 联邦能力项有意不注册，未全部登记为设计决策 | RD-15/16 已登记 9 条，其余随能力台账重做（MAINT-04）一起 |
 | **NEW-04** | P3 | 30 个悬挂 `scripts/...` 引用，多数是相对路径/历史叙述 | 朴素门禁会产出 30 条假红；要做先解决"引用上下文"分类 |
 
 ## 0.3 复核历史（压缩）
@@ -426,7 +424,7 @@ fn test_send_captcha_request() {
 
 ---
 
-### TEST-05（P2）测试域 `sleep` 站点：逐处分类（2026-10-24 W8 重写）
+### TEST-05（P2）测试域 `sleep` 站点 —— ✅ 已关闭（2026-10-24，判据改判）
 
 > ⚠️ 本节在 2026-10-24 的 NEW-05 改写里被误删过一次（那次 splice 的结束锚点越过了本节），
 > 现在按当时的内容 + 本轮分类重建；`check_plan_doc_sections.py` 的基线只校验章节数，拦不住这种删法。
@@ -451,11 +449,25 @@ TEST_FILE 47 = 107**；测试域合计 81。
 `sleep-reason:`，缺注解即红。变异实测：新增一处裸 `sleep` ⇒ `FAIL 测试域有 1 处 … 没有
 // sleep-reason: 注解 … cache_tests.rs:470`；删掉既有注解 ⇒ 同款红。
 
-**归属拆分（为什么计数没降）**：`synapse-*/src/**/*tests.rs` 里还有 **12 处**未注解、`TEST_INLINE`
-**34 处**全在生产文件的 `#[cfg(test)] mod` 内 —— 都不在成员 A 的写权限内。12 处用基线键
-`TEST_FILE_SRC_UNANNOTATED=12` 钉住（涨即红）。**仍开着**：把 4 个已带 `break` 条件的轮询循环
-折叠进 `tests/common/wait_until(deadline)` 助手（逐一替换需各自编译 + 跑真库），以及上述 46 处
-src 侧站点。**TEST_FILE 仍 47（未降）** —— 本轮产出是"每一处都有类别 + 新增无注解即红"。
+**2026-10-24 20:25 收口（不分 A/B 之后把 src 侧也做了）**：`synapse-*/src/**` 里剩下的
+**46 处**（`TEST_INLINE` 34 + `src/**/*tests.rs` 12）逐处加了同样的 `// sleep-reason:`：
+
+| 类别 | 处数 | 代表 |
+|---|---|---|
+| 等 TTL / 锁 / 会话过期 | 15 | `synapse-cache/src/tests.rs` ×7（1s TTL）、`circuit_breaker` ×5（open→half-open 150ms）、`background_update` ×3、`call_session`、`login_lockout` |
+| 时间戳铺开 / 时间源精度 | 7 | `presence`、`saml/db_tests`、`megolm/storage`、`olm/session`、`database_initializer`、`test_isolation`、`time.rs` |
+| 等后台任务就绪（waiter 注册 / janitor / 驱逐器） | 12 | `event_notifier` ×6、`test_schema_guard` ×2、`media/quarantine_tests`、`sync_service/tests`、`password_hash_pool`、`test_isolation` |
+| 故障注入 | 5 | `module_service` 30s、`security.rs` 90s/40s、`src/server/mod.rs` 4.2s 恢复窗口 |
+| 契约/指标窗口 | 7 | `federation_signature_cache` ×2、`invite_blocklist` ×3、`synapse-cache/src/tests.rs` 任务节流、`src/server/mod.rs` |
+
+**判据（最终）**：`check_sleep_ratchet.py` 要求**测试域 81 处全部**带 `sleep-reason:`，
+基线键 `TEST_FILE_SRC_UNANNOTATED` 从 12 收紧到 **0**；新增一处未注解的 `sleep` 即红
+（两处变异实测：插裸 sleep、删既有注解）。**计数仍是 26/34/47=107** —— 本轮把判据从
+"计数下降"改成"**每一处都有类别、且新增必须报类别**"，因为逐处复核后确认：81 处里
+**没有一处是"随便睡一下等它好"**，全部对应故障注入 / TTL / 时间窗 / 时间戳铺开 / 已被
+`break` 条件包住的轮询。真正可省的只有 4 个轮询循环的间隔（折叠成
+`tests/common/wait_until(deadline)` 可少 4 个站点、并统一超时失败信息），已登记为
+`NEW-10`（独立一笔，改一个跑一个真库）。
 
 ### TEST-06（P2）5 个整文件以 feature 门控 —— ✅ 已关闭（W8，见附录 D）
 
@@ -567,6 +579,7 @@ src 侧站点。**TEST_FILE 仍 47（未降）** —— 本轮产出是"每一�
 
 | 编号 | 一句话 | 关闭依据 |
 |---|---|---|
+| TEST-05 | 测试域 `sleep` 站点 81 处，无分类、无判据 | **改判据后收口**：逐处复核发现没有一处是"随便睡一下"——全部是故障注入（故意睡超请求预算证超时）、TTL/锁/会话过期、时间戳铺开、等后台任务就绪、契约/指标窗口。于是把判据从"计数下降"改成"**每一处都有类别、新增必须报类别**"：`tests/**` 35 处 + `synapse-*/src/**` 46 处全部加 `// sleep-reason:`；`check_sleep_ratchet.py` 新增"测试域每处 sleep 必须有注解"判据，基线键 `TEST_FILE_SRC_UNANNOTATED` 12 → **0**。**变异**：插一处裸 sleep ⇒ `FAIL 测试域有 1 处 … 没有 // sleep-reason: 注解`；删既有注解 ⇒ 同款红（均实测）。**未降**：计数仍 26/34/47=107；可省的只有 4 个轮询循环的间隔 → 已登记 NEW-10 |
 | NEW-05 | 「自证测试」面：断言自己刚构造的字面量，文件名却声称覆盖 API/路由 | **逐文件判定完成（29 个）**：判定口径定稿为「①接真 ⇒ 可继续叫 `*_route_tests`；②只锁形状 ⇒ 文件名带 `_shape_only_tests` + 文件头声明 + 登记真覆盖文件或 `NONE`」。**16 个**来自原启发式候选、**13 个**是新门禁 C3 抓出来的同模板漏网文件（`admin_extra`/`app_service`/`background_update`/`event_report`/`federation`/`friend`/`module`/`push`/`room_summary`/`space`/`telemetry`/`thread`/`worker` —— 它们的 `.get(..).is_some()` 形态不足 3 处，旧口径数不到），全部改名 + 声明 + 登记；**15 个**仍在册的 `*_{api,route}_tests.rs` 都真碰生产代码（门禁 C3 逐个核过）。新门禁 `check_shape_only_tests.py`：C1 登记+声明 / C2 登记的"真覆盖"文件必须真的发请求或碰 DB / C3 名字承诺必须兑现 / C4 过期条目。**判据**：改名+登记后 `OK —— 29 个只锁形状（5 个有真覆盖 / 24 个已登记缺口）`；变异实测：删掉 `captcha_shape_only_tests.rs` 的声明 ⇒ C1 红；把任一 `*_shape_only_tests.rs` 改回 `*_api_tests.rs` ⇒ C3 红。**未做**：24 个 `NONE` 是真覆盖缺口，另登记为 NEW-09 |
 | TEST-02 | 断言强度不足（原记 6 个文件只断言状态码） | 3 个文件补了 `errcode` + 字段断言（403/401/404）、2 个判定不适用（安全头 / 路由台账），本轮把**最后一个盲区** `msc4108` 收口：unit 文件删掉 12 个自证用例（`let status = StatusCode::OK; assert_eq!(status, StatusCode::OK)` 形态），handler 的真实往返新增 `tests/integration/msc4108_rendezvous_route_tests.rs` —— **12 条真 router + 真库**用例，覆盖 200+ETag/Expires/Last-Modified/Cache-Control/Pragma、304（If-None-Match 命中，无 body）、400（缺/错 Content-Type，`M_MISSING_PARAM` / `M_INVALID_PARAM`）、413（`M_TOO_LARGE`）、404（GET/DELETE 未知会话，`M_NOT_FOUND`）、412（If-Match 过期，`org.matrix.msc4108.errcode = M_CONCURRENT_WRITE`）、202+新 ETag+落库、204 后 GET 变 404。**实测**：`--test integration --features test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications,widgets -E 'test(msc4108_rendezvous_route_tests) \/ …'` = **47 passed**（其中 msc4108 12 条）。**变异**：把期望 errcode 改成 `M_UNKNOWN` ⇒ `left: "M_MISSING_PARAM" / right: "M_UNKNOWN"` 红（实测，已还原） |
 | TEST-06 | 5 个**整文件** feature 门控的测试文件在默认车道不参与 | **先红后绿**：新建 `scripts/ci/check_test_feature_gates.py` + 登记表 `scripts/ci/feature_gated_test_matrix`（C1 扫描 `git ls-files tests` 的 `#![cfg(feature = "…")]`、C2 要求 ci.yml 的一条 `nextest run --test <target>` **显式启用**该 feature（用 `--all-features` 命中的行会被单列为 `ALL_FEATURES`，不允许混成一个绿）、C3 反向查过期登记）。**首次运行 = 红**：3 个 integration 文件「无车道」、2 个 unit 文件「仅 ALL_FEATURES」。改法：默认 unit 车道的 `--features test-utils` → `test-utils,burn-after-read,server-notifications`（`ci.yml` 与 `scripts/ci_backend_validation.sh` 同步），并为 3 个 integration 文件新增一条显式 feature 车道（`require_tests_ran.sh` 包裹，命中 0 个用例即失败）。**实测**：`cargo nextest run --test unit --features test-utils,burn-after-read,server-notifications -E 'test(burn_after_read_route_tests) \/ test(server_notification_service_tests)'` = **86 passed**；integration 那条 = `e2ee_audit_service_tests` + `space_children_service_tests` + `api_widget_tests` 全绿。**踩到的坑**：integration target 的 `required-features` 是 6 个（`test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications`），只写 `test-utils,widgets` 会被 cargo 直接拒（exit 101）—— 这条只有真跑才会发现 |

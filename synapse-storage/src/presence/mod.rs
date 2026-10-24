@@ -990,6 +990,7 @@ mod db_tests {
                 .0;
 
         // Small sleep to ensure different timestamps
+        // sleep-reason: 时间戳铺开（让相邻 presence 的 ts 不同）
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
         storage.set_typing(&room_id, &user_id, true).await.expect("second set_typing");

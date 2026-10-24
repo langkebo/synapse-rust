@@ -305,8 +305,8 @@ pub use cache::{
 }; // cache crate root items
 pub(crate) use common::*; // internal crate access; no longer flattened into public API
 pub use federation::{
-    client, device_sync, event_auth, event_broadcaster, key_rotation, signing, DeviceSyncManager, EventAuthChain,
-    EventBroadcaster, FederationClient, KeyRotationManager,
+    client, event_auth, event_broadcaster, key_rotation, signing, EventAuthChain, EventBroadcaster, FederationClient,
+    KeyRotationManager,
 }; // federation crate root items
 #[cfg(feature = "friends")]
 pub use federation::{friend, FriendFederation, FriendFederationClient};

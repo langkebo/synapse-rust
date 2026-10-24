@@ -1382,6 +1382,7 @@ mod tests {
         assert!(first);
 
         // Wait for lock to expire
+        // sleep-reason: 等锁过期（锁 TTL 的观测窗口）
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         // Second worker should now acquire the expired lock
@@ -1454,6 +1455,7 @@ mod tests {
         storage.acquire_lock("lock_5", "worker_1", 1).await.expect("Failed to acquire lock");
 
         // Wait for expiry
+        // sleep-reason: 等锁过期（同上）
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         // Expired lock should not be considered locked
@@ -1475,6 +1477,7 @@ mod tests {
         storage.acquire_lock("active_lock", "worker", 300_000).await.expect("Failed to acquire lock");
 
         // Wait for the first to expire
+        // sleep-reason: 等锁过期（同上）
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         let deleted = storage.cleanup_expired_locks().await.expect("Failed to cleanup expired locks");

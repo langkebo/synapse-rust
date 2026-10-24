@@ -84,20 +84,33 @@ pub async fn get_dehydrated_device(
 /// top-level fields are preserved and forwarded to the stored payload.
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct PutDehydratedDeviceBody {
+    /// 调用方指定的设备 id。缺省时沿用该用户已有的脱水设备 id，两者都没有则服务端生成。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device_id: Option<String>,
+    /// 设备数据的容器对象。两个客户端形态都接受：`device_keys` 既可在顶层，
+    /// 也可嵌套在这里（`normalize_put_payload` 会把嵌套的那份提升到顶层）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device_data: Option<serde_json::Value>,
+    /// 设备密钥，**必需**（顶层或 `device_data` 内二选一）。两处都没有时返回 400
+    /// `Device key(s) not found, these must be provided.`
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device_keys: Option<serde_json::Value>,
+    /// 算法名。仅在 `device_data` 为空时被搬进 `device_data.algorithm`；
+    /// 读取时兜底为 `org.matrix.msc3814.v1.olm`。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub algorithm: Option<serde_json::Value>,
+    /// 设备账户数据。与 `algorithm` 一样，只在 `device_data` 为空时参与组装，
+    /// 否则以 `device_data.account` 为准。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account: Option<serde_json::Value>,
+    /// 初始设备显示名，同样只在 `device_data` 为空时被搬进 `device_data`。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub initial_device_display_name: Option<serde_json::Value>,
+    /// 过期时间（毫秒时间戳），原样存库；本函数不做过期判定。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<i64>,
+    /// 未识别的顶层字段。用 `#[serde(flatten)]` 收进来后**原样**写进存储的 payload，
+    /// 这样上游新增字段不会在转存时被静默丢掉。
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
 }

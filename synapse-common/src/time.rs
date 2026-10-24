@@ -174,6 +174,7 @@ mod tests {
     #[test]
     fn test_current_timestamp_millis_monotonic() {
         let t1 = current_timestamp_millis();
+        // sleep-reason: 时间源精度（毫秒时间戳要能观测到前进）
         std::thread::sleep(std::time::Duration::from_millis(5));
         let t2 = current_timestamp_millis();
         assert!(t2 >= t1, "timestamps must be monotonic");

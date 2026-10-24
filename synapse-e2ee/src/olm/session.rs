@@ -340,6 +340,7 @@ mod tests {
         );
 
         let original_last_used = session_data.last_used_ts;
+        // sleep-reason: 时间戳铺开（让 last_used_ts 变化可观测）
         std::thread::sleep(std::time::Duration::from_millis(10));
         session_data.touch();
 

@@ -97,6 +97,7 @@ fn test_megolm_session_last_used_update() {
     let mut session = create_test_session();
     let original_last_used = session.last_used_ts;
 
+    // sleep-reason: 时间戳铺开（让 last_used_ts 变化可观测）
     std::thread::sleep(std::time::Duration::from_millis(10));
     session.last_used_ts = Utc::now();
 

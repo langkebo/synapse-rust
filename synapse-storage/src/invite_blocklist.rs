@@ -1040,6 +1040,7 @@ mod db_tests {
             tokio::spawn(async move { storage.set_invite_blocklist(&room_id, vec![]).await })
         };
 
+        // sleep-reason: 等封禁过期（该用例的 TTL 是 200ms）
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         assert!(
             !writer.is_finished(),
@@ -1083,6 +1084,7 @@ mod db_tests {
             tokio::spawn(async move { storage.set_invite_allowlist(&room_id, vec![]).await })
         };
 
+        // sleep-reason: 等封禁过期（同上）
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         assert!(
             !writer.is_finished(),
@@ -1122,6 +1124,7 @@ mod db_tests {
             tokio::spawn(async move { storage.add_to_global_invite_blocklist(&user_id, None, None).await })
         };
 
+        // sleep-reason: 等封禁过期（同上）
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         assert!(
             !writer.is_finished(),

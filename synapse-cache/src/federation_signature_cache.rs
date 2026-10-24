@@ -317,6 +317,7 @@ mod tests {
     #[allow(missing_docs)]
     fn test_signature_cache_entry_expiration() {
         let entry = SignatureCacheEntry::new(true, Duration::from_millis(10));
+        // sleep-reason: 等 TTL 过期（条目 ttl=10ms，睡 20ms 保证跨过）
         thread::sleep(Duration::from_millis(20));
         assert!(entry.is_expired());
         assert_eq!(entry.remaining_ttl(), Duration::ZERO);
@@ -468,6 +469,7 @@ mod tests {
 
         assert!(cache.get_signature(&key).is_some());
 
+        // sleep-reason: 等 TTL 过期（1s 窗口）
         thread::sleep(Duration::from_millis(1100));
 
         assert!(cache.get_signature(&key).is_none());

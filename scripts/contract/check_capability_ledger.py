@@ -222,7 +222,7 @@ def mutation_check(report_text: str, audit_text: str) -> int:
     # 另自证 C4：把一个"不注册"路径塞进已登记集合，必须红。
     claims = parse_no_route_claims(report_text)
     if claims:
-        poisoned = reported = run_checks(report_text, audit_text, claims, set(claims))
+        poisoned = run_checks(report_text, audit_text, claims, set(claims))
         if any("互相矛盾" in p for p in poisoned):
             print("  ✓ C4 变异：`不注册` 的路径出现在 ledger_annotations ⇒ 红")
         else:
@@ -252,7 +252,7 @@ def main() -> int:
 
     print("==> 能力台账可追溯性（MAINT-04 / FUNC-05）")
     print(
-        f"    C1 判定词 / C2 已实现可解析 / C3 设计决策有编号 / C4 不注册声明与路由台账不矛盾"
+        "    C1 判定词 / C2 已实现可解析 / C3 设计决策有编号 / C4 不注册声明与路由台账不矛盾"
     )
     print(
         f"    台账行数: {len(parse_rows(report_text))}，不注册声明: {len(parse_no_route_claims(report_text))}"

@@ -528,6 +528,7 @@ mod tests {
         let pool_clone = pool.clone();
         let handle1 = tokio::spawn(async move { pool_clone.hash_password("password1").await });
 
+        // sleep-reason: 等池容量释放（并发上限的观测窗口）
         tokio::time::sleep(Duration::from_millis(10)).await;
 
         let pool_clone = pool.clone();
