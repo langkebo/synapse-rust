@@ -208,16 +208,49 @@ fn parse_stream_id(value: &Value) -> Option<i64> {
     s.parse::<i64>().ok()
 }
 
-async fn broadcast_device_list_update(ctx: &DeviceContext, user_id: &str, device_id: &str) {
+/// 构造一条 `m.device_list_update` EDU 的 `content`。
+///
+/// 抽成自由函数是为了能被单测覆盖：`deleted` 字段此前**根本没有**，而接收端
+/// （`federation::edu::validate_device_list_update_content`）正是靠它决定
+/// `change_type` 是 `deleted` 还是 `updated` —— 于是"删掉一台设备"在对端被记成
+/// "更新"，客户端的设备列表里那台设备会**一直在**（审计 NEW-07 的第二半）。
+///
+/// `stream_id` 必须是**本服务器的**设备列表流序号（`device_lists_stream.stream_id`），
+/// 不是墙上时钟：它是对端唯一的排序依据，用毫秒时间戳会让同一毫秒内的两次变更
+/// 拿到同一个序号。
+fn device_list_update_edu_content(user_id: &str, device_id: &str, stream_id: i64, deleted: bool) -> serde_json::Value {
+    serde_json::json!({
+        "user_id": user_id,
+        "device_id": device_id,
+        "stream_id": stream_id,
+        "prev_ids": [],
+        "deleted": deleted,
+    })
+}
+
+async fn broadcast_device_list_update(ctx: &DeviceContext, user_id: &str, device_id: &str, deleted: bool) {
     let server_name = ctx.config.server.server_name.as_deref().unwrap_or("localhost");
+
+    // Bump/read the device-list stream **before** building the EDU: the row was written by
+    // the storage layer (device create/delete/rename), so this is the id the peer should
+    // order by. Fall back to the wall clock only if the query fails — a missing stream id
+    // must not suppress the notification itself.
+    let stream_id = match ctx.account_device_list_service.get_max_device_list_stream_id_for_user(user_id).await {
+        Ok(id) => id,
+        Err(e) => {
+            ::tracing::warn!(
+                %user_id,
+                error = %e,
+                "Could not read device-list stream id for the outbound m.device_list_update; \
+                 falling back to a timestamp (remote ordering for this user may be unstable)"
+            );
+            current_timestamp_millis()
+        }
+    };
+
     let edu = serde_json::json!({
         "edu_type": "m.device_list_update",
-        "content": {
-            "user_id": user_id,
-            "device_id": device_id,
-            "stream_id": current_timestamp_millis(),
-            "prev_ids": [],
-        }
+        "content": device_list_update_edu_content(user_id, device_id, stream_id, deleted),
     });
 
     if let Some(pos) = user_id.find(':') {
@@ -360,7 +393,7 @@ pub async fn update_device(
                         .update_user_device_display_name(&auth_user.user_id, device_id.as_str(), display_name)
                         .await?;
                 }
-                broadcast_device_list_update(&ctx, &auth_user.user_id, device_id.as_str()).await;
+                broadcast_device_list_update(&ctx, &auth_user.user_id, device_id.as_str(), false).await;
                 return Ok((StatusCode::OK, Json(json!({}))).into_response());
             }
             Some(_) => return Err(device_not_found_error()),
@@ -368,7 +401,7 @@ pub async fn update_device(
                 ctx.account_device_list_service
                     .create_device(device_id.as_str(), &auth_user.user_id, display_name)
                     .await?;
-                broadcast_device_list_update(&ctx, &auth_user.user_id, device_id.as_str()).await;
+                broadcast_device_list_update(&ctx, &auth_user.user_id, device_id.as_str(), false).await;
                 return Ok((StatusCode::CREATED, Json(json!({}))).into_response());
             }
         }
@@ -388,7 +421,7 @@ pub async fn update_device(
     let device =
         ctx.account_device_list_service.get_device(device_id.as_str()).await?.ok_or_else(device_not_found_error)?;
 
-    broadcast_device_list_update(&ctx, &auth_user.user_id, device_id.as_str()).await;
+    broadcast_device_list_update(&ctx, &auth_user.user_id, device_id.as_str(), false).await;
 
     Ok(Json(json!({
         "device_id": device.device_id,
@@ -429,7 +462,7 @@ pub async fn delete_device(
         return Err(err);
     }
 
-    broadcast_device_list_update(&ctx, &auth_user.user_id, device_id.as_str()).await;
+    broadcast_device_list_update(&ctx, &auth_user.user_id, device_id.as_str(), true).await;
 
     Ok(Json(json!({})).into_response())
 }
@@ -462,7 +495,7 @@ pub async fn delete_devices(
     }
 
     for device_id in &device_ids {
-        broadcast_device_list_update(&ctx, &auth_user.user_id, device_id).await;
+        broadcast_device_list_update(&ctx, &auth_user.user_id, device_id, true).await;
     }
 
     Ok(Json(json!({})).into_response())
@@ -605,5 +638,49 @@ mod tests {
         let err = super::device_not_found_error();
         assert_eq!(err.code_str(), "M_NOT_FOUND");
         assert_eq!(err.http_status().as_u16(), 404);
+    }
+
+    /// 我们发出去的 `m.device_list_update` 必须让**接收端**读成 `deleted`。
+    ///
+    /// 这条是往返断言（发 → 收），不是"字段各自正确"：
+    /// 接收端 `federation::edu::validate_device_list_update_content` 用
+    /// `content.deleted` 决定 `change_type`，而这一字段此前**根本没发**
+    /// （审计 NEW-07 的第二半：删掉的设备在对端被记成"更新"，那台设备永远留在
+    /// 对端的设备列表里）。所以判据只能是把我们构造的 content 喂给那个函数，
+    /// 看它给出什么 change_type —— 只断言 `json["deleted"] == true` 的话，
+    /// 接收端换字段名（比如改成 `device_deleted`）这条仍会绿。
+    #[test]
+    fn outbound_device_list_update_is_read_as_deleted_by_the_receiver() {
+        let content = super::device_list_update_edu_content("@alice:example.com", "DEV1", 42, true);
+        let edu = serde_json::json!({ "edu_type": "m.device_list_update", "content": content });
+
+        let (user_id, device_id, stream_id, change_type) =
+            crate::federation::edu::validate_device_list_update_content(&edu, "example.com")
+                .expect("接收端必须接受我们自己发出的内容（origin 匹配 @alice:example.com）");
+        assert_eq!(user_id, "@alice:example.com");
+        assert_eq!(device_id, Some("DEV1"));
+        assert_eq!(stream_id, 42, "stream_id 必须是调用方给的流序号，不能被替换成墙上时钟");
+        assert_eq!(change_type, "deleted", "删除设备的 EDU 必须被接收端读成 deleted");
+    }
+
+    /// 非删除场景不得被读成 `deleted`（否则仅改设备名也会让对端把设备删掉）。
+    #[test]
+    fn outbound_device_list_update_for_a_rename_is_read_as_updated() {
+        let content = super::device_list_update_edu_content("@alice:example.com", "DEV1", 43, false);
+        let edu = serde_json::json!({ "content": content });
+
+        let (_, _, _, change_type) =
+            crate::federation::edu::validate_device_list_update_content(&edu, "example.com").expect("valid content");
+        assert_eq!(change_type, "updated");
+    }
+
+    /// 两个方向的 `deleted` 必须不同 —— 防止有人为了"精简"把它写成常量。
+    #[test]
+    fn device_list_update_deleted_flag_actually_varies() {
+        let deleted = super::device_list_update_edu_content("@a:b", "D", 1, true);
+        let updated = super::device_list_update_edu_content("@a:b", "D", 1, false);
+        assert_eq!(deleted["deleted"], serde_json::json!(true));
+        assert_eq!(updated["deleted"], serde_json::json!(false));
+        assert_ne!(deleted, updated);
     }
 }

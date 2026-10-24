@@ -129,27 +129,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     );
                     Ok(())
                 }
-                BackgroundJob::Generic { name, payload } => {
-                    tracing::info!("[GENERIC] Processing job '{}'", name);
-
-                    if name == "notify_device_revocation" {
-                        // 原来 sleep(300ms) 后打 "Device revocation notified"，但**从未发过任何
-                        // 联邦请求**。生产者是 `device_sync::notify_device_revocation`，所以配了
-                        // task_queue 的部署里设备吊销通知一直被静默丢弃（NEW-06）。
-                        tracing::warn!(
-                            event = "worker_job_unimplemented",
-                            destination = payload.get("destination").and_then(|v| v.as_str()).unwrap_or("<none>"),
-                            "收到 notify_device_revocation job，但 worker 没有实现该联邦 EDU；远端不会收到设备吊销通知"
-                        );
-                    } else {
-                        tracing::info!(
-                            "[GENERIC] Payload summary: fields={}",
-                            payload.as_object().map_or(0, |o| o.len())
-                        );
-                    }
-
-                    Ok(())
-                }
                 BackgroundJob::RedactEvent { room_id, event_id, reason } => {
                     tracing::info!("[REDACT] Executing redaction for room {} event {}", room_id, event_id);
                     if let Some(r) = reason {

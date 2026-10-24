@@ -10,14 +10,18 @@ use synapse_common::current_timestamp_millis;
 /// [`AccountDeviceListService`](synapse_services::account_device_list_service::AccountDeviceListService).
 #[async_trait]
 pub trait DeviceListStoreApi: Send + Sync {
-    /// See [`insert_device_list_change`].
-    async fn insert_device_list_change(
+    /// See [`DeviceStorage::record_device_list_change`].
+    ///
+    /// **刻意不接收 `stream_id`**：调用方给不出一个本地可用的序号。联邦 EDU 带来的是
+    /// **对端的** `stream_id`（毫秒时间戳，量级 1e12），而本表的所有读取都用本地序列
+    /// （量级 1e3）做 `stream_id <= to` 的范围过滤 —— 把对端的值存进来，这一行就落在
+    /// 每个读取之外（审计 NEW-07）。序号由存储层分配。
+    async fn record_device_list_change(
         &self,
         user_id: &str,
         device_id: Option<&str>,
         change_type: &str,
-        stream_id: i64,
-    ) -> Result<(), sqlx::Error>;
+    ) -> Result<i64, sqlx::Error>;
 
     /// See [`create_device`].
     async fn create_device(
@@ -290,26 +294,6 @@ impl DeviceStorage {
             change_type
         )
         .execute(&mut **tx)
-        .await?;
-        Ok(())
-    }
-
-    /// See [`insert_device_list_change`].
-    pub async fn insert_device_list_change(
-        &self,
-        user_id: &str,
-        device_id: Option<&str>,
-        change_type: &str,
-        stream_id: i64,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query!(
-            r#"INSERT INTO device_lists_changes (user_id, device_id, change_type, stream_id, created_ts) VALUES ($1, $2, $3, $4, $4) ON CONFLICT DO NOTHING"#,
-            user_id,
-            device_id,
-            change_type,
-            stream_id
-        )
-        .execute(&*self.pool)
         .await?;
         Ok(())
     }
@@ -1231,14 +1215,15 @@ impl DeviceStorage {
 
 #[async_trait]
 impl DeviceListStoreApi for DeviceStorage {
-    async fn insert_device_list_change(
+    async fn record_device_list_change(
         &self,
         user_id: &str,
         device_id: Option<&str>,
         change_type: &str,
-        stream_id: i64,
-    ) -> Result<(), sqlx::Error> {
-        self.insert_device_list_change(user_id, device_id, change_type, stream_id).await
+    ) -> Result<i64, sqlx::Error> {
+        // 显式走固有方法：`self.record_device_list_change(..)` 在 trait impl 内部
+        // 会解析到 trait 自身（无限递归），即使固有方法通常优先。
+        DeviceStorage::record_device_list_change(self, user_id, device_id, change_type).await
     }
 
     async fn create_device(

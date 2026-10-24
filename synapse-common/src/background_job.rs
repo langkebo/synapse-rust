@@ -26,13 +26,6 @@ pub enum BackgroundJob {
         /// Destination homeserver.
         destination: String,
     },
-    /// `Generic` variant.
-    Generic {
-        /// Job name.
-        name: String,
-        /// Arbitrary JSON payload.
-        payload: serde_json::Value,
-    },
     /// `RedactEvent` variant.
     RedactEvent {
         /// Room id where the event lives.
@@ -73,7 +66,7 @@ impl BackgroundJob {
             Self::SendEmail { .. } | Self::RedactEvent { .. } => WorkerSupport::Handled,
             Self::ProcessMedia { .. } => WorkerSupport::RedundantNoOp,
             Self::DelayedEventProcessing { .. } => WorkerSupport::RedundantNoOp,
-            Self::FederationTransaction { .. } | Self::Generic { .. } => WorkerSupport::Unimplemented,
+            Self::FederationTransaction { .. } => WorkerSupport::Unimplemented,
         }
     }
 
@@ -87,9 +80,6 @@ impl BackgroundJob {
             }
             Self::DelayedEventProcessing { .. } => "由 room/scheduled_dispatch 的调度器处理，worker 这一支是冗余的",
             Self::FederationTransaction { .. } => "仓内无生产者（federation 由主服务同步发送），worker 无实现",
-            Self::Generic { .. } => {
-                "仓内唯一生产者是 device_sync::notify_device_revocation，而 worker 对该 name 无实现"
-            }
         }
     }
 }
@@ -126,14 +116,6 @@ mod tests {
         let json = serde_json::to_string(&job).unwrap();
         assert!(json.contains("txn123"));
         assert!(json.contains("matrix.org"));
-    }
-
-    #[test]
-    fn test_generic_job() {
-        let job =
-            BackgroundJob::Generic { name: "test_task".to_string(), payload: serde_json::json!({"key": "value"}) };
-        let json = serde_json::to_string(&job).unwrap();
-        assert!(json.contains("test_task"));
     }
 
     #[test]
@@ -184,10 +166,6 @@ mod tests {
             (BackgroundJob::ProcessMedia { file_id: "f".into() }, RedundantNoOp),
             (BackgroundJob::DelayedEventProcessing { event_id: "$e".into() }, RedundantNoOp),
             (BackgroundJob::FederationTransaction { txn_id: "t".into(), destination: "x".into() }, Unimplemented),
-            (
-                BackgroundJob::Generic { name: "notify_device_revocation".into(), payload: serde_json::Value::Null },
-                Unimplemented,
-            ),
         ];
 
         for (job, expected) in cases {

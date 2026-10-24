@@ -256,14 +256,18 @@ impl DeviceListStoreApi for InMemoryDeviceListStore {
         Ok(affected)
     }
 
-    async fn insert_device_list_change(
+    async fn record_device_list_change(
         &self,
         _user_id: &str,
         _device_id: Option<&str>,
         _change_type: &str,
-        _stream_id: i64,
-    ) -> Result<(), sqlx::Error> {
-        Ok(())
+    ) -> Result<i64, sqlx::Error> {
+        // 与真实实现同形：分配一个单调递增的**本地**序号并返回。
+        // 不返回 0，也不用 `current_timestamp_millis()` —— 后者正是 NEW-07 的原始缺陷
+        // （对端毫秒时间戳混进本地序列），mock 照抄会让用例替它背书。
+        let mut sid = self.stream_id.write().await;
+        *sid += 1;
+        Ok(*sid)
     }
 
     async fn get_max_device_list_stream_id_for_user(&self, _user_id: &str) -> Result<i64, sqlx::Error> {

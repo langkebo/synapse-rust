@@ -33,6 +33,7 @@ mod e2ee_api_tests;
 mod event_report_api_tests;
 mod federation_api_tests;
 mod federation_cache_api_tests;
+mod federation_device_list_writer_tests;
 mod federation_state_pdu_tests;
 mod friend_api_tests;
 mod key_backup_api_tests;

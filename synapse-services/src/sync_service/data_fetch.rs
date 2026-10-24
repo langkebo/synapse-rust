@@ -967,14 +967,13 @@ mod tests {
             self.inner.get_max_device_list_stream_id().await
         }
 
-        async fn insert_device_list_change(
+        async fn record_device_list_change(
             &self,
             user_id: &str,
             device_id: Option<&str>,
             change_type: &str,
-            stream_id: i64,
-        ) -> Result<(), sqlx::Error> {
-            self.inner.insert_device_list_change(user_id, device_id, change_type, stream_id).await
+        ) -> Result<i64, sqlx::Error> {
+            self.inner.record_device_list_change(user_id, device_id, change_type).await
         }
 
         async fn create_device(

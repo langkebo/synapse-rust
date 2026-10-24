@@ -23,10 +23,13 @@
 | 文档完整性 | 0 | 0 | 0 | 1 | 1 |
 | 专项：冗余与过度开发 | 0 | 0 | 1 | 0 | 1 |
 | **小计** | **0** | **0** | **15** | **13** | **28** |
-| 第七轮新发现（仍开着） | 0 | 0 | 1 | 2 | 3 |
-| **合计** | **0** | **0** | **16** | **15** | **31** |
+| 第七轮新发现（仍开着） | 0 | 0 | 1 | 3 | 4 |
+| **合计** | **0** | **0** | **16** | **16** | **32** |
 
 **结论摘要**：**P0 = 0，P1 = 0**（原 9 条 P1 全部有实现 + 能失败的门禁，逐条见附录 D）。
+⚠️ 第八轮曾把一条误报成 P1（NEW-06「设备吊销通知静默丢失」），**已撤回**：真实广播路径在
+`routes/device.rs::broadcast_device_list_update`（签名事务），死的是 `device_sync` 里那条
+零调用者的重复实现，已删除；更正过程记在[附录 D](#附录-d已关闭条目索引)。
 剩下的 31 条里，**没有一条会造成数据丢失或越权**；16 条 P2 中真正"用户可见"的只有两类：
 
 1. **能力台账与实现不一致**（FUNC-05 的联邦能力未登记、MAINT-04 的手工台账已出现两行错账）
@@ -42,14 +45,17 @@
 
 ## 0.1 第七轮新发现（2026-10-24，只列仍开着的）
 
-> > 这是第七轮（2026-10-24）新发现里**仍开着**的部分。已修掉的 3 条不在此重复：
-> NEW-01（联邦缩略图 `animated` 未透传）与新发现之后即按建议执行的 NEW-02（规则文档入库）、
-> DOC-03（MSC3245 错标），判据与证据见[附录 D](#附录-d已关闭条目索引)。
+> 这是第七轮（2026-10-24）新发现里**仍开着**的部分。已关闭的 5 条不在此重复，判据与证据见
+> [附录 D](#附录-d已关闭条目索引)：
+> NEW-01（联邦缩略图 `animated` 未透传）、NEW-02（规则文档入库）、DOC-03（MSC3245 错标）、
+> **NEW-06（设备吊销通知「静默丢失」—— 误报，已撤回并删除死代码）**、
+> **NEW-07（联邦入站设备列表 EDU 对客户端不可见 —— 真缺陷，已修）**。
 
 | 编号 | 级别 | 一句话 | 证据 |
 |---|---|---|---|
 | **NEW-03** | P3 | 依赖分裂组数已从 **38 → 32**（crate 名 54 → 47、同版本多来源 16 → 15），`DEPENDENCY_UPGRADE_TRACKER.md` 的基线与"处置进度"整表过期 | `cargo tree -d --workspace --locked` 按 crate 名聚合：47 / 32 / 15（口径见 §0.4） |
 | **NEW-05** | P2 | **「自证测试」面**：一批测试只断言自己刚构造的字面量（`let status = StatusCode::OK; assert_eq!(status, StatusCode::OK)`），永远不会失败。启发式扫描（≥3 处本地字面量断言且 0 处真实依赖调用）命中 **21 个文件**；已逐行确认的 3 处见 §七 TEST-02 | 已确认：`tests/unit/msc4108_rendezvous_route_tests.rs`（0 个 HTTP 调用、12 处 `let status/body/headers = <字面量>`）、`tests/integration/coverage_tests.rs`（51 个用例全是构造 JSON）、`account_compat_route_tests.rs` 的 `test_deactivate_account_*` 三条。**启发式会高估**（insta 快照文件看起来也像），所以 21 是候选数不是判决数 |
+| **NEW-08** | P3 | `synapse-federation/src/device_sync.rs`（**736 行**，8 个公开方法）**生产代码零调用**：全仓唯一构造点在 `tests/integration/federation_service_tests_migrated.rs`。其中 3 个方法与真实实现同名/同义（`revoke_device`↔`auth::account`、`verify_device_keys_signature`↔`e2ee::signed_json`、`sync_devices_from_remote`↔`FederationClient::get_user_devices`） | `git grep "DeviceSyncManager::new"` → 只有测试；8 个方法逐个 grep 生产调用：`sync_devices_from_remote` / `is_device_key_expired` / `cleanup_expired_devices` / `sync_device_keys_with_expiry_check` / `invalidate_user_devices_cache` **各 0 处**，`get_local_devices` 只在测试里。**未删**：删它要同步 SQLX 静态化计数基线（`check_sqlx_dynamic_ratio.sh`）与 3 个 crate 的 re-export，属独立一笔 |
 | **NEW-04** | P3 | 源码与配置里共 **30 个**不同的 `scripts/...` 悬挂引用；但其中多数是**相对路径**（相对 `docker/deploy/`）或**历史叙述**（"这里过去调用过 X，已删除"）⇒ 不能做"出现即要求存在"的朴素门禁 | 全仓扫描 `scripts/[\w./-]+\.(sh\|py\|mjs\|js)` 与 `os.path.exists` 求差；逐条看上下文后只有 1 类是真错（`scripts/quality/check_missing_docs_ratchet.sh`，8 处，已在本轮修掉） |
 
 ## 0.2 未完成任务清单
@@ -61,7 +67,6 @@
 
 | 编号 | 级别 | 一句话 | 判据（怎么算修好） |
 |---|---|---|---|
-| **NEW-06** | **P1** | worker 不实现 `notify_device_revocation` 的联邦发送，生产者却「入队即成功」 ⇒ 设备吊销通知静默丢失 | ① worker 侧真发 EDU（注入 `FederationClient`，用 `send_signed_request`）；② 或生产者在 `worker_support() != Handled` 时不入队、走真实发送。判据：集成用例断言「吊销后远端收到 `m.device_list_update`」 |
 | **TEST-02** | P2 | 断言强度不足（原记 6 个文件只断言状态码） | **3 个已补**（403/401/404 断言 `errcode` + error、成功分支断言关键字段）、**2 个判定不适用**（安全头 / 路由台账）；仅剩 `msc4108` 的 12 个自证用例（并入 NEW-05）。判据：改期望 errcode 或响应字段 ⇒ 用例必须红（两处已实测） |
 | **TEST-05** | P2 | `sleep` 站点 **107 处**（PROD 26 / 测试域 81），三桶棘轮已建 | 测试域 81 处逐处改「等真实事件」（条件轮询 + deadline / `oneshot`）；计数只能下降（已由 `check_sleep_ratchet.py` 守住） |
 | **SEC-14** | P3 | 联邦请求缺 `ts` 仅告警不拒绝 | 增加拒绝分支 + 一条"缺 ts ⇒ 401"的用例（先写用例证明当前是 200/放行） |
@@ -81,6 +86,7 @@
 
 | 编号 | 级别 | 一句话 | 为什么不做 |
 |---|---|---|---|
+| **NEW-08** | P3 | `device_sync.rs` 整模块 **736 行**生产零调用（详见 §0.1） | 删它要同步 SQLX 静态化计数基线（`check_sqlx_dynamic_ratio.sh` 的四道棘轮是零余量）与 3 个 crate 的 re-export、2 条只测死代码的用例 ⇒ 属独立一笔，不与本轮链路修复混做 |
 | **CODE-10** | P2 | 生产 **837 处** `let _ =` / `unwrap_or_default()`（238 文件） | 大部分是合法用法；设下降配额会诱导写 `unwrap()` 来"减少计数"（§10.10） |
 | **CODE-11** | P3 | `#[allow(...)]` **271 处 / 117 文件**，其中 **160 处 / 96 文件**没有 `// reason:` | 棘轮已在工作（只许下降）；剩"补理由"是纯体力活，随触达文件顺手补 |
 | **PERF-01** | P2 | `to_device_messages` 对**普通设备**无按龄清理（脱水设备路径有 `DELETE`） | 需要先定"客户端未确认算不算已投递"，是产品语义 |
@@ -242,52 +248,6 @@
 ---
 
 ## 三、功能完整性
-
-### NEW-06（P1）worker 的后台作业处理器有 4 个空壳分支，其中 1 个有真实生产者
-
-- **位置**：`src/bin/synapse_worker.rs:105-150`（`job_handler` 的 `match`）
-- **形态**：四个分支只做 `sleep(…) .await` + 一行"已完成"日志，**没有实现任何副作用**：
-
-  | 分支 | 原代码做的事 | 日志说的是 |
-  |---|---|---|
-  | `ProcessMedia` | `sleep(500ms)` | `"[MEDIA] Thumbnails generated for {id}"` |
-  | `FederationTransaction` | `sleep(200ms)` | `"[FEDERATION] Processing transaction …"` |
-  | `DelayedEventProcessing` | `sleep(100ms)` | `"[DELAYED] Event {id} processed"` |
-  | `Generic{name:"notify_device_revocation"}` | `sleep(300ms)` | `"[GENERIC] Device revocation notified to {dest}"` |
-
-- **哪一条是真的坏**：逐个查生产者（全仓 `BackgroundJob::<variant>` 引用）：
-
-  | 变体 | 生产者 | 结论 |
-  |---|---|---|
-  | `SendEmail` | `captcha_service.rs:296`、`registration_service.rs:86` | worker **真有实现**（SMTP） |
-  | `RedactEvent` | 0（主服务同步做） | worker 真有实现，冗余但无害 |
-  | `ProcessMedia` | `media_service.rs:410` | **空壳但无害**：缩略图由 `get_thumbnail` 的 cache-miss 路径懒生成，本 job 只是预热；错的是那句"已生成" |
-  | `DelayedEventProcessing` | 0 | 冗余：`room/scheduled_dispatch` 的调度器在处理 |
-  | `FederationTransaction` | 0 | 无生产者，纯死分支 |
-  | `Generic{notify_device_revocation}` | **`device_sync.rs:212`** | ❗ **真的坏**：见下 |
-
-  `device_sync::notify_device_revocation` 的逻辑是"有 task_queue ⇒ 入队并 `return Ok(())`"，
-  于是配了 Redis 队列（= worker 部署）时：**入队 → worker 睡 300ms → 打「已通知」→ 丢弃**。
-  远端从未收到 `m.device_list_update` EDU，会继续向已吊销的设备推 to-device 消息。
-  两端日志都显示成功，指标上是一条"已消费的作业"。
-  > 另注：`task_queue` 为空时的兜底路径也可疑 —— 它用**未签名**的 `PUT /_matrix/federation/v1/send/{txn}`
-  > 发一个裸 event JSON（`http_client` 是普通 `reqwest::Client`，没有 X-Matrix 头）。那条路远端应回 401，
-  > 但代码只在 2xx 时记成功、否则静默继续 —— 属于同一条链上的第二个问题。
-- **本轮做了什么**（把"说谎"改成"承认"）：
-  1. 新增 `synapse_common::background_job::WorkerSupport`（`Handled` / `RedundantNoOp` /
-     `Unimplemented`）+ `worker_support()` / `worker_support_reason()`，把"每个变体在 worker 里
-     到底是真做、冗余、还是没做"变成**数据**；
-  2. worker 里 4 个分支删掉 `sleep` 与假日志，改为在消费时统一打
-     `event = "worker_job_without_implementation"` 的 **warn**（带 `support` 与 `reason`）；
-  3. 用例 `worker_support_is_explicit_for_every_variant` 把分类钉住 —— 把任何一个
-     `Unimplemented` 改回 `Handled` 会红（避免为了日志好看而"修好"）。
-  4. 顺带让 TEST-05 的计数下降 4 处（`sleep` 是这四个空壳唯一的"工作")。
-- **仍未做（这才是 P1 的部分）**：让 worker 真的把 EDU 发出去。需要给 `DeviceSyncManager`
-  注入 `FederationClient`（当前只有裸 `reqwest::Client`），用 `send_signed_request` 构造
-  `m.device_list_update` 事务；或者在"worker 无实现"时**不要入队**、直接走真实发送路径。
-  在那之前，worker 部署的设备吊销通知仍然是**缺失**的 —— 现在只是不再谎报。
-- **判据（可失败）**：把 `BackgroundJob::Generic` 的 `worker_support()` 改成 `Handled` ⇒
-  `worker_support_is_explicit_for_every_variant` 红（实测）。
 
 ### FUNC-05（P3）联邦能力项有意不注册，未全部登记为设计决策
 
@@ -537,9 +497,9 @@
 
 ### 10.2 下一批（W8）建议
 
-**顺序**：`NEW-06`（P1，唯一）→ `TEST-05` → `SEC-14`。
+**顺序**：`TEST-05` → `SEC-14` → `NEW-05`（逐文件判定）。清单里已无 P0/P1。
 
-理由：NEW-06 是清单里唯一的 P1，且已有可失败的分类判据（`worker_support_is_explicit_for_every_variant`）加一个明确验收（远端真的收到 EDU）；`TEST-05` 剩余 81 处是体力活但收益最长尾。`SEC-14`（缺 `ts` 只告警）
+理由：`TEST-05` 剩余 81 处测试域 `sleep` 是体力活但收益最长尾；`SEC-14`（缺 `ts` 只告警）需要先确认规范是否允许缺省（硬拒可能与老版本 homeserver 断联邦）；`NEW-05` 要先逐文件判定"接真 router 还是改名"，不判定就没法写判据。
 **需要先确认规范是否允许缺省** —— 硬拒可能与老版本 homeserver 断联邦，所以它排在需要判断的位置。
 
 ### 10.3 明确不做（防止过度开发）
@@ -601,6 +561,8 @@
 
 | 编号 | 一句话 | 关闭依据 |
 |---|---|---|
+| NEW-06 | **（误报，已撤回）** worker 不实现 `notify_device_revocation` 的联邦发送 ⇒ 设备吊销通知静默丢失 | **判定错误，记录为什么错**：我把 `device_sync::notify_device_revocation` 当成了"生产者"，实际它**零调用者**（`git grep` 全仓只有定义本身），而 `DeviceSyncManager` 在生产代码里**从未被构造**（唯一构造点在 `tests/integration/federation_service_tests_migrated.rs`）。真实的设备列表 EDU 广播在 `routes/device.rs::broadcast_device_list_update`（6 个调用点，走签名事务 `EventBroadcaster::broadcast_edu` ⇒ `FederationClient::send_transaction`）。**动作**：删掉那条死路径（52 行）+ `BackgroundJob::Generic` 变体 + worker 的 `Generic` 分支；守卫 `federation_device_list_writer_tests::the_dead_device_revocation_job_does_not_come_back`。**教训**："某函数会入队" ≠ "有人调它" —— 判 P1 之前先 grep **调用者**，而不只是函数体 |
+| NEW-07 | 联邦入站 `m.device_list_update` / `m.profile_update` 写的东西**对客户端永久不可见** | `record_device_list_change`（存储层分配本地序号，两表同写）取代 `insert_device_list_change(.., 远端 stream_id)`。三条叠加缺陷：① 只写 `device_lists_changes`，而 `/sync` 与 `/keys/changes` 都读 `device_lists_stream`；② 写入的是对端毫秒时间戳（1e12），而读取都带 `stream_id <= to`（本地 1e3）⇒ 连唯一读 changes 的路径也读不到；③ 出站 EDU **不带 `deleted`**，接收端把"删设备"记成"更新"。**判据**：`device_list_federation_visibility_tests`（3 条，真库）+ `routes::device` 的 3 条"发→收"往返用例；变异（退回 changes-only + 时间戳）实测 2/3 红。**未覆盖**：没有走 `EduDispatcher` 的端到端用例（`FederationContext` 有 30+ 字段），handler 是否真调这个方法由 `federation_device_list_writer_tests` 的源码断言钉住 |
 | ARCH-01 | Thread 双实现写影子表，数据对 `/sync` 不可见 | `3789583ef`（写真实 `m.thread` 事件，影子表降级为索引） |
 | FUNC-01 | `erase=true` 显式 501（GDPR 擦除未实现） | **决策：不实现擦除，只登记**。`API_COVERAGE_REPORT.md` 新增 §6.5「已知的语义限制」写明「支持注销 / 不支持 erase」及理由；501 的 message 改为指向该条目（客户端作者不用猜是不是服务端坏了）。**未做**：没有端到端用例（需要 UIA 全流程的 app 夹具），`tests/unit/account_compat_route_tests.rs` 里现有的 deactivate 用例只是「本地构造 JSON 再断言」的自证，不算覆盖 |
 | ARCH-06 | `updated_ts` 约束形态两套并存（规则说可空、SQL 一半 NOT NULL） | **决策：不统一，改规则 + 棘轮冻结**。规则 §2.2 改为「两种都合法，新表必须显式选一个」，示例 SQL 改用 `NOT NULL`；`scripts/ci/check_schema_timestamp_convention.py` 把计数冻在 NOT NULL 43 / 可空 42（`scripts/ci/schema_timestamp_baseline`），只许朝 NOT NULL 方向变。**判据**：新增一个可空 `updated_ts`（含单行建表）⇒ 红；把一处 `NOT NULL` 放宽 ⇒ 红（两处变异实测）。未做统一迁移：`SET NOT NULL` 在有 NULL 行时失败，本仓无生产数据可判 |

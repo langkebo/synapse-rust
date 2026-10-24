@@ -208,58 +208,6 @@ impl DeviceSyncManager {
         Ok(devices)
     }
 
-    /// See [`notify_device_revocation`.
-    pub async fn notify_device_revocation(&self, origin: &str, user_id: &str, device_id: &str) -> Result<(), ApiError> {
-        if let Some(queue) = &self.task_queue {
-            let payload = json!({
-                "type": "m.device_list_update",
-                "sender": user_id,
-                "content": {
-                    "device_id": device_id,
-                    "deleted": true
-                },
-                "destination": origin
-            });
-
-            let job = BackgroundJob::Generic { name: "notify_device_revocation".to_string(), payload };
-
-            if let Err(e) = queue.submit(job).await {
-                tracing::warn!("Failed to submit revocation task: {}", e);
-            } else {
-                tracing::info!("Submitted device revocation task for {} to {}", device_id, origin);
-                return Ok(());
-            }
-        }
-
-        let payload = json!({
-            "type": "m.device_list_update",
-            "sender": user_id,
-            "content": {
-                "device_id": device_id,
-                "deleted": true
-            }
-        });
-
-        let urls = vec![format!("https://{}/_matrix/federation/v1/send/{}", origin, uuid::Uuid::new_v4())];
-
-        for url in urls {
-            match self.http_client.put(&url).json(&payload).send().await {
-                Ok(response) => {
-                    if response.status().is_success() {
-                        tracing::info!("Successfully notified device revocation to {}", origin);
-                        return Ok(());
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!("Failed to notify revocation to {}: {}", url, e);
-                    continue;
-                }
-            }
-        }
-
-        Err(ApiError::internal("Failed to notify device revocation to remote server".to_string()))
-    }
-
     /// See [`get_local_devices`.
     pub async fn get_local_devices(&self, user_id: &str) -> Result<Vec<DeviceInfo>, ApiError> {
         // R4 ①：`FALSE as is_blocked` / `FALSE as verified` 是**字面量**（无关系来源）⇒ sqlx 推成

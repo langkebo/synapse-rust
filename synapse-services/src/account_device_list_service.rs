@@ -128,15 +128,19 @@ impl AccountDeviceListService {
     }
 
     /// Record a device-list change so local clients see it on the next sync.
-    pub async fn insert_device_list_change(
+    ///
+    /// 返回存储层分配的**本地**流序号。调用方不该自己造一个序号：联邦 EDU 携带的是
+    /// 对端的 `stream_id`（毫秒时间戳），而 `/sync` 与 `/keys/changes` 都按本地序列做
+    /// `stream_id <= to` 的范围过滤 —— 把对端的值写进来，这一行对它们永久不可见
+    /// （审计 NEW-07）。
+    pub async fn record_device_list_change(
         &self,
         user_id: &str,
         device_id: Option<&str>,
         change_type: &str,
-        stream_id: i64,
-    ) -> Result<(), ApiError> {
+    ) -> Result<i64, ApiError> {
         self.device_storage
-            .insert_device_list_change(user_id, device_id, change_type, stream_id)
+            .record_device_list_change(user_id, device_id, change_type)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to record device list change", e))
     }

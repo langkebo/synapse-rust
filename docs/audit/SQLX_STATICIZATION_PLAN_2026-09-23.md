@@ -2194,9 +2194,16 @@ BASELINE_DYNAMIC_PRODUCTION=141
 BASELINE_DYNAMIC_TEST_INFRA=786
 BASELINE_STATIC=1363
 BASELINE_QUERY_BUILDER=17
-SQLX_CACHE_ENTRIES=1324
+SQLX_CACHE_ENTRIES=1323
 <!-- sqlx-plan-numbers:end -->
 
+> **2026-10-24 更新（空转 SQL 条目清理）**，数字块一处：
+> - `SQLX_CACHE_ENTRIES` **1324 → 1323**（−1）：`device_lists_changes` 的
+>   `insert_device_list_change`（`VALUES ($1,$2,$3,$4,$4) ON CONFLICT DO NOTHING`）
+>   在 NEW-07 修复里整条删除（它把**对端的** `stream_id` 写进本地序列，那一行对所有
+>   读取都不可见），缓存条目随之删除 —— `sqlx_prepare.sh --check` 会把这种孤儿算作
+>   "缓存过期"。其余四项不变：本批没有新增/改写任何 SQL 文本，
+>   `record_device_list_change` 复用的是已有查询。
 > **2026-10-24 更新（测试红灯修复批：跨进程 schema 池 + 握手重试覆盖面补齐）**，
 > 数字块两项按实测同步（**全部在测试基建，零生产请求路径**）：
 > - `BASELINE_DYNAMIC_PRODUCTION` **133 → 141**（+8）：`synapse-storage/src/push/mod.rs`

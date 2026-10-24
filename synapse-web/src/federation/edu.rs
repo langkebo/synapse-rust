@@ -117,7 +117,12 @@ type DeviceListUpdateFields<'a> = (&'a str, Option<&'a str>, i64, &'a str);
 
 /// Validate a `m.device_list_update` EDU. Returns `Some(...)` if structurally
 /// valid and origin matches. `None` means the EDU should be dropped.
-fn validate_device_list_update_content<'a>(edu: &'a Value, origin: &str) -> Option<DeviceListUpdateFields<'a>> {
+// `pub(crate)`：`routes::device` 的用例要用它做"我们发出去的东西接收端怎么读"的
+// 往返断言（NEW-07）。
+pub(crate) fn validate_device_list_update_content<'a>(
+    edu: &'a Value,
+    origin: &str,
+) -> Option<DeviceListUpdateFields<'a>> {
     let content = edu.get("content")?;
     let user_id = content.get("user_id").and_then(|v| v.as_str())?;
     if !user_matches_origin(user_id, origin) {
@@ -407,16 +412,28 @@ async fn handle_device_list_update_edu(
         return EduProcessResult { dropped: 1, ..Default::default() };
     };
 
-    let result =
-        ctx.account_device_list_service.insert_device_list_change(user_id, device_id, change_type, stream_id).await;
+    // 存储层分配**本地**序号；`stream_id`（对端的）只进日志。
+    //
+    // 2026-10-24（审计 NEW-07）之前这里是
+    // `insert_device_list_change(user_id, device_id, change_type, stream_id)` —— 把对端的
+    // 序号（毫秒时间戳，量级 1e12）直接写进 `device_lists_changes.stream_id`，而那一行
+    // **只会**进 `device_lists_changes` 表。两个后果叠加，联邦设备变更对客户端完全不可见：
+    //   · `/sync` 的 `device_lists.changed` 读的是 `device_lists_stream`（本 handler 从没写过）；
+    //   · `/keys/changes` 虽然也读 `device_lists_stream`，同样读不到；
+    //   · 唯一读 `device_lists_changes` 的路径带 `stream_id <= to`（本地序列），
+    //     对端的 1e12 永远大于 `to`，于是那一行连这条路径也读不到。
+    // 现在两表都由 `record_device_list_change` 用同一个本地序号写入。
+    let result = ctx.account_device_list_service.record_device_list_change(user_id, device_id, change_type).await;
 
     match result {
-        Ok(_) => {
+        Ok(local_stream_id) => {
             ::tracing::debug!(
-                "Processed m.device_list_update EDU for user {} device {:?} from {}",
+                "Processed m.device_list_update EDU for user {} device {:?} from {} (remote stream_id {}, local {})",
                 user_id,
                 device_id,
-                origin
+                origin,
+                stream_id,
+                local_stream_id
             );
             increment_counter(ctx, "federation_inbound_device_list_update_processed_total");
             EduProcessResult { processed: 1, ..Default::default() }
@@ -803,9 +820,10 @@ async fn handle_profile_update_edu(
     // Bump the device-list change stream with a user-level profile change so
     // local clients sharing a room with `user_id` will be told the profile
     // changed (device_id is None for user-level profile updates).
-    let stream_id = current_timestamp_millis();
-    if let Err(e) = ctx.account_device_list_service.insert_device_list_change(user_id, None, "profile", stream_id).await
-    {
+    //
+    // 序号必须由存储层分配（NEW-07）：此前是 `current_timestamp_millis()`，
+    // 一个 1e12 量级的值，而所有读取都按本地序列（1e3 量级）过滤 ⇒ 这一条永远读不到。
+    if let Err(e) = ctx.account_device_list_service.record_device_list_change(user_id, None, "profile").await {
         // Non-fatal: the profile is already persisted; stream bump is best-effort.
         ::tracing::warn!(error = %e, user_id = %user_id, "Failed to record profile change for device-list stream");
     }
