@@ -156,6 +156,12 @@ run "check_shape_only_tests.py" python3 scripts/ci/check_shape_only_tests.py
 step "文档：scripts 引用可达性（NEW-04）"
 run "check_script_refs.py" python3 scripts/ci/check_script_refs.py
 
+# 文档行号引用的漂移信号（DOC-04）：正文里的 `path:line` 已全部改成符号名；表格里的保留
+# （能力台账的 C2 判据要解析 `path:line`），但**指向空行/纯注释/孤立 `}`** 说明那段代码挪过位置。
+# 基线 `scripts/ci/doc_line_ref_baseline` 钉住当前 56 处，只许下降。~60ms。
+step "文档：行号引用的漂移信号（DOC-04）"
+run "check_doc_line_refs.py" python3 scripts/ci/check_doc_line_refs.py
+
 step "Schema：updated_ts 可空性棘轮"
 run "check_schema_timestamp_convention.py" python3 scripts/ci/check_schema_timestamp_convention.py
 

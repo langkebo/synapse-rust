@@ -2046,7 +2046,7 @@ EXTERNAL_TYPE_FILES = ("synapse-storage/src/sliding_sync/models.rs",)
 
 - **I-03 的「不限流」不成立**：登录锁定是好的（`(ip, username)` 5 次 / IP 30 次 / 300 s），
   实测第 6 次即 429；原报告只有 3 次取样。但「401 vs 规范的 403」成立，且**被单元测试钉死**
-  （`auth/tests.rs:742` 断言 `kind=Unauthorized`），改的时候要同步改断言与注释。
+  （`synapse-services/src/auth/tests.rs` 里断言 `kind=Unauthorized` 的用例），改的时候要同步改断言与注释。
 - **I-01 是双向错的**：除 leave 残留（投影多 71/49/14 条）外，join 也不写投影
   （真实有、投影无 3 条，其中 1 条为本轮活体造出）；且 `kick`/`ban` 同样没有投影维护
   （`moderation.rs` 只有两处 invite 写投影）。

@@ -38,7 +38,7 @@
 > **删除**上游 1.161 已移除的 `GET /_matrix/client/unstable/org.matrix.msc2965/auth_issuer`（−1/−1/−1，`76e5f9136` 有意摘除，见 §5.1/§7-B4）；
 > **迁移** CAS 协议 6 条由根级移入 `/_synapse/cas/`（净 0 条目，仅改路径分布）。逐项归因见 §1.1 末段。
 > 此外，本版**订正**了 v1.6 遗留的过时记录：§5.1 / §6.2 / §7-B5 中「默认版本仍为 11 / v12·v13 不可创建」
-> 已不成立 —— 现 `DEFAULT_ROOM_VERSION = "12"`（`room_versions.rs:94`）、**仅 v12 可创建**（G-1，`7489b247f`）、
+> 已不成立 —— 现 `DEFAULT_ROOM_VERSION = "12"`（`synapse-common/src/room_versions.rs`）、**仅 v12 可创建**（G-1，`7489b247f`）、
 > v13 已移除（Q5(b)），遗留项仅 MSC4297（state resolution v2.1，见 `docs/audit/ROOM_V12_PLAN_STATUS_2026-09-27.md`）。
 >
 > **v1.8 与 v1.7 的差别**：本版**只做对齐基准升级与增量判定，不重算三口径**（§1.1 的 1149 / 913 / 805 仍为
@@ -694,19 +694,19 @@ awk '/^# Synapse 1\.162\.0 \(/{f=1} f' /tmp/synapse_changes.md | awk '/^# Synaps
 
 # ⑥ 关键事实核对（注释为本版 2026-09-29 实测值）
 grep -n 'DEFAULT_ROOM_VERSION: &str\|stable_no_create\|stable("12")' synapse-common/src/room_versions.rs   # DEFAULT_ROOM_VERSION="12"（:94）；v1–v11 stable_no_create、v12 stable、v13 已移除
-grep -rn 'rc_reports' --include='*.rs' . | grep -v '^./target'   # 已实现：directory_reporting.rs:235,293
+grep -rn 'rc_reports' --include='*.rs' . | grep -v '^./target'   # 已实现：`synapse-web/src/routes/directory_reporting.rs` 的 `rc_reports` 读点
 grep -rli 'msc4512' --include='*.rs' . | grep -v '^./target'     # 2 个文件（AS 代理已实现）
 grep -rli 'msc4502' --include='*.rs' . | grep -v '^./target' | wc -l   # 8 个文件（PARTIAL）
 grep -rliE 'msc4262|msc4429' --include='*.rs' . | grep -v '^./target' | wc -l  # 8 个文件（PARTIAL）
 grep -n 'msc2965' /tmp/paths.txt                                 # 仅剩 auth_metadata；auth_issuer 已摘除（76e5f9136）
 
 # ⑥.1 v1.162 增量关键事实（§5.4/§5.5 依据；注释为本版实测值）
-grep -rn 'MAX_ONE_TIME_KEYS_PER_ALGORITHM_PER_DEVICE' --include='*.rs' .   # 500（device_keys/service.rs:20）
-grep -rn 'rc_profile' --include='*.rs' . | grep -v '^./target'            # config/rate_limit.rs:95 + account_compat.rs 应用
+grep -rn 'MAX_ONE_TIME_KEYS_PER_ALGORITHM_PER_DEVICE' --include='*.rs' .   # 500（`synapse-e2ee/src/device_keys/service.rs` 的 `MAX_ONE_TIME_KEYS_PER_ALGORITHM_PER_DEVICE`）
+grep -rn 'rc_profile' --include='*.rs' . | grep -v '^./target'            # `synapse-common/src/config/rate_limit.rs` 的 `rc_profile` + `account_compat` 应用点
 grep -n 'username' synapse-common/src/config/database.rs                  # Redis username → redis://user:pass@host（:149,189,192）
-grep -rn 'M_UNKNOWN_DEVICE' --include='*.rs' . | grep -v '^./target'      # error/code.rs:99 + device.rs:272
-grep -rn 'annotate_allowed_room_ids' --include='*.rs' .                   # hierarchy.rs:203（#20154）
-grep -rn 'msc4311_strict_validation' --include='*.rs' .                   # config/federation.rs:238（宽限至 2027-06-01）
+grep -rn 'M_UNKNOWN_DEVICE' --include='*.rs' . | grep -v '^./target'      # `synapse-common/src/error/code.rs` 的 `M_UNKNOWN_DEVICE` + `routes/device.rs` 的读点
+grep -rn 'annotate_allowed_room_ids' --include='*.rs' .                   # `routes/handlers/search/hierarchy.rs` 的 `annotate_allowed_room_ids`（#20154）
+grep -rn 'msc4311_strict_validation' --include='*.rs' .                   # `synapse-common/src/config/federation.rs` 的 `msc4311_strict_validation`（宽限至 2027-06-01）
 grep -rn 'storage_stream_current_position\|get_max_stream_ordering' --include='*.rs' .  # L4 指标 + 事件流位置
 grep -rn 'check_event_allowed' --include='*.rs' . | grep -v '^./target'   # module_service.rs（trait+impl+踏板）/messaging/events.rs/membership/*.rs（#19768 已实现）
 grep -rn 'register_configured_third_party_rules\|third_party_rules' --include='*.rs' . | grep -v '^./target'  # 触发侧接线：config/mod.rs + module_service.rs + wiring/admin.rs（#19768 生产可达）
@@ -716,7 +716,7 @@ grep -rn 'federation_domain_whitelist' --include='*.rs' .                 # L3�
 
 # ⑦ 能力"是否真的接线"—— 只看模块/配置存在会得出错误结论
 grep -rn 'EduType::DelayedEvent' --include='*.rs' synapse-federation/src/edu.rs     # MSC4140 联邦 EDU 已通
-grep -rn 'scan_when_enabled\|scan_text_when_enabled\|content_scanner\.' --include='*.rs' synapse-services/src synapse-web/src  # 生产消费者：media/upload.rs:89,137 + handlers/room/events.rs:317
+grep -rn 'scan_when_enabled\|scan_text_when_enabled\|content_scanner\.' --include='*.rs' synapse-services/src synapse-web/src  # 生产消费者：`routes/media/upload.rs` 与 `routes/handlers/room/events.rs` 的 `content_scanner` 读点
 grep -rn 'cascade_redact' --include='*.rs' synapse-web/src/routes                          # MSC3912 管理端端点 + 客户端撤回路径均可达
 grep -rn 'redact_event_content\|cascade_redact_related_events' --include='*.rs' synapse-web/src/routes/handlers/room/events.rs  # 客户端撤回（with_rel_types 非空时级联）
 ```

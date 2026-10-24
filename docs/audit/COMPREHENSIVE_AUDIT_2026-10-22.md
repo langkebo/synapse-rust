@@ -97,7 +97,6 @@
 | **SEC-12** | P3 | legacy r0/v1/r1 媒体下载端点匿名可读 | **是 Matrix legacy 语义**（新版才要求 token）；收紧会破坏老客户端 |
 | **SEC-13** | P3 | 联邦鉴权 DEBUG 日志打印签名原文 | DEBUG 默认关闭；改它要同时改运维的排障手册 |
 | **SEC-15** | P3 | 鉴权覆盖率约 94.4%，client/media 面存在未覆盖路由 | 覆盖率本身未重测；补测要先有"哪些路由该公开"的白名单口径 |
-| **DOC-04** | P3 | 三份文档共 9 组行号漂移 | 修法是"改引用符号名而非行号"，与各文档下一轮触达时一并做 |
 
 ## 0.3 复核历史（压缩）
 
@@ -578,6 +577,7 @@ TEST_FILE 47 = 107**；测试域合计 81。
 
 | 编号 | 一句话 | 关闭依据 |
 |---|---|---|
+| DOC-04 | 三份文档的 `path:line` 引用漂移（原记 9 组） | **实测 145 处**，且**层级不同**：① 正文 13 处已全部改成**符号名**（`API_COVERAGE_REPORT.md` §8 的 `grep … # 已实现：…` 块、`MSC_SEMANTICS.md` 两处、`ROUTE_CONTRACT.md` 一处），正文残留 **0**；② 表格 132 处**必须保留** `path:line` —— 那是 `check_capability_ledger.py` 的 C2 判据（`已实现` 行必须带可解析 `path:line`），改成符号名会让能力台账门禁立刻红，所以"整篇换符号名"这条修法在本仓**只对正文成立**；③ 表格侧改用漂移信号门禁 `scripts/ci/check_doc_line_refs.py`：解析不到文件 / 越界 / 指向空行·纯注释·孤立 `}` ⇒ 计入 `scripts/ci/doc_line_ref_baseline`（现 **56**，只许下降）。**判据/变异**：在大括号闭合或注释行上新挂一处 `path:line` 引用 ⇒ 56 → 57 ⇒ 红；删掉被引用的行让旧引用越界 ⇒ 同款红。**未做**：56 处"指到空行/括号"没有逐条重定位（多数是表格里"某 handler 的第 N 行"这类证据指针，重定位要先确认该行为仍未变） |
 | NEW-04 | 活文档里 30 处悬挂 `scripts/...` 引用，且不能做"出现即要求存在"的朴素门禁 | 新建 `scripts/ci/check_script_refs.py`：只查**活文件**（跳过 `docs/archive/**`、`docs/audit/archive/**`、`.workbuddy/**` —— 那里的"当年调用过 X，已删除"是历史叙述），解析顺序为仓库根 → `docker/` → `docker/deploy/`（部署文档的默认 WORKDIR），另设 `script_ref_exceptions` 只收「引用本身不是调用」的形态。**现算：1669 处引用 / 186 处解析不到**（原记 30 只数了一种后缀），按引用归类后的前 5 类：`coverage_baseline.js` 28（真身是 `.json`，扩展名漂移）、`db_migrate.sh` 26（真身 `docker/db_migrate.sh`）、`api_test/ledger.js` 20（同名 `.mjs`）、`deploy-monitoring.sh` 7 与 `contract-sync.mjs` 7（真身在 `docker/deploy/scripts/`）。186 已用 `scripts/ci/script_ref_baseline` 钉住（只许下降），接入 `preflight.sh`。**判据/变异**：把任意引用改成不存在的名字 ⇒ 计数涨过基线即红 |
 | TEST-05 | 测试域 `sleep` 站点 81 处，无分类、无判据 | **改判据后收口**：逐处复核发现没有一处是"随便睡一下"——全部是故障注入（故意睡超请求预算证超时）、TTL/锁/会话过期、时间戳铺开、等后台任务就绪、契约/指标窗口。于是把判据从"计数下降"改成"**每一处都有类别、新增必须报类别**"：`tests/**` 35 处 + `synapse-*/src/**` 46 处全部加 `// sleep-reason:`；`check_sleep_ratchet.py` 新增"测试域每处 sleep 必须有注解"判据，基线键 `TEST_FILE_SRC_UNANNOTATED` 12 → **0**。**变异**：插一处裸 sleep ⇒ `FAIL 测试域有 1 处 … 没有 // sleep-reason: 注解`；删既有注解 ⇒ 同款红（均实测）。**未降**：计数仍 26/34/47=107；可省的只有 4 个轮询循环的间隔 → 已登记 NEW-10 |
 | NEW-05 | 「自证测试」面：断言自己刚构造的字面量，文件名却声称覆盖 API/路由 | **逐文件判定完成（29 个）**：判定口径定稿为「①接真 ⇒ 可继续叫 `*_route_tests`；②只锁形状 ⇒ 文件名带 `_shape_only_tests` + 文件头声明 + 登记真覆盖文件或 `NONE`」。**16 个**来自原启发式候选、**13 个**是新门禁 C3 抓出来的同模板漏网文件（`admin_extra`/`app_service`/`background_update`/`event_report`/`federation`/`friend`/`module`/`push`/`room_summary`/`space`/`telemetry`/`thread`/`worker` —— 它们的 `.get(..).is_some()` 形态不足 3 处，旧口径数不到），全部改名 + 声明 + 登记；**15 个**仍在册的 `*_{api,route}_tests.rs` 都真碰生产代码（门禁 C3 逐个核过）。新门禁 `check_shape_only_tests.py`：C1 登记+声明 / C2 登记的"真覆盖"文件必须真的发请求或碰 DB / C3 名字承诺必须兑现 / C4 过期条目。**判据**：改名+登记后 `OK —— 29 个只锁形状（5 个有真覆盖 / 24 个已登记缺口）`；变异实测：删掉 `captcha_shape_only_tests.rs` 的声明 ⇒ C1 红；把任一 `*_shape_only_tests.rs` 改回 `*_api_tests.rs` ⇒ C3 红。**未做**：24 个 `NONE` 是真覆盖缺口，另登记为 NEW-09 |

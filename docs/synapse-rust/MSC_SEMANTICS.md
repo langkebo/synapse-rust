@@ -38,6 +38,7 @@
 |---|---|---|---|---|
 | **MSC2946** | Spaces summary / hierarchy（*仓库既有结论*） | 已实现：`GET /_matrix/client/{v1,v3}/rooms/{room_id}/hierarchy`（`space.rs` 的 `spec` 桶，连同 `hierarchy/v1` 共 4 条）与私有的 `children`/`membership`/`summary` 面分离；后者在 ISSUE-13 第二批迁到 `/_matrix/vendor/v1` 时**保持 hierarchy 原地不动** | `synapse-web/src/routes/space/children_hierarchy.rs`（`create_space_hierarchy_spec_routes`）、`synapse-web/src/routes/space.rs`（`create_space_spec_router`）；报告 §二「空间」行 | ✅ 一致（2026-10-08 ISSUE-13 第二批复核） |
 | **MSC3266** | Room summary（*仓库既有结论*） | 已实现**唯一规范形态**：`GET /_matrix/client/v1/rooms/{room_id}/summary`（`create_room_summary_v1_router()`）；同 handler 的 v3 挂载点属重复版本前缀，已随 ISSUE-13 第二批把整个私有面（含 v3 的 `GET summary`）迁到 `/_matrix/vendor/v1` | `synapse-web/src/routes/room_summary.rs`；报告 §二「房间摘要」行 | ✅ 已收敛（2026-10-08 ISSUE-13 第二批） |
+| **MSC3245** | 语音消息（*仓库既有结论*）：编码 / 转写在**客户端**完成，服务端不提供该能力 | **by-design 不实现**：`convert` / `optimize` / `transcription` 三端点恒返回 `404 M_UNRECOGNIZED`（`voice_operation_not_provided`），并已登记在契约「有意不实现的端点」表与报告 §6.6 设计决策台账 | `synapse-web/src/routes/voice.rs`、`docs/synapse-rust/ROUTE_CONTRACT.md`「有意不实现的端点」；报告 §6.6 | ✅ 一致（by-design unsupported，2026-10-24 补登记） |
 | **MSC2965** | 认证元数据端点 `auth_metadata` / `auth_issuer`（*仓库既有结论*） | 仅保留 `auth_metadata`；上游 1.161 已删除的 `auth_issuer` 同批摘除 | `.../org.matrix.msc2965/auth_metadata` 在册；`auth_issuer` 于 `76e5f9136` 删除（报告 §5.1 / B4） | ✅ 已收敛；**worker 可服务性（上游 20331，doc-only）**：`/auth_metadata` 落在 `WorkerType::Frontend` 的 `owned_route_prefixes = ["/_matrix/client/*"]` 内（`synapse-storage/src/worker/models.rs`）⇒ 可路由到 Frontend worker 服务；worker-info 响应（`WorkerResponse.owned_route_prefixes`）已如实上报，无需额外代码 |
 | **MSC3575** | Sliding sync（*仓库既有结论*） | 在 `/sync` 之外另注册 simplified sliding sync 端点族 | 报告 §二「同步」行 | ✅ 一致 |
 | **MSC3720** | Account status endpoint（*proposals*：`proposals/3720-account-status.md`） | 已实现：客户端 + 联邦 `POST /_matrix/{client,federation}/unstable/org.matrix.msc3720/account_status`，`{user_ids} → {account_statuses, failures}`；capability `org.matrix.msc3720.account_status` 为「路由 ∧ `experimental.msc3720_enabled`」，开关关闭时 fail-closed 403 | `synapse-web/src/routes/handlers/account_status.rs`、`synapse-services/src/account_status_service.rs`（报告 §1.1 末段） | ✅ 已对齐 |
@@ -80,8 +81,8 @@
 
 > **已移出本清单（2026-10-06）**：`InviteBlocklistManager.getInvitePermissionConfig()` /
 > `setInvitePermissionConfig()` 曾因后端零消费列为孤儿。现 `m.invite_permission_config`
-> 已被后端消费 —— 写入校验见 `synapse-services/src/account_data_service.rs:258`，
-> 邀请门禁见 `synapse-services/src/room/membership/service.rs:268` —— 故不再属于孤儿，
+> 已被后端消费 —— 写入校验见 `synapse-services/src/account_data_service.rs` 里 key 的格式校验分支，
+> 邀请门禁见 `synapse-services/src/room/membership/service.rs` 的 `check_join_policy` —— 故不再属于孤儿，
 > 详见 §1 MSC4155 行。
 
 ## 2.1 请求体兼容分支裁定（by-design，2026-10-08）
