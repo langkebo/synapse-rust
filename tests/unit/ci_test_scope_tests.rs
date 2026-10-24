@@ -1397,3 +1397,75 @@ fn integration_matrix_runs_both_isolation_modes() {
     // 整库隔离的残留必须显式断言，否则"漏库"只会在下一次运行里体现。
     assert!(job.contains("Assert no leftover test databases"), "database 腿必须断言残留测试库为 0");
 }
+
+/// `benchmark.yml` 的 `performance-manual` job 必须是那 4 条手工冒烟的**可执行入口**。
+///
+/// ## 为什么需要这条守卫
+///
+/// 全量门禁报 `10729 passed / 16 skipped`，其中 4 条是"手工负载冒烟"（按墙钟时间断言，
+/// 在 CI 上会假失败，故 `#[ignore]`）。它们的 ignore 文案都写了"显式运行：
+/// `cargo nextest run --all-features --test performance_manual --run-ignored ignored`"，
+/// 而**唯一声称跑它们的 workflow job** 实测同时错两处：
+///
+/// 1. `--features performance-tests` 少一个 —— `Cargo.toml` 的 `[[test]] performance_manual`
+///    声明了**两个** required-features（`performance-tests` + `test-utils`）。实测报错：
+///    `error: target 'performance_manual' in package 'synapse-rust' requires the features:
+///    'performance-tests', 'test-utils'`，一行都没跑；
+/// 2. 没有 `--ignored` —— libtest 默认跳过 `#[ignore]`。即便修好 ①，该 job 跑的是
+///    16 条确定性用例，"Run manual performance tests" 这个名字仍然是假的。
+///
+/// 与 `ci.yml` 的 perf smoke 步骤**方向相反**且并不矛盾：那条步骤**必须**排除手工冒烟
+/// （`performance_smoke_step_excludes_manual_load_tests`），因为它在每个 PR 上跑；
+/// 这条 job 只在 `workflow_dispatch` + `run_performance_manual=true` 时跑，正是它们的入口。
+///
+/// **红证明**：把 `--ignored` 从 job 命令里删掉 → FAILED（"没有 --ignored"）；
+/// 把 features 改回只传 `performance-tests` → FAILED（"缺 test-utils"）。
+#[test]
+fn benchmark_manual_performance_job_runs_the_ignored_suite() {
+    let root = repo_root();
+    let manifest = std::fs::read_to_string(root.join("Cargo.toml")).expect("read Cargo.toml");
+    let block = manifest
+        .split("[[test]]")
+        .find(|b| b.contains("name = \"performance_manual\""))
+        .expect("Cargo.toml 必须有 `[[test]] performance_manual`（守卫前提）");
+    let required: Vec<String> = block
+        .lines()
+        .find(|l| l.trim_start().starts_with("required-features"))
+        .and_then(|l| l.split('[').nth(1))
+        .and_then(|l| l.split(']').next())
+        .map(|list| {
+            list.split(',')
+                .map(|item| item.trim().trim_matches('"').to_string())
+                .filter(|item| !item.is_empty())
+                .collect()
+        })
+        .expect("`performance_manual` 必须声明 `required-features`");
+
+    let workflow = std::fs::read_to_string(root.join(".github/workflows/benchmark.yml")).expect("read benchmark.yml");
+    let job = workflow
+        .split("\n  performance-manual:")
+        .nth(1)
+        .expect("benchmark.yml 必须有 `performance-manual` job —— 那 4 条手工冒烟否则没有入口");
+    // 只看命令行，不看注释：本 job 的注释里就写着 `--ignored` 的历史，不能把注释当违规。
+    let run = job
+        .lines()
+        .find(|l| l.trim_start().starts_with("run: cargo test"))
+        .expect("该 job 必须有 `run: cargo test …` 步骤");
+
+    assert!(
+        run.contains("--ignored"),
+        "手工冒烟的入口必须带 `--ignored`：libtest 默认跳过 `#[ignore]`，\
+         否则这个 job 跑的是 16 条确定性用例，4 条手工冒烟一条都不跑\n命令：{run}"
+    );
+
+    let features = run.split("--features").nth(1).and_then(|rest| rest.split("--").next()).unwrap_or("");
+    for feature in &required {
+        assert!(
+            features.split_whitespace().any(|f| f.trim_matches('"') == feature)
+                || features.split(',').any(|f| f.trim_matches('"').trim() == feature),
+            "`performance-manual` job 的 `--features` 必须列出 `performance_manual` 的全部 \
+             required-features；缺 `{feature}`（Cargo.toml 声明 {required:?}，job 传 {features:?}）\n\
+             实测缺 feature 时 cargo 直接报 `target … requires the features: …`，一行都没跑"
+        );
+    }
+}

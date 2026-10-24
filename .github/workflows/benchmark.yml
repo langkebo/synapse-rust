@@ -457,7 +457,18 @@ jobs:
           toolchain: 1.93.0
 
       - name: Run manual performance suite
-        run: cargo test --features performance-tests --test performance_manual -- --nocapture
+        # 这个 job 是那 4 条 `#[ignore = "手工负载冒烟…"]` 的**唯一入口**，命令本身踩过两个坑
+        # （2026-10-24 实测，逐条可复现）：
+        #   ① `--features performance-tests` 少一个：`Cargo.toml` 的 `[[test]] performance_manual`
+        #      声明了 **两个** required-features（`performance-tests` + `test-utils`），只传一个
+        #      ⇒ cargo 直接 `error: target ... requires the features: …`，一行都没跑；
+        #   ② 没有 `--ignored`：libtest 默认跳过 `#[ignore]`，即便 ① 修好，
+        #      "Run manual performance tests" 这个名字仍然是假的（跑的是 16 条确定性用例，
+        #      而不是那 4 条手工冒烟）。
+        # 两者都由 `tests/unit/ci_test_scope_tests.rs::
+        # benchmark_manual_performance_job_runs_the_ignored_suite` 守着。
+        # 只在 workflow_dispatch + run_performance_manual=true 时触发，不影响 PR。
+        run: cargo test --features "performance-tests test-utils" --test performance_manual -- --ignored --nocapture
 
   benchmark-report:
     name: Generate benchmark report
