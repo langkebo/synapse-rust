@@ -21,15 +21,15 @@
 | 可维护性 | 0 | 0 | 1 | 0 | 1 |
 | 测试覆盖 | 0 | 0 | 0 | 2 | 2 |
 | 文档完整性 | 0 | 0 | 0 | 0 | 0 |
-| 专项：冗余与过度开发 | 0 | 0 | 0 | 1 | 1 |
-| **合计** | **0** | **0** | **5** | **12** | **17** |
+| 专项：冗余与过度开发 | 0 | 0 | 0 | 0 | 0 |
+| **合计** | **0** | **0** | **5** | **11** | **16** |
 
-> 计数口径（2026-10-24 22:55 逐条重算）：**P0 = 0，P1 = 0，P2 = 5，P3 = 12，合计 17**。
-> 来源 = §0.1 的 3 条 open `NEW-*`（NEW-09 / NEW-10 / NEW-11）+ §0.2.2 的 2 条 + §0.2.3 的 12 条，
-> **去重后 17**（上一版写 18 是因为 `NEW-08` 同时出现在 §0.1 与 §0.2.3，多算了一条）。
-> 其中 **15 条是"登记项"**（明确不做或只等外部条件），真正还没动手的只有
-> NEW-09（**21** 个端点族仍无 HTTP 往返用例；第一波已补 push / event_report / reactions）与
-> NEW-11（state 组装层未共享）。
+> 计数口径（2026-10-25 重算）：**P0 = 0，P1 = 0，P2 = 5，P3 = 11，合计 16**。
+> 来源 = §0.1 的 3 条 open `NEW-*`（NEW-09 / NEW-10 / NEW-11）+ §0.2.2 的 2 条 + §0.2.3 的 11 条。
+> `NEW-08` 已于 2026-10-25 关闭（`device_sync.rs` 整模块删除，判据与变异证据见附录 D），不再计入。
+> 其中 **14 条是"登记项"**（明确不做或只等外部条件），真正还没动手的只有
+> NEW-09（**18** 个端点族仍无 HTTP 往返用例；两波已补 6 族：push / event_report / reactions /
+> friend / telemetry / server_notification）与 NEW-11（state 组装层未共享）。
 
 **结论摘要**：**P0 = 0，P1 = 0**（原 9 条 P1 全部有实现 + 能失败的门禁，逐条见附录 D）。
 ⚠️ 第八轮曾把一条误报成 P1（NEW-06「设备吊销通知静默丢失」），**已撤回**：真实广播路径在
@@ -50,20 +50,20 @@
 
 ## 0.1 第七轮新发现（2026-10-24，只列仍开着的）
 
-> 这是第七轮（2026-10-24）新发现里**仍开着**的部分。**已关闭的 7 条不在此重复**，判据与证据见
+> 这是第七轮（2026-10-24）新发现里**仍开着**的部分。**已关闭的 8 条不在此重复**，判据与证据见
 > [附录 D](#附录-d已关闭条目索引)：除下面列出的 5 条外，还有 **NEW-04**（`scripts/...` 悬挂引用）、
-> **NEW-05**（「自证测试」面）。**NEW-08**（`device_sync.rs` 零调用待删）**不在此表**，它是登记项，
-> 只留在 §0.2.3 —— 表里两处都写会让总数多算 1（本节 2026-10-24 修过一次这样的账）。
+> **NEW-05**（「自证测试」面）。
 > 其余已关闭：
 > NEW-01（联邦缩略图 `animated` 未透传）、NEW-02（规则文档入库）、DOC-03（MSC3245 错标）、
 > **NEW-06（设备吊销通知「静默丢失」—— 误报，已撤回并删除死代码）**、
-> **NEW-07（联邦入站设备列表 EDU 对客户端不可见 —— 真缺陷，已修）**。
+> **NEW-07（联邦入站设备列表 EDU 对客户端不可见 —— 真缺陷，已修）**、
+> **NEW-08（`device_sync.rs` 零调用死模块 —— 已整模块删除）。**
 
 | 编号 | 级别 | 一句话 | 证据 |
 |---|---|---|---|
 | **NEW-11** | P3 | `sync` 与滑动同步的 **state 组装层**（`lazy_load` / `required_state` / MSC4222 `state_after`）仍各写一遍 —— ARCH-02 只共享了 **timeline** 层 | 要先写「同一房间状态下两条路径的**可见状态集合**一致」的等价断言（懒加载成员集 + `include_redundant_members` + `state_after` 三组语义），没有断言就不抽 —— 与 ARCH-02 同一条原则 |
 | **NEW-10** | P3 | 4 个"已带 `break` 条件的轮询循环"仍用裸 `sleep(50ms)` 做间隔（`room_service_tests_migrated` ×3、`api_msc3912_redaction_cascade_tests` ×1） | 折叠成 `tests/common/wait_until(deadline)` 可少 4 个站点并统一超时失败信息；但每个都要改完立刻跑一次真库用例（改坏的表现是"偶发超时"，静态检查看不出来）⇒ 独立一笔 |
-| **NEW-09** | P3 | 只锁形状的测试文件里曾有 **24 个端点族没有 HTTP 往返用例**（`shape_only_test_matrix` 里写 `NONE`）—— 第一波已补 **3 族**（`push` / `event_report` / `reactions`），**剩 21 族** | 逐族「`setup_fresh_test_app` + 注册用户/建房 + 断言 status/body/errcode」，每族一笔提交、每笔都把登记行从 `NONE` 换成真覆盖文件（`check_shape_only_tests.py` 的 C2 会验证该文件**确实**发请求）。第一波判据：12 条用例全绿（push 4 / event_report 4 / reactions 4）；守卫实测 `有真覆盖 8 / 缺口 21`。剩下 21 族里较易：`room_summary` / `thread` / `space` / `friend` / `refresh_token` / `registration_token`；较难（要外部角色或签名）：`app_service` / `module` / `worker` / `federation` / `federation_cache` / `admin_extra` |
+| **NEW-09** | P3 | 只锁形状的测试文件里曾有 **24 个端点族没有 HTTP 往返用例**（`shape_only_test_matrix` 里写 `NONE`）—— **两波共补 6 族**（第一波 `push` / `event_report` / `reactions`，第二波 `friend` / `telemetry` / `server_notification`），**剩 18 族** | 逐族「`setup_fresh_test_app` + 注册用户/建房 + 断言 status/body/errcode」，每族一笔提交、每笔都把登记行从 `NONE` 换成真覆盖文件（`check_shape_only_tests.py` 的 C2 会验证该文件**确实**发请求）。判据：两波共 24 条用例全绿（每族 4 条）；守卫实测 `有真覆盖 11 / 缺口 18`（累计新增 6 个 integration 文件，均按「每族一笔提交」落地）。剩下 21 族里较易：`room_summary` / `thread` / `space` / `friend` / `refresh_token` / `registration_token`；较难（要外部角色或签名）：`app_service` / `module` / `worker` / `federation` / `federation_cache` / `admin_extra` |
 
 ## 0.2 未完成任务清单
 
@@ -86,7 +86,6 @@
 
 | 编号 | 级别 | 一句话 | 为什么不做 |
 |---|---|---|---|
-| **NEW-08** | P3 | `device_sync.rs` 整模块 **736 行**生产零调用（详见 §0.1） | 删它要同步 SQLX 静态化计数基线（`check_sqlx_dynamic_ratio.sh` 的四道棘轮是零余量）与 3 个 crate 的 re-export、2 条只测死代码的用例 ⇒ 属独立一笔，不与本轮链路修复混做 |
 | **CODE-10** | P2 | 生产 **837 处** `let _ =` / `unwrap_or_default()`（238 文件） | 大部分是合法用法；设下降配额会诱导写 `unwrap()` 来"减少计数"（§10.10） |
 | **CODE-11** | P3 | `#[allow(...)]`：棘轮口径（`python3 scripts/ci/check_clippy_allow_ratchet.py --print`，2026-10-24 W8 现算）**160 site / 159 处无 `// reason:`（95 文件）**，基线 159/95；原记「271 处 / 117 文件」是裸 `#[allow` grep 的宽口径，与棘轮不可比 | 棘轮已在工作（只许下降）；剩"补理由"是纯体力活，随触达文件顺手补（W8 触达的 4 个文件/2 个脚本未新增任何无理由 allow，计数 160 → 160、无理由 160 → **159**） |
 | **PERF-01** | P2 | `to_device_messages` 对**普通设备**无按龄清理（脱水设备路径有 `DELETE`） | 需要先定"客户端未确认算不算已投递"，是产品语义 |
