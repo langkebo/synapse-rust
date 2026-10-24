@@ -476,6 +476,7 @@ mod cache_consistency_tests {
             let result1: Option<String> = manager.get("short_lived").await.unwrap();
             assert_eq!(result1, Some("value".to_string()));
 
+            // sleep-reason: 等 TTL 到期（该用例的 time_to_live=1s，被测对象就是过期行为）
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
             let result2: Option<String> = manager.get("short_lived").await.unwrap();

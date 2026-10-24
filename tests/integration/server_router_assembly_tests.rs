@@ -141,6 +141,7 @@ impl synapse_services::module_service::ThirdPartyRule for HangingRule {
         &self,
         _context: &synapse_services::module_service::ThirdPartyRuleContext,
     ) -> Result<synapse_services::module_service::ThirdPartyRuleOutput, synapse_common::error::ApiError> {
+        // sleep-reason: 故障注入：第三方规则故意睡超请求预算，用来证明 1s 预算会先结束请求
         tokio::time::sleep(Duration::from_secs(30)).await;
         Ok(synapse_services::module_service::ThirdPartyRuleOutput {
             is_allowed: true,
@@ -211,6 +212,7 @@ async fn production_request_timeout_bounds_a_hung_write() {
     assert_eq!(json["errcode"], "M_REQUEST_TIMEOUT", "the client must get a Matrix error: {json}");
     assert!(
         elapsed < Duration::from_secs(10),
-        "the 1s budget must end this, not the rule's 30s sleep (took {elapsed:?})"
+        // sleep-reason: 故障注入：第三方规则故意睡超请求预算，用来证明 1s 预算会先结束请求
+        "the 1s budget must end this, not the rule body's 30s delay (took {elapsed:?})"
     );
 }

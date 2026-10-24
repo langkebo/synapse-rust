@@ -995,6 +995,7 @@ async fn test_bridge_e2e_send_message_delivers_real_room_event_payload() {
             if !requests.is_empty() {
                 break;
             }
+            // sleep-reason: 条件轮询的间隔（外层已有 timeout 与 break 条件）或产品语义的恢复窗口
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         }
     })
@@ -1034,6 +1035,7 @@ async fn test_bridge_e2e_send_message_delivers_real_room_event_payload() {
             if pending_transactions.is_empty() && pending_events.is_empty() {
                 break;
             }
+            // sleep-reason: 条件轮询的间隔（外层已有 timeout 与 break 条件）或产品语义的恢复窗口
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         }
     })
@@ -1208,6 +1210,7 @@ async fn test_appservice_background_sender_flushes_pending_queue() {
                 break;
             }
 
+            // sleep-reason: 条件轮询的间隔（外层已有 timeout 与 break 条件）或产品语义的恢复窗口
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         }
     })
@@ -3854,6 +3857,7 @@ async fn test_appservice_scheduler_recovers_after_transient_failure_without_rest
     scheduler.run_once().await.expect("recovery-window tick two should complete");
     scheduler.run_once().await.expect("recovery-window tick three should complete");
 
+    // sleep-reason: 条件轮询的间隔（外层已有 timeout 与 break 条件）或产品语义的恢复窗口
     tokio::time::sleep(std::time::Duration::from_millis(5_200)).await;
 
     scheduler.run_once().await.expect("recovery-window tick four should complete");
@@ -4188,6 +4192,7 @@ async fn test_appservice_scheduler_recovers_multiple_retry_backoff_services_with
     scheduler.run_once().await.expect("multi-recovery tick one should complete");
     scheduler.run_once().await.expect("multi-recovery tick two should complete");
 
+    // sleep-reason: 条件轮询的间隔（外层已有 timeout 与 break 条件）或产品语义的恢复窗口
     tokio::time::sleep(std::time::Duration::from_millis(5_200)).await;
 
     scheduler.run_once().await.expect("multi-recovery tick three should complete");

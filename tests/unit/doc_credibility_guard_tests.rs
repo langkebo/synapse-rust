@@ -791,3 +791,46 @@ fn project_rules_labels_msc3245_as_voice_messages() {
          不能标「完整实现」。实际状态列：`{status}`"
     );
 }
+
+// ── SEC-14：`ts` 到底发不发，注释与代码必须同时改 ──────────────────────────
+
+/// `TimestampCheck` 的文档用「**本仓自己的出站请求就不带 `ts`**」当作"缺 `ts` 必须放行"
+/// 的核心论据。这条断言的就是**那份论据与代码仍然一致**。
+///
+/// 为什么值得一条用例：审计 SEC-14 曾建议"缺 `ts` ⇒ 401"，而照做会让服务器拒掉自己
+/// 发出的每一个联邦请求（RFC 9110 的 `X-Matrix` 参数集里根本没有 `ts`，规范补一句
+/// "Unknown parameters are ignored"）。这个裁决一旦被忘记，下一个人会照着"加固"把它改回去。
+///
+/// 判据刻意做成**双向一致**，而不是"禁止发 `ts`"：将来真的加上 `ts`（对端若强制新鲜度
+/// 会更友好）是允许的，但那时必须同步改掉那段文档 —— 两边一起变，本用例仍然绿；
+/// 只改一边就会红，逼人重新读一遍裁决。
+#[test]
+fn signature_timestamp_claim_matches_the_outbound_header() {
+    const AUTH: &str = "synapse-web/src/middleware/federation_auth.rs";
+    const CLIENT: &str = "synapse-federation/src/client.rs";
+
+    let auth = read(AUTH);
+    let claims_we_send_no_ts = auth.contains("自己的出站请求就不带 `ts`");
+    assert!(
+        claims_we_send_no_ts,
+        "`{AUTH}` 里找不到「自己的出站请求就不带 `ts`」这句论据了。\n\
+         它支撑着 SEC-14 的裁决（缺 ts 必须放行）；换成别的措辞可以，但请让本用例同步更新，\n\
+         否则\"为什么不能拒绝缺 ts\"这个结论就只剩口头传承。"
+    );
+
+    // 只看拼 `X-Matrix` 头的那一行：`valid_until_ts=` 之类的子串不算。
+    let client = read(CLIENT);
+    let header_lines: Vec<&str> = client.lines().filter(|line| line.contains("X-Matrix origin")).collect();
+    assert!(!header_lines.is_empty(), "`{CLIENT}` 里找不到拼 X-Matrix 头的那行");
+    let sends_ts = header_lines.iter().any(|line| line.contains("ts="));
+
+    assert_eq!(
+        claims_we_send_no_ts,
+        !sends_ts,
+        "文档与代码对不上：`{AUTH}` 说「出站不带 ts」，而 `{CLIENT}` 的 X-Matrix 头{}。\n\
+         要么把 `ts` 从出站头里去掉，要么同步改掉 `TimestampCheck` 的文档（并重看 SEC-14 的裁决）。\n\
+         出站头：{:?}",
+        if sends_ts { "现在带了 ts" } else { "仍然不带 ts" },
+        header_lines
+    );
+}

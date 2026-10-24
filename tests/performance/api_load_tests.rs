@@ -210,30 +210,35 @@ mod api_performance_tests {
 
     fn simulate_sync_request() -> Duration {
         let start = Instant::now();
+        // sleep-reason: 负载模拟本身：sleep 就是被模拟的请求延迟/节流间隔，删掉就不是负载测试了
         std::thread::sleep(Duration::from_micros(100));
         start.elapsed()
     }
 
     fn simulate_login_request() -> Duration {
         let start = Instant::now();
+        // sleep-reason: 负载模拟本身：sleep 就是被模拟的请求延迟/节流间隔，删掉就不是负载测试了
         std::thread::sleep(Duration::from_millis(5));
         start.elapsed()
     }
 
     fn simulate_create_room_request() -> Duration {
         let start = Instant::now();
+        // sleep-reason: 负载模拟本身：sleep 就是被模拟的请求延迟/节流间隔，删掉就不是负载测试了
         std::thread::sleep(Duration::from_millis(10));
         start.elapsed()
     }
 
     fn simulate_simple_query() -> Duration {
         let start = Instant::now();
+        // sleep-reason: 负载模拟本身：sleep 就是被模拟的请求延迟/节流间隔，删掉就不是负载测试了
         std::thread::sleep(Duration::from_micros(50));
         start.elapsed()
     }
 
     fn simulate_join_query() -> Duration {
         let start = Instant::now();
+        // sleep-reason: 负载模拟本身：sleep 就是被模拟的请求延迟/节流间隔，删掉就不是负载测试了
         std::thread::sleep(Duration::from_millis(1));
         start.elapsed()
     }
@@ -259,6 +264,7 @@ mod load_tests {
                     let mut count = 0;
                     while start.elapsed() < duration {
                         count += 1;
+                        // sleep-reason: 负载模拟本身：sleep 就是被模拟的请求延迟/节流间隔，删掉就不是负载测试了
                         thread::sleep(Duration::from_millis(10));
                     }
                     total.fetch_add(count, Ordering::Relaxed);
@@ -288,6 +294,7 @@ mod load_tests {
             .map(|_| {
                 let total = Arc::clone(&total);
                 thread::spawn(move || {
+                    // sleep-reason: 负载模拟本身：sleep 就是被模拟的请求延迟/节流间隔，删掉就不是负载测试了
                     thread::sleep(Duration::from_micros(100));
                     total.fetch_add(1, Ordering::Relaxed);
                 })
@@ -327,6 +334,7 @@ mod load_tests {
                         let start = std::time::Instant::now();
                         while start.elapsed() < duration {
                             count += 1;
+                            // sleep-reason: 负载模拟本身：sleep 就是被模拟的请求延迟/节流间隔，删掉就不是负载测试了
                             thread::sleep(Duration::from_millis(10));
                         }
                         count

@@ -426,6 +426,42 @@ fn test_send_captcha_request() {
 
 ---
 
+### TEST-05（P2）测试域 `sleep` 站点：逐处分类（2026-10-24 W8 重写）
+
+> ⚠️ 本节在 2026-10-24 的 NEW-05 改写里被误删过一次（那次 splice 的结束锚点越过了本节），
+> 现在按当时的内容 + 本轮分类重建；`check_plan_doc_sections.py` 的基线只校验章节数，拦不住这种删法。
+
+分布（`python3 scripts/ci/check_sleep_ratchet.py --print` 现算）：**PROD 26 / TEST_INLINE 34 /
+TEST_FILE 47 = 107**；测试域合计 81。
+
+**`tests/**`（35 处，成员 A 的范围）已全部带 `// sleep-reason: <类别>`**，分五类：
+
+| 类别 | 处数 | 代表站点 |
+|---|---|---|
+| 故障注入（模拟慢上游 / 故意超预算） | 5 | `api_federation_key_fetch_limits_tests` ×2、`api_federation_join_key_fetch_priority_tests`、`manual_smoke_tests` 与 `server_router_assembly_tests` 的 30s third-party rule |
+| 负载模拟 / 节流 | 8 | `tests/performance/api_load_tests.rs`：sleep 就是被模拟的请求延迟与压测节流 |
+| 产品语义的时间窗 | 4 | 恢复窗口 5.2s（`room_service_tests_migrated` ×2、`api_telemetry_alerts_tests`）、缓存 TTL 到期（`cache_tests`） |
+| 时间戳铺开 | 5 | `friend_room_storage_tests_migrated` ×3、`threepid_storage_tests_migrated`、`space_children_service_tests` |
+| 条件轮询的间隔 | 13 | `room_service_tests_migrated` ×3（外层 `timeout` + `break`）、`api_msc3912_redaction_cascade_tests`、`tests/integration/mod.rs`（连接池退避）、`tests/e2e/user_flow_tests.rs` ×7（等外部 homeserver 就绪） |
+
+另把两处**误命中**的断言文案改掉（`not the rule's 30s sleep (took …)` 里的 `sleep (` 会被棘轮当成
+站点）⇒ 改成 `30s delay`。属口径噪声，不是行为改动。
+
+**新判据（可失败）**：`check_sleep_ratchet.py` 要求测试域每一处 `sleep` 在同一行或前两条注释内有
+`sleep-reason:`，缺注解即红。变异实测：新增一处裸 `sleep` ⇒ `FAIL 测试域有 1 处 … 没有
+// sleep-reason: 注解 … cache_tests.rs:470`；删掉既有注解 ⇒ 同款红。
+
+**归属拆分（为什么计数没降）**：`synapse-*/src/**/*tests.rs` 里还有 **12 处**未注解、`TEST_INLINE`
+**34 处**全在生产文件的 `#[cfg(test)] mod` 内 —— 都不在成员 A 的写权限内。12 处用基线键
+`TEST_FILE_SRC_UNANNOTATED=12` 钉住（涨即红）。**仍开着**：把 4 个已带 `break` 条件的轮询循环
+折叠进 `tests/common/wait_until(deadline)` 助手（逐一替换需各自编译 + 跑真库），以及上述 46 处
+src 侧站点。**TEST_FILE 仍 47（未降）** —— 本轮产出是"每一处都有类别 + 新增无注解即红"。
+
+### TEST-06（P2）5 个整文件以 feature 门控 —— ✅ 已关闭（W8，见附录 D）
+
+判据与实现见[附录 D](#附录-d已关闭条目索引) 的 TEST-06 行（`check_test_feature_gates.py` +
+`scripts/ci/feature_gated_test_matrix`）。
+
 ## 八、文档完整性
 
 ### DOC-04（P3）三份文档共 9 组行号漂移

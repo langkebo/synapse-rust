@@ -317,6 +317,7 @@ mod e2e_tests {
             if !require_e2e_enabled() {
                 return;
             }
+            // sleep-reason: 等外部 homeserver 就绪（e2e 只在 E2E_RUN=1 且栈已起时跑，无更细的探针可用）
             tokio::time::sleep(Duration::from_secs(2)).await;
 
             let alice_username = unique_username("alice_e2e");
@@ -359,6 +360,7 @@ mod e2e_tests {
             if !require_e2e_enabled() {
                 return;
             }
+            // sleep-reason: 等外部 homeserver 就绪（e2e 只在 E2E_RUN=1 且栈已起时跑，无更细的探针可用）
             tokio::time::sleep(Duration::from_secs(2)).await;
 
             let alice_username = unique_username("alice_friend");
@@ -401,6 +403,7 @@ mod e2e_tests {
             if !require_e2e_enabled() {
                 return;
             }
+            // sleep-reason: 等外部 homeserver 就绪（e2e 只在 E2E_RUN=1 且栈已起时跑，无更细的探针可用）
             tokio::time::sleep(Duration::from_secs(2)).await;
 
             let alice_username = unique_username("alice_chat");
@@ -447,6 +450,7 @@ mod e2e_tests {
             if !require_e2e_enabled() {
                 return;
             }
+            // sleep-reason: 等外部 homeserver 就绪（e2e 只在 E2E_RUN=1 且栈已起时跑，无更细的探针可用）
             tokio::time::sleep(Duration::from_secs(2)).await;
 
             let alice_username = unique_username("alice_media");
@@ -475,6 +479,7 @@ mod e2e_tests {
             if !require_e2e_enabled() {
                 return;
             }
+            // sleep-reason: 等外部 homeserver 就绪（e2e 只在 E2E_RUN=1 且栈已起时跑，无更细的探针可用）
             tokio::time::sleep(Duration::from_secs(2)).await;
 
             let alice_username = unique_username("alice_multi");
@@ -518,6 +523,7 @@ mod e2e_tests {
             if !require_e2e_enabled() {
                 return;
             }
+            // sleep-reason: 等外部 homeserver 就绪（e2e 只在 E2E_RUN=1 且栈已起时跑，无更细的探针可用）
             tokio::time::sleep(Duration::from_secs(2)).await;
 
             let alice_username = unique_username("alice_auth");
@@ -542,6 +548,7 @@ mod e2e_tests {
             if !require_e2e_enabled() {
                 return;
             }
+            // sleep-reason: 等外部 homeserver 就绪（e2e 只在 E2E_RUN=1 且栈已起时跑，无更细的探针可用）
             tokio::time::sleep(Duration::from_secs(2)).await;
 
             let alice_username = unique_username("alice_rooms");

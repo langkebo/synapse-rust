@@ -263,6 +263,7 @@ async fn get_space_children_paginated_walks_pages_without_overlap() {
         .await
         .expect("add_child");
         // Spread inserts across distinct ts to guarantee stable ordering.
+        // sleep-reason: 让相邻插入落在不同 ts 上，保证分页顺序稳定
         tokio::time::sleep(std::time::Duration::from_millis(5)).await;
     }
 

@@ -5,6 +5,8 @@
 PROD=26
 TEST_INLINE=34
 TEST_FILE=47
+# `synapse-*/src/**/*tests.rs` 里还没写 `sleep-reason:` 的站点数（成员 B 的范围，只许下降）
+TEST_FILE_SRC_UNANNOTATED=12
 
 # 逐文件明细（PROD 桶；新增文件会在这里体现出来）
 PROD_FILE scripts/bench_harness.rs 1

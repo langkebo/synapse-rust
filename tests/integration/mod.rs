@@ -675,6 +675,7 @@ where
             Ok(result) => return Ok(result),
             Err(ref e) if attempt < max_attempts - 1 && is_retryable_pool_error(e) => {
                 eprintln!("acquire_with_retry: attempt {} failed with {}, retrying after {:?}", attempt + 1, e, delay);
+                // sleep-reason: 连接池获取的指数退避（生产同款策略，不是测试等待）
                 tokio::time::sleep(delay).await;
                 delay = delay.saturating_mul(2);
             }

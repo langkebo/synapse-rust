@@ -90,6 +90,7 @@ impl KeyFetchMetrics {
 
 async fn handle_server_keys(metrics: axum::extract::State<Arc<KeyFetchMetrics>>) -> (StatusCode, Json<Value>) {
     metrics.on_start();
+    // sleep-reason: 故障注入：模拟慢上游，用来观察取键优先级
     tokio::time::sleep(std::time::Duration::from_millis(metrics.delay_ms)).await;
     metrics.on_end();
 

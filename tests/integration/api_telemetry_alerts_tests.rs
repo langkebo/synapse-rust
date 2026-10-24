@@ -325,6 +325,7 @@ async fn test_telemetry_metrics_reflect_real_scheduler_recovery_flow() {
         .run_once()
         .await
         .expect("telemetry recovery tick two should complete");
+    // sleep-reason: 产品语义的恢复窗口（5s 窗口不是 flake 面）
     tokio::time::sleep(std::time::Duration::from_millis(5_200)).await;
     state
         .services

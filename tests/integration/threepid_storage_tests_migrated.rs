@@ -272,6 +272,7 @@ async fn test_get_threepids_by_user() {
     };
 
     storage.add_threepid(request1).await.unwrap();
+    // sleep-reason: 让相邻插入落在不同 created_ts 上，保证排序断言稳定
     tokio::time::sleep(std::time::Duration::from_millis(2)).await;
     storage.add_threepid(request2).await.unwrap();
 

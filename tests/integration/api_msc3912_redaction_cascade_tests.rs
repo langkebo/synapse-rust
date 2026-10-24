@@ -209,6 +209,7 @@ async fn wait_until_redacted(pool: &sqlx::PgPool, event_id: &str) -> bool {
         if tokio::time::Instant::now() >= deadline {
             return false;
         }
+        // sleep-reason: 条件轮询的间隔（外层已有 deadline）
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }

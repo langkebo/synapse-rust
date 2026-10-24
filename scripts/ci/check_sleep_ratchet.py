@@ -44,6 +44,8 @@ SLEEP_RE = re.compile(
     r"tokio::time::sleep\s*\(|\bthread::sleep\s*\(|\bsleep\s*\(\s*(?:tokio::time::)?Duration"
 )
 CFG_TEST_RE = re.compile(r"^\s*#\[cfg\(test\)\]")
+# 测试域每一处 `sleep` 都必须在**同一条或前两条**注释里给出类别（TEST-05 的收口判据）。
+SLEEP_REASON_RE = re.compile(r"sleep-reason:\s*\S")
 
 
 def tracked_rust_files() -> list[str]:
@@ -114,7 +116,23 @@ def collect() -> dict[str, dict[str, int]]:
             else:
                 bucket = "PROD"
             buckets[bucket][rel] = buckets[bucket].get(rel, 0) + 1
+            if bucket == "TEST_FILE" and not _annotated(lines, lineno):
+                # `tests/**` 是 W8 成员 A 的范围（已全部注解）；`synapse-*/src/**/*tests.rs`
+                # 属成员 B，用基线里的 `TEST_FILE_SRC_UNANNOTATED` 钉住数量，只许下降。
+                (UNANNOTATED if rel.startswith("tests/") else UNANNOTATED_SRC).append(
+                    f"{rel}:{lineno}"
+                )
     return buckets
+
+
+UNANNOTATED: list[str] = []
+UNANNOTATED_SRC: list[str] = []
+
+
+def _annotated(lines: list[str], lineno: int) -> bool:
+    """同一条或前两条非空注释里是否有 `sleep-reason:`。"""
+    window = [lines[lineno - 1]] + lines[max(0, lineno - 3) : lineno - 1]
+    return any(SLEEP_REASON_RE.search(line) for line in window)
 
 
 def totals(buckets: dict[str, dict[str, int]]) -> dict[str, int]:
@@ -153,6 +171,7 @@ def write_baseline(current: dict[str, int], buckets: dict[str, dict[str, int]]) 
     lines += [
         f"{bucket}={current[bucket]}" for bucket in ("PROD", "TEST_INLINE", "TEST_FILE")
     ]
+    lines.append(f"TEST_FILE_SRC_UNANNOTATED={len(UNANNOTATED_SRC)}")
     lines.append("")
     lines.append("# 逐文件明细（PROD 桶；新增文件会在这里体现出来）")
     for rel, count in sorted(buckets["PROD"].items()):
@@ -172,7 +191,27 @@ def main(argv: list[str]) -> int:
         print(f"合计 = {sum(current.values())}")
         return 0
 
+    if UNANNOTATED:
+        print(
+            "FAIL 测试域有 %d 处 `sleep` 没有 `// sleep-reason:` 注解（新增等待前先说明它为什么不是 flake 源）："
+            % len(UNANNOTATED),
+            file=sys.stderr,
+        )
+        for site in UNANNOTATED[:10]:
+            print(f"  {site}", file=sys.stderr)
+        return 1
+
     baseline = read_baseline()
+    pinned = baseline.get("TEST_FILE_SRC_UNANNOTATED", 0)
+    if len(UNANNOTATED_SRC) > pinned:
+        print(
+            "FAIL `synapse-*/src/**/*tests.rs` 里未注解的 `sleep` 从 %d 涨到 %d（只许下降；"
+            "W8 的分工见审计 TEST-05）" % (pinned, len(UNANNOTATED_SRC)),
+            file=sys.stderr,
+        )
+        for site in UNANNOTATED_SRC[:10]:
+            print(f"  {site}", file=sys.stderr)
+        return 1
     if not baseline:
         if "--update" in argv:
             write_baseline(current, buckets)

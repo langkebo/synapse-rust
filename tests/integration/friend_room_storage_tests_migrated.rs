@@ -725,11 +725,14 @@ async fn test_get_friend_groups_for_user_multiple_groups() {
     insert_room(&pool, &room_id).await;
 
     storage.create_friend_group(&room_id, &user_id, "GroupA").await.unwrap();
+    // sleep-reason: 让相邻插入落在不同 created_ts 上，保证排序断言稳定
     tokio::time::sleep(std::time::Duration::from_millis(2)).await;
     storage.create_friend_group(&room_id, &user_id, "GroupB").await.unwrap();
+    // sleep-reason: 让相邻插入落在不同 created_ts 上，保证排序断言稳定
     tokio::time::sleep(std::time::Duration::from_millis(2)).await;
 
     storage.add_friend_to_group(&room_id, &user_id, "GroupA", &friend_id).await.unwrap();
+    // sleep-reason: 让相邻插入落在不同 created_ts 上，保证排序断言稳定
     tokio::time::sleep(std::time::Duration::from_millis(2)).await;
     storage.add_friend_to_group(&room_id, &user_id, "GroupB", &friend_id).await.unwrap();
 

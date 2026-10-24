@@ -94,6 +94,7 @@ impl KeyServerMetrics {
 
 async fn handle_server_keys(metrics: axum::extract::State<Arc<KeyServerMetrics>>) -> (StatusCode, Json<Value>) {
     metrics.on_start();
+    // sleep-reason: 故障注入：模拟慢上游，用来撞并发上限
     tokio::time::sleep(std::time::Duration::from_millis(metrics.delay_ms)).await;
     metrics.on_end();
 
@@ -109,6 +110,7 @@ async fn handle_key_query(
     Path((_server_name, key_id)): Path<(String, String)>,
 ) -> (StatusCode, Json<Value>) {
     metrics.on_start();
+    // sleep-reason: 故障注入：模拟慢上游，用来撞并发上限
     tokio::time::sleep(std::time::Duration::from_millis(metrics.delay_ms)).await;
     metrics.on_end();
 

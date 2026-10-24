@@ -1543,6 +1543,7 @@ async fn test_msc4140_restart_succeeds_for_owner() {
     let original_scheduled_ts = event.scheduled_ts;
 
     // Sleep briefly so restart produces a different scheduled_ts.
+    // sleep-reason: 让 restart 后的 scheduled_ts 与上一次不同（毫秒精度的时间戳）
     tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
     let response = ServiceExt::<Request<Body>>::oneshot(

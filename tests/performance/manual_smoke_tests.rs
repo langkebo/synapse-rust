@@ -554,6 +554,7 @@ impl synapse_services::module_service::ThirdPartyRule for HangingPerfRule {
     ) -> Result<synapse_services::module_service::ThirdPartyRuleOutput, synapse_common::error::ApiError> {
         // Far beyond any request budget: only a request layer could end this,
         // and today none is wired (P-19).
+        // sleep-reason: 故障注入：第三方规则故意睡超请求预算，用来证明请求层会先超时
         tokio::time::sleep(std::time::Duration::from_secs(30)).await;
         Ok(synapse_services::module_service::ThirdPartyRuleOutput {
             is_allowed: true,
@@ -621,7 +622,8 @@ async fn admission_gate_hanging_rule_is_refused_by_the_rule_deadline() {
     // generous upper bound that still fails loudly if the deadline regresses.
     assert!(
         elapsed < std::time::Duration::from_secs(10),
-        "the send must end at the rule deadline, not the rule's sleep (took {elapsed:?})"
+        // sleep-reason: 故障注入：第三方规则故意睡超请求预算，用来证明请求层会先超时
+        "the send must end at the rule deadline, not the rule body's 30s delay (took {elapsed:?})"
     );
 
     // Fail-closed: the gate runs before the write, so a refused send leaves no event.
