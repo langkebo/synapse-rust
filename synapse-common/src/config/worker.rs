@@ -277,6 +277,14 @@ pub struct ReplicationHttpConfig {
 /// Minimum accepted length for a worker HTTP replication secret.
 pub const MIN_REPLICATION_SECRET_LEN: usize = 32;
 
+/// 两个开关都开、但既没有 `secret` 也没有 `secret_path` 时的错误文案。
+///
+/// 校验函数里**两处**会走到它：入口的 presence 检查，以及后面按 `(secret, secret_path)`
+/// 取值时的兜底臂。提成常量是为了让那条兜底臂返回 `Err` 而不是 `unreachable!()`
+/// 之后，两处话术不会各写一份、日后漂移。
+const MISSING_REPLICATION_SECRET: &str =
+    "worker.replication.http.enabled is true but neither worker.replication.http.secret nor secret_path is configured";
+
 /// Values that are placeholders, project fixtures, or otherwise public.
 ///
 /// A deployment using any of these has an effectively **unauthenticated** worker
@@ -318,10 +326,7 @@ pub fn validate_replication_http_secret(config: &WorkerConfig, strict: bool) -> 
     let http = &config.replication.http;
 
     if http.secret.is_none() && http.secret_path.is_none() {
-        return Err(
-            "worker.replication.http.enabled is true but neither worker.replication.http.secret nor secret_path is configured"
-                .to_string(),
-        );
+        return Err(MISSING_REPLICATION_SECRET.to_string());
     }
 
     if !strict {
@@ -336,7 +341,11 @@ pub fn validate_replication_http_secret(config: &WorkerConfig, strict: bool) -> 
                  the replication surface would reject every request"
             )
         })?,
-        (None, None) => unreachable!("presence checked above"),
+        // 上面那道 presence 检查刚拒绝过这一组。**返回 Err 而不是 `unreachable!()`**：
+        // 类型上这条臂是可达的（两个 Option 都 None），只是逻辑上先被挡掉了；
+        // 写成 panic 就等于把「配置缺失」在执行期变成一次 abort —— 而且它发生在**启动路径**上，
+        // 一个 panic 会让整个进程起不来，报错信息还不如这里这行字看得懂。
+        (None, None) => return Err(MISSING_REPLICATION_SECRET.to_string()),
     };
     let secret = secret.trim();
 

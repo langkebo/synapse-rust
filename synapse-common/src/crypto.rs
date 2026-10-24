@@ -249,6 +249,23 @@ pub fn validate_token_hash_secret() -> Result<(), String> {
 }
 
 /// hash token.
+///
+/// ⚠️ **本函数在 release 构建且 `TOKEN_HASH_SECRET` 缺失时是 panic 的**（fail-closed：
+/// 用弱默认值算哈希比直接停更危险 —— 那会让所有人以为登录态还在）。主服务在启动时
+/// `validate_token_hash_secret`（`src/server/mod.rs`）已经挡掉这一路，但 `src/bin` 下
+/// 其余入口各自没有调用它，所以从库的角度留下了一个 panic 面。
+///
+/// 这里用 `#[expect(clippy::unreachable)]` 把这件事**显式登记**，而不是让它躲过
+/// `-D clippy::unreachable` 门禁：一旦这一行被删掉，expectation 落空、编译失败，
+/// 提醒后来人删掉本属性。真正的修法（把签名改成 `Result`，并让所有二进制在启动时
+/// 校验/注入 secret）**未做**，记在 `docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md`
+/// 的 CODE-01 里（CODE-01b）：它要动 `verify_token_hash` 与全部调用点，不是一条门禁
+/// 该顺手带走的改动。
+#[expect(
+    clippy::unreachable,
+    reason = "fail-closed defence-in-depth: startup validation covers the server path, the signature \
+              refactor is tracked as CODE-01b"
+)]
 pub fn hash_token(token: &str) -> String {
     let server_secret = std::env::var("TOKEN_HASH_SECRET").unwrap_or_else(|_| {
         if cfg!(debug_assertions) {

@@ -9,7 +9,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 - Run server: `SYNAPSE_CONFIG_PATH=homeserver.yaml cargo run --release`
 - Run worker binary: `cargo run --bin synapse_worker`
 - Format check: `cargo fmt --all` before every commit — the **real CI gate** is `./scripts/check_fmt_ratchet.sh` (ratchet, baseline 0, both `current > baseline` and `current < baseline` fail). It counts **standalone `rustfmt --check`'s `Diff in` blocks**: one file can contribute several (measured: two disjoint hunks in one file = 2), and `cargo fmt -- --check` prints no such marker at all — which is exactly why the old counter reported `current=0` for 56 unformatted files across 21 CI runs. After `cargo fmt --all` you are at `current=0=baseline` and pass.
-- Clippy (CI runs both matrix entries — `features-args` empty and `--all-features`): `SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils [--all-features] --locked -- -D warnings`. `--all-targets` covers test code workspace-wide; the old gap (CI checked only `-p synapse-services --tests`) was closed in `ci.yml:301`.
+- Clippy (CI runs both matrix entries — `features-args` empty and `--all-features`): `SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils [--all-features] --locked -- -D warnings`. `--all-targets` covers test code workspace-wide; the old gap (CI checked only `-p synapse-services --tests`) was closed in `ci.yml:301`. **第三条入口（CODE-01）**：`--workspace --lib --bins --all-features … -- -D warnings -D clippy::unreachable` —— 只作用于**会进产物**的代码，禁 `unreachable!()` 这类 panic 宏；三处副本（ci.yml / `.githooks/pre-push` / `preflight.sh --clippy`）由 `tests/unit/ci_test_scope_tests.rs::production_code_denies_unreachable_macro` 守着，删任一处即红。
 - Doc tests: `cargo test --doc --locked` — ⚠️ **this is currently an empty gate** (root crate has 0 doc tests; workspace-wide there are only 4 and all are `#[ignore]`d). A real rustdoc-only compile error (E0106) once shipped green through this gate. Prefer `cargo test --doc --locked --workspace` when touching doc examples, and note rustdoc catches lifetime elision errors that `cargo check`/`clippy` miss entirely.
 - Full test suite: `cargo test --workspace --all-features --locked -- --test-threads=4` — ⚠️ `--workspace` 不可省：root `Cargo.toml` 没有 `default-members`，从 root 跑不带 `--workspace` 的 `cargo test` **只执行 root package 自己的 target**，8 个 workspace member 的 lib 单测一个都不跑（2026-09-22 实测：漏掉 **6139** 个用例，比它实际跑的 3308 还多，等于给出"全量绿"的假结论）。CI 同款入口是下一行的 `scripts/ci_backend_validation.sh`（其 lib 批次本就是 `--workspace --lib`）。判据见 `docs/audit/FULL_SUITE_ISOLATION_VERIFY_2026-09-22.md` §5。
 - Local CI run (⚠️ **not** the CI entrypoint): `bash scripts/ci_backend_validation.sh` — it runs `ci.yml`'s three nextest batches **verbatim** (lib / unit / integration at `--test-threads 4`), so it cannot drift from CI. The former second implementation `scripts/run_ci_tests.sh` was deleted (sweep A13; it still ran the 4 CI-unstable manual perf smokes via `--ignored`). For what CI actually runs, read `ci.yml` / `TESTING.md`.
@@ -299,6 +299,10 @@ bash scripts/ci/check_sqlx_cache_fresh.sh --compile
 # 3) 两档 clippy（第二个入口才编译 integration 等 target，两档不可互相替代）
 SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils --locked -- -D warnings
 SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils --all-features --locked -- -D warnings
+# 3b) 生产代码禁 `unreachable!()`（CODE-01）。作用域是 `--lib --bins`（= 会进产物的代码）：
+#     测试里用 `unreachable!()` 表达"这个分支不可能"是正当写法，`--all-targets` 会把它们一并算进来。
+#     唯一登记的生产例外是 `synapse-common/src/crypto.rs::hash_token`（带 `#[expect(…, reason = …)]`）。
+SQLX_OFFLINE=true cargo clippy --workspace --lib --bins --all-features --locked -- -D warnings -D clippy::unreachable
 # 4) 该模块的「真 baseline」DB 往返（不是纯构造/序列化用例）
 cargo nextest run -p <crate> --lib --features test-utils -E 'test(/<module>/)'
 # 4b) **删代码的批次必跑**这两道「只禁增」的兄弟棘轮：删除站点会让它们因"基线比实测**宽**"

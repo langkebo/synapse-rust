@@ -471,6 +471,22 @@ jobs:
       - name: Run clippy
         run: cargo clippy --workspace --all-targets --features test-utils ${{ matrix.features-args }} --locked -- -D warnings
 
+      # CODE-01 门禁：**生产代码**（lib + bins）里不允许 `unreachable!()`。
+      #
+      # 为什么单独一条、而不是给上面那条加旗标：`--all-targets` 会把测试代码一并 lint，
+      # 而测试里用 `unreachable!()` 表达"这个分支不可能发生"是正当写法（5 处，见
+      # `synapse-storage/src/worker/tests.rs` 等）。用 `--lib --bins` 把作用域收在
+      # **会进产物的代码**上，就不需要在测试文件里堆 `#[expect]` 了。
+      #
+      # 为什么不写 grep 门禁（审计 §0.5 原建议）：grep 分不清 `#[cfg(test)] mod` 与
+      # 字符串字面量，而 `synapse-web/src/routes/derived_routes.rs` 的测试模块里正好有一个
+      # —— 那会让门禁要么假红，要么被改成 `grep -v` 之后再没人信。
+      #
+      # 唯一被登记的一处：`synapse-common/src/crypto.rs` 的 `hash_token`（fail-closed，
+      # 带 `#[expect(clippy::unreachable, reason = …)]`；签名改 `Result` 记在 CODE-01b）。
+      - name: Deny `unreachable!` in production code (CODE-01)
+        run: cargo clippy --workspace --lib --bins --all-features --locked -- -D warnings -D clippy::unreachable
+
       # S-8: 检测 get_raw() 在生产路径的使用
       # 确保所有跨实例共享的缓存读使用 get_raw_shared().await
       # 而不是 get_raw()（仅读 L1 本地缓存）

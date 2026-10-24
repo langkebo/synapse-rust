@@ -523,19 +523,29 @@ pub async fn acquire_connection_with_handshake_retry(
     pool: &PgPool,
 ) -> Result<sqlx::pool::PoolConnection<sqlx::Postgres>, sqlx::Error> {
     const ACQUIRE_ATTEMPTS: u32 = 3;
+    let mut last_error: Option<sqlx::Error> = None;
     for attempt in 1..=ACQUIRE_ATTEMPTS {
         match pool.acquire().await {
             Ok(conn) => return Ok(conn),
             Err(error) => {
                 let message = error.to_string();
-                if attempt == ACQUIRE_ATTEMPTS || !is_transient_handshake_error(&message) {
-                    return Err(error);
+                let transient = is_transient_handshake_error(&message);
+                last_error = Some(error);
+                if attempt == ACQUIRE_ATTEMPTS || !transient {
+                    break;
                 }
                 tokio::time::sleep(Duration::from_millis(200 * u64::from(attempt))).await;
             }
         }
     }
-    unreachable!("ACQUIRE_ATTEMPTS >= 1 always returns from the loop")
+    // 循环至少跑一轮（`ACQUIRE_ATTEMPTS >= 1`），所以 `last_error` 必为 `Some`。
+    // 这里**不写 `unreachable!()`**：本模块在**非 test 构建**里也会编译
+    // （`synapse-common/src/lib.rs:112`：`pub mod test_isolation`，不挂 cfg），
+    // 而生产代码不允许 panic 宏（门禁 `-D clippy::unreachable`）。
+    if let Some(error) = last_error {
+        return Err(error);
+    }
+    Err(sqlx::Error::Configuration("ACQUIRE_ATTEMPTS must be >= 1".into()))
 }
 
 /// Take the session-scoped template advisory lock, bounded by `lock_wait`.

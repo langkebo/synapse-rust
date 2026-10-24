@@ -64,6 +64,20 @@ if ! SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-ut
 fi
 echo "✅ clippy --workspace --all-targets --all-features 通过"
 
+# ── Stage 1b（阻断）：生产代码禁 `unreachable!()`（CODE-01） ──────────────────
+# 作用域刻意是 `--lib --bins`（= 会进产物的代码）：测试里用 `unreachable!()` 表达
+# "不可能发生的分支"是正当写法，`--all-targets` 会把它们一并算进来。
+# 与 ci.yml 的同名步骤**逐字相同**；改一处必须改另一处（守卫：
+# `tests/unit/ci_test_scope_tests.rs::production_code_denies_unreachable_macro`）。
+if ! SQLX_OFFLINE=true cargo clippy --workspace --lib --bins --all-features --locked \
+    -- -D warnings -D clippy::unreachable; then
+  echo ""
+  echo "❌ push 被拦下：生产代码（lib/bins）里出现了 panic 宏（如 unreachable!()）。"
+  echo "   改用 Result + ?，或在确属 fail-closed 时加 #[expect(clippy::unreachable, reason = \"…\")]。"
+  exit 1
+fi
+echo "✅ 生产代码无 unreachable!（clippy -D clippy::unreachable）"
+
 # ── Stage 2（阻断）：cargo-deny advisories ─────────────────────────────────────
 # 代理透传：cargo-deny 用 reqwest 拉取 advisory-db，只认 HTTPS_PROXY/HTTP_PROXY，
 # 不读取 git 的 http.proxy 配置——于是会出现「git 能走代理、cargo-deny 却拉取失败」。

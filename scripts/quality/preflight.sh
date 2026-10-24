@@ -146,6 +146,10 @@ if [ "${1:-}" = "--clippy" ]; then
     step "clippy（两档，CI 同款）"
     run "clippy (test-utils)" env SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils --locked -- -D warnings
     run "clippy (all-features)" env SQLX_OFFLINE=true cargo clippy --workspace --all-targets --features test-utils --all-features --locked -- -D warnings
+    # CODE-01：生产代码（lib+bins）禁 `unreachable!()`。作用域刻意不含测试目标 ——
+    # 与 ci.yml / .githooks/pre-push 的同名步骤逐字相同，三处任一漂移都会被
+    # `tests/unit/ci_test_scope_tests.rs::production_code_denies_unreachable_macro` 抓住。
+    run "clippy (无 unreachable!)" env SQLX_OFFLINE=true cargo clippy --workspace --lib --bins --all-features --locked -- -D warnings -D clippy::unreachable
 fi
 
 printf '\n== 结论 ==\n'

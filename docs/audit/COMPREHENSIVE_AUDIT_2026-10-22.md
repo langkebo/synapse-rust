@@ -260,7 +260,7 @@ README 那段描述的是**当时**的状态，且没写"已修"。已就地订�
 | ARCH-03 | "未实现"存在两套错误语义（404 `M_UNRECOGNIZED` vs 501 `M_UNKNOWN`） | 批次 3 只登记了端点，没统一语义 |
 | ARCH-04 | `events` 未分区、`room_memberships` 无归档 | W4 只做了分批 prune（PERF-06），分区/归档未动 |
 | ARCH-05 | 7 个生产文件 >2000 行 | 从未排期；§10.10 只把"测试文件拆分"排除在外 |
-| CODE-01 | 生产路径 `unreachable!` 会 panic，且无门禁 | ✅ 复核：**5 处仍在**（`synapse-common/src/config/worker.rs:339`、`crypto.rs:260`、`synapse-web/.../room/management.rs:237` 等），`scripts/` 下**无任何 unreachable 门禁** |
+| CODE-01 | 生产路径 `unreachable!` 会 panic，且无门禁 | 🟡 **部分修（2026-10-24）**：`--lib --bins` 口径 4 → **1**（仅剩 `crypto.rs::hash_token` 的 fail-closed，已 `#[expect]` 登记）；门禁 = clippy `-D clippy::unreachable` × 3 处副本（非 grep）；`hash_token` 改 `Result` 记 **CODE-01b** |
 | CODE-06 | 9 个函数 >150 行（最长 461） | — |
 | CODE-08 | 已注册端点恒 403，用无理由 `#[allow(dead_code)]` 掩盖 | — |
 | CODE-10 | 生产 882 处 `let _ =` / `unwrap_or_default()` | 只加了"危险性扫描"，**明确不设下降配额**（§10.10），总数不动 |
@@ -320,13 +320,20 @@ README 那段描述的是**当时**的状态，且没写"已修"。已就地订�
 ### 0.5.6 这份清单怎么用
 
 **下一轮不要从"清单清零"开始，从"能不能写出可失败的验证"开始**（§10.0 的铁律）。
-按这个筛，0.5.2 里最值得先动的是 CODE-01 与 TEST-03：
+按这个筛，0.5.2 里原本最值得先动的两条 **CODE-01 与 TEST-03 都已在 2026-10-24 落地**：
 
-- CODE-01：`unreachable!` 5 处 + 零门禁 —— 一条 `grep` 门禁 + 逐处改成 `Err`，可先红后绿；
-- TEST-03：7 条 `#[ignore]` —— 每条都能转成"要么删、要么进 CI"，同样是可失败的判据。
+- **CODE-01**：`--lib --bins` 口径的 `unreachable!()` 4 → 1（仅剩 `crypto.rs::hash_token` 的
+  fail-closed，带 `#[expect]` 登记），门禁用 **clippy** `-D clippy::unreachable` 而**不是 grep**
+  —— grep 会把 `derived_routes.rs` 测试模块里那个宏算进来，干净树上就假红（原建议作废）。
+  三处副本由 `ci_test_scope_tests::production_code_denies_unreachable_macro` 守着；两处变异实测变红。
+  余项记 **CODE-01b**（`hash_token` → `Result`，波及 `verify_token_hash` 与 8 个 `src/bin` 入口）。
+- **TEST-03**：7 条 `#[ignore]` 有了唯一入口（`scripts/ci_backend_validation.sh e2e` +
+  `.github/workflows/e2e-http.yml`，dispatch + nightly，不进 PR），守卫生效；首次真跑就抓出
+  3 条测试自身的缺陷（上传响应字段、`request_id` 类型、房间名非幂等），现已 7/7 通过。
 
-反过来，ARCH-05（拆 2000 行文件）、SEC-15（补鉴权覆盖）拿不出可失败验证，按 §10.0 应
-降级为**登记项**，不要当任务排期。
+**下一条建议**：`TEST-02`（6 个测试文件只断言状态码）与 `CODE-03`（设备删除路径 6 处吞掉懒加载
+清理失败）都能写出"改造前红、改造后绿"的判据；而 ARCH-05（拆 2000 行文件）、SEC-15（补鉴权覆盖）
+拿不出可失败验证，按 §10.0 应降级为**登记项**，不要当任务排期。
 
 ---
 
@@ -402,6 +409,23 @@ README 那段描述的是**当时**的状态，且没写"已修"。已就地订�
 - **类型**：错误处理 / 可用性
 - **影响范围**：`hash_token` 在 release 构建且未设置 `TOKEN_HASH_SECRET` 时直接 panic。主服务启动有 `validate_token_hash_secret`（`src/server/mod.rs:182`）兜底，但库函数本身对任意其他进程（worker/工具/新增二进制）都是硬 panic；`src/bin` 下 8 个可执行入口均未校验。
 - **修法**：改为返回 `Result`，或把 secret 在进程启动时注入为不可变 `OnceCell` 并让 `hash_token` 只做取值。
+- **状态（2026-10-24）**：**部分修**，门禁已补。
+  - `--lib --bins`（= 会进产物的代码）口径下，`unreachable!()` 原有 **4 处**，现 **1 处**：
+    `synapse-common/src/config/worker.rs`（presence 检查后那个兜底臂）、
+    `synapse-web/src/routes/admin/room/management.rs`（purge 边界的第二个 match 尾臂）、
+    `synapse-common/src/test_isolation.rs`（重试循环出口）**都已改成 `Err`**；
+    剩下 `crypto.rs` 的 `hash_token` 是**有意 fail-closed**，加
+    `#[expect(clippy::unreachable, reason = …)]` 显式登记（一旦那行被删，expectation 落空、编译失败）。
+    > 注意审计原文 §0.5 记的"5 处"里，`derived_routes.rs:148` 在 `#[cfg(test)]` 模块内、
+    > `synapse-storage/src/worker/tests.rs` 的 4 处是测试文件 —— 它们不属于生产面，
+    > 也不该被门禁逼着改（见下一条）。
+  - **门禁是 clippy，不是 grep**：`cargo clippy --workspace --lib --bins --all-features --locked -- -D warnings -D clippy::unreachable`，
+    三处副本（`ci.yml` / `.githooks/pre-push` / `preflight.sh --clippy`），
+    由 `tests/unit/ci_test_scope_tests.rs::production_code_denies_unreachable_macro` 守住"三处都在 + 作用域必须是 `--lib --bins`"。
+    用 grep 的话，`derived_routes.rs` 里那个**测试模块**内的宏会让门禁在干净树上就红。
+  - **未做（CODE-01b）**：把 `hash_token` 的签名改成 `Result`。它会波及 `verify_token_hash`
+    （bool → Result<bool>）与 `src/bin` 下 8 个入口的启动路径 —— 是一笔独立的、可审查的改动，
+    不该混在"补一条门禁"里做。在那之前，`src/bin` 各入口**仍然**没有校验 `TOKEN_HASH_SECRET`。
 
 ### CODE-02（P1）生产路径 19 处静默吞掉缓存失效（`room_state` 15 / `account_data` 3 / `user:profile` 1）
 > **第三轮更正（2026-10-22）**：原文只统计了 `membership/federation.rs` 的 5 处，**低估了近 4 倍**。

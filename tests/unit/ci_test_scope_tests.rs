@@ -1558,3 +1558,51 @@ fn ci_env_seeds_every_required_variable() {
             .join("\n  ")
     );
 }
+
+/// 生产代码禁 `unreachable!()`（CODE-01）的门禁，必须同时存在于三处且作用域正确。
+///
+/// ## 为什么需要这条守卫
+///
+/// 同一件事有三份副本：CI（`ci.yml`）、本地 `pre-push`、`preflight.sh`。任何一处被删，
+/// 另两处照样绿，而"本地过 = CI 过"的承诺就断了。
+///
+/// 第二条断言更关键：**作用域必须是 `--lib --bins`**。如果哪天有人图省事把这条门禁
+/// 合并进上面那条 clippy 变成 `--all-targets`，测试代码里 5 处正当用法
+/// （`synapse-storage/src/worker/tests.rs` 的 4 处 + `derived_routes.rs` 测试宏 1 处）
+/// 会一起变红，接下来的"修法"必然是往测试文件里堆 `#[expect]` —— 门禁从此变成噪声。
+///
+/// 唯一被登记的生产例外是 `synapse-common/src/crypto.rs::hash_token`
+/// （`#[expect(clippy::unreachable, reason = …)]`，fail-closed；签名改 `Result` 记在 CODE-01b）。
+#[test]
+fn production_code_denies_unreachable_macro() {
+    const MARKER: &str = "-D clippy::unreachable";
+    let sites = [".github/workflows/ci.yml", ".githooks/pre-push", "scripts/quality/preflight.sh"];
+
+    let mut total = 0;
+    for site in sites {
+        let text = fs::read_to_string(repo_root().join(site)).unwrap_or_else(|e| panic!("read {site}: {e}"));
+        // 拼接续行（`\` + 换行），否则跨行的命令会被按行拆开、看不到整条作用域。
+        let joined = text.replace("\\\n", " ");
+        let mut found_here = 0;
+        for chunk in joined.split("cargo clippy").skip(1) {
+            let cmd: String = chunk.chars().take(240).collect();
+            if !cmd.contains(MARKER) {
+                continue;
+            }
+            found_here += 1;
+            assert!(
+                cmd.contains("--lib") && cmd.contains("--bins"),
+                "{site} 的 `{MARKER}` 必须作用在 `--lib --bins` 上（会进产物的代码），\
+                 而不是 `--all-targets`（测试代码里的 `unreachable!()` 是正当写法，\
+                 收进来只会逼人往测试文件堆 `#[expect]`）。实际命令片段：\n{cmd}"
+            );
+        }
+        assert!(
+            found_here >= 1,
+            "{site} 缺少 `cargo clippy … {MARKER}` —— 生产代码的 panic 宏就没有门禁了\
+             （CODE-01：审计里 `unreachable!` 曾在生产路径上，从 5 处降到 0 靠的就是这条）"
+        );
+        total += found_here;
+    }
+    assert!(total >= 3, "三处应各有一条，实际命中 {total} 条");
+}

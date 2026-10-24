@@ -15,6 +15,11 @@ use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
+/// `purge_history` 的两个边界参数**恰好要一个**；这两条消息在校验与取值两处共用，
+/// 避免同一事实写两份而漂移。
+const ONLY_ONE_PURGE_BOUNDARY: &str = "Only one of 'purge_up_to_ts' and 'purge_up_to_event_id' may be provided";
+const MISSING_PURGE_BOUNDARY: &str = "One of 'purge_up_to_ts' or 'purge_up_to_event_id' is required";
+
 /// Request body for the abnormal-room cleanup endpoints.
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -206,17 +211,11 @@ pub async fn purge_history(
     let request_id = resolve_request_id(&headers);
     let room_id =
         body.room_id.as_deref().ok_or_else(|| ApiError::bad_request("Missing 'room_id' field".to_string()))?;
+    // 两个边界参数**恰好一个**：校验放在这里（先于 room_exists，保证"参数错"优先于"房间不存在"），
+    // 取值在下面那个 match 里。两处用同一组常量，避免消息漂移。
     match (body.purge_up_to_ts, body.purge_up_to_event_id.as_deref()) {
-        (Some(_), Some(_)) => {
-            return Err(ApiError::bad_request(
-                "Only one of 'purge_up_to_ts' and 'purge_up_to_event_id' may be provided".to_string(),
-            ))
-        }
-        (None, None) => {
-            return Err(ApiError::bad_request(
-                "One of 'purge_up_to_ts' or 'purge_up_to_event_id' is required".to_string(),
-            ))
-        }
+        (Some(_), Some(_)) => return Err(ApiError::bad_request(ONLY_ONE_PURGE_BOUNDARY.to_string())),
+        (None, None) => return Err(ApiError::bad_request(MISSING_PURGE_BOUNDARY.to_string())),
         _ => {}
     }
     let dry_run = body.dry_run.unwrap_or(false);
@@ -226,6 +225,9 @@ pub async fn purge_history(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
+    // 取值。尾臂**不再**是 `unreachable!()`：类型上它是可达的（两个边界同时给 / 都不给），
+    // 只是上面刚拒绝过。写成 panic 的话，哪天有人调整上面的校验（或挪走它），
+    // 一个 400 就会变成 500 + 进程内 panic —— 而面板上分不清这两者。
     let timestamp = match (body.purge_up_to_ts, body.purge_up_to_event_id.as_deref()) {
         (Some(timestamp), None) => timestamp,
         (None, Some(event_id)) => ctx
@@ -234,7 +236,8 @@ pub async fn purge_history(
             .event_origin_server_ts_in_room(room_id, event_id)
             .await?
             .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?,
-        _ => unreachable!("boundary arguments were validated above"),
+        (Some(_), Some(_)) => return Err(ApiError::bad_request(ONLY_ONE_PURGE_BOUNDARY.to_string())),
+        (None, None) => return Err(ApiError::bad_request(MISSING_PURGE_BOUNDARY.to_string())),
     };
 
     if delete_local_events {
