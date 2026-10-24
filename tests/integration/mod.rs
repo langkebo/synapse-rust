@@ -32,6 +32,7 @@ mod api_federation_tests;
 mod api_federation_transaction_tests;
 mod api_friend_blocked_admission_tests;
 mod api_friend_dm_privacy_tests;
+mod api_friend_routes_tests;
 mod api_history_visibility_tests;
 mod api_input_validation_tests;
 mod api_invite_blocklist_e2e_tests;
