@@ -42,7 +42,7 @@ fn text_plain_request(method: &str, uri: &str, body: &str) -> Request<Body> {
         .expect("request must build")
 }
 
-fn header_str<'a>(headers: &'a axum::http::HeaderMap, name: axum::http::header::HeaderName) -> Option<&'a str> {
+fn header_str(headers: &axum::http::HeaderMap, name: axum::http::header::HeaderName) -> Option<&str> {
     headers.get(name).and_then(|v| v.to_str().ok())
 }
 

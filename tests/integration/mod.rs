@@ -51,6 +51,7 @@ mod api_push_pushers_routes_tests;
 mod api_rate_limit_contract_tests;
 mod api_relations_authorization_tests;
 mod api_rendezvous_routes_tests;
+mod api_room_event_report_routes_tests;
 mod api_room_retention_tests;
 mod api_room_summary_routes_tests;
 mod api_room_sync_tests;
