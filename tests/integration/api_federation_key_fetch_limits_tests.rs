@@ -136,6 +136,34 @@ async fn start_key_server(delay_ms: u64, fail_status: Option<StatusCode>) -> (St
     (origin, metrics)
 }
 
+/// 发请求并返回 `(状态码, 响应体)`。
+///
+/// **2026-10-24（审计 TEST-02）**：本文件原先 4 处只断言状态码。这里补的是"状态码相同、
+/// 响应体不同"的两类回归：
+///   * 失败面：404 必须带 `M_NOT_FOUND`（客户端按 errcode 区分"对端没有这把 key"与
+///     "本服务器坏了"；空 body 会让它误判）；
+///   * 成功面：`/_matrix/key/v2/query/...` 必须回 `{ "server_keys": [...] }`，否则
+///     规范化/签名校验的调用方拿到的是 `null` 而不是 key 集合。
+async fn send(app: &axum::Router, request: Request<Body>) -> (StatusCode, serde_json::Value) {
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), 256 * 1024).await.unwrap_or_default();
+    (status, serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null))
+}
+
+/// 断言"对端取 key 失败"的完整形状：404 + `M_NOT_FOUND` + 非空 error。
+#[track_caller]
+fn assert_key_fetch_not_found(response: (StatusCode, serde_json::Value), context: &str) {
+    let (status, body) = response;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{context}：取 key 失败必须是 404；实际 body = {body}");
+    assert_eq!(
+        body["errcode"], "M_NOT_FOUND",
+        "{context}：404 必须带 M_NOT_FOUND（调用方按 errcode 区分「对端没有这把 key」与「本服务器故障」）；\
+         实际 body = {body}"
+    );
+    assert!(!body["error"].as_str().unwrap_or_default().is_empty(), "{context}：必须带可读 error；实际 body = {body}");
+}
+
 async fn setup_test_app_with_federation_key_fetch_config(
     key_fetch_timeout_ms: u64,
     key_fetch_max_concurrency: usize,
@@ -162,8 +190,7 @@ async fn test_federation_key_fetch_respects_timeout_config() {
         .uri(format!("/_matrix/key/v2/query/{}/ed25519:any", origin))
         .body(Body::empty())
         .unwrap();
-    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
-    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_key_fetch_not_found(send(&app, request).await, "key_fetch_timeout_ms=1 且对端 50ms 才应答");
 }
 
 #[tokio::test]
@@ -183,8 +210,13 @@ async fn test_federation_key_fetch_global_concurrency_limit_is_enforced() {
                 .uri(format!("/_matrix/key/v2/query/{}/ed25519:{}", origin, i))
                 .body(Body::empty())
                 .unwrap();
-            let response = app.oneshot(super::with_local_connect_info(request)).await.unwrap();
-            assert_eq!(response.status(), StatusCode::OK);
+            let (status, body) = send(&app, request).await;
+            assert_eq!(status, StatusCode::OK, "并发限流不该把请求变成失败；实际 body = {body}");
+            assert!(
+                body["server_keys"].as_array().is_some_and(|keys| !keys.is_empty()),
+                "取 key 成功必须回 {{server_keys: [...]}}（空或 null 会让调用方以为对端没有 key）；\
+                 实际 body = {body}"
+            );
         }));
     }
 
@@ -207,8 +239,8 @@ async fn test_federation_key_fetch_backoff_skips_retries() {
         .uri(format!("/_matrix/key/v2/query/{}/ed25519:backoff", origin))
         .body(Body::empty())
         .unwrap();
-    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
-    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let response = send(&app, request).await;
+    assert_key_fetch_not_found(response, "对端 500 ⇒ 首次取 key 失败");
     let first_count = metrics.total_requests.load(Ordering::SeqCst);
     assert!(first_count > 0);
 
@@ -217,8 +249,7 @@ async fn test_federation_key_fetch_backoff_skips_retries() {
         .uri(format!("/_matrix/key/v2/query/{}/ed25519:backoff", origin))
         .body(Body::empty())
         .unwrap();
-    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
-    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_key_fetch_not_found(send(&app, request).await, "退避窗口内重试同一 key");
 
     let second_count = metrics.total_requests.load(Ordering::SeqCst);
     assert_eq!(second_count, first_count);

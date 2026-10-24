@@ -23,11 +23,11 @@
 | 文档完整性 | 0 | 0 | 0 | 1 | 1 |
 | 专项：冗余与过度开发 | 0 | 0 | 1 | 0 | 1 |
 | **小计** | **0** | **0** | **15** | **13** | **28** |
-| 第七轮新发现（仍开着） | 0 | 0 | 0 | 2 | 2 |
-| **合计** | **0** | **0** | **15** | **15** | **30** |
+| 第七轮新发现（仍开着） | 0 | 0 | 1 | 2 | 3 |
+| **合计** | **0** | **0** | **16** | **15** | **31** |
 
 **结论摘要**：**P0 = 0，P1 = 0**（原 9 条 P1 全部有实现 + 能失败的门禁，逐条见附录 D）。
-剩下的 30 条里，**没有一条会造成数据丢失或越权**；15 条 P2 中真正"用户可见"的只有两类：
+剩下的 31 条里，**没有一条会造成数据丢失或越权**；16 条 P2 中真正"用户可见"的只有两类：
 
 1. **能力台账与实现不一致**（FUNC-05 的联邦能力未登记、MAINT-04 的手工台账已出现两行错账）
    —— 表现是"客户端照文档调用却得到另一套行为"；
@@ -49,6 +49,7 @@
 | 编号 | 级别 | 一句话 | 证据 |
 |---|---|---|---|
 | **NEW-03** | P3 | 依赖分裂组数已从 **38 → 32**（crate 名 54 → 47、同版本多来源 16 → 15），`DEPENDENCY_UPGRADE_TRACKER.md` 的基线与"处置进度"整表过期 | `cargo tree -d --workspace --locked` 按 crate 名聚合：47 / 32 / 15（口径见 §0.4） |
+| **NEW-05** | P2 | **「自证测试」面**：一批测试只断言自己刚构造的字面量（`let status = StatusCode::OK; assert_eq!(status, StatusCode::OK)`），永远不会失败。启发式扫描（≥3 处本地字面量断言且 0 处真实依赖调用）命中 **21 个文件**；已逐行确认的 3 处见 §七 TEST-02 | 已确认：`tests/unit/msc4108_rendezvous_route_tests.rs`（0 个 HTTP 调用、12 处 `let status/body/headers = <字面量>`）、`tests/integration/coverage_tests.rs`（51 个用例全是构造 JSON）、`account_compat_route_tests.rs` 的 `test_deactivate_account_*` 三条。**启发式会高估**（insta 快照文件看起来也像），所以 21 是候选数不是判决数 |
 | **NEW-04** | P3 | 源码与配置里共 **30 个**不同的 `scripts/...` 悬挂引用；但其中多数是**相对路径**（相对 `docker/deploy/`）或**历史叙述**（"这里过去调用过 X，已删除"）⇒ 不能做"出现即要求存在"的朴素门禁 | 全仓扫描 `scripts/[\w./-]+\.(sh\|py\|mjs\|js)` 与 `os.path.exists` 求差；逐条看上下文后只有 1 类是真错（`scripts/quality/check_missing_docs_ratchet.sh`，8 处，已在本轮修掉） |
 
 ## 0.2 未完成任务清单
@@ -60,7 +61,7 @@
 
 | 编号 | 级别 | 一句话 | 判据（怎么算修好） |
 |---|---|---|---|
-| **TEST-02** | P2 | 6 个测试文件只断言状态码，不断言响应体 | 每个文件至少一条用例断言 `errcode` 与关键字段；把被测 handler 的响应体字段改名 ⇒ 该用例必须红 |
+| **TEST-02** | P2 | 断言强度不足（原记 6 个文件只断言状态码） | **3 个已补**（403/401/404 断言 `errcode` + error、成功分支断言关键字段）、**2 个判定不适用**（安全头 / 路由台账）；仅剩 `msc4108` 的 12 个自证用例（并入 NEW-05）。判据：改期望 errcode 或响应字段 ⇒ 用例必须红（两处已实测） |
 | **TEST-05** | P2 | `tokio::time::sleep` **90 处 / 43 文件**（原记 27/14），构成时序 flake 面 | 逐处分类"等真实事件 / 等固定窗口"，后者改条件轮询；分类表落文档 + 计数棘轮 |
 | **SEC-14** | P3 | 联邦请求缺 `ts` 仅告警不拒绝 | 增加拒绝分支 + 一条"缺 ts ⇒ 401"的用例（先写用例证明当前是 200/放行） |
 
@@ -71,6 +72,7 @@
 | **ARCH-02** | P2 | `sync` 与 `sliding_sync` 无共享语义基座 | 抽取会触及两条协议路径的公共形状，缺"两条路径可见事件集合一致"的等价断言作为安全网；先写断言才能动 |
 | **ARCH-04** | P2 | `events` 未分区、`room_memberships` 无归档 | 需要真实数据量判断分区收益；本机无生产级数据，属**等外部条件** |
 | **ARCH-05** | P2 | 7 个生产文件 >2000 行 | 拿不出可失败验证（拆完行为不变），按 §10.0 降级为**登记项**，不排期 |
+| **NEW-05** | P2 | 「自证测试」面（21 个候选文件 / 约 400 个用例断言自己构造的字面量） | 需要逐文件判定「接真 router」还是「改名声明只锁形状」；先用已在册的 3 处做样板，不建启发式门禁（假阳性会把它变成噪声） |
 | **MAINT-04** | P2 | 能力台账手工维护，已出现多处失真 | 生成器要能反推"为什么没实现"，做不到；本轮只修了两行错账（FUNC-04），根因仍在 |
 | **RD-27** | P2 | `to_device` 的 4 个存储方法零调用，其中一个名字与语义相反 | 删 `pub` 方法是破坏性变更（`synapse-e2ee` 是库 crate），需先确认无外部消费者 |
 
@@ -346,15 +348,59 @@
 
 ## 七、测试覆盖
 
-### TEST-02（P2）6 个测试文件只断言状态码，不断言响应体
+### TEST-02（P2）断言强度不足：逐文件状态（2026-10-24 重写）
 
-- **位置**：`api_admin_target_guard_tests.rs`、`api_security_headers_tests.rs`、
-  `api_worker_replication_auth_tests.rs`、`msc4108_rendezvous_route_tests.rs`、
-  `api_route_ledger_tests.rs`、`api_federation_key_fetch_limits_tests.rs`
-- **影响**：返回体结构/`errcode` 变更无法被发现（已经因此漏过一次 401 挑战体结构变更）。
-- **修法**：至少断言 `errcode` 与关键字段；结构稳定的用 insta 快照。
-- **为什么它排在下一批第一位**：这是本清单里**最容易写出"先红后绿"**的一条 ——
-  改一个响应字段名，用例必须红。
+原条目写"6 个测试文件只断言状态码"。逐个打开后发现**三种不同的病**，混在同一条里：
+
+| 文件 | 原状 | 现在 |
+|---|---|---|
+| `api_admin_target_guard_tests.rs` | 8 个用例只断言 403 | ✅ **已补**：`assert_forbidden` 断言 403 + `M_FORBIDDEN` + 非空 `error`；成功分支断言 `id_server_unbind_result=success` |
+| `api_worker_replication_auth_tests.rs` | 3 个用例只断言 200/401/404 | ✅ **已补**：401 断言 `M_UNAUTHORIZED` + error；心跳 200 断言 `{status:"ok"}`；404 断言带 `M_` errcode；admin 列表断言**真的含刚注册的 worker_id**（空数组也能 200） |
+| `api_federation_key_fetch_limits_tests.rs` | 4 处只断言 404/200（另有 metrics 断言，所以不是纯状态码） | ✅ **已补**：404 断言 `M_NOT_FOUND` + error；成功断言 `{server_keys:[...]}` 非空 |
+| `api_security_headers_tests.rs` | 状态码 + 安全头断言 | ✅ **不适用**：它的被测对象**就是响应头**（`nosniff` / `referrer-policy` / CSP），body 不是契约面 |
+| `api_route_ledger_tests.rs` | 路由台账 / 快照断言（46 处断言） | ✅ **不适用**：它测的是 ledger 与快照，不发 HTTP |
+| `msc4108_rendezvous_route_tests.rs` | **自证**：`let status = StatusCode::OK; assert_eq!(status, StatusCode::OK)`，0 个 HTTP 调用 | ❌ **仍开着**（需要 app 夹具；见 NEW-05） |
+
+**判据（本轮实测）**：把 `assert_forbidden` 的期望 errcode 改成 `M_UNKNOWN` ⇒
+`FAIL … 403 必须带 M_FORBIDDEN … 实际 body = {"errcode":"M_FORBIDDEN","error":"Only super_admin …"}`；
+把心跳响应期望改成 `"done"` ⇒ `FAIL … 心跳成功响应必须是 {"status":"ok"}`。两次都还原字节一致。
+
+**仍开着的部分**：`msc4108` 那 535 行里 12/20 个用例是自证（另有路由台账断言是真的）；
+它需要的不是"补 body 断言"，而是**接到真 router 上**。这类文件的规模见 NEW-05。
+
+### NEW-05（P2）「自证测试」面：断言自己刚构造的字面量
+
+- **形态**（`tests/unit/msc4108_rendezvous_route_tests.rs` 是标本）：
+
+  ```rust
+  #[test]
+  fn create_session_returns_ok_with_etag_and_expires() {
+      let status = StatusCode::OK;                     // ← 自己造一个值
+      let headers = [("etag", "\"1700000000000\""), …];
+      assert_eq!(status, StatusCode::OK);              // ← 再断言自己刚造的值
+      assert_eq!(headers[0].1, "\"1700000000000\"");
+  }
+  ```
+
+  它不接触 router、不碰 DB、不调被测函数 —— **改坏生产代码它也不会红**。
+  文件里 20 个用例中 12 个是这种形态，而文件名叫 `..._route_tests`，读的人会以为路由被覆盖了。
+- **规模（启发式，21 个候选文件）**：判据 = 同一文件里 ≥3 处 `let <status|body|headers> = <字面量>`
+  且 0 处真实依赖调用（`oneshot` / `Request::builder` / `create_router` / `setup_fresh_test_app` /
+  `sqlx::query` / `with_local_connect_info`）。命中 21 个文件、合计约 400 个用例。
+  **这个数会高估**：`insta` 快照文件（如 `security_endpoint_snapshots_tests.rs`）也是"无真实调用"，
+  但它断言的是**真结构体的序列化结果**，是有效的；`key_rotation_route_tests.rs` 则有一半是真的
+  （断言路由台账）。所以 21 是**候选数**，逐文件判定后才是结论。
+- **已逐行确认的三处**：`msc4108_rendezvous_route_tests.rs`（12/20）、
+  `tests/integration/coverage_tests.rs`（51/51，全是 `json!` 构造后断言字段存在）、
+  `account_compat_route_tests.rs` 的 `test_deactivate_account_*`（3 条，含
+  `assert_eq!(expected_status, 401)` 这种）。
+- **影响**：这是"改坏了也绿"的极值形态。它比"只断言状态码"更危险 —— 后者至少在发真请求，
+  前者连请求都没有，却占用着"已覆盖"的名字与看板数字。
+- **修法**：不做启发式门禁（假阳性太高，同 NEW-04 的教训）。做法是**逐文件二选一**：
+  ① 接到真 router（`setup_fresh_test_app` + `oneshot`）/ 真函数上；
+  ② 若确实只能测形状，就**改名**去掉 `_route_tests` / `_api_tests`，并在文件头写明
+  "本文件只锁 JSON 形状，不覆盖路由行为"。
+  判据：把被测 handler 的返回字段改名 ⇒ 该文件必须红；改不红的就是②类。
 
 ### TEST-05（P2）`tokio::time::sleep` 90 处 / 43 文件，构成时序 flake 面
 
