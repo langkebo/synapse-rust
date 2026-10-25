@@ -19,47 +19,49 @@
 | 性能（含数据层） | 0 | 0 | 1 | 3 | 4 |
 | 安全性 | 0 | 0 | 0 | 5 | 5 |
 | 可维护性 | 0 | 0 | 1 | 1 | 2 |
-| 测试覆盖 | 0 | 0 | 0 | 2 | 2 |
+| 测试覆盖 | 0 | 0 | 0 | 1 | 1 |
 | 文档完整性 | 0 | 0 | 0 | 0 | 0 |
 | 专项：冗余与过度开发 | 0 | 0 | 0 | 0 | 0 |
-| **合计** | **0** | **0** | **5** | **13** | **18** |
+| **合计** | **0** | **0** | **5** | **12** | **17** |
 
-> 计数口径（2026-10-25 08:20 逐条重算，**按表格行**计，合并行只算一行）：**P0 = 0，P1 = 0，P2 = 5，P3 = 13，合计 18**。
-> 来源 = §0.1 的 4 条 open `NEW-*`（NEW-09 / NEW-11 / NEW-15 / NEW-16）、§0.2.2 的 2 条、§0.2.3 的 12 条。
+> 计数口径（2026-10-25 08:20 逐条重算，**按表格行**计，合并行只算一行）：**P0 = 0，P1 = 0，P2 = 5，P3 = 12，合计 17**。
+> 来源 = §0.1 的 3 条 open `NEW-*`（NEW-11 / NEW-15 / NEW-16）、§0.2.2 的 2 条、§0.2.3 的 12 条。
 > ⚠️ **本版更正一处旧账**：上一版写 `P3 = 13`，但把 §0.1 / §0.2.2 / §0.2.3 三处表格按行数出来是
 > **14 行**（正则 `^\| \*\*ID\*\* \| P[0-9] \|` 扫一遍即可复核）—— 13 是漏计，不是有 1 条被关掉。
-> 本版关闭 **NEW-19**（P2/功能完整性，`2e33c45a8`）与 **NEW-10**（P3/测试覆盖）
-> ⇒ P2 `6 → 5`、P3 `14 → 13`、合计 `20 → 18`。
+> 本版关闭 **NEW-19**（P2/功能完整性，`2e33c45a8`）、**NEW-10**（P3/测试覆盖，`d9fa05d26`）
+> 与 **NEW-09**（P3/测试覆盖，`captcha` 完整状态机）⇒ P2 `6 → 5`、P3 `14 → 12`、合计 `20 → 17`。
 > ✅ NEW-19：`/send` 的线程回复现在同时进 `thread_relations` 与 `thread_replies`
 > （时间戳回查刚落库的事件，不用本地时钟；重试同一 txn 不重复计数）。
 > ✅ NEW-10：4 处手写轮询折成 `tests/common/mod.rs::wait_until`，测试域 `sleep` 计数
-> `47 → 44`（`scripts/ci/sleep_baseline` 已随之收紧），超时文案带「等什么 + 等多久」。判据均见附录 D。
+> `47 → 44`（`scripts/ci/sleep_baseline` 已随之收紧），超时文案带「等什么 + 等多久」。
+> ✅ NEW-09：`captcha` 补齐**完整状态机**（发码→查状态→错码→对码→复用/超限），
+> 关键是把「要预置模板」从注释里的借口变成测试里的 `seed_image_template`。判据均见附录 D。
 > ✅ **NEW-14 已收口**：C3 审计面 15 → 95 个文件（零误伤），14 个 `NONE` 族已逐族重跑 ⇒
 > 4 族误判（改登记）、3 族幽灵、7 族真缺口（见 §0.1.1）。
 > `NEW-08` 已于 2026-10-25 关闭（`device_sync.rs` 整模块删除，判据与变异证据见附录 D），不再计入。
 > 其中 **14 条是"登记项"**（明确不做或只等外部条件），真正还没动手的只剩
-> NEW-09（`captcha` 完整状态机要预置模板）与 NEW-11（state 组装层未共享）。
+> NEW-11（state 组装层未共享，需先写等价断言）。
 
 **结论摘要**：**P0 = 0，P1 = 0**（原 9 条 P1 全部有实现 + 能失败的门禁，逐条见附录 D）。
 ⚠️ 第八轮曾把一条误报成 P1（NEW-06「设备吊销通知静默丢失」），**已撤回**：真实广播路径在
 `routes/device.rs::broadcast_device_list_update`（签名事务），死的是 `device_sync` 里那条
 零调用者的重复实现，已删除；更正过程记在[附录 D](#附录-d已关闭条目索引)。
-剩下的 18 条里，**没有一条会造成数据丢失或越权**；5 条 P2 分别是 `events` 未分区（ARCH-04）、
+剩下的 17 条里，**没有一条会造成数据丢失或越权**；5 条 P2 分别是 `events` 未分区（ARCH-04）、
 7 个 >2000 行生产文件（ARCH-05）、837 处静默忽略（CODE-10）、`to_device` 无按龄清理（PERF-01）、
 测试替身未做特性隔离（MAINT-01）—— 全是**长期结构债**：
-不修也不会立刻出错，但每加一个功能都在加利息。13 条 P3 里 **9 条是 §0.2.3 的登记项**，
-另 4 条在 §0.1：`NEW-09`/`NEW-11` 是要动手的体力活，`NEW-15`/`NEW-16` 属对外 JSON 契约决策。
+不修也不会立刻出错，但每加一个功能都在加利息。12 条 P3 里 **9 条是 §0.2.3 的登记项**，
+另 3 条在 §0.1：`NEW-11` 是要动手的体力活，`NEW-15`/`NEW-16` 属对外 JSON 契约决策。
 
 **下一批该做什么**（按"能不能写出可失败的验证"筛，见 §0.2.1）：
-`NEW-09` 的 `captcha` 完整状态机（要先在测试库种 captcha 模板）与 `NEW-11`（state 组装层，
-先写「两条路径可见状态集合一致」的等价断言再抽）。其余要么需要决策
+`NEW-11`（state 组装层：先写「两条路径可见状态集合一致」的等价断言再抽）。其余要么需要决策
 （ARCH-04/ARCH-05），要么只等外部条件（PERF-10 的实例级 PG 配置、PERF-01 的投递语义）。
 
 ## 0.1 第七轮新发现（2026-10-24，只列仍开着的）
 
 > 这是第七轮（2026-10-24）新发现里**仍开着**的部分。**已关闭的 10 条不在此重复**，判据与证据见
-> [附录 D](#附录-d已关闭条目索引)：除下面列出的 4 条外，还有 **NEW-04**（`scripts/...` 悬挂引用）、
-> **NEW-05**（「自证测试」面）、**NEW-10**（4 处裸 `sleep` 轮询）、**NEW-19**（`/send` 线程回复索引）。
+> [附录 D](#附录-d已关闭条目索引)：除下面列出的 3 条外，还有 **NEW-04**（`scripts/...` 悬挂引用）、
+> **NEW-05**（「自证测试」面）、**NEW-09**（端点族 HTTP 往返补测）、**NEW-10**（4 处裸 `sleep` 轮询）、
+> **NEW-19**（`/send` 线程回复索引）。
 > 其余已关闭：
 > NEW-01（联邦缩略图 `animated` 未透传）、NEW-02（规则文档入库）、DOC-03（MSC3245 错标）、
 > **NEW-06（设备吊销通知「静默丢失」—— 误报，已撤回并删除死代码）**、
@@ -69,7 +71,6 @@
 | 编号 | 级别 | 一句话 | 证据 |
 |---|---|---|---|
 | **NEW-11** | P3 | `sync` 与滑动同步的 **state 组装层**（`lazy_load` / `required_state` / MSC4222 `state_after`）仍各写一遍 —— ARCH-02 只共享了 **timeline** 层 | 要先写「同一房间状态下两条路径的**可见状态集合**一致」的等价断言（懒加载成员集 + `include_redundant_members` + `state_after` 三组语义），没有断言就不抽 —— 与 ARCH-02 同一条原则 |
-| **NEW-09** | P3 | 只锁形状的测试文件里曾有 **24 个端点族没有 HTTP 往返用例**（`shape_only_test_matrix` 里写 `NONE`）—— **累计更正 6 族误判**（`room_summary`/`federation`/`admin`/`app_service`/`federation_cache`/`worker`）、**识别 3 族幽灵**（`admin_extra`/`coverage`/`formatting`，见 §0.1.1）、**补测 11 族**（前三波 `push`/`event_report`/`reactions`/`friend`/`telemetry`/`server_notification`/`space`/`thread`，第五波 `media_quota`/`sliding_sync`/`refresh_token`，第六波 `captcha`）⇒ **7 个真缺口已全部有真 HTTP 往返** | 逐族「`setup_fresh_test_app` + 造用户/房间 + 断言 status/body/errcode」，每族一笔提交、每笔把登记行从 `NONE` 换成真覆盖文件（C2 会验证该文件**确实**发请求）。守卫现值：`有真覆盖 26 / 已登记缺口 3`（3 个缺口就是那 3 个幽灵族）。**唯一遗留**：`captcha` 只覆盖了路由接通/错误契约/RBAC —— 完整状态机（发码→查状态→验码）需要**预置 captcha 模板**（默认测试库没有，实测 `400` 文案「No captcha template configured」），种模板数据属独立一笔 |
 | **NEW-15** | P3 | **删除语义不对称**：`DELETE /_synapse/admin/v1/background_updates/{job}` 对**未知任务返回 204**（`background_update_service::delete_update` 只调 `storage.delete_update`，不查存在性），而 `DELETE /registration_tokens/{token}` 会先 `get_token` 再删、未知返回 404 | 写 `api_background_update_routes_tests` 时实测（同一场景两条断言：GET 404 / DELETE 204）。DELETE 幂等返回 204 本身符合 HTTP 语义，但**打错任务名的删除会静默成功**，运维会以为删掉了。两条路统一成哪种（都 404 / 都 204）属 API 契约决策，需要单独裁决；当前测试钉住的是**实际行为**，不是理想行为 |
 | **NEW-16** | P3 | **不限额时 `remaining` 报 0**：`GET /_matrix/media/v1/quota/check` 用 `if used >= limit { 0 } else { limit - used }` 算剩余空间，而 `limit == 0` 在本仓表示**不限额**（写入路径靠 `if max_storage > 0` 才拦，实测 limit=0 时上传成功）⇒ 不限额的用户看到的是"剩余 0 字节"，客户端会渲染成"空间已满" | 写 `api_media_quota_routes_tests` 时实测（默认配置 `{"limit":0,"used":0,"remaining":0}`，同一条链上传 1KB 成功且 `used` 正常增长）。修法是把 `limit == 0` 明确映射成 `remaining: null`（或 `limit: null`），属对外 JSON 契约变更，需与客户端确认后再改；测试当前断言**实际行为**并在注释里标 NEW-16 |
 
@@ -483,9 +484,10 @@ fn test_send_captcha_request() {
 **变异**：把 `captcha_shape_only_tests.rs` 的文件头声明删掉 ⇒ C1 红；把任一 `*_shape_only_tests.rs`
 改回 `*_api_tests.rs` ⇒ C3 红（两者都实测）。
 
-**残留（不在本条内，另登记为 NEW-09）**：24 个 `NONE` 是**真覆盖缺口**，不是"测过了"。
+**残留（不在本条内，另登记为 NEW-09 —— 已收口）**：24 个 `NONE` 是**真覆盖缺口**，不是"测过了"。
 本条只负责把"假的覆盖"变成"显式的缺口"，补真覆盖是另一件事（每个都要 `setup_fresh_test_app`
-- 注册用户 + 逐端点断言，属独立批次）。
+- 注册用户 + 逐端点断言，属独立批次）。`NEW-09` 已按这个口径逐族补齐（7 个真缺口 11 族用例、
+6 族误判更正、3 族幽灵登记），见附录 D。
 
 ---
 
@@ -650,6 +652,7 @@ TEST_FILE 47 = 107**；测试域合计 81。
 | NEW-18 | refresh token 复用检测只吊销 `refresh_tokens`，不断已下发的 access token | **已修**：复用分支在 `revoke_all_user_tokens` 之外补齐 access 侧四步 —— ① 按 `token_hash` 拉黑（校验路径里黑名单检查**早于** token 缓存命中，最可靠）；② `invalidate_revocation_ok_for_user` （必须在删行**之前**，否则枚举为空、标记漏删）；③ `delete_user_tokens` 删 `access_tokens` 行；④ 置 `user:logout_all:{uid}` 标记作纵深防御。`security_audit` 事件补 `revoked_access_tokens` 计数。判据：`reusing_old_refresh_token_revokes_all_tokens` 的断言从 200 翻成 **401** 并转绿；`api_refresh_token_routes_tests`(5) + `api_auth_routes_tests`(8) 共 13 条全绿 |
 | NEW-19 | `/send` 的线程回复不进 `thread_replies` 索引 ⇒ 纯 `/send` 的线程读得到根、`replies` 恒空 | **已修**（走审计建议的 (b) 路线：按 `event_id` 回查事件，不动热路径返回结构）：`ThreadService::ensure_thread_root_for_reply` 在登记根与关系行之后补第三件事 —— 写 `thread_replies`。三处细节都是"不能用更省事的写法"的原因：① **时间戳必须抄事件本体**（新增 `ThreadEventPort::canonical_event_origin_server_ts`，生产实现走 `MessagingService::get_event_record` 并在本地比 `room_id`，缺事件回 `Ok(None)` 而不是报错），用本地时钟会得到"线程内顺序与 `/sync` 时间线不一致"；② **`thread_id` 取影子根行的值、取不到退回根事件 id**，与 `get_thread` 读侧的 fallback **同一口径**，否则写进 A、读按 B 仍然读不到；③ **重试同一 txn 必须幂等**：客户端重发会带着同一个 `reply_event_id` 再走一遍，此时撞 `uq_thread_replies_room_event` 按"已索引"处理（`is_duplicate_thread_reply` 只认 `is_unique_violation`，其它 DB 错误一律上报）；`create_thread_reply` 的 `reply_count + 1` 与 INSERT 同事务，INSERT 失败即整体回滚，所以计数不会被重复累加。**判据**：`threaded_send_alone_is_readable` 从"只断言 `replies` 是数组"翻成断言 **包含那条回复** + `reply_count == 1` + `root_event_id`/`in_reply_to_event_id`/`content` 逐字段对得上 + `origin_server_ts` **等于** `GET /rooms/{r}/event/{id}` 的 `origin_server_ts`；新增 `threaded_send_txn_retry_does_not_double_index`（同一 txn 发两次 ⇒ 同一 `event_id`、`reply_count` 仍 1、`replies.len()` 仍 1）；`api_thread_read_routes_tests` **7 passed**。**变异自证**：在 ③ 之前插 `if black_box(true) { return Ok(()) }` ⇒ 两条用例**都红**，失败现场正是修复前的形态（`"replies":[],"reply_count":0`，根仍读得到），还原后 7 passed |
 | NEW-10 | 4 个"已带 `break` 条件的轮询循环"仍用裸 `sleep(50ms)` 做间隔（`room_service_tests_migrated` ×3、`api_msc3912_redaction_cascade_tests` ×1）| **已收口**：新增 `tests/common/mod.rs::wait_until(what, budget, condition)` —— 「等什么」与「等多久」是**必填参数**，超时文案统一成 `等待「{what}」超时（{budget:?}）：条件始终不成立`（原先四处各写一遍 `timeout(3s, loop { …; sleep(50ms) })` 或手搓 deadline，失败时读不出等的是谁、等了多久）。4 处调用点全部换掉；间隔从 50ms/20ms 混用统一成 25ms（对"等后台任务"没有区别）。**判据**：`sleep` 棘轮 `TEST_FILE 47 → 44 / 合计 107 → 104`，`scripts/ci/sleep_baseline` 已 `--update` 收紧（棘轮只许下降，收紧后复跑 = OK）；`test_bridge_e2e_send_message_delivers_real_room_event_payload` + `test_appservice_background_sender_flushes_pending_queue` + `api_msc3912_redaction_cascade_tests`(7) 共 **9 passed**（真库）。**变异自证**：把 `deadline` 改成 `Instant::now()`（立即到期）⇒ 上述两条代表性用例**都红**，且失败信息直接给出 `等待「appservice bridge 收到一条 transaction」超时（3s）`；还原后 9 passed |
+| NEW-09 | 只锁形状的测试文件里曾有 24 个端点族没有 HTTP 往返用例（`shape_only_test_matrix` 里写 `NONE`）| **已收口**：① **更正 6 族误判**（`room_summary`/`federation`/`admin`/`app_service`/`federation_cache`/`worker`—— 它们本来就有真请求文件，只是命名不在 C3 的旧视野内）、② **识别 3 族幽灵**（`admin_extra`/`coverage`/`formatting`，全仓无对应生产模块，矩阵格式表达不了"不存在"，已在 §0.1.1 记明）、③ **补测 11 族**（`push`/`event_report`/`reactions`/`friend`/`telemetry`/`server_notification`/`space`/`thread`、`media_quota`/`sliding_sync`/`refresh_token`、`captcha`），每族一笔提交、每笔把登记行从 `NONE` 换成真覆盖文件（C2 会验证该文件**确实**发请求）；④ **最后一块** `captcha` 的完整状态机（发码→查状态→错码→对码→复用→超限）本轮补齐：`seed_image_template` 往 `captcha_template` 种一条 `image` 默认模板（该类型的投递实现就是 `Ok(())`，不需要 SMTP/SMS），验证码从 `registration_captcha.code` 读、并断言它**不在**任何响应体里。**判据**：`api_captcha_routes_tests` **7 passed**（新增 `captcha_full_state_machine`、`captcha_exhausts_after_max_attempts`）；`check_shape_only_tests.py` 维持 `只锁形状 29 / 有真覆盖 26 / 已登记缺口 3`（3 个即幽灵族）。**变异自证**：把 `verify_captcha` 的 `captcha.code == code` 改成恒真 ⇒ 两条新用例**都红**（`错码必须 verified=false：{"verified":true}`），还原后 7 passed |
 | NEW-14 | 「缺口清单不可信」：C3 只审计 `*_api_tests.rs` / `*_route_tests.rs`（15 个文件），而 79 个 `api_<family>_tests.rs` 不在视野内 ⇒ 缺口判定本身失真 | **扩面 + 逐族重跑**：`CLAIM_NAME` 覆盖仓里实际四种命名 ⇒ 审计面 15 → **95** 个文件、不碰生产代码 **0** 个（零误伤）；14 个 `NONE` 族按「路由模块 → 端点字面量 → 真请求文件」三步重跑 ⇒ **4 族误判**（`admin`/`app_service`/`federation_cache`/`worker`，已改登记行）、**3 族幽灵**（`admin_extra`/`coverage`/`formatting`）、**7 族真缺口**（转 NEW-09）。逐族证据见 §0.1.1 |
 | DOC-04 | 三份文档的 `path:line` 引用漂移（原记 9 组） | **实测 145 处**，且**层级不同**：① 正文 13 处已全部改成**符号名**（`API_COVERAGE_REPORT.md` §8 的 `grep … # 已实现：…` 块、`MSC_SEMANTICS.md` 两处、`ROUTE_CONTRACT.md` 一处），正文残留 **0**；② 表格 132 处**必须保留** `path:line` —— 那是 `check_capability_ledger.py` 的 C2 判据（`已实现` 行必须带可解析 `path:line`），改成符号名会让能力台账门禁立刻红，所以"整篇换符号名"这条修法在本仓**只对正文成立**；③ 表格侧改用漂移信号门禁 `scripts/ci/check_doc_line_refs.py`：解析不到文件 / 越界 / 指向空行·纯注释·孤立 `}` ⇒ 计入 `scripts/ci/doc_line_ref_baseline`（现 **56**，只许下降）。**判据/变异**：在大括号闭合或注释行上新挂一处 `path:line` 引用 ⇒ 56 → 57 ⇒ 红；删掉被引用的行让旧引用越界 ⇒ 同款红。**未做**：56 处"指到空行/括号"没有逐条重定位（多数是表格里"某 handler 的第 N 行"这类证据指针，重定位要先确认该行为仍未变） |
 | NEW-04 | 活文档里 30 处悬挂 `scripts/...` 引用，且不能做"出现即要求存在"的朴素门禁 | 新建 `scripts/ci/check_script_refs.py`：只查**活文件**（跳过 `docs/archive/**`、`docs/audit/archive/**`、`.workbuddy/**` —— 那里的"当年调用过 X，已删除"是历史叙述），解析顺序为仓库根 → `docker/` → `docker/deploy/`（部署文档的默认 WORKDIR），另设 `script_ref_exceptions` 只收「引用本身不是调用」的形态。**现算：1669 处引用 / 186 处解析不到**（原记 30 只数了一种后缀），按引用归类后的前 5 类：`coverage_baseline.js` 28（真身是 `.json`，扩展名漂移）、`db_migrate.sh` 26（真身 `docker/db_migrate.sh`）、`api_test/ledger.js` 20（同名 `.mjs`）、`deploy-monitoring.sh` 7 与 `contract-sync.mjs` 7（真身在 `docker/deploy/scripts/`）。186 已用 `scripts/ci/script_ref_baseline` 钉住（只许下降），接入 `preflight.sh`。**判据/变异**：把任意引用改成不存在的名字 ⇒ 计数涨过基线即红 |
