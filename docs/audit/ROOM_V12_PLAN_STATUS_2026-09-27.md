@@ -618,3 +618,37 @@ unit 守卫（literal / ratio / tiebreak）41/41。
 3. 记录只覆盖**已接线接缝**写入的状态事件；绕过这两个接缝直接写 `events` 的代码路径
    （若将来出现）不会维护记录 —— 届时读路径会退回时间戳推导，而**不会**读到过期记录
    （记录不会被错误地当作最新态继续服务，除非它已经是最新 group；见边界 1 的规模化修法）。
+
+## 4.12 E-3 收口：创建侧不再写创建者 + `m.room.tombstone` 默认 150（2026-10-25）
+
+E-3（规则 10.4）此前只**接线了校验**，没管**服务端自己写出去的事件**；两处遗漏叠起来使
+`StateLevelManager.setPowerLevel()` 在自建房间上恒不可用：
+
+1. `create_room` 的初始 `m.room.power_levels` 无条件写 `users: { creator: 100 }`，而这条写入走
+   `write_creation_event`（逐字落库、**不经过** `verify_power_levels_change`）⇒ 房间一出生就带着
+   一份违反规则 10.4 的状态事件；
+2. `GET /state/m.room.power_levels` 原样返回它 ⇒ 任何读-改-写客户端（SDK 的 `setPowerLevel`
+   就是）会把创建者一起送回去 ⇒ `403 power_levels.users must not name a room creator`。
+   由于 `DEFAULT_ROOM_VERSION = "12"` 且 `create_room` 拒绝更低版本，**每个房间**都中招。
+
+修法（与上游同路子：Synapse `_copy_and_remove_creators_from_pl_users_map`、
+Dendrite #509「合并 `power_level_content_override` **之后**剥离」）：
+
+- 新增 `create.rs::strip_creators_from_power_levels()`，创建者集合来自**唯一实现**
+  `synapse_common::room_creator::creators_from_create_event`（sender + `additional_creators`）；
+- 在**三扇门**上统一剥离：默认 PL、`power_level_content_override`（合并后剥，否则它会把
+  `users` 整张覆盖回来）、`initial_state` 里的 `m.room.power_levels`（此前只禁
+  create/member/tombstone，PL 可以塞进来）；剥离是 no-op 时不留日志，剥了就记 `info` + 名单；
+- 创建者权力无上限（`CREATOR_POWER_LEVEL`），**删掉不损失任何权限**；< v12 保持原样
+  （那些版本创建者没有隐式权力）；
+- 顺带修 `m.room.tombstone` 默认值：v12+ 由 100 改为 **150**（必须高于 `state_default` 与
+  管理员的 100）。原来的 100 意味着任意 PL-100 管理员可以 tombstone → 升级房间 → 在替换房间里
+  **变成创建者**，正是 v12 要堵的提权路径。
+
+判据：新增 `tests/integration/api_power_levels_v12_creator_tests.rs` 4 条（默认 PL / override /
+`initial_state` / 客户端读-改-写），修复前 3 条红（其中读-改-写那条**原样复现**
+`{"errcode":"M_FORBIDDEN","error":"power_levels.users must not name a room creator (MSC4289 rule 10.4)"}`），
+修复后 4 条全绿；`create.rs` 3 条纯函数单测；回归 `api_create_room_auth_tests` +
+`test_upgrade_room_*` + `api_widget_tests` 共 26 passed。变异自证：把 tombstone 退回 100 ⇒
+第一条用例红（响应体里 `"m.room.tombstone":100`）。**存量房不在本次范围**（项目内房间均为测试用，
+按任务方决定直接删）。

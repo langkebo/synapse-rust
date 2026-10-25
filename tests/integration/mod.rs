@@ -48,6 +48,7 @@ mod api_msc3912_redaction_cascade_tests;
 mod api_one_time_invite_routes_tests;
 mod api_placeholder_contract_p0_tests;
 mod api_placeholder_contract_p1p2_tests;
+mod api_power_levels_v12_creator_tests;
 mod api_privacy_posture_tests;
 mod api_profile_tests;
 mod api_protocol_alignment_tests;

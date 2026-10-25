@@ -8,6 +8,7 @@ use super::super::utils::validate_room_alias_input;
 use super::creation_graph::CreationGraph;
 use super::service::LifecycleService;
 use serde_json::json;
+use std::collections::BTreeSet;
 use synapse_common::room_id::room_id_from_create_event_id;
 use synapse_common::room_versions::{is_supported_room_version, resolve_room_version, DEFAULT_ROOM_VERSION};
 use synapse_common::{generate_room_id, ApiError, ApiResult};
@@ -98,13 +99,19 @@ impl LifecycleService {
         // （见 `create_room_in_db` 的错误分类）。
         let now = synapse_common::current_timestamp_millis_monotonic();
         let create_content = build_create_event_content(user_id, room_version, &config);
+        // Resolved here, before `create_content` is moved into the create event write,
+        // and reused by every place that must keep creators out of `power_levels.users`
+        // (MSC4289 rule 10.4): the default map, `power_level_content_override`, and
+        // `initial_state`.
+        let creators = creators_of(&create_content, user_id);
 
         // Every creatable room version derives its id from the create event
         // (MSC4291), so there is no pre-allocation escape hatch any more:
         // `CreateRoomConfig::room_id` was removed under C-5 / decision Q2(a).
         // The invariant is asserted rather than assumed, because a version that
         // carried a server-assigned id would derive the wrong room id below.
-        if !synapse_common::room_versions::room_version_at_least(room_version, 12) {
+        let is_v12_plus = synapse_common::room_versions::room_version_at_least(room_version, 12);
+        if !is_v12_plus {
             return Err(ApiError::unsupported_room_version(format!(
                 "room version {room_version} cannot be created: only a version whose id is derived from \
                  its create event (room v12+) is creatable"
@@ -255,6 +262,13 @@ impl LifecycleService {
             return Err(e);
         }
 
+        // MSC4289 (v12): the room-upgrade path must be out of reach of an ordinary PL-100
+        // admin. A tombstone upgrades the room, and the upgrading user becomes the
+        // **creator** of the replacement — so if an admin could send one, they could
+        // launder themselves into creator privileges. Upstream (Synapse) therefore sets
+        // `m.room.tombstone` to 150, above `state_default` (50) and above an admin (100);
+        // only a creator (unlimited) clears it by default.
+        let tombstone_level: i64 = if is_v12_plus { 150 } else { 100 };
         let mut power_levels = json!({
             "users": { user_id: 100 },
             "users_default": 0,
@@ -264,7 +278,7 @@ impl LifecycleService {
                 "m.room.history_visibility": 100,
                 "m.room.canonical_alias": 50,
                 "m.room.avatar": 50,
-                "m.room.tombstone": 100,
+                "m.room.tombstone": tombstone_level,
                 "m.room.server_acl": 100,
                 "m.room.encryption": 100,
             },
@@ -282,6 +296,30 @@ impl LifecycleService {
                 }
             }
         }
+        // MSC4289 rule 10.4: a v12+ `m.room.power_levels` must **not** name a creator in
+        // `users`. The creator's power is unlimited (`AuthService::CREATOR_POWER_LEVEL`), so
+        // the entry can never be enforced — but it does make the event itself invalid, and
+        // that breaks every client that does a read-modify-write of this state:
+        // `GET …/state/m.room.power_levels` hands the entry back, the client adds its own
+        // change and PUTs the whole blob, and `verify_power_levels_change` rejects it with
+        // 403 (`power_levels.users must not name a room creator`). `setPowerLevel` would
+        // then be unusable in every room this server creates.
+        //
+        // Stripped **after** the `power_level_content_override` merge, because that merge
+        // replaces the whole `users` map and real clients do send the creator at 100
+        // (Element Call always does). Upstream does the same, for the same reason:
+        // Synapse `_copy_and_remove_creators_from_pl_users_map`, Dendrite #509.
+        if is_v12_plus {
+            let stripped = strip_creators_from_power_levels(&mut power_levels, &creators);
+            if !stripped.is_empty() {
+                ::tracing::info!(
+                    room_id = %room_id,
+                    stripped_creators = ?stripped,
+                    "stripped creator(s) from the initial m.room.power_levels.users (MSC4289 rule 10.4)"
+                );
+            }
+        }
+
         let result = self
             .write_creation_event(
                 &mut graph,
@@ -411,7 +449,23 @@ impl LifecycleService {
                     return Err(ApiError::invalid_param(format!("{event_type} cannot be supplied in initial_state")));
                 }
                 let state_key = obj.get("state_key").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let content = obj.get("content").cloned().unwrap_or_else(|| json!({}));
+                let mut content = obj.get("content").cloned().unwrap_or_else(|| json!({}));
+
+                // Third door into the same defect: `initial_state` may carry a
+                // `m.room.power_levels` event (only create/member/tombstone are refused
+                // above), and it is written verbatim through `write_creation_event` too —
+                // so a client that lists the creator here would poison the room exactly the
+                // same way as the default map does.
+                if is_v12_plus && event_type == "m.room.power_levels" {
+                    let stripped = strip_creators_from_power_levels(&mut content, &creators);
+                    if !stripped.is_empty() {
+                        ::tracing::info!(
+                            room_id = %room_id,
+                            stripped_creators = ?stripped,
+                            "stripped creator(s) from an initial_state m.room.power_levels (MSC4289 rule 10.4)"
+                        );
+                    }
+                }
 
                 if event_type == "m.room.encryption" {
                     has_encryption_in_initial_state = true;
@@ -679,6 +733,41 @@ fn build_create_event_content(user_id: &str, room_version: &str, config: &Create
     create_content
 }
 
+/// The room's creator set, read from the create event content (MSC4289).
+///
+/// Wrapper rather than a re-implementation: "who is a creator" has exactly one
+/// definition in this workspace (`synapse_common::room_creator`), shared with the
+/// federation auth rules and [`crate::auth::AuthService`]. A second copy here would
+/// drift the moment v12 adds another way to name a creator.
+fn creators_of(create_content: &serde_json::Value, sender: &str) -> BTreeSet<String> {
+    synapse_common::room_creator::creators_from_create_event(sender, create_content)
+}
+
+/// Drop every creator from an `m.room.power_levels` content's `users` map, returning
+/// the user ids that were removed (empty when there was nothing to do).
+///
+/// MSC4289 rule 10.4 forbids naming a creator there, and the reason is not cosmetic:
+/// a creator's power is unlimited (`AuthService::CREATOR_POWER_LEVEL`), so the number
+/// can never be enforced — but its **presence** makes the event invalid, and this
+/// server writes its initial `m.room.power_levels` through `write_creation_event`,
+/// which does not run the auth check. Without this strip the room is born with a
+/// state event that every client then reads back and re-sends verbatim, only to be
+/// rejected with 403 (`power_levels.users must not name a room creator`).
+///
+/// Missing/non-object `users` is a no-op, not an error: the creation path is
+/// deliberately tolerant here (a malformed override must not fail room creation;
+/// the *client* write path is where malformed power levels get rejected).
+fn strip_creators_from_power_levels(content: &mut serde_json::Value, creators: &BTreeSet<String>) -> Vec<String> {
+    let Some(users) = content.get_mut("users").and_then(|users| users.as_object_mut()) else {
+        return Vec::new();
+    };
+    let stripped: Vec<String> = users.keys().filter(|target| creators.contains(*target)).cloned().collect();
+    for target in &stripped {
+        users.remove(target);
+    }
+    stripped
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -778,5 +867,52 @@ mod tests {
         // Reserved keys in creation_content must not override the canonical ones.
         assert_eq!(content["creator"], "@alice:ex.com");
         assert_eq!(content["room_version"], "11");
+    }
+
+    // ── MSC4289 rule 10.4：初始 power_levels 不得点名创建者 ──────────────────────
+
+    #[test]
+    fn strip_creators_removes_only_the_creator() {
+        let mut power_levels = json!({
+            "users": { "@alice:ex.com": 100, "@bob:ex.com": 50 },
+            "state_default": 50,
+        });
+        let creators = BTreeSet::from(["@alice:ex.com".to_string()]);
+
+        let stripped = strip_creators_from_power_levels(&mut power_levels, &creators);
+
+        assert_eq!(stripped, vec!["@alice:ex.com".to_string()], "只该剥掉创建者本人");
+        assert_eq!(power_levels["users"], json!({ "@bob:ex.com": 50 }), "非创建者条目必须原样保留");
+        assert_eq!(power_levels["state_default"], json!(50), "其它键不能被连带改动");
+    }
+
+    #[test]
+    fn strip_creators_also_removes_additional_creators() {
+        // `additional_creators` 走同一条规则：它和 sender 一样属于创建者集合。
+        let create_content = json!({
+            "creator": "@alice:ex.com",
+            "room_version": "12",
+            "additional_creators": ["@co-admin:ex.com"],
+        });
+        let creators = creators_of(&create_content, "@alice:ex.com");
+        let mut power_levels = json!({
+            "users": { "@alice:ex.com": 100, "@co-admin:ex.com": 100, "@bob:ex.com": 50 },
+        });
+
+        let stripped = strip_creators_from_power_levels(&mut power_levels, &creators);
+
+        assert_eq!(stripped.len(), 2, "sender 与 additional_creators 都要剥：{stripped:?}");
+        assert_eq!(power_levels["users"], json!({ "@bob:ex.com": 50 }));
+    }
+
+    #[test]
+    fn strip_creators_is_a_no_op_without_a_users_map() {
+        let creators = BTreeSet::from(["@alice:ex.com".to_string()]);
+        for mut content in [json!({}), json!({ "users": null }), json!({ "users": "not-an-object" })] {
+            let before = content.clone();
+            let stripped = strip_creators_from_power_levels(&mut content, &creators);
+            assert!(stripped.is_empty(), "没有可用 users 时不应报告剥离：{content}");
+            assert_eq!(content, before, "没有可用 users 时不得改动内容：{content}");
+        }
     }
 }
