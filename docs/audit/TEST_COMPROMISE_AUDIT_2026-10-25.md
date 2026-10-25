@@ -126,7 +126,7 @@ Summary: 7 tests run: 7 passed
 | 缺口 | 证据 | 后果 |
 |---|---|---|
 | **不在 PR 车道** | `ci.yml:1380-1383` 的 `if` 只有 `schedule` / `workflow_dispatch+run_slow_tier` / `push main` | PR 阶段的覆盖回归**看不见**，合并进 main 后才知道 |
-| **新文件只需 30%** | `ci.yml:1496` `--new-file-floor 30`（脚本默认 60，被显式下调） | 新增一个 1000 行模块，只要有 300 行被测就算过 |
+| **新文件只需 30%** → **✅ 已改为 50%**（2026-10-25） | `ci.yml:1496` 原 `--new-file-floor 30`（脚本默认 60，被显式下调）。已上调到 50，同步 `run_coverage.sh` 提示、`coverage_policy.md` §1/§2/§3、`TESTING.md` | 用 40% 的假 lcov 喂脚本 ⇒ **exit 1**；50% ⇒ exit 0（不误伤） |
 | **已入库文件无绝对下限** | `scripts/check_file_coverage.py:8` 只判 `must not regress`；`ci.yml:1482-1485` 注释写明"absolute floors are deliberately not re-applied to baseline-known files, because…188 files red" | `coverage_baseline.json` 里 **59 个文件 0.0%、109 个 ≤30%** 被永久冻结，再差也不会红 |
 
 基线分布（实测 `scripts/ci/coverage_baseline.json`，608 个文件）：中位数 **81.5%**、均值 68.1%，
@@ -136,7 +136,7 @@ Summary: 7 tests run: 7 passed
 
 | 优先级 | 动作 |
 |---|---|
-| **P1** | `--new-file-floor 30 → 50`（先不喊 60，避免一次打红太多）；`core_file_coverage_prefixes.txt` 内的新文件沿用 70 |
+| **P1 ✅ 已完成** | `--new-file-floor 30 → 50`（先不喊 60，避免一次打红太多）；`core_file_coverage_prefixes.txt` 内的新文件沿用 70 |
 | **P2** | 给 0% 文件中**有生产入口**的（`src/server/router.rs`、`src/tasks/mod.rs`、`synapse-common/logging.rs`）建"提升到 30%"的一次性任务，逐文件记账（**不是**一刀切重贴全局下限 —— 那会重演 188 文件红） |
 | **P2** | 把 coverage 加进 PR 车道（可只跑受影响 crate 的 lcov，用 `cargo llvm-cov -p <crate>` 降成本） |
 
@@ -220,7 +220,7 @@ ARCH-02 等价用例**一直红着**，当次只跑了 `api_sliding_sync_routes_
 | ~~1~~ | ~~`with_config` 改 fail-closed + 9 处 `else` 换 `skip_or_fail_without_db`~~ **✅ 已完成（+28/−1）** | ~30 行 | 假绿实验 **已从 PASS 变 FAIL**（§2.4） |
 | 2 | 9 条安全用例的变异自证 —— **1/9 已做**（voice 体上限那条），其余 8 条待补 | 中 | 每条留一次红-绿记录 |
 | 3 | 572 处 `else { return; }` 统一收口 | ~1 h（脚本 + 编译） | 假绿实验在任一套件上都不可能再 PASS |
-| 4 | `--new-file-floor 30 → 50` | 1 行 | 造一个 40% 覆盖的新文件 ⇒ 门禁该红 |
+| ~~4~~ | ~~`--new-file-floor 30 → 50`~~ **✅ 已完成** | 1 行 + 3 处文档同步 | 已验：40% 假 lcov ⇒ exit 1；50% ⇒ exit 0 |
 | 5 | "改动面 → 必跑套件"映射 + preflight 提示 | ~1 h | 改 `rooms` 结构但不跑等价套件 ⇒ preflight 应打印提示 |
 | 6 | 性能断言改相对阈值（`p95_target/p95_baseline`） | 中 | 注入慢查询 ⇒ 该 gate 红 |
 | 7 | 覆盖率为 0% 但有生产入口的 3 个文件各补一条冒烟 | 低 | 覆盖率脚本现算 > 0 |

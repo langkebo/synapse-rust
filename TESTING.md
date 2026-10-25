@@ -428,7 +428,7 @@ bash scripts/ci/run_coverage.sh
 python3 scripts/check_file_coverage.py \
   --report coverage/lcov.info \
   --baseline scripts/ci/coverage_baseline.json \
-  --global-floor 40 --new-file-floor 30 \
+  --global-floor 40 --new-file-floor 50 \
   --core-files scripts/ci/core_file_coverage_prefixes.txt
 ```
 

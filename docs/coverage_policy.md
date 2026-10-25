@@ -11,8 +11,8 @@
   不再重放绝对阈值。
 - **新文件**（baseline 中没有）：
   - 核心路径（`core_file_coverage_prefixes.txt` 前缀）：≥ 70%
-  - 其余：≥ 30%（ramp-up 底线）
-  - **豁免前缀**（`non_unit_coverable_prefixes.txt`）：30% ramp-up 不生效
+  - 其余：≥ 50%（ramp-up 底线；2026-10-25 由 30% 上调）
+  - **豁免前缀**（`non_unit_coverable_prefixes.txt`）：50% ramp-up 不生效
 - **test-only 支持代码**（`test_mocks/`、`synapse-test-utils/`、`*test_utils.rs`、
   `*test_isolation.rs`、`*test_schema_guard.rs`、`scripts/bench_harness.rs`）：
   直接跳过（既非生产、也无法被覆盖率腿测量，记录 0% 无意义）
@@ -33,7 +33,7 @@ CI 用 `cargo llvm-cov --workspace --lib`（+ `-p synapse-storage --lib`）。
 
 **已知 111 个文件 <30%**（2026-09-22 测量）：
 - 6 个 `src/bin/*` + `src/main.rs`：按上表豁免
-- 105 个生产代码：按"只管不回退"语义不再红；**重命名/移动会触发 70% core 地板或 30% ramp-up**（这是有意的棘轮压力）
+- 105 个生产代码：按"只管不回退"语义不再红；**重命名/移动会触发 70% core 地板或 50% ramp-up**（这是有意的棘轮压力）
 
 ---
 
@@ -52,7 +52,7 @@ python3 scripts/check_file_coverage.py \
   --report coverage/lcov.info \
   --format lcov \
   --baseline scripts/ci/coverage_baseline.json \
-  --global-floor 40 --new-file-floor 30 \
+  --global-floor 40 --new-file-floor 50 \
   --core-files scripts/ci/core_file_coverage_prefixes.txt \
   --core-threshold 70 \
   --non-unit-coverable scripts/ci/non_unit_coverable_prefixes.txt

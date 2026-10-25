@@ -1472,7 +1472,7 @@ jobs:
 
       - name: Per-file coverage ratchet (B.3)
         # Enforces: any file already recorded in the baseline must not regress;
-        # NEW files must clear core ≥70% (or the 30% ramp-up otherwise);
+        # NEW files must clear core ≥70% (or the 50% ramp-up otherwise);
         # test-support sources are skipped (see scripts/check_file_coverage.py).
         # `--non-unit-coverable` exempts `src/bin/` and `src/main.rs` from the
         # NEW-file floors only: `cargo llvm-cov --workspace --lib` never executes a
@@ -1493,7 +1493,7 @@ jobs:
             --report coverage/lcov.info \
             --baseline scripts/ci/coverage_baseline.json \
             --global-floor 40 \
-            --new-file-floor 30 \
+            --new-file-floor 50 \
             --core-files scripts/ci/core_file_coverage_prefixes.txt \
             --core-threshold 70 \
             --non-unit-coverable scripts/ci/non_unit_coverable_prefixes.txt
