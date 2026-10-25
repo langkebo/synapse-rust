@@ -14,7 +14,7 @@
 
 | 等级 | 条目 | 受影响功能 | 状态 |
 |---|---|---|---|
-| **R1** | `setup_fresh_test_app_with_config` fail-open ⇒ 9 条安全边界用例可静默假绿 | 语音上传体积上限（含 CVE-2026-102592 缓解）、媒体 2 MiB 边界、worker surface gate 窄化授权 | **活缺陷，已实跑复现** |
+| **R1** | `setup_fresh_test_app_with_config` fail-open ⇒ 9 条安全边界用例可静默假绿 | 语音上传体积上限（含 CVE-2026-102592 缓解）、媒体 2 MiB 边界、worker surface gate 窄化授权 | **✅ 已修复**（入口改 fail-closed + 9 处换 `skip_or_fail_without_db`，双向验证见 §2.4） |
 | **R2** | 覆盖率门禁不在 PR 车道；新文件达标线 30%；已入库文件无绝对下限 | 全仓覆盖率回归（事后才发现） | 制度性降标 |
 | **R2** | 性能验收只打印不断言（`appservice_scheduler_perf_tests` 全 `#[ignore]`） | appservice 调度器吞吐 | 设计内，但等于无性能门禁 |
 | **R2** | `cargo test --doc` 是编译门禁，不是执行覆盖（4 个 doc test 全 `#[ignore]`） | 文档示例 | 已知并登记 |
@@ -77,6 +77,21 @@ Summary: 7 tests run: 7 passed
 ⇒ 定性是**间歇性假绿**：正常有库时真跑真断言；DB 抖动 / 模板建池失败时**静默变绿**。
 危险点在于**假绿比真跑还慢**（30 s vs 6 s），任何"耗时异常短"的巡检都发现不了它。
 
+### 2.4 修复与双向自证（2026-10-25）
+
+改动面只有 4 个文件共 +28/−1：
+
+- `tests/integration/mod.rs`：入口先 `require_test_database().await`，再把 `.ok()?` 换成
+  `Err` ⇒ `panic!`（与 `TestContext::build` 同口径）；`Option` 返回值保留（兼容调用点），但恒 `Some`。
+- 9 个调用点：`else { return; }` ⇒ `else { skip_or_fail_without_db(); return; }`
+  （`let ... else` 要求分支发散，而该辅助函数签名是 `()`，所以按仓库既有 42 处的写法补 `return;`）。
+
+| 验证 | 修复前 | 修复后 |
+|---|---|---|
+| 假绿实验（`CI=1` + 不可达 URL） | **PASS 30.036 s**（0 断言） | **FAIL 30.029 s** + `[integration] No reachable test database … refusing to run` |
+| 真库 9 条 | — | **9 passed**（1.0–4.8 s，逐条真跑） |
+| 变异自证（`voice_multipart_body_limit` 退回 axum 默认 2 MiB） | — | **红**：`2.5 MiB 语音必须被接受：/voice/config 宣告的上限是 4194304 字节，响应 {"errcode":"M_BAD_JSON",…}`；还原后 7 passed |
+
 ### 2.2 受影响清单（9 条，全部为安全边界）
 
 | 文件:行 | 用例 | 该用例守的边界 |
@@ -99,9 +114,9 @@ Summary: 7 tests run: 7 passed
 
 | 优先级 | 动作 | 判据 |
 |---|---|---|
-| **P0** | `setup_fresh_test_app_with_config` 内部先 `require_test_database().await`（与 `TestContext` 同口径），或把 `.ok()?` 改成 `unwrap_or_else(\|e\| panic!(...))` | 重跑 §1 ⑤ 的假绿实验 ⇒ 必须 **FAIL**；真库下 9 条仍 PASS |
-| **P0** | 9 个 `else { return; }` 换成 `else { super::skip_or_fail_without_db() }`（即使 setup 已改，也要双保险） | 同上 |
-| **P1** | 给这 9 条加**变异自证**记录：把 `max_upload_size` 判据改坏 ⇒ 该条必须红 | 逐条留证据到附录 |
+| **P0 ✅ 已完成** | `setup_fresh_test_app_with_config` 内部先 `require_test_database().await`（与 `TestContext` 同口径），并把 `.ok()?` 改成 `Err` ⇒ `panic!` | 重跑 §1 ⑤ 的假绿实验 ⇒ 已 **FAIL**；真库下 9 条仍 **9 passed**（见 §2.4） |
+| **P0 ✅ 已完成** | 9 个 `else { return; }` 换成 `else { skip_or_fail_without_db(); return; }`（双保险） | 同上 |
+| **P1 ✅ 已完成（1 条代表）** | 变异自证：`voice_multipart_body_limit` 退回 2 MiB ⇒ `test_voice_upload_accepts_body_above_the_axum_default_limit` 红，失败信息直指验收条件。**其余 8 条待补**（机制同上，逐条留红-绿记录） | 见 §2.4 |
 | **P2** | 全仓 `with_config` 的 12 处 helper 内 `return None` 一并改 fail-closed | `grep -c "else {" tests/integration/*.rs` 复查 |
 
 ## 3 R2：制度性降标
@@ -202,8 +217,8 @@ ARCH-02 等价用例**一直红着**，当次只跑了 `api_sliding_sync_routes_
 
 | 序 | 项 | 成本 | 会失败的验证 |
 |---|---|---|---|
-| 1 | `with_config` 改 fail-closed + 9 处 `else` 换 `skip_or_fail_without_db` | ~30 行 | §1 ⑤ 的假绿实验从 PASS 变 FAIL |
-| 2 | 9 条安全用例的变异自证（逐条把判据改坏 ⇒ 确认红） | 中 | 每条留一次红-绿记录 |
+| ~~1~~ | ~~`with_config` 改 fail-closed + 9 处 `else` 换 `skip_or_fail_without_db`~~ **✅ 已完成（+28/−1）** | ~30 行 | 假绿实验 **已从 PASS 变 FAIL**（§2.4） |
+| 2 | 9 条安全用例的变异自证 —— **1/9 已做**（voice 体上限那条），其余 8 条待补 | 中 | 每条留一次红-绿记录 |
 | 3 | 572 处 `else { return; }` 统一收口 | ~1 h（脚本 + 编译） | 假绿实验在任一套件上都不可能再 PASS |
 | 4 | `--new-file-floor 30 → 50` | 1 行 | 造一个 40% 覆盖的新文件 ⇒ 门禁该红 |
 | 5 | "改动面 → 必跑套件"映射 + preflight 提示 | ~1 h | 改 `rooms` 结构但不跑等价套件 ⇒ preflight 应打印提示 |

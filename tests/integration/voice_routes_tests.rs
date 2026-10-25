@@ -601,6 +601,7 @@ async fn test_voice_upload_accepts_body_above_the_axum_default_limit() {
     })
     .await
     else {
+        super::skip_or_fail_without_db();
         return;
     };
 
@@ -624,6 +625,7 @@ async fn test_voice_upload_rejects_body_above_the_configured_limit() {
     })
     .await
     else {
+        super::skip_or_fail_without_db();
         return;
     };
 
@@ -651,6 +653,7 @@ async fn test_voice_upload_body_limit_is_content_type_case_insensitive() {
     })
     .await
     else {
+        super::skip_or_fail_without_db();
         return;
     };
 
@@ -678,6 +681,7 @@ async fn test_voice_upload_streamed_body_without_content_length_is_still_rejecte
     })
     .await
     else {
+        super::skip_or_fail_without_db();
         return;
     };
 

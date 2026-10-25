@@ -53,6 +53,7 @@ async fn a_narrowed_instance_serves_its_own_prefix_and_refuses_the_rest() {
     })
     .await
     else {
+        super::skip_or_fail_without_db();
         return;
     };
 
@@ -91,6 +92,7 @@ async fn without_the_switch_the_same_paths_are_not_refused() {
     })
     .await
     else {
+        super::skip_or_fail_without_db();
         return;
     };
 

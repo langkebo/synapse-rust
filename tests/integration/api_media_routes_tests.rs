@@ -125,6 +125,7 @@ async fn test_media_upload_with_id_accepts_over_2mb_body() {
     })
     .await
     .map(|(app, _)| app) else {
+        super::skip_or_fail_without_db();
         return;
     };
     let token = register_user(&app, &format!("media_put_limit_{}", rand::random::<u32>())).await;
@@ -179,6 +180,7 @@ async fn test_media_preview_and_delete_boundaries() {
     })
     .await
     .map(|(app, _)| app) else {
+        super::skip_or_fail_without_db();
         return;
     };
     let token = register_user(&app, "media_routes_delete").await;
@@ -300,6 +302,7 @@ async fn test_client_v1_authenticated_media_thumbnail_and_preview_routes_work() 
     })
     .await
     .map(|(app, _)| app) else {
+        super::skip_or_fail_without_db();
         return;
     };
     let token = register_user(&app, &format!("media_auth_thumbnail_{}", rand::random::<u32>())).await;

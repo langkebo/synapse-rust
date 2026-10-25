@@ -658,7 +658,25 @@ where
     use synapse_web::routes::state::AppState;
 
     crate::common::ensure_schema_exit_hook();
-    let pool = synapse_test_utils::prepare_shared_test_pool().await.ok()?;
+    // ⚠️ 与 `TestContext::build` **同口径**：数据库不可达 / schema 建池失败时 **panic**，
+    // 不再返回 `None`。此前这里是 `prepare_shared_test_pool().await.ok()?`，而它的调用点全是
+    // `let Some(..) else { return; }` ⇒ 基础设施故障被折叠成"通过"。
+    //
+    // 实测（2026-10-25，`docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md` §2）：DB 不可达时
+    // 语音上传体积上限 4 条 + 媒体 2 MiB 边界 3 条 + worker surface gate 2 条**全部 PASS**、
+    // 耗时 30s（耗在连接重试，比真跑的 6s 还慢）—— 9 条安全边界用例一条断言都没执行。
+    //
+    // 这 9 条为什么非用本入口不可：它们要改 `ServiceContainer` 配置（如 `max_upload_size`），
+    // 而能改配置的入口只有这一个 ⇒ fail-open 直接把最关键的测试降级了。
+    require_test_database().await;
+    let pool = match synapse_test_utils::prepare_shared_test_pool().await {
+        Ok(pool) => pool,
+        Err(error) => panic!(
+            "integration setup failed (shared pool for the `with_config` entry point): {error}\n\
+             This is an infrastructure failure, not a missing database — the test would \
+             otherwise pass vacuously without running a single assertion."
+        ),
+    };
     let cache = std::sync::Arc::new(CacheManager::new(&CacheConfig::default()));
     let mut container = ServiceContainer::new_test_with_pool_and_cache(pool, cache.clone()).await;
     configure(&mut container);
