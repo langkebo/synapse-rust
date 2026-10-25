@@ -201,17 +201,11 @@ async fn is_redacted(pool: &sqlx::PgPool, event_id: &str) -> bool {
 /// Wait (bounded) for a *permitted* child to be redacted — proof that the
 /// best-effort background cascade actually ran to completion.
 async fn wait_until_redacted(pool: &sqlx::PgPool, event_id: &str) -> bool {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-    loop {
-        if is_redacted(pool, event_id).await {
-            return true;
-        }
-        if tokio::time::Instant::now() >= deadline {
-            return false;
-        }
-        // sleep-reason: 条件轮询的间隔（外层已有 deadline）
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
+    crate::common::wait_until("cascade 把允许子事件级联删除", Duration::from_secs(10), || {
+        is_redacted(pool, event_id)
+    })
+    .await
+    .is_ok()
 }
 
 /// The three participants of a cascade test room.

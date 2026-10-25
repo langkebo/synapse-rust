@@ -989,15 +989,9 @@ async fn test_bridge_e2e_send_message_delivers_real_room_event_payload() {
     let scheduler = Arc::new(ApplicationServiceScheduler::with_options(manager.clone(), 16, 1_000));
     let _ = scheduler.start(tokio_util::sync::CancellationToken::new());
 
-    tokio::time::timeout(std::time::Duration::from_secs(3), async {
-        loop {
-            let requests = mock_server.received_requests().await.expect("wiremock requests should be available");
-            if !requests.is_empty() {
-                break;
-            }
-            // sleep-reason: 条件轮询的间隔（外层已有 timeout 与 break 条件）或产品语义的恢复窗口
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        }
+    crate::common::wait_until("appservice bridge 收到一条 transaction", std::time::Duration::from_secs(3), || async {
+        let requests = mock_server.received_requests().await.expect("wiremock requests should be available");
+        !requests.is_empty()
     })
     .await
     .expect("bridge should receive appservice transaction");
@@ -1022,8 +1016,10 @@ async fn test_bridge_e2e_send_message_delivers_real_room_event_payload() {
     // in the appservice sender. Under parallel-test pressure the second step
     // can lag behind the first (transaction cleared but events not yet marked
     // processed), so retry briefly until both clear.
-    tokio::time::timeout(std::time::Duration::from_secs(3), async {
-        loop {
+    crate::common::wait_until(
+        "bridge 投递完成后 transaction 清空且队列事件标记为已处理",
+        std::time::Duration::from_secs(3),
+        || async {
             let pending_transactions = ApplicationServiceStorage::new(&pool)
                 .get_pending_transactions(&bridge_as_id)
                 .await
@@ -1032,13 +1028,9 @@ async fn test_bridge_e2e_send_message_delivers_real_room_event_payload() {
                 .get_pending_events(&bridge_as_id, 10)
                 .await
                 .expect("pending events should load");
-            if pending_transactions.is_empty() && pending_events.is_empty() {
-                break;
-            }
-            // sleep-reason: 条件轮询的间隔（外层已有 timeout 与 break 条件）或产品语义的恢复窗口
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        }
-    })
+            pending_transactions.is_empty() && pending_events.is_empty()
+        },
+    )
     .await
     .expect("successful bridge delivery should complete transaction and mark queue events processed within 3s");
 
@@ -1198,22 +1190,18 @@ async fn test_appservice_background_sender_flushes_pending_queue() {
     let scheduler = Arc::new(ApplicationServiceScheduler::with_options(manager.clone(), 16, 1_000));
     let _ = scheduler.start(tokio_util::sync::CancellationToken::new());
 
-    tokio::time::timeout(std::time::Duration::from_secs(3), async {
-        loop {
+    crate::common::wait_until(
+        "后台 sender 清空队列并真的发出了请求",
+        std::time::Duration::from_secs(3),
+        || async {
             let pending = ApplicationServiceStorage::new(&pool)
                 .get_pending_events(&as_id, 10)
                 .await
                 .expect("pending events should load");
             let requests = mock_server.received_requests().await.expect("wiremock requests should be available");
-
-            if pending.is_empty() && !requests.is_empty() {
-                break;
-            }
-
-            // sleep-reason: 条件轮询的间隔（外层已有 timeout 与 break 条件）或产品语义的恢复窗口
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        }
-    })
+            pending.is_empty() && !requests.is_empty()
+        },
+    )
     .await
     .expect("background sender should flush queue within timeout");
 

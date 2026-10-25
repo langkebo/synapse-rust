@@ -73,6 +73,35 @@ pub fn ensure_schema_exit_hook() {
     exit_hook::ensure()
 }
 
+/// 有界条件轮询：条件成立即返回，超时返回带「等什么 / 等多久」的错误。
+///
+/// 为什么要有它（NEW-10）：此前 4 处需要"等后台任务跑完"的地方各写一遍
+/// `timeout(3s, loop { if cond { break } sleep(50ms) })` 或手搓 deadline，
+/// 于是同一件事有 4 种超时文案 —— 失败时只能从中读出"某个东西没等到"，
+/// 读不出**等的是什么、等了多久**，只能翻代码。这里把这两个事实变成必填参数。
+///
+/// 间隔固定 25ms：原先是 50ms / 20ms 混用，对"等后台任务"这类场景没有区别，
+/// 统一之后站点从 4 处降到 1 处（`check_sleep_ratchet.py` 的测试域计数随之下降）。
+pub async fn wait_until<F, Fut>(what: &str, budget: Duration, mut condition: F) -> Result<(), String>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    const POLL: Duration = Duration::from_millis(25);
+    let deadline = tokio::time::Instant::now() + budget;
+
+    loop {
+        if condition().await {
+            return Ok(());
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(format!("等待「{what}」超时（{budget:?}）：条件始终不成立"));
+        }
+        // sleep-reason: 条件轮询的间隔（上方已有 deadline 与条件判断）
+        tokio::time::sleep(POLL).await;
+    }
+}
+
 pub async fn get_test_pool_async() -> Result<Arc<Pool<Postgres>>, String> {
     ensure_schema_exit_hook();
     let mut errors = Vec::new();
