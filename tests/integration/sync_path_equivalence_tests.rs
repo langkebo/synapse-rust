@@ -131,6 +131,8 @@ struct SharedFixture {
     sent: Vec<String>,
     sync_service: SyncService,
     sliding_service: SlidingSyncService,
+    /// 留着以便按**生产路径**（invite → join）往房间里加第二个成员。
+    room_service: RoomService,
 }
 
 impl SharedFixture {
@@ -201,19 +203,51 @@ impl SharedFixture {
             sent.push(event["event_id"].as_str().expect("send_message 必须返回 event_id").to_string());
         }
 
-        Self { pool, user_id, room_id, sent, sync_service, sliding_service }
+        Self { pool, user_id, room_id, sent, sync_service, sliding_service, room_service }
+    }
+
+    /// 按**生产路径**加第二个成员（invite → join），返回其 user_id。
+    ///
+    /// 不手写 `room_memberships` 行：懒加载的可见成员集正是按"谁是时间线里的发送者 /
+    /// 谁的 membership 事件落在窗口内"算出来的，手工播种会让断言退化。
+    async fn add_member(&self, suffix: &str) -> String {
+        let user_id = format!("@equiv_peer_{suffix}:localhost");
+        create_test_user(&self.pool, &user_id, &format!("equiv_peer_{suffix}")).await;
+        self.room_service.membership.invite_user(&self.room_id, &self.user_id, &user_id, None).await.expect("邀请失败");
+        self.room_service.membership.join_room(&self.room_id, &user_id).await.expect("入房失败");
+        user_id
+    }
+
+    /// 再发一条消息（走生产的 `MessagingService::send_message`）。
+    async fn send(&self, body: &str) {
+        let content = json!({ "msgtype": "m.text", "body": body });
+        self.room_service
+            .messaging
+            .send_message(&self.room_id, &self.user_id, "m.room.message", &content)
+            .await
+            .expect("追加消息失败");
     }
 
     async fn sync(&self, filter_id: Option<&str>) -> Value {
-        self.sync_with_state_after(filter_id, false, false).await
+        self.sync_from(filter_id, None, false, false).await
     }
 
-    /// `/sync`，可显式打开 MSC4222 的 `state_after` 重命名（第 8/9 个参数）。
-    async fn sync_with_state_after(&self, filter_id: Option<&str>, use_state_after: bool, unstable: bool) -> Value {
+    /// `/sync`，可给 `since`（增量）与 MSC4222 开关。
+    async fn sync_from(
+        &self,
+        filter_id: Option<&str>,
+        since: Option<&str>,
+        use_state_after: bool,
+        unstable: bool,
+    ) -> Value {
         self.sync_service
-            .sync(&self.user_id, None, 0, false, "online", filter_id, None, use_state_after, unstable)
+            .sync(&self.user_id, None, 0, false, "online", filter_id, since, use_state_after, unstable)
             .await
             .expect("/sync 失败")
+    }
+
+    async fn sync_with_state_after(&self, filter_id: Option<&str>, use_state_after: bool, unstable: bool) -> Value {
+        self.sync_from(filter_id, None, use_state_after, unstable).await
     }
 
     async fn sliding(&self, timeline_limit: u32) -> Value {
@@ -505,4 +539,93 @@ async fn state_after_is_a_rename_not_a_requery() {
         plain_keys, unstable_keys,
         "`org.matrix.msc4222.state_after` 与 `state_after` 的集合不一致：{unstable_keys:?}"
     );
+}
+
+/// 断言 ⑦（NEW-11 第三组）：`lazy_load_members` 的**可见成员集** —— 只发客户端需要的
+/// membership，且 `include_redundant_members` 能把"已经发过的"重新发一遍。
+///
+/// 这条断言为什么必须存在：两根线各有一份实现（`sync_service/lazy_load.rs` 的
+/// `apply_lazy_load_members_with_cache` 带 `LazyLoadedMemberState` 记账；滑动同步只有
+/// `required_state` 的朴素过滤），一旦有人改了一边而没改另一边，客户端就会**永久看不到**
+/// 某个成员的昵称/头像（懒加载把它当"已发送"跳过了），且没有任何报错 —— 只能靠这条拦。
+#[tokio::test]
+async fn lazy_load_members_only_sends_what_the_client_needs() {
+    let fixture = SharedFixture::build(3).await;
+    let peer = fixture.add_member("one").await;
+
+    // 只开懒加载、不限 timeline：首屏必须**同时**给出两个人的 membership
+    // （客户端手上什么都没有，抑制会让它永远看不到 peer 的名字）。
+    let filter_id = fixture.store_filter(json!({ "room": { "state": { "lazy_load_members": true } } })).await;
+    let initial = fixture.sync(Some(&filter_id)).await;
+    let members = sync_member_keys(&initial, &fixture.room_id);
+    assert!(
+        members.contains(&fixture.user_id),
+        "懒加载首屏必须包含**请求者自己**的 membership（否则客户端连自己的昵称都没有）：{members:?}"
+    );
+    assert!(
+        members.contains(&peer),
+        "懒加载首屏必须包含对端成员的 membership（首屏没有任何'已发送'可抑制）：{members:?}"
+    );
+
+    let since = initial["next_batch"].as_str().expect("next_batch 必须是字符串").to_string();
+
+    // 增量：发**两条**消息再把 timeline 裁到 1 条 ⇒ `limited=true`，`state` 块转而描述
+    // "窗口起点"的状态（重建式）。这时对已经发过的 membership 一律抑制。
+    // 房间必须**在场**，否则"没有 membership"可能只是"整个房间没被返回"，断言会假绿。
+    fixture.send("after-initial-1").await;
+    fixture.send("after-initial-2").await;
+    let limited_filter = fixture
+        .store_filter(json!({ "room": { "state": { "lazy_load_members": true }, "timeline": { "limit": 1 } } }))
+        .await;
+    let incremental = fixture.sync_from(Some(&limited_filter), Some(&since), false, false).await;
+    assert!(
+        incremental["rooms"]["join"].get(&fixture.room_id).is_some(),
+        "增量里有新消息时房间必须在 join 里（否则下一步的断言测不出东西）：{incremental}"
+    );
+    assert_eq!(
+        incremental["rooms"]["join"][&fixture.room_id]["timeline"]["limited"], true,
+        "前置条件：timeline 必须真的被裁到 1 条（否则走不到重建式分支，这条断言就没意义）：{incremental}"
+    );
+    let repeated = sync_member_keys(&incremental, &fixture.room_id);
+    assert!(repeated.is_empty(), "增量同步不该重发已经发过的 membership（客户端会当成重复的状态事件）：{repeated:?}");
+
+    // 同一份请求 + `include_redundant_members = true`：必须把成员**再发一遍**。
+    //
+    // ⚠️ 这条语义容易被想当然：`required_members`（自己 + 时间线发送者 + 变更成员）这道门禁
+    // 在**冗余判断之前**，所以"冗余"并不会把无关成员拽进来；它只在已经入选的集合上解除
+    // "已发送"抑制。上面那个 `limited=true` 的重建式分支里没有这道门禁（state 块描述窗口
+    // 起点），因此冗余会把全部成员重发 —— 客户端换设备/丢本地库时靠它补齐。
+    let redundant_filter = fixture
+        .store_filter(json!({
+            "room": {
+                "state": { "lazy_load_members": true, "include_redundant_members": true },
+                "timeline": { "limit": 1 }
+            }
+        }))
+        .await;
+    let redundant = fixture.sync_from(Some(&redundant_filter), Some(&since), false, false).await;
+    let mut resent = sync_member_keys(&redundant, &fixture.room_id);
+    resent.sort();
+    let mut expected = vec![fixture.user_id.clone(), peer.clone()];
+    expected.sort();
+    assert_eq!(
+        resent, expected,
+        "`include_redundant_members=true` 必须把成员再发一遍（重建式分支下等于全量成员集）：{resent:?}"
+    );
+}
+
+/// `/sync` 里 room.state.events 中的成员 user_id（`m.room.member` 的 state_key）。
+fn sync_member_keys(sync_response: &Value, room_id: &str) -> Vec<String> {
+    // 增量响应**可以不带 `state` 块**（规范允许：没有状态变更就不必给），所以缺块按空集算 ——
+    // 调用方必须同时断言"房间确实在响应里"，否则"没有成员"与"房间没返回"分不开。
+    sync_response["rooms"]["join"][room_id]["state"]["events"]
+        .as_array()
+        .map(|events| {
+            events
+                .iter()
+                .filter(|event| event["type"] == "m.room.member")
+                .map(|event| event["state_key"].as_str().unwrap_or_default().to_string())
+                .collect()
+        })
+        .unwrap_or_default()
 }
