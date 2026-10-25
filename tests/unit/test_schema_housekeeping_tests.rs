@@ -21,8 +21,19 @@
 use sqlx::PgPool;
 
 async fn connect_admin() -> Option<PgPool> {
-    let url = std::env::var("TEST_DATABASE_URL").or_else(|_| std::env::var("DATABASE_URL")).ok()?;
-    sqlx::postgres::PgPoolOptions::new().max_connections(1).connect(&url).await.ok()
+    // fail-closed：与 `migration_search_path_tests::connect_admin` 同口径 —— 缺库必须
+    // panic，而不是让调用点的 `else { return; }` 把空跑记成 `ok`。
+    // 见 `docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md` §2。
+    let url = match std::env::var("TEST_DATABASE_URL").or_else(|_| std::env::var("DATABASE_URL")) {
+        Ok(url) => url,
+        Err(_) => {
+            panic!("no TEST_DATABASE_URL/DATABASE_URL for the schema housekeeping tests — refusing to skip-as-pass")
+        }
+    };
+    Some(match sqlx::postgres::PgPoolOptions::new().max_connections(1).connect(&url).await {
+        Ok(pool) => pool,
+        Err(error) => panic!("schema housekeeping admin pool connect failed: {error}"),
+    })
 }
 
 fn schema_name(tag: &str) -> String {

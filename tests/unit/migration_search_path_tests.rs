@@ -209,8 +209,19 @@ fn migration_foreign_keys_must_not_rely_on_search_path() {
 }
 
 async fn connect_admin() -> Option<PgPool> {
-    let url = std::env::var("TEST_DATABASE_URL").or_else(|_| std::env::var("DATABASE_URL")).ok()?;
-    sqlx::postgres::PgPoolOptions::new().max_connections(1).connect(&url).await.ok()
+    // fail-closed：unit 车道的 CI 配置里 `TEST_DATABASE_URL` 是必填的；缺库/连不上必须
+    // panic，否则调用点 `else { eprintln!("skipping …"); return; }` 会把空跑记成 `ok`。
+    // 见 `docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md` §2。
+    let url = match std::env::var("TEST_DATABASE_URL").or_else(|_| std::env::var("DATABASE_URL")) {
+        Ok(url) => url,
+        Err(_) => {
+            panic!("no TEST_DATABASE_URL/DATABASE_URL for the migration search_path tests — refusing to skip-as-pass")
+        }
+    };
+    Some(match sqlx::postgres::PgPoolOptions::new().max_connections(1).connect(&url).await {
+        Ok(pool) => pool,
+        Err(error) => panic!("migration search_path admin pool connect failed: {error}"),
+    })
 }
 
 #[tokio::test]

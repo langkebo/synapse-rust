@@ -17,7 +17,18 @@ fn test_mutex() -> &'static tokio::sync::Mutex<()> {
 }
 
 async fn setup_test_context() -> Option<(axum::Router, Arc<PgPool>, Arc<CacheManager>)> {
-    let pool = synapse_test_utils::prepare_shared_test_pool().await.ok()?;
+    // fail-closed：缺库/建池失败必须 **panic**，不能返回 `None` —— 调用点是
+    // `let Some(..) else { return; }`，返回 None 会让 libtest 记 `ok`（一条断言都不跑）。
+    // 与 `tests/integration/mod.rs::TestContext::build` 同口径，
+    // 见 `docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md` §2。
+    let pool = match synapse_test_utils::prepare_shared_test_pool().await {
+        Ok(pool) => pool,
+        Err(error) => panic!(
+            "admin user lifecycle setup failed (shared pool): {error}\n\
+             Refusing to skip-as-pass: this suite is the only end-to-end guard for the \
+             admin user lifecycle endpoints."
+        ),
+    };
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let container = ServiceContainer::new_test_with_pool_and_cache(pool.clone(), cache.clone()).await;
     let state = AppState::new(container, cache.clone());

@@ -13,10 +13,10 @@ use tokio::runtime::Runtime;
 async fn setup_test_database() -> Option<Pool<Postgres>> {
     let pool = match synapse_test_utils::prepare_isolated_test_pool().await {
         Ok(pool) => pool,
-        Err(error) => {
-            eprintln!("Skipping protocol tests; isolated schema setup failed: {}", error);
-            return None;
-        }
+        // fail-closed：与下面那段"Setup must not swallow failures"的注释同一原则 —— 原先
+        // 这里 `eprintln!("Skipping …")` + `return None`，调用点 `else { return; }`
+        // ⇒ 空跑被记成 `ok`。见 `docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md` §2。
+        Err(error) => panic!("protocol compliance setup failed (isolated schema): {error} — refusing to skip-as-pass"),
     };
 
     // Setup must not swallow failures: an `.ok()` here would leave the test

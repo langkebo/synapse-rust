@@ -67,7 +67,12 @@ async fn setup_app_with_mock_scanner(block_next: bool) -> Option<(axum::Router, 
     use synapse_services::ServiceContainer;
     use synapse_web::routes::state::AppState;
 
-    let pool = synapse_test_utils::prepare_shared_test_pool().await.ok()?;
+    // fail-closed：建池失败必须 panic（调用点是 `else { return; }` ⇒ 否则静默假绿）。
+    // 见 `docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md` §2。
+    let pool = match synapse_test_utils::prepare_shared_test_pool().await {
+        Ok(pool) => pool,
+        Err(error) => panic!("content scanner setup failed (shared pool): {error} — refusing to skip-as-pass"),
+    };
     let cache = std::sync::Arc::new(CacheManager::new(&CacheConfig::default()));
     let mut container = ServiceContainer::new_test_with_pool_and_cache(pool, cache.clone()).await;
 
@@ -76,8 +81,14 @@ async fn setup_app_with_mock_scanner(block_next: bool) -> Option<(axum::Router, 
     let mock_app =
         axum::Router::new().route("/scan", axum::routing::post(mock_webhook_handler)).with_state(scan_state.clone());
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.ok()?;
-    let addr = listener.local_addr().ok()?.to_string();
+    let listener = match tokio::net::TcpListener::bind("127.0.0.1:0").await {
+        Ok(listener) => listener,
+        Err(error) => panic!("content scanner setup failed (mock webhook bind): {error}"),
+    };
+    let addr = match listener.local_addr() {
+        Ok(addr) => addr.to_string(),
+        Err(error) => panic!("content scanner setup failed (mock webhook local_addr): {error}"),
+    };
     tokio::spawn(async move {
         let _ = axum::serve(listener, mock_app).await;
     });

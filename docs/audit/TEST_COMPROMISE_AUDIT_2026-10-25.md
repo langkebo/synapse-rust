@@ -18,7 +18,7 @@
 | **R2** | 覆盖率门禁不在 PR 车道；新文件达标线 30%；已入库文件无绝对下限 | 全仓覆盖率回归（事后才发现） | 制度性降标 |
 | **R2** | 性能验收只打印不断言（`appservice_scheduler_perf_tests` 全 `#[ignore]`） | appservice 调度器吞吐 | 设计内，但等于无性能门禁 |
 | **R2** | `cargo test --doc` 是编译门禁，不是执行覆盖（4 个 doc test 全 `#[ignore]`） | 文档示例 | 已知并登记 |
-| **R3** | 572 处 `else { return; }` 静默跳过**残留模式**（当前恒 `Some`，但 R1 已证明该模式会复活） | 全 integration 面 | 债务 |
+| **R3** | 572 处 `else { return; }` 静默跳过**残留模式**（当前恒 `Some`，但 R1 已证明该模式会复活） | 全 integration 面 | **✅ 已止损**：7 处 fail-open 夹具改 panic + 守卫禁新增（§4.1.1）；调用点本身保留为死代码 |
 | **R3** | 测试替身与生产 crate 未做特性隔离（MAINT-01） | unit 层 mock 语义 | 已登记不修 |
 | **R3** | 回归范围按"改了哪个文件"选，而非"影响哪些契约" | 跨路径契约（ARCH-02 等价用例曾静默腐烂） | 流程债 |
 
@@ -129,7 +129,7 @@ Summary: 7 tests run: 7 passed
 | **新文件只需 30%** → **✅ 已改为 50%**（2026-10-25） | `ci.yml:1496` 原 `--new-file-floor 30`（脚本默认 60，被显式下调）。已上调到 50，同步 `run_coverage.sh` 提示、`coverage_policy.md` §1/§2/§3、`TESTING.md` | 用 40% 的假 lcov 喂脚本 ⇒ **exit 1**；50% ⇒ exit 0（不误伤） |
 | **已入库文件无绝对下限** | `scripts/check_file_coverage.py:8` 只判 `must not regress`；`ci.yml:1482-1485` 注释写明"absolute floors are deliberately not re-applied to baseline-known files, because…188 files red" | `coverage_baseline.json` 里 **59 个文件 0.0%、109 个 ≤30%** 被永久冻结，再差也不会红 |
 
-基线分布（实测 `scripts/ci/coverage_baseline.json`，608 个文件）：中位数 **81.5%**、均值 68.1%，
+基线分布（实测 `coverage_baseline.json`，608 个文件）：中位数 **81.5%**、均值 68.1%，
 所以**不是"全仓覆盖率低"**，而是"**差的那批被冻结了，且新代码门槛低**"。
 
 补：
@@ -174,8 +174,34 @@ Summary: 7 tests run: 7 passed
 但 §2.1 已经证明：只要未来出现第二个 `.ok()?` 形态的 setup（`with_config` 就是），
 这 572 处会**立刻**变成 572 条静默假绿。这是"结构上预留了假绿接口"。
 
-补（**P1**，低成本高收益）：把这些 `else { return; }` 统一换成 `else { skip_or_fail_without_db() }`，
-让 `Option` 返回值彻底失去"软跳过"用途。可脚本化（`sed` 不安全，用 `python` 按行改 + `cargo check`）。
+#### 4.1.1 执行方式修正（2026-10-25：改守夹具本体，不盲改 559 个调用点）
+
+原计划是"572 处统一收口"，实际动手时按数据改了做法，理由两条：
+
+1. **559 个调用点里混着"feature 关闭就该跳过"的夹具**。分类后发现 `enabled_app()`、
+   `signed_pdu_fixture()` 这类 helper 也返回 `Option`，但它们的 `None` 是**语义**
+   （feature 未开 / 前置数据不成立），改成 panic 会把合法跳过变成红。
+2. **只要夹具不再 fail-open，调用点就是死代码**。改调用点不增加任何安全性，只是把炸弹搬走；
+   而 R1 的根因就在夹具本体（`.ok()?`）。
+
+实际做法：
+- 逐个改造了 **7 处**真 fail-open 的夹具（缺库/建池失败 ⇒ `panic!`，与 `TestContext` 同口径）：
+  `api_admin_user_lifecycle_tests`、`api_content_scanner_integration_tests`、
+  `presence_storage_tests_migrated`、`protocol_compliance_tests`、
+  `api_federation_transaction_tests`（MSC4307 fixture）、`migration_search_path_tests::connect_admin`、
+  `test_schema_housekeeping_tests::connect_admin`。其中三处原本还带着
+  `eprintln!("Skipping …")` —— 明确宣告"要跳过"，却仍被 libtest 记成 `ok`。
+- 新增守卫 `scripts/ci/check_test_setup_fail_closed.py`（已接入 preflight）：扫
+  `tests/**/*.rs` 里**名字表明是夹具**（`setup*`/`prepare*`/`connect_*`/`*_pool`/`*database*`/
+  `*fixture*`/`*context*`/`test_app*`/`enabled_app`）且返回 `Option` 的函数，体内出现 `.ok()?`
+  或裸 `return None` 即红。白名单只有 `tests/performance/manual_smoke_tests.rs`（全 `#[ignore]` 的手工冒烟）。
+  守卫**先剥整行注释**再加判 —— 首次运行就误报了一次自己刚修好的函数（注释里留着"此前是 `.ok()?`"）。
+
+判据：改造后 `api_admin_user_lifecycle_tests` + `api_content_scanner_integration_tests` +
+`presence_storage_tests_migrated` + `protocol_compliance_tests` 共 **40 passed**；
+`api_federation_transaction_tests` **13 passed**；两个 unit 族 **4 passed**。
+守卫变异自证：临时放一个 `setup_probe_context().await.ok()?` 的探针文件 ⇒ **FAIL/exit 1**，
+删除后 ⇒ OK/exit 0。
 
 ### 4.2 测试替身未做特性隔离（MAINT-01）
 
@@ -219,7 +245,7 @@ ARCH-02 等价用例**一直红着**，当次只跑了 `api_sliding_sync_routes_
 |---|---|---|---|
 | ~~1~~ | ~~`with_config` 改 fail-closed + 9 处 `else` 换 `skip_or_fail_without_db`~~ **✅ 已完成（+28/−1）** | ~30 行 | 假绿实验 **已从 PASS 变 FAIL**（§2.4） |
 | 2 | 9 条安全用例的变异自证 —— **1/9 已做**（voice 体上限那条），其余 8 条待补 | 中 | 每条留一次红-绿记录 |
-| 3 | 572 处 `else { return; }` 统一收口 | ~1 h（脚本 + 编译） | 假绿实验在任一套件上都不可能再 PASS |
+| ~~3~~ | ~~572 处调用点收口~~ → **✅ 改做「守夹具本体」**：7 处 fail-open 夹具改 panic + 新增 `check_test_setup_fail_closed.py` 守卫（接入 preflight） | 中 | 探针文件 ⇒ 守卫 exit 1；真实 4+1 族 53 passed（详见 §4.1.1） |
 | ~~4~~ | ~~`--new-file-floor 30 → 50`~~ **✅ 已完成** | 1 行 + 3 处文档同步 | 已验：40% 假 lcov ⇒ exit 1；50% ⇒ exit 0 |
 | 5 | "改动面 → 必跑套件"映射 + preflight 提示 | ~1 h | 改 `rooms` 结构但不跑等价套件 ⇒ preflight 应打印提示 |
 | 6 | 性能断言改相对阈值（`p95_target/p95_baseline`） | 中 | 注入慢查询 ⇒ 该 gate 红 |

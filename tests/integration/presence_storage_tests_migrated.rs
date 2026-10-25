@@ -42,10 +42,13 @@ const BASELINE_SQL: &str = include_str!("../../migrations/00000000_unified_schem
 async fn setup_test_database() -> Option<(IsolatedTestPool, Arc<sqlx::PgPool>, PresenceStorage)> {
     let isolated = match IsolatedTestPool::new(BASELINE_SQL).await {
         Ok(isolated) => isolated,
-        Err(error) => {
-            eprintln!("Skipping presence storage tests because test database is unavailable: {error}");
-            return None;
-        }
+        // fail-closed：原先这里是 `eprintln!("Skipping …")` + `return None`，调用点
+        // `else { return; }` ⇒ libtest 记 `ok`。见
+        // `docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md` §2。
+        Err(error) => panic!(
+            "presence storage setup failed (isolated schema): {error}\n\
+             Refusing to skip-as-pass — an empty run must not look green."
+        ),
     };
     let pool = isolated.pool();
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));

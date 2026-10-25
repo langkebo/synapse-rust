@@ -149,6 +149,14 @@ run "check_test_feature_gates.py" python3 scripts/ci/check_test_feature_gates.py
 step "测试：只锁形状的测试文件必须自报家门（NEW-05）"
 run "check_shape_only_tests.py" python3 scripts/ci/check_shape_only_tests.py
 
+# 测试夹具不得 fail-open（R1）。缺库/建池失败时返回 None 会被调用点的 `else { return; }`
+# 折叠成 `ok` —— 实测让语音上传体积上限（含 CVE-2026-102592 的大小写绕过项）、媒体 2 MiB
+# 边界、worker surface gate 共 9 条安全用例在 DB 不可达时**全部 PASS 且一条断言不跑**，
+# 其中一条耗时还比真跑更长（30s vs 6s），"跑得快 = 没跑"的巡检看不见它。
+# 见 `docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md` §2；守的是夹具本体而不是 559 个调用点。
+step "测试：夹具不得 fail-open（R1）"
+run "check_test_setup_fail_closed.py" python3 scripts/ci/check_test_setup_fail_closed.py
+
 # 活文档里的 `scripts/...` 引用必须解析到真实文件（NEW-04）。归档与 .workbuddy 笔记不查：
 # 那里写"当年调用过 X，已删除"是**历史叙述**，要求它存在就是错的。部署文档的相对路径
 # 按 `docker/` 与 `docker/deploy/` 两个工作目录解析。当前未解析数由

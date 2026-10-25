@@ -978,9 +978,11 @@ impl CrossRoomAuthEventsFixture {
     async fn setup(key_id: &str, seed: [u8; 32], prefix: &str) -> Option<(IsolatedTestPool, Self)> {
         let isolated = match IsolatedTestPool::new(BASELINE_SQL).await {
             Ok(isolated) => isolated,
+            // fail-closed：原先 `eprintln!("Skipping MSC4307 test …")` + `return None`
+            // ⇒ 调用点 `else { return; }` 让整族静默变绿。见
+            // `docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md` §2。
             Err(error) => {
-                eprintln!("Skipping MSC4307 test because the test database is unavailable: {error}");
-                return None;
+                panic!("MSC4307 cross-room auth setup failed (isolated schema): {error} — refusing to skip-as-pass")
             }
         };
         let pool = isolated.pool();
