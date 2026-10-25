@@ -20,6 +20,60 @@ pub struct TagContent {
     pub order: Option<f64>,
 }
 
+/// 房间标签在账户数据里的类型（Matrix 规范：tag 就是房间账号数据 `m.tag`）。
+///
+/// `/user/{uid}/rooms/{rid}/tags` 这几个端点在规范里**只是 `m.tag` 账户数据的便捷视图**，
+/// 不是独立的一份数据。本文件此前把它们写进独立的 `room_tags` 表，于是出现两个后果
+/// （2026-10-25 由 SDK 侧实测发现，见 `artifacts/sdk-audit-and-plan-2026-10-20.md` 的 C-6）：
+///
+///   1. `PUT …/tags/m.favourite` 成功之后，`GET …/account_data/m.tag` 仍回 **404**；
+///   2. 更严重：`/sync` 的房间账号数据来自 `room_account_data` 表，所以**标签永远不到客户端** ——
+///      客户端（Element 等）读 tag 读的是 sync 里的 `m.tag`，等于标签功能对外完全失效。
+const TAGS_ACCOUNT_DATA_TYPE: &str = "m.tag";
+
+/// 读一份标签映射：**优先 `m.tag` 账户数据**，缺了再回退到 `room_tags` 表。
+///
+/// 回退是为了兼容 2026-10-25 之前只写 `room_tags` 的历史数据（那些行仍然要能读出来）。
+async fn read_tag_map(
+    ctx: &RoomContext,
+    user_id: &str,
+    room_id: &str,
+) -> Result<serde_json::Map<String, serde_json::Value>, ApiError> {
+    if let Some(content) =
+        ctx.account_data_service.get_room_account_data(user_id, room_id, TAGS_ACCOUNT_DATA_TYPE).await?
+    {
+        if let Some(tags) = content.get("tags").and_then(|v| v.as_object()) {
+            return Ok(tags.clone());
+        }
+    }
+
+    let legacy = ctx.room_service.state().get_tags(user_id, room_id).await?;
+    Ok(legacy.into_iter().map(|t| (t.tag, serde_json::json!({ "order": t.order.unwrap_or(0.0) }))).collect())
+}
+
+/// 把标签映射写回 `m.tag` 账户数据，并**同步维护 `room_tags` 表**。
+///
+/// 双写不是"两个真相"：读路径以 `m.tag` 为准（`read_tag_map` 先读它），
+/// `room_tags` 只是给 `GET /user/{uid}/tags`（跨房间总表）留的索引 ——
+/// 那张表按 user 维度查询，比扫全量账户数据便宜。
+///
+/// 空映射 ⇒ 删掉这条账户数据（与上游行为一致：没有标签时不该留一条 `{"tags":{}}`）。
+async fn write_tag_map(
+    ctx: &RoomContext,
+    user_id: &str,
+    room_id: &str,
+    tags: &serde_json::Map<String, serde_json::Value>,
+) -> Result<(), ApiError> {
+    if tags.is_empty() {
+        ctx.account_data_service.delete_room_account_data(user_id, room_id, TAGS_ACCOUNT_DATA_TYPE).await?;
+        return Ok(());
+    }
+
+    let content = serde_json::json!({ "tags": tags });
+    ctx.account_data_service.set_room_account_data(user_id, room_id, TAGS_ACCOUNT_DATA_TYPE, &content).await?;
+    Ok(())
+}
+
 fn create_tags_compat_router() -> Router<AppState> {
     Router::new()
         .route("/user/{user_id}/tags", get(get_global_tags))
@@ -76,15 +130,8 @@ async fn get_tags(
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
 
-    let tags: Vec<synapse_services::room::RoomTag> = ctx.room_service.state().get_tags(&user_id, &room_id).await?;
-
-    let tags_map: serde_json::Map<String, serde_json::Value> = tags
-        .into_iter()
-        .map(|t| {
-            let order: f64 = t.order.unwrap_or(0.0);
-            (t.tag, serde_json::json!({ "order": order }))
-        })
-        .collect();
+    // 以 `m.tag` 账户数据为准（见 `read_tag_map` 的注释）。
+    let tags_map = read_tag_map(&ctx, &user_id, &room_id).await?;
 
     Ok(Json(serde_json::json!({
         "tags": tags_map
@@ -101,6 +148,12 @@ async fn put_tag(
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
 
+    // 1) 写入规范位置（`m.tag` 账户数据）—— 这一步同时让 `/sync` 能把它带给客户端
+    let mut tags = read_tag_map(&ctx, &user_id, &room_id).await?;
+    tags.insert(tag.clone(), serde_json::json!({ "order": content.order.unwrap_or(0.0) }));
+    write_tag_map(&ctx, &user_id, &room_id, &tags).await?;
+
+    // 2) 同步维护 `room_tags`（`GET /user/{uid}/tags` 的跨房索引，见 `write_tag_map`）
     ctx.room_service.state().add_tag(&user_id, &room_id, &tag, content.order).await?;
 
     Ok(empty_json())
@@ -114,6 +167,10 @@ async fn delete_tag(
     if auth_user.user_id != user_id {
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
+
+    let mut tags = read_tag_map(&ctx, &user_id, &room_id).await?;
+    tags.remove(&tag);
+    write_tag_map(&ctx, &user_id, &room_id, &tags).await?;
 
     ctx.room_service.state().remove_tag(&user_id, &room_id, &tag).await?;
 

@@ -182,6 +182,87 @@ async fn test_room_account_data_round_trip_across_versions() {
     assert_eq!(json, content);
 }
 
+/// 回归（C-6，2026-10-25）：`PUT …/rooms/{rid}/tags/{tag}` 必须同时落到
+/// **`m.tag` 房间账号数据**上。
+///
+/// 规范里 `/tags` 只是 `m.tag` 账户数据的便捷视图；此前它写的是独立的 `room_tags` 表，
+/// 于是 `GET …/account_data/m.tag` 恒 404，而且 `/sync` 的房间账号数据取自
+/// `room_account_data` ⇒ **标签永远到不了客户端**（Element 读的正是 sync 里的 `m.tag`）。
+#[tokio::test]
+async fn test_put_tag_is_visible_as_m_tag_account_data() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let username = unique_username("tag_as_account_data");
+    let (token, user_id) = register_user(&app, &username).await;
+    let room_id = "!room:localhost";
+
+    // 嵌套 fn 而不是闭包：闭包按值捕获 `user_id`/`room_id`，第二次调用就 move 走了。
+    async fn read_account_data(app: axum::Router, token: &str, user_id: &str, room_id: &str) -> (StatusCode, Value) {
+        let req = Request::builder()
+            .method("GET")
+            .uri(format!("/_matrix/client/v3/user/{}/rooms/{}/account_data/m.tag", user_id, room_id))
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let res = ServiceExt::<Request<Body>>::oneshot(app, req).await.unwrap();
+        let status = res.status();
+        let body = axum::body::to_bytes(res.into_body(), 4096).await.unwrap();
+        (status, if body.is_empty() { Value::Null } else { serde_json::from_slice(&body).unwrap() })
+    }
+
+    // 1) 打第一个标签
+    let put = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/user/{}/rooms/{}/tags/m.favourite", user_id, room_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "order": 0.5 }).to_string()))
+        .unwrap();
+    assert_eq!(ServiceExt::<Request<Body>>::oneshot(app.clone(), put).await.unwrap().status(), StatusCode::OK);
+
+    // 2) 它必须能被当房间账号数据读到（此前这里是 404）
+    let (status, body) = read_account_data(app.clone(), &token, &user_id, room_id).await;
+    assert_eq!(status, StatusCode::OK, "PUT /tags 之后 GET account_data/m.tag 不该是 404");
+    assert_eq!(body, json!({ "tags": { "m.favourite": { "order": 0.5 } } }));
+
+    // 3) `/tags` 视图与账户数据必须一致
+    let get_tags = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/client/v3/user/{}/rooms/{}/tags", user_id, room_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let res = ServiceExt::<Request<Body>>::oneshot(app.clone(), get_tags).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(res.into_body(), 4096).await.unwrap();
+    let tags_json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(tags_json["tags"]["m.favourite"]["order"], json!(0.5));
+
+    // 4) 删掉最后一个标签 ⇒ 账户数据整条消失（不是留一条 {"tags":{}}）
+    let del = Request::builder()
+        .method("DELETE")
+        .uri(format!("/_matrix/client/v3/user/{}/rooms/{}/tags/m.favourite", user_id, room_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(ServiceExt::<Request<Body>>::oneshot(app.clone(), del).await.unwrap().status(), StatusCode::OK);
+    let (status, _) = read_account_data(app.clone(), &token, &user_id, room_id).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "标签删空后不该再留一条空的 m.tag");
+
+    // 5) `/tags` 也回到空
+    let get_tags = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/client/v3/user/{}/rooms/{}/tags", user_id, room_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let res = ServiceExt::<Request<Body>>::oneshot(app, get_tags).await.unwrap();
+    let body = axum::body::to_bytes(res.into_body(), 4096).await.unwrap();
+    let tags_json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(tags_json, json!({ "tags": {} }));
+}
+
 #[tokio::test]
 async fn test_filter_round_trip_across_versions() {
     let Some(app) = setup_test_app().await else {
