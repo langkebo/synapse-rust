@@ -205,15 +205,29 @@ impl SharedFixture {
     }
 
     async fn sync(&self, filter_id: Option<&str>) -> Value {
+        self.sync_with_state_after(filter_id, false, false).await
+    }
+
+    /// `/sync`，可显式打开 MSC4222 的 `state_after` 重命名（第 8/9 个参数）。
+    async fn sync_with_state_after(&self, filter_id: Option<&str>, use_state_after: bool, unstable: bool) -> Value {
         self.sync_service
-            .sync(&self.user_id, None, 0, false, "online", filter_id, None, false, false)
+            .sync(&self.user_id, None, 0, false, "online", filter_id, None, use_state_after, unstable)
             .await
             .expect("/sync 失败")
     }
 
     async fn sliding(&self, timeline_limit: u32) -> Value {
+        self.sliding_with_required_state(timeline_limit, None).await
+    }
+
+    /// 滑动同步，可显式给 `required_state`（MSC4186：`[[type, state_key], …]`，`*` 为通配）。
+    async fn sliding_with_required_state(&self, timeline_limit: u32, required_state: Option<Value>) -> Value {
+        let mut subscription = json!({ "timeline_limit": timeline_limit });
+        if let Some(required_state) = required_state {
+            subscription["required_state"] = required_state;
+        }
         let mut subscriptions = serde_json::Map::new();
-        subscriptions.insert(self.room_id.clone(), json!({ "timeline_limit": timeline_limit }));
+        subscriptions.insert(self.room_id.clone(), subscription);
         let request = SlidingSyncRequest {
             conn_id: None,
             lists: HashMap::new(),
@@ -230,13 +244,14 @@ impl SharedFixture {
 
     /// 存一个只限制 timeline 的 filter，返回 filter_id。
     async fn store_timeline_filter(&self, limit: u32) -> String {
+        self.store_filter(json!({ "room": { "timeline": { "limit": limit } } })).await
+    }
+
+    /// 存任意 filter 内容，返回 filter_id。
+    async fn store_filter(&self, content: Value) -> String {
         let filter_id = format!("equiv-{}", unique_id());
         FilterStorage::new(&self.pool)
-            .create_filter(CreateFilterRequest {
-                user_id: self.user_id.clone(),
-                filter_id: filter_id.clone(),
-                content: json!({ "room": { "timeline": { "limit": limit } } }),
-            })
+            .create_filter(CreateFilterRequest { user_id: self.user_id.clone(), filter_id: filter_id.clone(), content })
             .await
             .expect("写 filter 失败");
         filter_id
@@ -257,18 +272,26 @@ fn sync_timeline_limited(sync_response: &Value, room_id: &str) -> bool {
     sync_response["rooms"]["join"][room_id]["timeline"]["limited"].as_bool().unwrap_or(false)
 }
 
-/// 滑动同步：`rooms[room_id].timeline[].event_id`（`timeline` 是数组，不是 `{events: []}`）。
+/// 滑动同步：`rooms.join[room_id].timeline[].event_id`（`timeline` 是数组，不是 `{events: []}`）。
+///
+/// ⚠️ NEW-17（`2377043e5`）之后 `rooms` 已按 MSC3575/MSC4186 分桶成 `{join, invite, leave}`，
+/// 本文件的三条 ARCH-02 用例当时没跟着改，从那一笔起就一直红（产品行为是对的，
+/// 是测试侧的读取路径过期）。这里统一收口到 `rooms.join[…]`。
+fn sliding_room<'a>(rooms: &'a Value, room_id: &str) -> &'a Value {
+    &rooms["join"][room_id]
+}
+
 fn sliding_event_ids(rooms: &Value, room_id: &str) -> Vec<String> {
-    rooms[room_id]["timeline"]
+    sliding_room(rooms, room_id)["timeline"]
         .as_array()
-        .unwrap_or_else(|| panic!("滑动同步的 rooms[{room_id}].timeline 不是数组：{rooms}"))
+        .unwrap_or_else(|| panic!("滑动同步的 rooms.join[{room_id}].timeline 不是数组：{rooms}"))
         .iter()
         .map(|event| event["event_id"].as_str().unwrap_or_default().to_string())
         .collect()
 }
 
 fn sliding_limited(rooms: &Value, room_id: &str) -> bool {
-    rooms[room_id]["limited"].as_bool().unwrap_or(false)
+    sliding_room(rooms, room_id)["limited"].as_bool().unwrap_or(false)
 }
 
 /// 断言 ①：不裁剪时，两条路径的可见事件**序列**完全一致。
@@ -339,5 +362,147 @@ async fn truncation_is_reported_as_limited_on_both_paths() {
         sliding_limited(&sliding_rooms, &fixture.room_id),
         "滑动同步把 timeline 裁到 {limit} 条却没有置 limited=true：{}",
         sliding_rooms[&fixture.room_id]
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NEW-11：**state 组装层**的等价断言（ARCH-02 只共享了 timeline 层）
+//
+// 两条路径各有一份"把房间当前状态取出来发给客户端"的实现：
+//  * `/sync`：`sync_service/response.rs` 的 `state_by_room` → `apply_sync_filter_to_values`
+//    （Matrix `StateFilter`：`types`/`not_types`/…）→ `apply_lazy_load_members`；
+//  * 滑动同步：`sliding_sync_service/state.rs::build_required_state_events`
+//    （MSC4186 `required_state`：`[[type, state_key], …]`，`*` 通配）。
+// 两处的**过滤语言不同**（`StateFilter` vs `[[type,key]]`）、**数据源也不同**
+// （`/sync` 走 DB 批次、滑动同步走 `room_state_cache`），所以先钉住"同一房间状态下两边
+// 给出的可见状态集合一致"，再谈抽取 —— 与 ARCH-02 同一条原则：没有断言就不抽。
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// 从一份 state/required_state 数组里抽出 `(type, state_key)` 集合并排序。
+fn state_key_set(events: &[Value]) -> Vec<(String, String)> {
+    let mut keys: Vec<(String, String)> = events
+        .iter()
+        .map(|event| {
+            (
+                event["type"].as_str().unwrap_or_default().to_string(),
+                event["state_key"].as_str().unwrap_or_default().to_string(),
+            )
+        })
+        .collect();
+    keys.sort();
+    keys
+}
+
+/// `/sync` 里房间的 state 事件（MSC4222 下键名可能是 `state_after`）。
+fn sync_state_events(sync_response: &Value, room_id: &str, field: &str) -> Vec<Value> {
+    sync_response["rooms"]["join"][room_id][field]["events"]
+        .as_array()
+        .unwrap_or_else(|| panic!("/sync 的 rooms.join[{room_id}].{field}.events 不是数组：{sync_response}"))
+        .clone()
+}
+
+/// 滑动同步里房间的 state 事件（同步实现同时写 `required_state` 与 `state`，这里取前者）。
+///
+/// NEW-17 之后 `rooms` 是 `{join, invite, leave}` 三桶，房间对象在 `join` 下。
+fn sliding_state_events(rooms: &Value, room_id: &str) -> Vec<Value> {
+    rooms["join"][room_id]["required_state"]
+        .as_array()
+        .unwrap_or_else(|| panic!("滑动同步的 rooms.join[{room_id}].required_state 不是数组：{rooms}"))
+        .clone()
+}
+
+/// 断言 ④（NEW-11）：**不裁剪**时，两条路径给出的可见状态集合完全一致。
+#[tokio::test]
+async fn full_state_is_identical_across_both_paths() {
+    let fixture = SharedFixture::build(2).await;
+
+    let sync_response = fixture.sync(None).await;
+    let sliding_rooms = fixture.sliding_with_required_state(50, Some(json!([["*", "*"]]))).await;
+
+    let sync_keys = state_key_set(&sync_state_events(&sync_response, &fixture.room_id, "state"));
+    let sliding_keys = state_key_set(&sliding_state_events(&sliding_rooms, &fixture.room_id));
+
+    // 最低限度的语义：建房产生的关键状态，两边都必须给出。
+    for required in ["m.room.create", "m.room.member", "m.room.power_levels", "m.room.join_rules"] {
+        assert!(
+            sync_keys.iter().any(|(event_type, _)| event_type == required),
+            "/sync 的 state 里没有 {required}：{sync_keys:?}"
+        );
+        assert!(
+            sliding_keys.iter().any(|(event_type, _)| event_type == required),
+            "滑动同步的 required_state 里没有 {required}：{sliding_keys:?}"
+        );
+    }
+
+    assert_eq!(
+        sync_keys, sliding_keys,
+        "同一房间状态下两条路径的**可见状态集合**不一致 —— 这正是 NEW-11 要拦住的语义漂移。\n\
+         /sync  = {sync_keys:?}\n滑动同步 = {sliding_keys:?}"
+    );
+}
+
+/// 断言 ⑤（NEW-11）：同一份过滤语义在两种方言下必须落到同一个集合 ——
+/// 滑动同步 `required_state = [["m.room.member","*"], ["m.room.name",""]]`
+/// ⇔ `/sync` 的 `filter.room.state.types = ["m.room.member", "m.room.name"]`。
+#[tokio::test]
+async fn state_filter_and_required_state_agree() {
+    let fixture = SharedFixture::build(1).await;
+
+    let filter_id = fixture
+        .store_filter(json!({
+            "room": { "state": { "types": ["m.room.member", "m.room.name"], "lazy_load_members": false } }
+        }))
+        .await;
+    let sync_response = fixture.sync(Some(&filter_id)).await;
+    let sliding_rooms =
+        fixture.sliding_with_required_state(50, Some(json!([["m.room.member", "*"], ["m.room.name", ""]]))).await;
+
+    let sync_keys = state_key_set(&sync_state_events(&sync_response, &fixture.room_id, "state"));
+    let sliding_keys = state_key_set(&sliding_state_events(&sliding_rooms, &fixture.room_id));
+
+    assert!(!sync_keys.is_empty(), "前置条件：filter 不该把 state 过滤成空集（否则这条断言没有意义）");
+    assert!(
+        sync_keys.iter().all(|(event_type, _)| event_type == "m.room.member" || event_type == "m.room.name"),
+        "/sync 返回了 filter 之外的状态类型：{sync_keys:?}"
+    );
+    assert_eq!(
+        sync_keys, sliding_keys,
+        "同一份过滤语义在两种方言下给出了不同集合（`state.types` vs `required_state`）：\n\
+         /sync  = {sync_keys:?}\n滑动同步 = {sliding_keys:?}"
+    );
+}
+
+/// 断言 ⑥（NEW-11 / MSC4222）：`state_after` 是**重命名而不是重算** ——
+/// 打开后房对象里只有 `state_after`（不再有 `state`），且集合与关闭时逐项相同。
+#[tokio::test]
+async fn state_after_is_a_rename_not_a_requery() {
+    let fixture = SharedFixture::build(2).await;
+
+    let plain = fixture.sync(None).await;
+    let renamed = fixture.sync_with_state_after(None, true, false).await;
+
+    let plain_keys = state_key_set(&sync_state_events(&plain, &fixture.room_id, "state"));
+    let renamed_keys = state_key_set(&sync_state_events(&renamed, &fixture.room_id, "state_after"));
+
+    let room_object = renamed["rooms"]["join"][&fixture.room_id]
+        .as_object()
+        .unwrap_or_else(|| panic!("rooms.join[{}] 不是对象：{renamed}", fixture.room_id));
+    assert!(
+        !room_object.contains_key("state"),
+        "MSC4222 打开后房对象里不能再有 `state`（与 `state_after` 二选一）：{room_object:?}"
+    );
+    assert_eq!(
+        plain_keys, renamed_keys,
+        "`state_after` 与 `state` 的集合不一致 —— 说明不是同一个 payload 改名，而是另算了一遍。\n\
+         state       = {plain_keys:?}\nstate_after = {renamed_keys:?}"
+    );
+
+    // 不稳定前缀同样只是改键名。
+    let unstable = fixture.sync_with_state_after(None, true, true).await;
+    let unstable_keys =
+        state_key_set(&sync_state_events(&unstable, &fixture.room_id, "org.matrix.msc4222.state_after"));
+    assert_eq!(
+        plain_keys, unstable_keys,
+        "`org.matrix.msc4222.state_after` 与 `state_after` 的集合不一致：{unstable_keys:?}"
     );
 }
