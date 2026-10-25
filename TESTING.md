@@ -687,6 +687,26 @@ cargo test --test unit --features test-utils placeholder_scan_tests
 | 好友系统 | 发送请求→接受→删除 | 状态同步 |
 | 事件举报 | 提交举报→更新分数 | 数据正确 |
 
+### 6.2.1 改动面 → 必跑套件（`scripts/ci/test_impact_map`）
+
+上表是"人工想一想"，漏得掉；`test_impact_map` 把**踩过坑的**几对关系写成可执行映射：
+
+```bash
+python3 scripts/ci/check_test_impact.py              # 对比 HEAD + 未跟踪文件
+python3 scripts/ci/check_test_impact.py --files a.rs b.rs
+```
+
+输出是可直接粘贴的 `cargo nextest` / 契约链命令。已接 preflight 作**提示步骤**（`advise`，
+恒 exit 0）—— 全量 integration 42 分钟，做成硬门禁只会把人逼向 `--no-verify`。
+
+为什么需要它：2026-10-24 的 NEW-17 把滑动同步的 `rooms` 分桶成 `{join, invite, leave}`，
+当次只跑 `api_sliding_sync_routes_tests` + service 单测；而 `sync_path_equivalence_tests` 的
+三条跨路径等价用例按扁平 `rooms[room_id]` 读，**静默红了近两小时**。这类"改了 A 却该跑 B"的
+关系不在任何单文件的视野里，只能靠表 + 提交前提示。
+
+维护原则：每行必须能回答"不跑会漏什么"，优先写**真踩过坑**的；不要写"改了 A 就跑 A 的测试"
+—— 那本来就没人会忘。新增行后跑一遍 `python3 scripts/ci/check_test_impact.py --files <该文件>` 确认命中。
+
 ### 6.3 回归测试周期
 
 | 周期 | 触发条件 | 执行者 |

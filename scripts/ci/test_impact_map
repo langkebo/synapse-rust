@@ -1,0 +1,65 @@
+# 改动面 → 必跑套件映射（`scripts/ci/check_test_impact.py` 读取）
+#
+# ## 为什么要有这张表
+# 提交时选测试范围的判据，一直是"我改了哪个文件"，而不是"这次改动影响哪些**契约**"。
+# 2026-10-24 的 NEW-17（`2377043e5`）把滑动同步的 `rooms` 按 MSC3575 分桶成
+# `{join, invite, leave}`，当次只跑了 `api_sliding_sync_routes_tests` + service 单测 ——
+# 而 `sync_path_equivalence_tests` 里三条 ARCH-02 跨路径等价用例按**扁平** `rooms[room_id]`
+# 读，于是静默红了近两小时，没人发现（改了 `36242da93` 才收口）。
+# 那张用例集不在任何 `api_*_routes_tests` 的视野里 —— 改响应结构时"顺手跑一下"是唯一的发现途径。
+#
+# ## 格式
+#   <路径 glob> | <动作> | <为什么必须跑>
+#
+# 动作三选一：
+#   nextest:<nextest -E 过滤表达式>   会被拼成可直接粘贴的 cargo nextest 命令
+#   shell:<命令>                      需要跑脚本（契约链之类）
+#   note:<文本>                       只能人工确认的事（没有自动化判据）
+#
+# glob 用 Python `fnmatch`，`*` 会跨 `/` 匹配（纯字符串，不认路径分隔符）。
+# 这张表**只提示不阻断**（`advise` 步骤）：全量 integration 是 42 分钟，塞进 pre-commit
+# 会让提交不可用；把它做成硬门禁的唯一后果是所有人都学会加 `--no-verify`。
+#
+# ## 维护原则
+# 每一行都必须能回答"不跑会漏什么"，且优先写**真踩过坑**的。不要照抄"改了 A 就跑 A 的测试"
+# —— 那本来就没人会忘。
+
+# ── 同步两条路径的等价性（NEW-17 教训，实证过）────────────────────────────
+synapse-services/src/sliding_sync_service/* | nextest:test(sync_path_equivalence_tests) | `rooms`/`state`/`timeline` 的序列化一变，`/sync` 与滑动同步的可见集合就可能分叉；三条 ARCH-02 等价用例不在 routes 测试的视野里
+synapse-services/src/sync_service/* | nextest:test(sync_path_equivalence_tests) | 同上（`/sync` 侧的 state 组装、懒加载成员集、MSC4222 `state_after`）
+
+# ── 房间创建 / 权限（C-7 教训，实证过）──────────────────────────────────
+synapse-services/src/room/lifecycle/* | nextest:test(api_power_levels_v12_creator_tests) | v12 创建侧必须剥离创建者；`m.room.tombstone` 默认 150。写错会让客户端读-改-写恒 403
+synapse-services/src/room/lifecycle/* | nextest:test(api_create_room_auth_tests) | 建房前置条件与版本校验
+synapse-common/src/room_versions.rs | nextest:test(api_power_levels_v12_creator_tests) | 默认房间版本一变，所有 v12 分支（创建者权力、`state_after`）跟着变
+synapse-common/src/room_creator.rs | nextest:test(api_power_levels_v12_creator_tests) | 「谁是创建者」是唯一实现，改它会同时影响剥离与鉴权
+
+# ── 上传体积上限（CVE-2026-102592 对应项）─────────────────────────────
+synapse-web/src/routes/voice.rs | nextest:test(voice_routes_tests) | 4 条用例守在 2/4 MiB 边界与 `Content-Type` 大小写绕过；默认 2 MiB 一旦遮蔽宣告上限，2.5 MiB 会被 413
+synapse-web/src/routes/media*.rs | nextest:test(api_media_routes_tests) | 媒体 2 MiB 边界与 v1 认证缩略图/预览
+synapse-web/src/middleware/write_forwarding.rs | nextest:test(api_worker_surface_gate_tests) | W-F 窄化授权：非属主实例必须 404 掉别人的前缀
+synapse-web/src/middleware/write_forwarding.rs | nextest:test(api_route_ledger_tests) | 转发面的路由契约链（`route_manifest → router_ledger → SDK`）
+
+# ── 鉴权与权限判定 ────────────────────────────────────────────────
+synapse-services/src/auth/* | nextest:test(api_power_levels_v12_creator_tests) | 创建者权力无上限（`CREATOR_POWER_LEVEL`）在读 PL 之前判定
+synapse-services/src/auth/* | nextest:test(api_admin_target_guard_tests) | 管理端目标守卫不能因为共用 handler 被绕过
+
+# ── 线程 ────────────────────────────────────────────────────────
+synapse-services/src/thread_service.rs | nextest:test(api_thread_read_routes_tests) | `/send` 的线程回复要同时进 `thread_relations` 与 `thread_replies`（NEW-19）；时间戳必须回查事件本体
+
+# ── 路由字面量（整条契约链，9 步）────────────────────────────────────
+synapse-web/src/routes/* | shell:bash scripts/contract/check_route_contract.sh | 改路由字面量 ⇒ 注解两处 → 3 张派生表 → 6 fixtures → 2 个 ledger 快照 → `ROUTE_CONTRACT.md` → `route-table.json`。只做一半是最高频的既有红
+synapse-web/src/routes/* | note:`ROUTE_CONTRACT.md` 头部日期每天重生成；跨午夜会出现"仅日期"的 1 行差异，它会让之后每次提交都命中契约 gate 的 SKIP（= 链路根本没被校验）⇒ 把那一行提交掉，提交后再跑一遍 gate 复核
+
+# ── 数据库 schema / 迁移 ──────────────────────────────────────────
+migrations/* | shell:bash scripts/ci/db_migrate.sh | 基线 `00000000_unified_schema_v12.sql` 一改，`EXPECTED_BASELINE_FINGERPRINT` 与 `test_template_ci` 都要同步
+migrations/* | nextest:test(schema_contract) | schema 契约表 `schema_contract_p0_tests_migrated` / `db_schema_smoke_tests_migrated`
+.sqlx/* | shell:bash scripts/ci/sqlx_prepare.sh | `.sqlx` 是唯一**生成**入口（禁 `--full`、禁裸 `cargo sqlx prepare`）；条数一变，`SQLX_CACHE_ENTRIES` 的文档块要同步
+
+# ── 测试夹具本身（R1，本轮新增）────────────────────────────────────
+tests/integration/mod.rs | shell:python3 scripts/ci/check_test_setup_fail_closed.py | 夹具 fail-open 会让 9 条安全用例在 DB 不可用时静默 PASS（30s，比真跑还慢）
+tests/integration/mod.rs | nextest:test(sync_path_equivalence_tests) | 共享夹具 `SharedFixture` 在这里；`/sync` 与滑动同步的等价断言全依赖它
+
+# ── 这张表自身 ────────────────────────────────────────────────────
+scripts/ci/test_impact_map | shell:python3 scripts/ci/check_test_impact.py --files synapse-web/src/routes/voice.rs | 表改了要自检：用一条已知命中路径确认仍能匹配并渲染出可粘贴命令（格式错会让整个脚本 exit 1）
+scripts/ci/check_test_impact.py | shell:python3 scripts/ci/check_test_impact.py --files synapse-web/src/routes/voice.rs | 同上（脚本自身改动）

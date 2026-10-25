@@ -20,7 +20,7 @@
 | **R2** | `cargo test --doc` 是编译门禁，不是执行覆盖（4 个 doc test 全 `#[ignore]`） | 文档示例 | 已知并登记 |
 | **R3** | 572 处 `else { return; }` 静默跳过**残留模式**（当前恒 `Some`，但 R1 已证明该模式会复活） | 全 integration 面 | **✅ 已止损**：7 处 fail-open 夹具改 panic + 守卫禁新增（§4.1.1）；调用点本身保留为死代码 |
 | **R3** | 测试替身与生产 crate 未做特性隔离（MAINT-01） | unit 层 mock 语义 | 已登记不修 |
-| **R3** | 回归范围按"改了哪个文件"选，而非"影响哪些契约" | 跨路径契约（ARCH-02 等价用例曾静默腐烂） | 流程债 |
+| **R3** | 回归范围按"改了哪个文件"选，而非"影响哪些契约" | 跨路径契约（ARCH-02 等价用例曾静默腐烂） | **✅ 已建机制**：`test_impact_map` + 提交前提示（§4.3.1） |
 
 **没有发现**的（同样重要，见 §5）：无裸 `#[ignore]`、无"形状测试冒充覆盖"、无生产代码
 `cfg!(test)` 短路、by-design unsupported 有双向门禁、棘轮上调有逐条归因。
@@ -222,10 +222,28 @@ ARCH-02 等价用例**一直红着**，当次只跑了 `api_sliding_sync_routes_
 已在 NEW-11 那笔修复（`36242da93`），但**根因没修**：提交时选测试范围的判据是"改了哪个文件"，
 不是"影响哪些契约"。
 
-补（**P1**）：维护一张"改动面 → 必须复跑的跨路径套件"映射（至少三条：
-`rooms` 结构 → `sync_path_equivalence_tests`；`power_levels` → `api_power_levels_v12_creator_tests`；
-路由字面量 → 契约链 9 步）。可做成 `preflight` 的一步：按 `git diff --name-only` 匹配前缀，
-打印"本改动要求复跑：…"，**不自动跑**（全量 integration 42 分钟，不能塞进 pre-commit）。
+#### 4.3.1 已落地（2026-10-25）
+
+新增 `scripts/ci/test_impact_map`（映射表）+ `scripts/ci/check_test_impact.py`（渲染成可粘贴命令），
+接入 preflight 作**提示步骤**（新增 `advise()` 函数，恒 exit 0，与 `run()` 区分）。
+
+设计要点（都是踩过坑才知道的）：
+
+- **默认只看暂存区**，暂存为空才回退"HEAD 差异 + 未跟踪"。本仓常有多会话共用工作区，
+  看 `git diff HEAD` 会把别人的在飞改动也报进来 —— 提示一旦变成噪声就会被无视（实测第一次
+  试跑就报了同事改的 `tags.rs` 与 `migrations/*`）。需要看全树时用 `--all`。
+- **三种动作**：`nextest:<E 表达式>`（拼成完整 `cargo nextest` 命令）、`shell:<命令>`（契约链这种）、
+  `note:<文本>`（没有自动化判据的事，如"`ROUTE_CONTRACT.md` 头部日期那 1 行要提交掉")。
+- **不做硬门禁**：全量 integration 42 分钟，塞进 pre-commit 的唯一后果是所有人学会 `--no-verify`。
+- **表里优先写真踩过坑的行**：`rooms` 结构 → 等价用例（NEW-17）、`power_levels` → v12 创建者
+  （C-7）、`voice.rs` → 体积上限（CVE-2026-102592）、`.sqlx`/`migrations` → 生成脚本与文档块。
+  "改了 A 就跑 A 的测试"这种本来就没人会忘，不写。
+- 表自身也有自检行：改 `test_impact_map` ⇒ 提示用已知命中路径跑一次
+  （格式错会让脚本直接 exit 1，比默默不命中好）。
+
+判据：`--files synapse-services/src/sliding_sync_service/timeline.rs` ⇒ 命中并渲染出
+`-E 'test(sync_path_equivalence_tests)'`；`--files docs/README.md` ⇒ "未命中"；暂存 1 个文件时
+只对比 1 个（不报别人的）；`check_gate_reachability` 56 个 check_* 全可达。
 
 ## 5 已排除（看着像，但查证不成立）
 
@@ -247,7 +265,7 @@ ARCH-02 等价用例**一直红着**，当次只跑了 `api_sliding_sync_routes_
 | 2 | 9 条安全用例的变异自证 —— **1/9 已做**（voice 体上限那条），其余 8 条待补 | 中 | 每条留一次红-绿记录 |
 | ~~3~~ | ~~572 处调用点收口~~ → **✅ 改做「守夹具本体」**：7 处 fail-open 夹具改 panic + 新增 `check_test_setup_fail_closed.py` 守卫（接入 preflight） | 中 | 探针文件 ⇒ 守卫 exit 1；真实 4+1 族 53 passed（详见 §4.1.1） |
 | ~~4~~ | ~~`--new-file-floor 30 → 50`~~ **✅ 已完成** | 1 行 + 3 处文档同步 | 已验：40% 假 lcov ⇒ exit 1；50% ⇒ exit 0 |
-| 5 | "改动面 → 必跑套件"映射 + preflight 提示 | ~1 h | 改 `rooms` 结构但不跑等价套件 ⇒ preflight 应打印提示 |
+| ~~5~~ | ~~"改动面 → 必跑套件"映射 + preflight 提示~~ **✅ 已完成**（`test_impact_map` + `check_test_impact.py` + preflight `advise` 步骤） | ~1 h | 改 `rooms` 结构 ⇒ 提交前自动打印 `-E 'test(sync_path_equivalence_tests)'`（详见 §4.3.1） |
 | 6 | 性能断言改相对阈值（`p95_target/p95_baseline`） | 中 | 注入慢查询 ⇒ 该 gate 红 |
 | 7 | 覆盖率为 0% 但有生产入口的 3 个文件各补一条冒烟 | 低 | 覆盖率脚本现算 > 0 |
 | 8 | `test_mocks/` 差异声明守卫 | 中 | 新增一个 `unimplemented!` 未登记 ⇒ 红 |

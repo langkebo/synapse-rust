@@ -43,6 +43,21 @@ run() { # run <描述> <命令...>
         fail=1
     fi
 }
+# advise <命令...>：**只打印、不参与结论**。用于"该提醒但不该阻断"的步骤
+# （例：改动面 → 必跑套件映射）。为什么必须在 preflight 里而不是只在文档里：
+# 2026-10-24 的 NEW-17 改了 `rooms` 的序列化结构，当次只跑 routes 测试，
+# 三条跨路径等价用例静默红了近两小时 —— 提示要出现在**提交前**才有用。
+# 它也不能用 run：全量 integration 是 42 分钟，塞进 pre-commit 会把提交变成不可用。
+advise() {
+    local desc="$1"
+    shift
+    if "$@" >/tmp/preflight_advise.log 2>&1; then
+        cat /tmp/preflight_advise.log
+    else
+        echo "NOTE $desc —— 提示步骤自身失败，不影响本次结论（请单独跑一遍看原因）"
+        tail -5 /tmp/preflight_advise.log
+    fi
+}
 
 # 改动集 = 已暂存 ∪ 未暂存（pre-commit 时改动已暂存，故两者都要看）
 # 未跟踪的新文件也必须进改动集：`git diff` 看不到它们，而"新增一个 .py/.md 忘了格式化"
@@ -156,6 +171,13 @@ run "check_shape_only_tests.py" python3 scripts/ci/check_shape_only_tests.py
 # 见 `docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md` §2；守的是夹具本体而不是 559 个调用点。
 step "测试：夹具不得 fail-open（R1）"
 run "check_test_setup_fail_closed.py" python3 scripts/ci/check_test_setup_fail_closed.py
+
+# 改动面 → 必跑套件（**提示，不阻断**）。
+# 2026-10-24 的 NEW-17 改了 `rooms` 的序列化分桶，当次只跑 routes 测试，三条跨路径等价用例
+# 静默红了近两小时 —— 这类"改了 A 却该跑 B 的测试"不在任何单文件的视野里，只能在提交前提示。
+# 用 advise 而不是 run：跑不跑得成不该决定这次提交，漏跑才是真问题。
+step "测试：改动面 → 必跑套件（提示，不阻断）"
+advise "check_test_impact.py" python3 scripts/ci/check_test_impact.py
 
 # 活文档里的 `scripts/...` 引用必须解析到真实文件（NEW-04）。归档与 .workbuddy 笔记不查：
 # 那里写"当年调用过 X，已删除"是**历史叙述**，要求它存在就是错的。部署文档的相对路径
