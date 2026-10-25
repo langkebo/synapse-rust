@@ -76,7 +76,9 @@ def strip_line_comments(text: str) -> str:
     历史原因），不剥就会把自己刚修好的函数再报一遍 —— 首次运行就踩到（`mod.rs:650`）。
     只剥**整行**注释，不动行内 `//`（避免误伤 `"http://…"` 之类的字符串字面量）。
     """
-    return "\n".join(line for line in text.split("\n") if not line.lstrip().startswith("//"))
+    return "\n".join(
+        line for line in text.split("\n") if not line.lstrip().startswith("//")
+    )
 
 
 def function_body(lines: list[str], start: int, indent: int) -> str:
@@ -84,7 +86,11 @@ def function_body(lines: list[str], start: int, indent: int) -> str:
     body: list[str] = []
     for index in range(start + 1, min(start + 400, len(lines))):
         current = lines[index]
-        if current.strip() and len(current) - len(current.lstrip()) <= indent and FN_DEF.match(current):
+        if (
+            current.strip()
+            and len(current) - len(current.lstrip()) <= indent
+            and FN_DEF.match(current)
+        ):
             break
         body.append(current)
     return strip_line_comments("\n".join(body))
@@ -118,19 +124,23 @@ def main() -> int:
             if reasons:
                 violations.append((rel, index + 1, name, " / ".join(reasons)))
 
-    print(f"扫描 tests/**/*.rs：夹具型 `-> Option<…>` 函数 {scanned} 个；白名单 {len(allowlist)} 项")
+    print(
+        f"扫描 tests/**/*.rs：夹具型 `-> Option<…>` 函数 {scanned} 个；白名单 {len(allowlist)} 项"
+    )
     if violations:
         print(f"\nFAIL fail-open 夹具 {len(violations)} 处（缺库时会把空跑记成 ok）：")
         for rel, line, name, reason in violations:
             print(f"  {rel}:{line}  {name}  [{reason}]")
         print(
-            "\n修法：改成 `match … { Ok(x) => x, Err(e) => panic!(\"<哪个夹具> failed: {e} — refusing to skip-as-pass\") }`，\n"
+            '\n修法：改成 `match … { Ok(x) => x, Err(e) => panic!("<哪个夹具> failed: {e} — refusing to skip-as-pass") }`，\n'
             "或直接 `super::skip_or_fail_without_db();`。仅当『无库不跑』是设计意图时才登记白名单并写明理由。\n"
             "背景：docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md §2"
         )
         return 1
 
-    print("OK 没有 fail-open 的测试夹具：缺库/建池失败一律 panic，不会静默把空跑记成通过")
+    print(
+        "OK 没有 fail-open 的测试夹具：缺库/建池失败一律 panic，不会静默把空跑记成通过"
+    )
     return 0
 
 

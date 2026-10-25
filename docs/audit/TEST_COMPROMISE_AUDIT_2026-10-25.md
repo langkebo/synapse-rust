@@ -151,6 +151,45 @@ Summary: 7 tests run: 7 passed
 | **P2** | 给 0% 文件中**有生产入口**的（`src/server/router.rs`、`src/tasks/mod.rs`、`synapse-common/logging.rs`）建"提升到 30%"的一次性任务，逐文件记账（**不是**一刀切重贴全局下限 —— 那会重演 188 文件红） |
 | **P2** | 把 coverage 加进 PR 车道（可只跑受影响 crate 的 lcov，用 `cargo llvm-cov -p <crate>` 降成本） |
 
+### 3.1.1 覆盖率基线可以被一次「不完整报告」清零（本次审计中新发现 + 已修）
+
+**缺陷**：`scripts/check_file_coverage.py` 的 `main()` 里
+
+```python
+save_path = args.save_baseline or args.baseline     # 不传 --save-baseline 也写回基线
+save_baseline(save_path, current, previous=baseline)
+```
+
+而 `save_baseline()` 的实现是 `{p: max(prev, cur) for p, cur in files.items()}` ——
+只遍历**本次 lcov** 的键。两者叠加：**拿一份不完整的 lcov 跑一次，基线里没出现在本次报告中的
+条目会被整批丢掉**。
+
+**为什么这不只是理论**：CI 的 `Per-file coverage ratchet (B.3)` 步骤**故意不传**
+`--save-baseline`，靠的正是这个默认写回在 main 上自动收紧（`--save-baseline` 只有
+bootstrap 步骤显式传）。所以"默认写回"是正确的设计，缺的是**合并时保留 previous 的键**。
+
+**实测后果（2026-10-25，我自己踩的）**：做 §3.1 的门槛双向验证时，用一条假记录的 lcov
+（`SF:synapse-common/src/ramp_up_probe.rs`）跑脚本 —— `coverage_baseline.json` 从
+**608 条变成 1 条**。棘轮当场报废：之后所有历史文件都变"新文件"，只受 ramp-up 门槛约束，
+"已入库文件不得回退"那一半彻底失效。而且**整个过程没有一行警告**，`git status` 里只显示
+`M scripts/ci/coverage_baseline.json`，看起来像"别人的在飞改动"。
+
+**修法**：`merged` 先从 `previous` 复制全量，再对本次报告里的文件取 `max`；保存后打印
+「N 个文件本次测量，M 个条目保留自上次」。代价是被删除/重命名的文件旧条目会留在基线里
+（棘轮只增不减，无害；重命名后的新路径按"新文件"受 ramp-up 约束，那本来就是 policy 想要的压力）。
+
+**三向验证**（每次跑完立即 `git checkout` 还原）：
+
+| 场景 | 结果 |
+|---|---|
+| 不完整报告（1 条假记录） | 修复前 **608 → 1**；修复后 **608 → 609**，并打印「1 个文件本次测量，608 个条目保留自上次」 |
+| 某文件覆盖率下降（`synapse-cache/health.rs` 100% → 假报 50%） | 保存后仍 **100%** —— `max` 的单调语义未被破坏 |
+| 还原 | `git checkout` 后回到 608 条 |
+
+⚠️ **通用教训**：跑"检查类"脚本前先确认它有没有写副作用。本脚本名字叫 `check_*`，
+却在默认参数下**改写**基线 —— 这类"检查即写入"的形态在做门槛验证（喂假数据）时最危险。
+本轮之后凡是用假 lcov/假数据跑它，都必须先 `cp` 备份、跑完 `git checkout` 还原。
+
 ### 3.2 性能验收只有报告，没有断言
 
 `tests/performance/appservice_scheduler_perf_tests.rs` 的 **2 条用例全部** `#[ignore]`（`reason` 写明

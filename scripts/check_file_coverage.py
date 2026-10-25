@@ -144,10 +144,30 @@ def save_baseline(
     the new, worse value — the next run would then accept the regression. With
     `previous`, each entry keeps `max(previous, current)`, so the baseline can
     only tighten. Deliberately lowering a floor is an explicit edit of this file.
+
+    ## `previous` 里**没出现在本次报告**的条目必须保留（2026-10-25 修复）
+
+    此前实现是 `{p: max(prev, cur) for p, cur in files.items()}` —— 只遍历**本次 lcov**
+    的键，于是 `previous` 里多出来的条目被整批丢掉。
+
+    而调用方 `main()` 的 `save_path = args.save_baseline or args.baseline` 意味着
+    **不传 `--save-baseline` 也会写回基线**（CI 的 "Per-file coverage ratchet (B.3)"
+    正是靠这个默认行为在 main 上自动收紧）。两者叠加后的真实故障：拿一份**不完整**的
+    lcov（只跑了几个测试、或做门槛验证用的最小报告）跑一次，608 条基线会被截断成 1 条 ——
+    棘轮当场报废，之后所有历史文件都变"新文件"，只受 ramp-up 门槛约束。
+
+    实测（2026-10-25）：用 `SF:synapse-common/src/ramp_up_probe.rs` 一条假记录的 lcov
+    跑门槛验证，`coverage_baseline.json` 从 608 条变成 1 条。见
+    `docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md` §3.1.1。
+
+    代价：文件被删除 / 重命名后旧条目会留在基线里（棘轮只增不减，无害；重命名后的新路径
+    按"新文件"受 ramp-up 约束，那本来就是 policy 想要的压力）。
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     previous = previous or {}
-    merged = {p: max(float(previous.get(p, 0.0)), float(v)) for p, v in files.items()}
+    merged = {p: float(v) for p, v in previous.items()}
+    for path_key, value in files.items():
+        merged[path_key] = max(float(previous.get(path_key, 0.0)), float(value))
     payload = {
         "files": [
             {"path": p, "line_pct": round(v, 2)} for p, v in sorted(merged.items())
@@ -627,6 +647,14 @@ def main() -> int:
 
     save_path = args.save_baseline or args.baseline
     save_baseline(save_path, current, previous=baseline)
+    # 把"这次报告里没有、但基线保留下来"的条目数打出来：不打印的话，一份不完整的 lcov
+    # 会**静默**让基线缩水（曾经的故障形态，见 `save_baseline` 的 docstring）。
+    retained = len(set(baseline) - set(current))
+    if retained:
+        print(
+            f"baseline {save_path}: {len(current)} 个文件本次测量，"
+            f"{retained} 个条目保留自上次（未出现在本次报告里，不删）"
+        )
 
     return exit_code
 

@@ -41,7 +41,11 @@ VALID_ACTIONS = ("nextest:", "shell:", "note:")
 
 def _git(*args: str) -> list[str]:
     result = subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True)
-    return [line.strip() for line in result.stdout.splitlines() if line.strip()] if result.returncode == 0 else []
+    return (
+        [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        if result.returncode == 0
+        else []
+    )
 
 
 def changed_files(whole_tree: bool = False) -> list[str]:
@@ -55,7 +59,10 @@ def changed_files(whole_tree: bool = False) -> list[str]:
         staged = _git("diff", "--cached", "--name-only")
         if staged:
             return sorted(set(staged))
-    return sorted(set(_git("diff", "--name-only", "HEAD")) | set(_git("ls-files", "--others", "--exclude-standard")))
+    return sorted(
+        set(_git("diff", "--name-only", "HEAD"))
+        | set(_git("ls-files", "--others", "--exclude-standard"))
+    )
 
 
 def load_map() -> list[tuple[str, str, str]]:
@@ -70,10 +77,14 @@ def load_map() -> list[tuple[str, str, str]]:
         elif len(parts) == 3:
             pattern, action, reason = (part.strip() for part in parts)
         else:
-            print(f"FAIL {MAP.name}:{lineno} 格式应为 `<glob> | <动作> | <理由>`：{raw.strip()[:60]}")
+            print(
+                f"FAIL {MAP.name}:{lineno} 格式应为 `<glob> | <动作> | <理由>`：{raw.strip()[:60]}"
+            )
             sys.exit(1)
         if not action.startswith(VALID_ACTIONS):
-            print(f"FAIL {MAP.name}:{lineno} 动作必须以 {' / '.join(VALID_ACTIONS)} 开头：{action}")
+            print(
+                f"FAIL {MAP.name}:{lineno} 动作必须以 {' / '.join(VALID_ACTIONS)} 开头：{action}"
+            )
             sys.exit(1)
         entries.append((pattern, action, reason))
     return entries
@@ -91,8 +102,12 @@ def render(action: str) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(add_help=True)
-    parser.add_argument("--files", nargs="*", default=None, help="显式给改动文件（默认看暂存区）")
-    parser.add_argument("--all", action="store_true", help="改看整棵工作区（含别人未提交的改动）")
+    parser.add_argument(
+        "--files", nargs="*", default=None, help="显式给改动文件（默认看暂存区）"
+    )
+    parser.add_argument(
+        "--all", action="store_true", help="改看整棵工作区（含别人未提交的改动）"
+    )
     parser.add_argument("--quiet", action="store_true", help="无命中时不打印")
     args = parser.parse_args()
 
@@ -110,7 +125,9 @@ def main() -> int:
 
     if not hits:
         if not args.quiet:
-            print(f"改动面 → 必跑套件：对比 {len(files)} 个文件，未命中任何映射（无需额外套件）")
+            print(
+                f"改动面 → 必跑套件：对比 {len(files)} 个文件，未命中任何映射（无需额外套件）"
+            )
         return 0
 
     print(f"改动面 → 必跑套件：对比 {len(files)} 个文件，命中 {len(hits)} 条映射")
