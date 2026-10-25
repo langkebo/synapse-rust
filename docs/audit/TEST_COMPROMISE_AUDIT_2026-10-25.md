@@ -190,6 +190,63 @@ bootstrap 步骤显式传）。所以"默认写回"是正确的设计，缺的�
 却在默认参数下**改写**基线 —— 这类"检查即写入"的形态在做门槛验证（喂假数据）时最危险。
 本轮之后凡是用假 lcov/假数据跑它，都必须先 `cp` 备份、跑完 `git checkout` 还原。
 
+### 3.1.2 基线里的 0% 有一部分是「陈旧」，不是「缺测试」（2026-10-25 实测）
+
+原本 §6 第 7 项写的是"给 3 个 0% 但**有生产入口**的文件各补一条冒烟"。动手前先做了一次插桩探测，
+结论是**前提部分不成立**：
+
+```bash
+cargo llvm-cov --test integration --features "…" --lcov --output-path /tmp/router_probe.info -- server_router_assembly
+# 3 passed；产物里：
+#   SF:…/src/server/router.rs   LF:35  LH:29
+```
+
+两条腿各跑一次（`--workspace --lib --all-features` 与 `--test integration`），差异一目了然：
+
+| 文件 | 基线记录 | lib 腿 | integration 腿 | 判定 |
+|---|---|---|---|---|
+| `src/server/router.rs` | **0.0%** | 0/35 | **29/35 = 82.9%** | **基线陈旧**，不缺测试 |
+| `src/tasks/mod.rs` | 0.0% | 0/203 | 0/203 | **真缺口**（203 行，两条腿都不执行） |
+| `synapse-common/src/logging.rs` | 0.0% | 0/49 | 该腿不编译它 | 真缺口，但属**进程启动路径**（只在 `src/server/telemetry.rs` 的 `init_logging` 里被调） |
+| `src/server/telemetry.rs` | 0.0% | 0/18 | 0/18 | 同上（启动期一次性初始化） |
+
+读数说明：
+
+- `router.rs` 在 lib 腿 0%、integration 腿 82.9% —— **完全对上"基线按 `--lib` 口径生成"的假设**，
+  这是本次"基线陈旧"判定最硬的一条证据。
+- `tasks/mod.rs` 两条腿都 0/203 ⇒ 不是口径问题，是**真的没有任何测试执行过那 203 行**。
+  它是后台维护任务（清理/修剪/监控），正是"出错没人发现"的典型形态——这也是第 7 项里**唯一**
+  站得住的"该补测试"目标。
+- `logging.rs` / `telemetry.rs` 的 0% 属"进程启动一次性初始化"，补测试要连 tracing subscriber 与
+  OTLP exporter，收益低于 `tasks`。**登记为已知缺口，不排期**。
+
+`build_router` 被 `tests/integration/mod.rs::production_app` 调用，而几乎所有集成测试都走那个
+装配入口 —— 逻辑上不可能 0%。口径差异的来源，是文档与实现不一致：
+
+- `docs/coverage_policy.md` §2 写「CI 用 `cargo llvm-cov --workspace --lib`（+ `-p synapse-storage --lib`）」
+- `scripts/ci/run_coverage.sh` 步骤 2 实际是 `cargo llvm-cov --workspace --exclude synapse-storage`
+  —— **不带 `--lib`**，会跑全部 test target（含 integration）
+- `check_file_coverage.py` 的注释也沿用旧口径（「`cargo llvm-cov --workspace --lib` never executes
+  a binary entry point」）
+
+⇒ 基线很可能是按 `--lib` 口径生成的（那时 integration 不计入，`router.rs` 自然是 0%），之后
+`run_coverage.sh` 改成全 target 却没重测基线。**这类"基线记录的是旧口径"的条目，补测试毫无用处**
+—— 覆盖率仍按旧数记；只有**重测**才能修正。
+
+而"重测"这件事，正好被 §3.1.1 的修复解锁了：在此之前，任何一次不完整的 lcov 都会把基线截断，
+所以"随手跑一次局部覆盖 + save-baseline"是危险操作；现在合并会保留 previous 的键，才可以安全地
+用局部报告增量收紧。
+
+**行动改判**：第 7 项从"补 3 条冒烟"拆成两件互不相同的事：
+
+1. **重测基线**（跑一次完整覆盖率腿 + `--save-baseline`）—— 只有这样才能把 `router.rs` 这类
+   "陈旧 0%" 抬起来。59 个 0% 里有多少属于这一类，现在还不知道，只能靠重测分流。
+2. **补 `src/tasks/mod.rs` 的测试** —— 它是唯一经两条腿验证、确实是 0 执行的生产模块（203 行，
+   后台维护任务）。补法不是"一条冒烟"：需要可控时钟 + 库里造出待清理数据 + 断言"清理了什么、
+   留下了什么"，属独立一笔。
+
+`logging.rs` / `telemetry.rs` 登记为已知缺口不排期（启动路径，收益低）。
+
 ### 3.2 性能验收只有报告，没有断言
 
 `tests/performance/appservice_scheduler_perf_tests.rs` 的 **2 条用例全部** `#[ignore]`（`reason` 写明
@@ -317,5 +374,5 @@ ARCH-02 等价用例**一直红着**，当次只跑了 `api_sliding_sync_routes_
 | ~~4~~ | ~~`--new-file-floor 30 → 50`~~ **✅ 已完成** | 1 行 + 3 处文档同步 | 已验：40% 假 lcov ⇒ exit 1；50% ⇒ exit 0 |
 | ~~5~~ | ~~"改动面 → 必跑套件"映射 + preflight 提示~~ **✅ 已完成**（`test_impact_map` + `check_test_impact.py` + preflight `advise` 步骤） | ~1 h | 改 `rooms` 结构 ⇒ 提交前自动打印 `-E 'test(sync_path_equivalence_tests)'`（详见 §4.3.1） |
 | 6 | 性能断言改相对阈值（`p95_target/p95_baseline`） | 中 | 注入慢查询 ⇒ 该 gate 红 |
-| 7 | 覆盖率为 0% 但有生产入口的 3 个文件各补一条冒烟 | 低 | 覆盖率脚本现算 > 0 |
+| ~~7~~ | ~~覆盖率为 0% 的 3 个文件各补冒烟~~ → **❌ 前提部分不成立**：实测 `src/server/router.rs` **29/35 = 82.9%**，基线记 0.0% ⇒ **基线陈旧**（口径从 `--lib` 改成全 target 后没重测）。行动改为**重测基线**，再判断谁是真缺口（§3.1.2） | 中 | 跑一次完整覆盖率腿 + `--save-baseline`，看 59 个 0% 里有多少抬起来 |
 | 8 | `test_mocks/` 差异声明守卫 | 中 | 新增一个 `unimplemented!` 未登记 ⇒ 红 |
