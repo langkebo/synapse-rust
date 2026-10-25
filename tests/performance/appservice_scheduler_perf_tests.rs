@@ -506,4 +506,128 @@ mod tests {
         assert_eq!(total_requests, expected_total_requests);
         assert!(tick_count <= 9, "mixed backlog should drain within nine ticks under current capacity defaults");
     }
+    /// 与墙钟冒烟共用的清理：把这些表恢复到空，并重置自增 id。
+    async fn truncate_appservice_perf_tables(pool: &PgPool) {
+        sqlx::query(
+            "TRUNCATE application_service_statistics, application_service_transactions, \
+             application_service_events, application_service_users, \
+             application_service_room_namespaces, application_service_room_alias_namespaces, \
+             application_service_user_namespaces, application_services RESTART IDENTITY CASCADE",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    /// 跑 `iterations` 次 `get_statistics` 的总纳秒数（**含一次预热**，见下）。
+    ///
+    /// 用 `as_nanos()` 而不是 `as_millis()`：小规模下毫秒整数会全落成 0，
+    /// 比值退化成分母为零 —— 那正是"看起来合理、其实什么都没有测"的形态。
+    async fn measure_statistics_total_ns(
+        storage: &ApplicationServiceStorage,
+        expected_rows: usize,
+        iterations: usize,
+    ) -> u128 {
+        // 预热一次：首个查询会付连接池取连接、语句缓存、plan cache 的一次性成本，
+        // 把它算进小规模会**抬高**分母、让退化看起来更小（假绿方向）。
+        let warmup = storage.get_statistics().await.unwrap();
+        assert_eq!(warmup.len(), expected_rows, "种子数据的服务数不对，后续比值没有意义");
+        let started_at = Instant::now();
+        for _ in 0..iterations {
+            let rows = storage.get_statistics().await.unwrap();
+            assert_eq!(rows.len(), expected_rows);
+        }
+        started_at.elapsed().as_nanos()
+    }
+
+    /// 参照单位：同一 pool 上「一次最简查询往返」的平均纳秒数。
+    ///
+    /// 为什么需要它：per-service 成本的**绝对值**依赖机器；而"每服务涨了多少倍"抓不到 N+1 ——
+    /// N+1 是"每行固定多一次查询"，每服务成本对 N 仍是常数。实测（2026-10-25）：给
+    /// `get_statistics` 注入 N+1 后，每服务成本从 13.1μs 涨到 181μs（14 倍），
+    /// 但小规模被同样拖慢，`per_service_large / per_service_small` 只从 0.55 变到 **1.08**
+    /// —— 用"复杂度比值"当阈值会**放过**它。
+    ///
+    /// 真正能表达退化的是「每行成本 ≈ 几次数据库往返」：好实现的全部工作在一次查询里完成，
+    /// 摊到 N 行 ⇒ 远小于 1；N+1 ⇒ 每行就是 1 次往返。
+    ///
+    /// 实测对照（2026-10-25，本机）：
+    /// | | 每行成本 | 折算往返次数 | 结果 |
+    /// |---|---|---|---|
+    /// | 正常实现 | 9.9μs / 5.1μs | **0.061 / 0.031** | PASS |
+    /// | 注入 N+1 | 187μs / 195μs | **0.985 / 1.026** | FAIL |
+    async fn measure_reference_query_ns(pool: &PgPool, iterations: usize) -> u128 {
+        let warmup: i64 = sqlx::query_scalar("SELECT 1::bigint").fetch_one(pool).await.unwrap();
+        assert_eq!(warmup, 1);
+        let started_at = Instant::now();
+        for _ in 0..iterations {
+            let _: i64 = sqlx::query_scalar("SELECT 1::bigint").fetch_one(pool).await.unwrap();
+        }
+        started_at.elapsed().as_nanos()
+    }
+
+    /// 线性度门禁（**故意不加 `#[ignore]`**）：`get_statistics` 的**每服务成本**不得随服务数增长。
+    ///
+    /// 与上面两条墙钟冒烟的分工：
+    /// - 那两条断言**绝对毫秒**，结果依赖机器负载，只能 `--run-ignored` 手工跑；
+    /// - 本条断言**相对量**（per-service 纳秒之比），同机同进程内自比，与机器速度无关 ⇒ 能进 CI。
+    ///
+    /// 它抓的是 **N+1 / 缺索引 / 全表扫描** 这类复杂度退化（4 倍服务数给出 4 倍以上每服务成本），
+    /// 不抓"整体慢 2 倍" —— 后者仍需人工基准（`TESTING.md` §四）。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn statistics_per_service_cost_does_not_grow_with_service_count() {
+        const SMALL: usize = 40;
+        const LARGE: usize = 160; // 4×
+        const ITERATIONS: usize = 60;
+        // 阈值语义：**每行读出成本折算成「几次数据库往返」**。取 0.5 的依据是本机实测两端：
+        //   正常实现：0.061（40 服务）/ 0.031（160 服务）—— 一次查询取回全部行，摊到 N 行；
+        //   注入 N+1：0.985 / 1.026 —— 每行再查一次，正好 ≈ 1 次往返。
+        // 0.5 落在两者之间：正常侧 8 倍余量，退化侧 2 倍超出。分子分母同机同 pool，与机器速度无关。
+        const MAX_ROUNDTRIPS_PER_ROW: f64 = 0.5;
+
+        let pool: Arc<PgPool> = match synapse_test_utils::prepare_isolated_test_pool().await {
+            Ok(pool) => pool,
+            // fail-closed：与 `docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md` §2 同口径。
+            // 本文件另两条 smoke 仍是 `eprintln!("Skipping …") + return`（它们 `#[ignore]`、手工跑，
+            // 影响面小），本条要进 CI，就必须缺库即 panic。
+            Err(error) => panic!(
+                "appservice statistics linearity gate: test database unavailable ({error}) — \
+                 refusing to skip-as-pass: the gate would look green without measuring anything"
+            ),
+        };
+
+        setup_appservice_perf_tables(pool.as_ref()).await;
+        let storage = Arc::new(ApplicationServiceStorage::new(&pool));
+
+        let mut totals = Vec::with_capacity(2);
+        for service_count in [SMALL, LARGE] {
+            truncate_appservice_perf_tables(pool.as_ref()).await;
+            seed_statistics_scenario(storage.as_ref(), ScenarioKind::EventOnly, service_count, 0, 0).await;
+            totals.push(measure_statistics_total_ns(storage.as_ref(), service_count, ITERATIONS).await);
+        }
+
+        let reference_ns = measure_reference_query_ns(pool.as_ref(), ITERATIONS).await as f64 / ITERATIONS as f64;
+        let per_row_small = totals[0] as f64 / (SMALL * ITERATIONS) as f64;
+        let per_row_large = totals[1] as f64 / (LARGE * ITERATIONS) as f64;
+        let cost_small = per_row_small / reference_ns;
+        let cost_large = per_row_large / reference_ns;
+        let worst = cost_small.max(cost_large);
+
+        println!(
+            "APPSERVICE_STATS_COST_PER_ROW small={SMALL} large={LARGE} iterations={ITERATIONS} \
+             reference_roundtrip={reference_ns:.0}ns per_row_small={per_row_small:.0}ns \
+             per_row_large={per_row_large:.0}ns cost_in_roundtrips_small={cost_small:.3} \
+             cost_in_roundtrips_large={cost_large:.3} limit={MAX_ROUNDTRIPS_PER_ROW}"
+        );
+
+        assert!(
+            worst < MAX_ROUNDTRIPS_PER_ROW,
+            "get_statistics 的**每行**成本达到 {worst:.2} 次数据库往返 \
+             （{per_row_small:.0}ns / {per_row_large:.0}ns，一次往返 {reference_ns:.0}ns，\
+             阈值 {MAX_ROUNDTRIPS_PER_ROW} 次）。\n\
+             正常实现把全部工作放在一次查询里、摊到 N 行，该值应远小于 1；接近或超过 1 \
+             意味着**每行又查了一次库**（N+1）或丢了索引。查 \
+             `synapse-storage/src/application_service/repository.rs` 的 get_statistics。"
+        );
+    }
 }

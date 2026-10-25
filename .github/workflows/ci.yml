@@ -1108,6 +1108,24 @@ jobs:
           RUST_LOG: info
         run: bash scripts/ci/require_tests_ran.sh cargo nextest run --test integration --features test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications,widgets --locked --test-threads 4 -E 'test(e2ee_audit_service_tests) | test(space_children_service_tests) | test(api_widget_tests)'
 
+      # ── 性能门禁：唯一一条「相对判据」的用例（2026-10-25）──────────────────
+      # 其余 perf 用例全是 `#[ignore]` + 只打印（按墙钟断言在 CI 上会假失败），等于没有性能门禁。
+      # 这一条不断言绝对毫秒，而是把 **get_statistics 的每行读出成本折算成「几次数据库往返」**
+      # （同机同 pool 自比），因此与机器速度无关：
+      #   正常实现 0.061 / 0.031；注入 N+1 后 0.985 / 1.026（阈值 0.5）。
+      # ⚠️ 判据选型的教训：一开始用「每服务成本随规模增长的倍数」，注入 N+1 后该比值只从 0.55
+      # 变到 1.08，**照样 PASS** —— N+1 是"每行固定多一次查询"，每服务成本对 N 仍是常数。
+      # 见 docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md §3.2.1。
+      - name: Appservice statistics cost gate (relative to a DB round-trip)
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DB_TEMPLATE_SCHEMA: test_template_ci
+          TEST_DB_ISOLATION: ${{ matrix.isolation }}
+          REDIS_URL: redis://localhost:6379
+          RUST_BACKTRACE: 1
+        run: bash scripts/ci/require_tests_ran.sh cargo nextest run --test performance_manual --features "performance-tests,test-utils" --locked --test-threads 1 -E 'test(statistics_per_service_cost)'
+
       # 隔离单元是整库，"漏一个"就是 20 MB + 一行 `pg_database`。把本地验收的
       # "残留 0"带进 CI：非零即红。挂在 `always()` 上，测试失败时也能分清是
       # "跑挂了"还是"顺手漏了库"。

@@ -16,7 +16,7 @@
 |---|---|---|---|
 | **R1** | `setup_fresh_test_app_with_config` fail-open ⇒ 9 条安全边界用例可静默假绿 | 语音上传体积上限（含 CVE-2026-102592 缓解）、媒体 2 MiB 边界、worker surface gate 窄化授权 | **✅ 已修复**（入口改 fail-closed + 9 处换 `skip_or_fail_without_db`，双向验证见 §2.4） |
 | **R2** | 覆盖率门禁不在 PR 车道；新文件达标线 30%；已入库文件无绝对下限 | 全仓覆盖率回归（事后才发现） | 制度性降标 |
-| **R2** | 性能验收只打印不断言（`appservice_scheduler_perf_tests` 全 `#[ignore]`） | appservice 调度器吞吐 | 设计内，但等于无性能门禁 |
+| **R2** | 性能验收只打印不断言（`appservice_scheduler_perf_tests` 全 `#[ignore]`） | appservice 调度器吞吐 | **🟡 已补 1 条**：`get_statistics` 每行成本折算往返次数，进 CI（§3.2.1）；其余仍 ignore |
 | **R2** | `cargo test --doc` 是编译门禁，不是执行覆盖（4 个 doc test 全 `#[ignore]`） | 文档示例 | 已知并登记 |
 | **R3** | 572 处 `else { return; }` 静默跳过**残留模式**（当前恒 `Some`，但 R1 已证明该模式会复活） | 全 integration 面 | **✅ 已止损**：7 处 fail-open 夹具改 panic + 守卫禁新增（§4.1.1）；调用点本身保留为死代码 |
 | **R3** | 测试替身与生产 crate 未做特性隔离（MAINT-01） | unit 层 mock 语义 | 已登记不修 |
@@ -257,8 +257,41 @@ cargo llvm-cov --test integration --features "…" --lcov --output-path /tmp/rou
 ⇒ 调度器积压、p95/p99 劣化**没有任何自动化拦截**；`P4_ci_gate_integrity` 那张待办表里的
 "给 p95 加真实断言（需先定稳定阈值）"至今未做。
 
-补（优先级 **P2**）：用**相对阈值**而不是绝对墙钟 —— 同一进程内先跑基线负载再跑目标负载，
-断言比值（如 `p95_target / p95_baseline < 1.5`），可消除机器差异；这类断言能进 CI。
+#### 3.2.1 已落地（2026-10-25）：一条「折算成数据库往返次数」的门禁
+
+新增 `tests/performance/appservice_scheduler_perf_tests.rs::statistics_per_service_cost_does_not_grow_with_service_count`，
+**故意不加 `#[ignore]`**，并接入 CI（`ci.yml` 的 Test & Lint job，`require_tests_ran.sh` 包裹）。
+
+判据：把 `get_statistics` 的**每行读出成本**折算成「几次数据库往返」——
+
+```
+reference_roundtrip = 同一 pool 上 SELECT 1::bigint 的平均耗时（机器速度单位）
+cost_per_row        = (总耗时 / (N × 迭代)) / reference_roundtrip
+断言 cost_per_row < 0.5
+```
+
+**为什么不是"复杂度比值"**（这一版是被变异自证推翻的）：
+
+第一版按"每服务成本随规模增长的倍数"写，阈值 1.5（正常实测 0.43–0.78）。注入 N+1 后
+每服务成本从 9.9μs 涨到 187μs（**19 倍**），但小规模被同样拖慢，比值只从 0.55 变到 **1.08**
+—— **照样 PASS**。原因很朴素：N+1 是"每行固定多一次查询"，每服务成本对 N 仍是常数，
+复杂度维度**看不见**它。所以"线性度/复杂度"只能抓"每行扫全表"，抓不到最常见的退化。
+
+实测对照（本机，2026-10-25）：
+
+| 实现 | 每行成本 | 折算往返次数 | 结果 |
+|---|---|---|---|
+| 正常（一次查询取全部行，摊到 N 行） | 9.9μs（N=40）/ 5.1μs（N=160） | **0.061 / 0.031** | PASS |
+| 注入 N+1（每行再 `SELECT COUNT(*)` 扫全表） | 187μs / 195μs | **0.985 / 1.026** | **FAIL** |
+
+阈值 0.5 落在两者之间：正常侧 8 倍余量，退化侧 2 倍超出。分子分母同机同 pool，与机器速度无关。
+
+**能抓什么、抓不到什么**（写清楚，免得被当成万能门禁）：
+- 抓：N+1、丢索引导致的全表扫描、把批量化改成逐行往返；
+- 抓不到：整体常数变慢（如换了个慢 2 倍的序列化库）—— 那仍需人工基准。
+
+**这仍然只是 1 条门禁**（取代 0 条），覆盖面是"统计查询"一条路径。其余 perf 用例保持 `#[ignore]`：
+它们的判据是绝对墙钟，进 CI 只会制造 flake。
 
 ### 3.3 `cargo test --doc` 是编译门禁
 
@@ -373,6 +406,6 @@ ARCH-02 等价用例**一直红着**，当次只跑了 `api_sliding_sync_routes_
 | ~~3~~ | ~~572 处调用点收口~~ → **✅ 改做「守夹具本体」**：7 处 fail-open 夹具改 panic + 新增 `check_test_setup_fail_closed.py` 守卫（接入 preflight） | 中 | 探针文件 ⇒ 守卫 exit 1；真实 4+1 族 53 passed（详见 §4.1.1） |
 | ~~4~~ | ~~`--new-file-floor 30 → 50`~~ **✅ 已完成** | 1 行 + 3 处文档同步 | 已验：40% 假 lcov ⇒ exit 1；50% ⇒ exit 0 |
 | ~~5~~ | ~~"改动面 → 必跑套件"映射 + preflight 提示~~ **✅ 已完成**（`test_impact_map` + `check_test_impact.py` + preflight `advise` 步骤） | ~1 h | 改 `rooms` 结构 ⇒ 提交前自动打印 `-E 'test(sync_path_equivalence_tests)'`（详见 §4.3.1） |
-| 6 | 性能断言改相对阈值（`p95_target/p95_baseline`） | 中 | 注入慢查询 ⇒ 该 gate 红 |
+| ~~6~~ | ~~性能断言改相对阈值~~ **✅ 已完成**：改成「每行成本折算数据库往返次数」（比 p95 比值更抗噪），注入 N+1 ⇒ 0.985/1.026 红；正常 0.061/0.031 绿（§3.2.1） | 中 | **已实测**：变异体 FAIL / 还原后 PASS，CI 同款命令 2.6s |
 | ~~7~~ | ~~覆盖率为 0% 的 3 个文件各补冒烟~~ → **❌ 前提部分不成立**：实测 `src/server/router.rs` **29/35 = 82.9%**，基线记 0.0% ⇒ **基线陈旧**（口径从 `--lib` 改成全 target 后没重测）。行动改为**重测基线**，再判断谁是真缺口（§3.1.2） | 中 | 跑一次完整覆盖率腿 + `--save-baseline`，看 59 个 0% 里有多少抬起来 |
 | 8 | `test_mocks/` 差异声明守卫 | 中 | 新增一个 `unimplemented!` 未登记 ⇒ 红 |
