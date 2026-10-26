@@ -1,7 +1,32 @@
 # Trait-count ratchet baseline (A5 / B4-1). See scripts/ci/check_trait_ratchet.py.
 # The numbers may only go DOWN. Bump them deliberately and say why.
-TOTAL=73
+TOTAL=75
 STORE_API=33
+#
+# 2026-10-26  TOTAL 73 -> 75 (+2) —— 棘轮回填（两个已合入但漏同步基线的接缝 trait）
+#   发现方式：审计 NEW-15/16 收尾跑门禁时 `check_trait_ratchet.py` 报 TOTAL=75 (baseline 73)；
+#     本次改动只改了 `BackgroundUpdateStoreApi::delete_update` 的**返回类型**、未新增 trait，
+#     差的 2 个来自下面两笔更早的提交（基线自 2026-10-18 起没跟上）。
+#   来源：
+#     · `pub trait ThreadEventPort` —— `3789583ef`「fix(thread): W3/ARCH-01 线程回复落规范 m.thread 事件」，
+#       synapse-services/src/thread_service.rs:222（`ensure_canonical_root` /
+#       `canonical_event_origin_server_ts` / `send_thread_reply`）。
+#     · `pub trait FriendDmMembershipSync` —— `0c14f1d00`「refactor(services): friend-DM 成员状态同步下沉 service 层」，
+#       synapse-services/src/room/membership/friend_dm_sync.rs:53（`sync_membership_state`）。
+#   为什么放行（与 2026-10-18 的 BlockedRelationChecker / DeviceKeyPurger 同一判据——依赖反转接缝）：
+#     · `ThreadEventPort`：`ThreadService` 只需"根是否存在 / 回复落成哪条事件 / 既有事件时间戳"
+#       三件事，若直接依赖 `RelationsService` + `MessagingService`，线程索引就被绑进整条事件写入链；
+#       接缝把依赖收窄成三个方法的读/写窄接口，生产实现
+#       `impl ThreadEventPort for CanonicalThreadEvents`（thread_service.rs:263）仍然复用**唯一**
+#       的事件写入口（`RelationsService::send_reference` → `MessagingService::create_event`），
+#       由 wiring/rooms.rs:270 装配。
+#     · `FriendDmMembershipSync`：成员层要在 ban/kick/unban 后镜像到好友 DM，而 `FriendRoomService`
+#       依赖 `RoomService` ⇒ 直接持有会成 `Arc` 环；接缝 + `Weak` 晚绑定断开环
+#       （friend_dm_sync.rs:10-17 记录了环的路径），生产实现
+#       `impl FriendDmMembershipSync for FriendRoomService`（friend_room_service/sync.rs:14）。
+#   两条都**没有测试假替身**：它们服务的是**分层解耦**（断 `Arc` 环 / 收窄跨服务依赖），
+#   不是纯单测可构造性 —— 与 2026-10-17 的三个注销 trait（有假替身、为可测性）互补。
+#   代价与边界：`STORE_API` 未动（33 == 33），存储抽象面没有放宽。
 #
 # 2026-10-18  TOTAL 71 -> 73 (+2) —— B-3/B-9 安全批次补记的两个 DI 接缝 trait（卫生债巡检）
 #   来源：
