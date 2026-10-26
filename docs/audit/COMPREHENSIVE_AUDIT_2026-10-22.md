@@ -66,14 +66,13 @@
 > 同轮再收口 **CODE-11**（`#[allow(...)]` 的 157 处无理由 / 94 文件全部补上 `// reason:`，棘轮基线
 > 由 `157/94` 收紧到 **0/0**；同时修掉棘轮自身「空基线 = 失败」的自相矛盾 —— 零无理由正是它的目标态，
 > 只有**缺文件**才 fail-closed）⇒ P3 `3 → 2`、合计 `6 → 5`。判据与变异见附录 D。
-> 2026-10-27（W13）收口 **NEW-20**（文件行数棘轮在 HEAD 上红）：处理方式是**先归因、再重设**，
-> 不是盲批 —— ① 用 `git log 6fa889a45..HEAD --numstat -- <file>` 把 67 条增长**逐文件**归因到
-> 具体提交（钉版之后共 +4201 行，全部落在已提交的审计修复 / RustCrypto 升级 / push rules /
-> worker W-I 批次里，无一条"无人认领"）；② 2 个新增 >600 行文件**不整表吸收而是拆到阈值内**
-> （`synapse-services/src/url_preview.rs` 607 → 445：内联测试外置为 `url_preview/tests.rs`；
-> `synapse-services/src/media/tests.rs` 646 → 591：格式化助手用例外置为 `media/format_tests.rs`）；
-> ③ 重设时**同时收紧** 19 条已缩小的 ceiling（−261 行），不是只放宽
-> ⇒ P2 `3 → 2`、合计 `5 → 4`。判据与变异见附录 D。
+> 2026-10-27（W13）收口 **NEW-20**（文件行数棘轮在 HEAD 上红）：处理方式由**人拍板**为
+> **整表 `--update` 一次性批准**（不逐条回溯、不拆文件）—— 67 条已入册增长与 2 个新增
+> >600 行文件（`synapse-services/src/url_preview.rs` 607、`synapse-services/src/media/tests.rs` 646）
+> **全部入册**，基线 220 → **222** 条；重设时把 19 条已缩小的 ceiling 一并收紧（−261 行），
+> 不是单向放宽 ⇒ P2 `3 → 2`、合计 `5 → 4`。判据与变异见附录 D。
+> 归因数据仍记在附录 D 备查（67 条增长 +4201 行、落在 33 个已提交批次，零条无人认领 ——
+> 这解释了"为什么这次批准不是盲批"）；此前试过的一版「归因 + 拆分」(`848a736ed`) 按拍板撤回。
 > ✅ NEW-19：`/send` 的线程回复现在同时进 `thread_relations` 与 `thread_replies`
 > （时间戳回查刚落库的事件，不用本地时钟；重试同一 txn 不重复计数）。
 > ✅ NEW-10：4 处手写轮询折成 `tests/common/mod.rs::wait_until`，测试域 `sleep` 计数
@@ -736,7 +735,7 @@ TEST_FILE 47 = 107**；测试域合计 81。
 | W10 | P2 数据层保留期：`to_device_messages` 按龄清理（PERF-01） | ✅ 本笔（见附录 D） |
 | W11 | P2 文件规模：9 个内联测试模块外移，7 个 >2000 行生产文件全部 ≤1557（ARCH-05） | ✅ 本笔（见附录 D；连带登记 NEW-20） |
 | W12 | P3 `#[allow]` 无理由存量清零（CODE-11）：157 处 / 94 文件逐个补 `// reason:`，基线 157/94 → 0/0；顺带把 fmt 棘轮从 9 清到 0 | ✅ 本笔（见附录 D；含"空基线 = 失败"的自相矛盾修正） |
-| W13 | P2 文件行数棘轮（NEW-20）：67 条增长逐文件归因后重设，2 个新增 >600 行文件拆到阈值内，同时收紧 19 条已缩小的 ceiling | ✅ 本笔（见附录 D；闸门 `file_size: 827 files scanned, 220 over 600 (baseline 220) → OK`） |
+| W13 | P2 文件行数棘轮（NEW-20）：按拍板走**整表 `--update` 一次性批准**，基线 220 → 222 条（67 条增长 + 2 个新增 >600 行文件全部入册），同时收紧 19 条已缩小的 ceiling | ✅ 本笔（见附录 D；闸门 `file_size: 825 files scanned, 222 over 600 (baseline 222) → OK`） |
 
 ### 10.2 下一批建议
 
@@ -752,7 +751,7 @@ W8 计划的三项（`TEST-05` → `NEW-05` → `FUNC-05`）已全部收口，�
 PERF-01 已于 W10 收口（`to_device_messages` 按龄清理 + 零天关闭开关，判据与变异见附录 D）；
 ARCH-05 已于 W11 收口（生产段全部 ≤1557 行，行数棘轮 7 条逐条收紧，变异自证见附录 D）；
 CODE-11 已于 W12 收口（`#[allow]` 无理由存量 157 → 0，基线 0/0，变异自证见附录 D）；
-NEW-20 已于 W13 收口（67 条增长逐文件归因后重设 + 2 个新增文件拆到阈值内，闸门转绿，见附录 D）。
+NEW-20 已于 W13 收口（按拍板整表 `--update` 一次性批准，基线 220 → 222 条，闸门转绿，见附录 D）。
 
 ### 10.3 明确不做（防止过度开发）
 
@@ -760,7 +759,7 @@ NEW-20 已于 W13 收口（67 条增长逐文件归因后重设 + 2 个新增文
 |---|---|
 | 为 CODE-10 设总数下降配额 | 会诱导写 `unwrap()` 来"减少计数" |
 | 整份重生成 `INDEXES.md` | 会让"索引治理"退化成"索引清单" |
-| 拆分测试文件（3 个 >2000 行） | 收益（并行编译）远低于冲突成本（为过 600 行准入线而做的小文件外移不在此列 —— W13 的 `media/tests.rs` 646 → 591 属于后者） |
+| 拆分测试文件（3 个 >2000 行） | 收益（并行编译）远低于冲突成本 |
 | 下架 voice 三端点 / `_synapse/admin/v1/backups` | 只登记不下架（by-design） |
 | 强行合并 `sync` 与 `sliding_sync` | 那是重写而非重构 |
 | 用朴素判据做"文档路径必须存在" | 实测 30 个悬挂里有 28 个是相对路径/历史叙述，会假红（NEW-04） |
@@ -890,4 +889,4 @@ NEW-20 已于 W13 收口（67 条增长逐文件归因后重设 + 2 个新增文
 | ARCH-05 | 7 个生产文件 >2000 行（`room/mod.rs` 2531、`membership/mod.rs` 2502、`refresh_token/mod.rs` 2478、`error.rs` 2442、`device/mod.rs` 2382、`config/mod.rs` 2324、`client.rs` 2086） | **已修（W11）**。**原判定错在"要证明拆分后行为不变"**：这 7 个文件超 2000 行的主因是**内联测试模块**（`error.rs` 生产段只到 1229 行，测试块 1251 行；`config/mod.rs` 1374 + 916；`room/mod.rs` 1532 + 967），把测试块外移**本身就是零行为变更**，模块路径仍是 `<父模块>::<name>`、`use super::*` 语义不变。**落地**：9 个内联测试模块外移到同级文件（`room/db_tests.rs`、`membership/{tests,db_tests}.rs`、`refresh_token/tests.rs`、`error/tests.rs`、`device/{tests,db_tests}.rs`、`config/tests.rs`、`client/tests.rs`），父文件只留 `#[cfg(test)] mod X;`（`#[allow(...)]` 留在声明上，lint 属性对模块内容同样生效）；拆后 7 个文件分别为 1557 / 1187 / 1258 / 1230 / 1373 / 1408 / 1448，**生产 `>2000` 行数 7 → 0**。**判据（可失败）**：`scripts/ci/file_size_baseline` 的 7 条逐条收紧（不是整表 `--update`）；给 `room/mod.rs` 追加 20 行 ⇒ 闸门报 `room/mod.rs: 1557 -> 1577`，删掉后该条目消失（两次实测）。编译：`cargo check` 覆盖 `synapse-common`/`synapse-federation`/`synapse-storage` 的 `--all-targets` 全绿零警告；测试：`error::tests` **78 passed**、`config::tests` **67 passed**、`room::db_tests` **44 passed**（真库）、`client::tests` **34 passed**、`membership::` **39**、`refresh_token::` **41**、`device::` **54**（后三条含真库 db 用例）。**连带**：外移出的 9 个测试文件里 7 个 >600 行按现状入册；并发现 `check_file_size_ratchet.py` 先前就在 HEAD 上红（67 条无关增长 + 2 个新增超限文件），登记为 **NEW-20**，未整表 `--update` |
 | **CODE-11** | `#[allow(...)]` 存量 **157 处无 `// reason:`（94 文件）**，棘轮当时只防"新增无理由"，存量理由一直是空白 | **已修（W12，2026-10-26）**：棘轮现算 **159 site / 0 处无 `// reason:`（0 文件）**，基线 0/0（关闭前 157 处 / 94 文件）。**落地**：94 个文件插入 **129 条** `// reason:`（其中 28 个属性同时抑制 2–3 个 lint，故 129 个属性位覆盖 157 个 lint 计数），理由按 lint 类给出而不是模板字面量 —— `too_many_arguments` 分三种（依赖注入构造器 / 与 SQL bind 列序一一对应的存储方法 / 测试夹具逐列造行）、`unwrap_used+expect_used+panic` 全部落在 `#[cfg(test)]` 模块或 test-mocks（"夹具/断言失败即应 panic"）、`unused_async` 落在 axum handler（"签名约束，body 无 await 不等于能去 async"）、`type_complexity` 落在 `Arc<RwLock<…>>` 的 fake 状态（复合键 HashMap / Vec 队列）与多字段元组返回、`module_inception` 落在既有 `search/mod.rs` 与 `config/tests.rs` 布局。**顺带修掉棘轮的自相矛盾**：`main()` 原把**空基线**判 `exit 2`，而 0 处无理由正是它的目标态（禁止自己成功），改为只有**基线文件缺失**才 fail-closed，扫描器为空的保护（`files == 0 or not sites`）保留；`doc_credibility_guard_tests::clippy_allow_counts_in_the_audit_match_the_ratchet_baseline` 的 `assert!(files > 0)` 同步换成说明注释（0 文件是合法终态）。**判据（三条实测）**：① `--update` 后门禁输出 `159 site(s) in 828 file(s); 0 unjustified in 0 file(s) (baseline 0 in 0 file(s))` / `OK` / `exit 0`；② **变异 1**：删掉 `synapse-common/src/regex_cache.rs` 的一条 `// reason:` ⇒ `FAIL: 1 file(s) have unjustified clippy allow(s) not in the baseline` / `exit 1`，还原 ⇒ 绿；③ **变异 2**：临时移走 `scripts/ci/clippy_allow_baseline` ⇒ `FAIL: baseline … missing — regenerate with --update (fail-closed)` / `exit 2`，还原 ⇒ 绿。**零编译影响**：改动只有注释行（`git diff --numstat` = 94 files / +129 / −0），不触碰任何 `#[allow]` 的属性内容与代码；**行数棘轮**：其中 18 个文件恰好被这 1–3 行顶过各自 ceiling，已逐条上调到新值（其余 67 条既有超限与 2 个未入册文件一概不动，`grown` 计数保持 67 ⇒ 未把 NEW-20 做大）；**格式化棘轮**：HEAD 上本就是红的 9 处（ARCH-05 外移出的 `config/tests.rs` 与 `client/tests.rs` 首行空行、`test_mocks/event.rs` 的对齐组），本笔一并清到 0 —— `check_fmt_ratchet.sh` 报 `current=0 baseline=0`、`cargo fmt --all -- --check` 0 退出 |
 | MAINT-01 | `synapse-common` 的 4 个测试基建模块（`test_database_guard` / `test_isolation` / `test_schema_guard` / `test_schema_orphans`）无条件编译，随每个生产二进制进入依赖图 | **已修（本提交）**：4 个模块改为 `#[cfg(any(test, feature = "test-utils"))]`。**为什么只能在测试侧打开**：依赖方的 `#[cfg(test)]` 对被依赖 crate 不可见，所以 `synapse-storage` / `synapse-e2ee` / `synapse-federation` / `synapse-services` / `synapse-web` 的**库内测试代码**看不到被关掉的模块 —— 只有把 `synapse-common/test-utils` 写进各自的 `[dev-dependencies]` 才成立；而 dev-dependency 的 feature 不并入非测试构建（resolver v2），生产依赖图因此保持干净。`synapse-test-utils` 是测试基建 crate 本身，走普通 `[dependencies]`。**判据**：`doc_credibility_guard_tests::test_infrastructure_is_feature_gated_and_never_ships_in_production` 四段断言（每个 `pub mod test_*;` 的紧邻上一行必须恰为 gate / 6 份消费者 manifest 的 `[dev-dependencies]` 必须含 `test-utils` 且 `[dependencies]` 必须不含 / `synapse-test-utils` 必须含 / 根 manifest 的 `synapse-test-utils` 必须 `optional` 且 `test-utils` feature 必须 `dep:synapse-test-utils`）；`cargo check --workspace --lib`（生产形态）与 `cargo check --workspace --all-targets --features test-utils`（规范测试形态）均 0 退出。**变异**：删掉 `test_isolation` 前的 gate ⇒ 红；去掉 `synapse-storage` dev 段的 `features = ["test-utils"]` ⇒ 红（两条均实测，还原后全绿） |
-| **NEW-20** | `check_file_size_ratchet.py` **在 HEAD 上就是红的**：67 个已入册文件涨过各自 ceiling，另有 2 个新增 >600 行文件未入册（`media/tests.rs` 646、`url_preview.rs` 607） | **已修（W13，2026-10-27）。处理方式：先归因、再重设，不是整表盲批**。① **归因**：以 `6fa889a45`（2026-10-20 上一次全表重设）为钉版，用 `git log 6fa889a45..HEAD --numstat -- <file>` 对 67 条**逐文件**回溯，合计 **+4201 行**，全部落在 **33 个已提交批次**里、**零条无人认领**；贡献最大的六批是 `157a911d0` 池化隔离 +868、`1ced60cd5` RustCrypto 升级 +357、`3cf5c006a` PERF-06/13/14 +346、`5f4a35d5e` 跨进程 schema 复用 +323、`1c8e706a6` B-19~B-21 +316、`575a2d5b8` push rules 排序锚点 +314；同期另有 **19 个文件缩小 261 行**。② **2 个新增文件拆到阈值内，不整表吸收**：`synapse-services/src/url_preview.rs` **607 → 445**（内联 `#[cfg(test)] mod tests` 外置为 `url_preview/tests.rs`，Rust 2018 的 `foo.rs` + `foo/tests.rs` 布局，模块路径与 `use super::*` 语义不变，共 140 行测试）；`synapse-services/src/media/tests.rs` **646 → 591**（尾部 7 条格式化助手用例外置为 `media/format_tests.rs`，父模块加 `#[cfg(test)] mod format_tests;`，`super::*` 指向不变）⇒ `new_offenders` **2 → 0**。③ **重设只改数字**：67 条上调、19 条**下调**（−261），不是单向放宽；门禁输出 `827 files scanned, 220 over 600 (baseline 220)` / `OK` / `exit 0`。**判据（两条变异实测，还原后均绿）**：① 给 `synapse-services/src/admin_user_service.rs` 追加 1 行 ⇒ `FAIL: 1 grandfathered file(s) grew past their ceiling: … 965 -> 966`；② 新建 601 行的 `synapse-services/src/tmp_new_offender.rs` ⇒ `FAIL: 1 file(s) exceed 600 lines and are not grandfathered` ⇒ 拆分/外移仍是新文件的唯一出路，本笔没有把任何新文件合法化。**未做的事**：ARCH-04（`events` 分区）仍等真实数据量，CODE-10（837 处静默忽略）仍是登记项且不设配额 |
+| **NEW-20** | `check_file_size_ratchet.py` **在 HEAD 上就是红的**：67 个已入册文件涨过各自 ceiling，另有 2 个新增 >600 行文件未入册（`media/tests.rs` 646、`url_preview.rs` 607） | **已关闭（W13，2026-10-27）。处理方式由人拍板为「整表 `--update` 一次性批准」**：不逐条回溯、不拆文件，67 条增长与 2 个新增文件**全部入册**，基线 220 → **222** 条。**归因备查**（说明这次批准不是盲批）：以 `6fa889a45`（2026-10-20 上一次全表重设）为钉版，用 `git log 6fa889a45..HEAD --numstat -- <file>` 对 67 条**逐文件**回溯，合计 **+4201 行**，全部落在 **33 个已提交批次**里、**零条无人认领**；贡献最大的六批是 `157a911d0` 池化隔离 +868、`1ced60cd5` RustCrypto 升级 +357、`3cf5c006a` PERF-06/13/14 +346、`5f4a35d5e` 跨进程 schema 复用 +323、`1c8e706a6` B-19~B-21 +316、`575a2d5b8` push rules 排序锚点 +314；同期另有 **19 个文件缩小 261 行**。② **两个新增文件入册，不拆**：`synapse-services/src/url_preview.rs` **607**、`synapse-services/src/media/tests.rs` **646** 各自成为 grandfathered 条目（自此合法，且**只许降**）。③ **重设只改数字**：67 条上调 + 2 条新增、19 条**下调**（−261），不是单向放宽；门禁输出 `825 files scanned, 222 over 600 (baseline 222)` / `OK` / `exit 0`。**判据（两条变异实测，还原后均绿）**：① 给 `synapse-services/src/admin_user_service.rs` 追加 1 行 ⇒ `FAIL: 1 grandfathered file(s) grew past their ceiling: … 965 -> 966`；② 新建 601 行的 `synapse-services/src/tmp_new_offender.rs` ⇒ `FAIL: 1 file(s) exceed 600 lines and are not grandfathered` ⇒ 闸门对"下一条新增长"仍然有效。**代价写在这里**：基线里 67 条新 ceiling 等于"承认这 6 天的增长"，2 个新增文件 607 / 646 自此合法；`--update` 只做这一次，之后仍只许降。此前试过的「归因 + 拆分」版本（`848a736ed`）已按拍板撤回。**未做的事**：ARCH-04（`events` 分区）仍等真实数据量，CODE-10（837 处静默忽略）仍是登记项且不设配额 |
