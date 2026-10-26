@@ -16,16 +16,16 @@
 | 架构设计 | 0 | 0 | 2 | 0 | 2 |
 | 代码质量 | 0 | 0 | 1 | 1 | 2 |
 | 功能完整性 | 0 | 0 | 0 | 0 | 0 |
-| 性能（含数据层） | 0 | 0 | 1 | 3 | 4 |
+| 性能（含数据层） | 0 | 0 | 1 | 2 | 3 |
 | 安全性 | 0 | 0 | 0 | 1 | 1 |
 | 可维护性 | 0 | 0 | 1 | 0 | 1 |
 | 测试覆盖 | 0 | 0 | 0 | 0 | 0 |
 | 文档完整性 | 0 | 0 | 0 | 0 | 0 |
 | 专项：冗余与过度开发 | 0 | 0 | 0 | 0 | 0 |
-| **合计** | **0** | **0** | **5** | **5** | **10** |
+| **合计** | **0** | **0** | **5** | **4** | **9** |
 
-> 计数口径（2026-10-26 逐条重算，**按表格行**计，合并行只算一行）：**P0 = 0，P1 = 0，P2 = 5，P3 = 5，合计 10**。
-> 来源 = §0.2.2 的 2 条 + §0.2.3 的 8 条（§0.1 已于 2026-10-26 清空）。
+> 计数口径（2026-10-26 逐条重算，**按表格行**计，合并行只算一行）：**P0 = 0，P1 = 0，P2 = 5，P3 = 4，合计 9**。
+> 来源 = §0.2.2 的 2 条 + §0.2.3 的 7 条（§0.1 已于 2026-10-26 清空）。
 > ⚠️ **本版更正一处旧账**：上一版写 `P3 = 13`，但把 §0.1 / §0.2.2 / §0.2.3 三处表格按行数出来是
 > **14 行**（正则 `^\| \*\*ID\*\* \| P[0-9] \|` 扫一遍即可复核）—— 13 是漏计，不是有 1 条被关掉。
 > 本版关闭 **NEW-19**（P2/功能完整性，`2e33c45a8`）、**NEW-10**（P3/测试覆盖，`d9fa05d26`）、
@@ -40,6 +40,9 @@
 > 同轮再收口 **SEC-15**（鉴权覆盖率从静态快照变成可重跑门禁：979 条路由 / 818 带提取器 /
 > 161 条逐条登记，需凭证 92.2%、真正无凭证 76 条 = 7.8%，由
 > `scripts/contract/check_route_auth.py` + `route_auth_public.txt` 双向守住）⇒ P3 `6 → 5`、合计 `11 → 10`。
+> 同轮再收口 **PERF-10**（`postgres.conf` 补实例级 `statement_timeout=5min` /
+> `idle_in_transaction_session_timeout=60s`，并由 `check_connection_budget.py` 断言
+> 「显式存在 + 不比应用默认更严」）⇒ P3 `5 → 4`、合计 `10 → 9`。
 > ✅ NEW-19：`/send` 的线程回复现在同时进 `thread_relations` 与 `thread_replies`
 > （时间戳回查刚落库的事件，不用本地时钟；重试同一 txn 不重复计数）。
 > ✅ NEW-10：4 处手写轮询折成 `tests/common/mod.rs::wait_until`，测试域 `sleep` 计数
@@ -52,21 +55,21 @@
 > ✅ **NEW-14 已收口**：C3 审计面 15 → 95 个文件（零误伤），14 个 `NONE` 族已逐族重跑 ⇒
 > 4 族误判（改登记）、3 族幽灵、7 族真缺口（见 §0.1.1）。
 > `NEW-08` 已于 2026-10-25 关闭（`device_sync.rs` 整模块删除，判据与变异证据见附录 D），不再计入。
-> 其中 **8 条是"登记项"**（明确不做或只等外部条件）；§0.1 已于 2026-10-26 清空
+> 其中 **7 条是"登记项"**（明确不做或只等外部条件）；§0.1 已于 2026-10-26 清空
 > （最后两条 `NEW-15` / `NEW-16` 已裁决并落地），没有"我们已经知道怎么改但还没动手"的条目了。
 
 **结论摘要**：**P0 = 0，P1 = 0**（原 9 条 P1 全部有实现 + 能失败的门禁，逐条见附录 D）。
 ⚠️ 第八轮曾把一条误报成 P1（NEW-06「设备吊销通知静默丢失」），**已撤回**：真实广播路径在
 `routes/device.rs::broadcast_device_list_update`（签名事务），死的是 `device_sync` 里那条
 零调用者的重复实现，已删除；更正过程记在[附录 D](#附录-d已关闭条目索引)。
-剩下的 10 条里，**没有一条会造成数据丢失或越权**；5 条 P2 分别是 `events` 未分区（ARCH-04）、
+剩下的 9 条里，**没有一条会造成数据丢失或越权**；5 条 P2 分别是 `events` 未分区（ARCH-04）、
 7 个 >2000 行生产文件（ARCH-05）、837 处静默忽略（CODE-10）、`to_device` 无按龄清理（PERF-01）、
 测试替身未做特性隔离（MAINT-01）—— 全是**长期结构债**：
-不修也不会立刻出错，但每加一个功能都在加利息。5 条 P3 **全部是 §0.2.3 的登记项**
+不修也不会立刻出错，但每加一个功能都在加利息。4 条 P3 **全部是 §0.2.3 的登记项**
 （规范漂移/文档失真/死代码），没有待裁决项。
 
-**下一批该做什么**：**没有"我们知道怎么改但还没动手"的条目了**。剩下的 10 条分两类 ——
-① 8 条**登记项**（§0.2.3，明确不做或只等外部条件）；
+**下一批该做什么**：**没有"我们知道怎么改但还没动手"的条目了**。剩下的 9 条分两类 ——
+① 7 条**登记项**（§0.2.3，明确不做或只等外部条件）；
 ② ARCH-04/ARCH-05（§0.2.2）这两条结构债要真实数据量/行为不变的证明才谈得上动。
 
 ## 0.1 第七轮新发现（2026-10-24，只列仍开着的）
@@ -118,7 +121,7 @@
 ### 0.2.1 可先红后绿
 
 > 2026-10-24 已清空：最后一条 `TEST-05` 已按「逐处分类 + 注解门禁」收口（见附录 D）。
-> 剩下的 10 条全部落在 §0.2.2（需要决策/等价断言）与 §0.2.3（登记项）。
+> 剩下的 9 条全部落在 §0.2.2（需要决策/等价断言）与 §0.2.3（登记项）。
 
 ### 0.2.2 需要决策或外部条件
 
@@ -134,7 +137,6 @@
 | **CODE-10** | P2 | 生产 **837 处** `let _ =` / `unwrap_or_default()`（238 文件） | 大部分是合法用法；设下降配额会诱导写 `unwrap()` 来"减少计数"（§10.10） |
 | **CODE-11** | P3 | `#[allow(...)]`：棘轮口径（`python3 scripts/ci/check_clippy_allow_ratchet.py --print`，2026-10-24 W8 现算）**160 site / 159 处无 `// reason:`（95 文件）**，基线 159/95；原记「271 处 / 117 文件」是裸 `#[allow` grep 的宽口径，与棘轮不可比 | 棘轮已在工作（只许下降）；剩"补理由"是纯体力活，随触达文件顺手补（W8 触达的 4 个文件/2 个脚本未新增任何无理由 allow，计数 160 → 160、无理由 160 → **159**） |
 | **PERF-01** | P2 | `to_device_messages` 对**普通设备**无按龄清理（脱水设备路径有 `DELETE`） | 需要先定"客户端未确认算不算已投递"，是产品语义 |
-| **PERF-10** | P3 | PostgreSQL **实例级**未设 `statement_timeout`（应用侧每连接已设 30s） | 只影响直连 psql 的场景，属部署配置：仓里有 `docker/config/postgres.conf` 可改，但生产实例的 `postgresql.conf` 由部署方管理，改仓库文件只覆盖 docker 这一种形态 |
 | **PERF-11** | P3 | N+1 查询 3 处（风险可控） | 当前数据量下无实测劣化，缺 benchmark 支撑 |
 | **PERF-12 / MAINT-07** | P3 | `INDEXES.md` 人工表无法从 DDL 反推 | 重生成会让"索引治理"退化成"索引清单"；计数已由 `check_doc_metrics.py` 现算 |
 | **MAINT-01** | P2 | 测试替身/工具二进制与生产 crate 未做特性隔离 | 已覆盖 `user_store_fake`、`federation_test_keys`；其余属"每个 crate 一次评估"，收益低于改动面 |
@@ -335,12 +337,19 @@
 - **影响**：长期不活跃设备的消息永久累积；配合 RD-27 的"名字相反的死 API"，排查时会查错方向。
 - **修法**：加按龄 prune（复用 `PERF-06` 的 `ctid` 分批模式）；**先定语义**——"客户端未确认算不算已投递"。
 
-### PERF-10（P3）PostgreSQL 实例级未设 `statement_timeout`
+### PERF-10（P3）PostgreSQL 实例级未设 `statement_timeout` —— ✅ 已关闭（2026-10-26，`812661672`）
 
 - **事实**：应用为每个连接 `SET statement_timeout='30s'`，并配了 `idle_in_transaction_timeout_secs: 60`；
   缺的只是**实例级**（`postgresql.conf`），因此直连 psql 的运维查询不受保护。
-- **修法**：部署侧加 `statement_timeout`；仓库内只能改 `docker/config/postgres.conf` 并在文档注明
-  "应用侧已兜底，这里防的是直连"。
+- **落地**：`docker/config/postgres.conf` 新增「会话超时（实例级兜底）」小节 ——
+  `statement_timeout = 5min`、`idle_in_transaction_session_timeout = 60s`。取值**刻意不比应用更严**：
+  应用连接由 `after_connect` 的会话级 `set_config` 覆盖，实例级只防直连无限挂起；写成比 30s 更小
+  只会提前掐断运维手工 `CREATE INDEX` / `VACUUM`。`scripts/ci/check_connection_budget.py` 增加
+  第 7 步（两键必须显式存在，缺则 `exit 2`；`实例级 ≥ database.rs 默认`，违例 `exit 1`）；
+  `docker/deploy/README.md` 新增同名小节写明「应用侧已兜底，这里防的是直连」。
+- **判据/变异**：`statement_timeout` 改 `10s` ⇒ 门禁红（`exit 1`）；删掉该键 ⇒ 门禁红（`exit 2`）；
+  还原后绿（三次实测）。
+- **边界**：生产实例的 `postgresql.conf` 由部署方管理，本仓只覆盖 docker 这一种形态。
 
 ### PERF-11（P3）N+1 查询 3 处（风险可控）
 
@@ -629,7 +638,7 @@ TEST_FILE 47 = 107**；测试域合计 81。
 ### 10.2 下一批建议
 
 W8 计划的三项（`TEST-05` → `NEW-05` → `FUNC-05`）已全部收口，清单里已无 P0/P1、也无 P3 待裁决项。
-剩下 10 条里能动的只有 4 条 P2 结构债，而每条都**卡在一个前提上**，不是排期问题：
+剩下 9 条里能动的只有 4 条 P2 结构债，而每条都**卡在一个前提上**，不是排期问题：
 
 | 待办 | 前提 |
 |---|---|
@@ -638,7 +647,7 @@ W8 计划的三项（`TEST-05` → `NEW-05` → `FUNC-05`）已全部收口，�
 | PERF-01（`to_device` 按龄清理） | 要先定"客户端未确认算不算已投递"的产品语义 |
 | CODE-10（837 处静默忽略） | 只按"错误被吞有无用户可见后果"分类处理，且**不设配额** |
 
-其余（`MAINT-01`、`CODE-11`、`PERF-10/11/12`、`SEC-12`）都是随触达顺手做或等外部条件的登记项。
+其余（`MAINT-01`、`CODE-11`、`PERF-11/12`、`SEC-12`）都是随触达顺手做或等外部条件的登记项。
 
 ### 10.3 明确不做（防止过度开发）
 
@@ -770,3 +779,4 @@ W8 计划的三项（`TEST-05` → `NEW-05` → `FUNC-05`）已全部收口，�
 | SEC-13 | 联邦鉴权 DEBUG 日志打印签名原文 | **真实缺陷，但原描述有偏差，已修**（`c2783c680`）。泄露的不是签名串，而是 `canonical_federation_request_bytes` 的**结果**（规范化请求体，含 room 消息与 to-device 载荷）——排障打开 DEBUG 就等于把明文落盘。改为字段化日志：`origin` / `len` / `fingerprint`（新增 `signature_fingerprint`，取 `compute_signature_content_hash` 的前 8 字符；该函数原先只在 `#[cfg(test)]` 下编译，本轮去掉 cfg 供生产日志使用）。**判据**：新增 `signature_fingerprint_is_short_and_deterministic` + 源码棘轮 `debug_logs_do_not_dump_signed_bytes`（用 `concat!` 拆针，避免门禁匹配到自身），`--features test-utils` **2 passed**；同批把 `ROUTE_CONTRACT.md` 的 5 处 `cas.rs` 行号引用刷新，`check_doc_line_refs.py` 漂移 57 → **55**（基线 56） |
 | SEC-15 | 鉴权覆盖率约 94.4%，client/media 面存在未覆盖路由 | **已从"静态快照"改成"可重跑门禁"**。新增 `scripts/contract/route_auth_public.txt`（161 条，`METHOD PATH<TAB>kind<TAB>reason`，kind ∈ `public`/`federation`/`middleware`/`secret`/`manual`）+ `scripts/contract/check_route_auth.py`（双向：无提取器且未登记 ⇒ 红；登记了但路由已消失、或现已带提取器 ⇒ 也红），并作为 `preflight.sh` 的独立 step（不放进契约 gate 的 `if/else`，否则会被 SKIP 分支吞掉）。**判据**：门禁输出 `979 route(s): 818 declare an auth extractor, 161 declared (public 76 · federation 43 · middleware 8 · secret 14 · manual 20)` / `credential required by 903/979 = 92.2%; open 76 (7.8%)`；`--self-test` 16 例全过；`check_gate_reachability.py` 58 个 `check_*` 全部可达。**变异**：删掉 `GET /_matrix/client/v3/login` 那一行 ⇒ 红（`handler takes no auth extractor and the route is not declared`，实测），还原 ⇒ 绿 |
 | NEW-08 | `synapse-federation/src/device_sync.rs`（735 行）自称"设备列表同步"，实际生产零调用，与 `routes/device.rs::broadcast_device_list_update` 重复实现同一件事 | **删除整模块**。`DeviceSyncManager::new` 全仓唯一构造点在它自己的 `#[cfg(test)]` 与 `tests/integration/federation_service_tests_migrated.rs`（2 条只测死代码的用例，已删）；同步移除 `synapse-federation/src/lib.rs`、`synapse-services/src/lib.rs`、`synapse-web/src/federation/mod.rs` 三处 re-export。棘轮同步：`scripts/ci/sqlx_dynamic_ratio_baseline` static 1357 → 1354（该模块 3 条生产静态查询）、test 动态 791 → 784、总 926 → 925，均就地写明"只因查询确实被删"；`file_size_baseline` / `clippy_allow_baseline` 删除过期文件条目；`TESTING.md` 与 `docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md` 数字块跟改。守卫 `federation_device_list_writer_tests::the_dead_device_revocation_job_does_not_come_back` 改为"文件缺失即跳过"——重加回来仍会被扫描。**判据**：`cargo check --workspace --all-targets --all-features` 通过；`check_sqlx_dynamic_ratio.sh`、`check_file_size_ratchet.py`（该文件无 stale 条目）、`check_clippy_allow_ratchet.py`、`check_sqlx_cache_fresh.sh --static` 全绿。**变异**：把 `pub fn notify_device_revocation() {}` 写回同名文件 ⇒ 守卫红（实测）。真实广播路径 `broadcast_device_list_update` 未动 |
+| PERF-10 | PostgreSQL 实例级未设 `statement_timeout`（直连 psql 的运维查询可无限挂起） | **已修**（`812661672`）。应用侧本就按连接兜底（`src/server/database.rs` 的 `after_connect` 对每个连接 `set_config` 三个超时，默认 30s/10s/60s；迁移器逐语句 `SET statement_timeout='30s'`），缺的只是实例级。`docker/config/postgres.conf` 新增小节：`statement_timeout = 5min`、`idle_in_transaction_session_timeout = 60s` —— **刻意不比应用更严**：应用连接会被会话级 `set_config` 覆盖，实例级只防直连；写成 10s 只会提前掐断运维手工 `CREATE INDEX` / `VACUUM`。门禁沿用既有 `scripts/ci/check_connection_budget.py`（不新增脚本，避免 `check_gate_reachability` 登记）：两个键必须显式存在（缺 ⇒ `exit 2`）、实例级 ≥ `synapse-common/src/config/database.rs` 的应用默认（违例 ⇒ `exit 1`）。`docker/deploy/README.md` 同名小节写明「应用侧已兜底，这里防的是直连」。**变异**：`5min → 10s` ⇒ `exit 1`；删键 ⇒ `exit 2`；还原 ⇒ 绿（三次实测）。**边界**：生产实例的 `postgresql.conf` 由部署方管理，本仓只覆盖 docker 形态 |
