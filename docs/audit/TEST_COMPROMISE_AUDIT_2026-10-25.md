@@ -20,7 +20,7 @@
 |---|---|---|---|
 | **R1** | `setup_fresh_test_app_with_config` fail-open ⇒ 9 条安全边界用例可静默假绿 | 语音上传体积上限（含 CVE-2026-102592 缓解）、媒体 2 MiB 边界、worker surface gate 窄化授权 | **✅ 已修复**（入口改 fail-closed + 9 处换 `skip_or_fail_without_db`；**9/9 变异自证**，双向验证见 §2.4） |
 | **R1** | refresh token 重放「撤销全族」不可达：`validate_token` 在入口就拒已撤销 token，第 1 层参数传错恒空转，第 2 层把重放判成良性并发 | 会话安全（RFC 6819 / OAuth Security BCP） | **✅ 已接通**：抽 `load_token_inner` + 5 s 并发窗口（两层都加）+ mock 有状态化；双向变异（窗口 0 / MAX）各自红（§2.5） |
-| **R2** | 覆盖率门禁不在 PR 车道；新文件达标线 30%；已入库文件无绝对下限 | 全仓覆盖率回归（事后才发现） | **🟡 已收紧**：达标线 30 → **50**（§3.1.1 双向验证）；**基线自毁缺陷已修**（一次不完整 lcov 曾把 608 条砍成 1 条，§3.1.1）；0% 条目**分母已订正为 32**（§7.5）—— 另 22 个 `test_mocks/` + 5 个二进制入口**本就在门禁的两张排除清单里**，不计入：**2 个陈旧 / 4 个真 0（已实测）/ 3 个 `feature` 关（永不刷新）/ 7 个无实质可测行 / 8 个本轮已消除（补测试 6 + 删死代码 2）/ 8 个等 CI**；**能靠"再跑一次覆盖率"变好的只有 2 个**（`router.rs` 已实测 82.9%、`room/membership/federation.rs`），其余 0.0 刷新多少次都不会变 |
+| **R2** | 覆盖率门禁不在 PR 车道；新文件达标线 30%；已入库文件无绝对下限 | 全仓覆盖率回归（事后才发现） | **🟡 已收紧**：达标线 30 → **50**（§3.1.1 双向验证）；**基线自毁缺陷已修**（一次不完整 lcov 曾把 608 条砍成 1 条，§3.1.1）；0% 条目**分母已订正为 32**（§7.5）—— 另 22 个 `test_mocks/` + 5 个二进制入口**本就在门禁的两张排除清单里**，不计入：**10 个陈旧（全部已本地实测非零）/ 4 个真 0（已实测）/ 3 个 `feature` 关（永不刷新）/ 7 个无实质可测行 / 8 个本轮已消除（补测试 6 + 删死代码 2）**；**"等 CI 的 diff"已被证伪**：覆盖率车道在最近 30 次运行里全部 `skipped`（`needs: [integration-test]`，而 `test` 恒红），`auto-ratchet` 自动提交史为 **0 条** ⇒ 基线里的 0.0 是 bootstrap（2026-09-19）的**冻结值**，不是当期读数（§7.5 G） |
 | **R2** | 性能验收只打印不断言（`appservice_scheduler_perf_tests` 全 `#[ignore]`） | appservice 调度器吞吐 | **🟡 已补 1 条**：`get_statistics` 每行成本折算往返次数，进 CI（§3.2.1）；其余仍 ignore |
 | **R2** | `cargo test --doc` 是编译门禁，不是执行覆盖（4 个 doc test 全 `#[ignore]`） | 文档示例 | 已知并登记 |
 | **R3** | 572 处 `else { return; }` 静默跳过**残留模式**（当前恒 `Some`，但 R1 已证明该模式会复活） | 全 integration 面 | **✅ 已止损**：7 处 fail-open 夹具改 panic + 守卫禁新增（§4.1.1）；调用点本身保留为死代码 |
@@ -760,7 +760,7 @@ ARCH-02 等价用例**一直红着**，当次只跑了 `api_sliding_sync_routes_
 | ~~9~~ | ~~refresh token 重放「撤销全族」~~ **✅ 已完成**：`get_family_id` + 抽 `load_token_inner(token, reject_revoked)` + 5 s 并发窗口（第 1、2 层都加）+ mock 有状态化（`families`/`rotations`/`age_rotations`），提交 `3f9145a43` / `92afc93af` / `f35d7dd1f`。**状态从"无测试"变为"两条用例各钉住一侧"**：`replay_within_window_is_refused_but_family_survives` / `replay_outside_window_revokes_the_whole_family`（§2.5） | 中（含 `.sqlx` 重生成） | **双向变异已实跑**：窗口改 `0` ⇒ 「窗口内」那条红；改 `i64::MAX` ⇒ 「窗口外」那条红；还原 `5_000` ⇒ 双绿 |
 | ~~10~~ | ~~全仓 `with_config` 族 helper 内的 `return None`~~ **✅ 已达成**（§2.3 P2） | — | 守卫扫 74 个夹具报 OK |
 
-## 7 一页索引：这轮到底改了什么（38 笔提交，按用途分组）
+## 7 一页索引：这轮到底改了什么（39 笔提交，按用途分组）
 
 计数口径（可复现，含本报告自身的提交）：`git log 0666941d6..HEAD --oneline --no-merges -- docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md scripts/ci/check_test_setup_fail_closed.py scripts/ci/check_mock_stub_drift.py scripts/ci/mock_stub_drift_baseline scripts/ci/test_impact_map scripts/ci/check_test_impact.py scripts/check_file_coverage.py scripts/ci/run_coverage.sh tests/performance/appservice_scheduler_perf_tests.rs src/tasks/mod.rs synapse-services/src/refresh_token_service.rs synapse-storage/src/refresh_token/mod.rs synapse-storage/src/test_mocks synapse-common/src/test_isolation.rs scripts/ci/non_unit_coverable_prefixes.txt .github/workflows/ci.yml docs/audit/INDEX.md | wc -l`
 
@@ -854,7 +854,7 @@ git log 0666941d6..HEAD --no-merges --format='%h %s' -- \
   synapse-storage/src/test_mocks synapse-common/src/test_isolation.rs | wc -l
 ```
 
-### 7.5 0% 文件的分流：**分母是 32，不是 59**（2026-10-26，累计四次订正；本轮消除 8 个）
+### 7.5 0% 文件的分流：**分母是 32，不是 59**（2026-10-27，累计五次订正；8 个已消除 + 10 个陈旧已全部实测）
 
 先说结论：**这条审计里最基础的一个数字是错的** —— "59 个 0% 文件"不是棘轮要管的文件数，而是
 `coverage_baseline.json` 里所有 `line_pct == 0.0` 的条目数。**其中 27 个门禁自己就跳过**：
@@ -888,19 +888,22 @@ PY
 |---|---|---|---|
 | 门禁已排除：`test_mocks/` | 22 | 不在检查范围（`TEST_ONLY_MARKERS`），**不是缺口也不是陈旧** | 门禁源码 |
 | 门禁已豁免：二进制入口 | 5 | 不在检查范围（`non_unit_coverable_prefixes.txt`） | 门禁源码 |
-| ① 已实测：陈旧 | **2** | `router.rs`（82.9%）、`room/membership/federation.rs` | 实测 / 日期 |
+| ① 已实测：陈旧（floor 冻结） | **10** | 原有 2：`router.rs`（82.9%）、`room/membership/federation.rs`；**本轮新增 8**：`synapse-web/routes/**` 全部实测非零 15.2%–100%（§7.5 G） | 实测 + bootstrap 源码快照 |
 | ② 已实测：真 0 | **4** | `services.rs`、`telemetry.rs`、`tasks/mod.rs`、`common/logging.rs` | 实测（含定向插桩） |
 | ③ `feature` 关 ⇒ 永久不进报告 | **3** | `burn_after_read.rs`、`widget.rs`、`friend_room/repository.rs` | 编译实验 + 27 条 DB 测试实跑 |
 | ④ 无实质可测行 | **7** | 5 个纯 trait 声明 `api.rs` + 2 个 5 行默认实现 | 机械统计 |
 | ⑤ 结构盲区 → **已补测试并实测** | ~~2~~ | `event/reader.rs` 0 → **9/95 = 9.5%**、`event/writer.rs` 0 → **5/37 = 13.5%**（`&dyn` 转发层契约测试，见下） | 定向插桩实测 |
 | ⑥ 真缺口 → **已全部处置** | ~~5~~ | 删 2（`config/manager.rs` 整类零构造点、`common/error.rs` 2 个零调用点 helper）＋ 补 3（`{friend_room_service,room/state,rtc}/error.rs` 共 8 条断言） | 全仓 `grep` + 11 条测试实跑 |
-| ⑦ 待 CI 的 integration 腿 | **8** | `synapse-web/routes/**` | 无（工具口径不允许局部回答） |
+| ⑦ ~~待 CI 的 integration 腿~~ → **并入 ①** | **0** | 原 8 个 web 路由：**不需要 integration 腿**，`-p synapse-web --lib` 6m02s 出数；而且 CI 那条路**根本不会来**（`skipped`，见 G） | 实测 + `gh run view` + 提交史 |
 | ⑧ 本轮已消除（原 ④⑤⑥ 中的 8 个） | **8** | 4 类来源：2 个 trait impl（补测）+ `event/models.rs`（补测）+ 3 个领域错误转换（补测）+ 1 个死类型 + 1 个死 helper（删除） | 插桩实测 / 编译验证 |
 
-合计：**2 + 4 + 3 + 7 + 8（待 CI）+ 8（已消除）= 32** ✓
+合计：**10 + 4 + 3 + 7 + 8（已消除）= 32** ✓
 
-> 也就是说棘轮里**还剩 8 个 0%** 是真的拿不到读数（只能等 CI 的 integration 腿），
-> 另外 8 个本轮已经有了确定处置，16 个是口径/结构问题。**没有一个 0% 是"待办但没人管"的了。**
+> 也就是说棘轮里**没有一个 0% 还是"拿不到读数"的了**：10 个是**基线冻结的陈旧值**（全部已实测非零），
+> 4 个真 0（启动路径/一次性初始化，补测试等于造假），3 个 `feature` 关（同一份基线里永远不编译），
+> 7 个没有可执行行（纯 trait 声明 / 死默认实现），8 个本轮已删/已补。
+> **"等 CI 跑一次就有答案"这条路径整体作废** —— 覆盖率车道最近 30 次运行里全是 `skipped`
+> （`needs: [integration-test]`，而 `test` 恒红），`auto-ratchet` 自动提交史 0 条（§7.5 G）。
 
 #### A. 5 个二进制入口：门禁**本来**就豁免它们（不是我分流出来的）
 
@@ -1004,7 +1007,8 @@ PY
 `friends` / `widgets` / `burn-after-read` 只在 `Run library unit tests (--workspace --lib --all-features)`
 那条车道里打开，而**那条车道不产生覆盖率**；覆盖率两条腿的 feature 集自 `56e4dd105`（2026-09-22）起
 就没有它们。⇒ 无论 main push 多少次，读数都不会变。原判定把它们记成"陈旧"，等于给了一条**永远兑现
-不了**的等待理由。
+不了**的等待理由。**（补强，2026-10-26 晚：整条覆盖率车道最近 30 次运行都是 `skipped`，
+不只是 feature 集的问题 —— 见 §7.5 G 的第 3 条证据。）**
 
 可行处置（**已实跑验证可行，只差覆盖率数字**）：把这三个 feature 加进 `STORAGE_FEATURES`。
 理由：storage 腿是 `RUST_TEST_THREADS=1`，脚本头说的"friends/widgets 在多核/有限内存下触发并发 clone
@@ -1052,7 +1056,9 @@ PY
    后者只排除测试、保留报告。想"不跑某 crate 的测试但仍给它记账"只有后者能做到。
 
 ⇒ 结论：**光有 `--workspace` 不够**，还得让目标 crate 留在报告里（`--exclude-from-test`）。
-这是 §7.5 的 C 类之后"必须等 CI"的真正原因 —— 不是懒，是当前脚本的 flag 选择让局部回答不可能。
+但它只对「测试全在**别的 crate**」这一类（C 类 storage 文件）成立 —— **不要**把它当成"局部回答不可能"的
+通用理由：`-p <自己的 crate> --lib` 本来就能回答**本 crate 文件**的读数，G 类那 8 个 web 路由就是这么拿到的
+（**上一版把这句写成"必须等 CI 的真正原因"，对 G 类是错的**，见 G 与 §7.6 末两条）。
 
 #### ⑤ 2 个 trait impl 文件：与那 22 个 mock **同一机制**（从"不可判"改判为"结构盲区"，再补测试消掉）
 
@@ -1120,14 +1126,54 @@ storage 自己的 `--lib` 测试永远走固有方法（`event/basic.rs:14`、`e
 （错一处就是"该 404 的报 500"），其余是消噪音。但它们便宜，且断言对象明确（返回值语义），没有重蹈
 "断言没人读"的覆辙。
 
-#### G. 只剩 8 个：`synapse-web/routes/**`
+#### G. 原本"只剩 8 个"：`synapse-web/routes/**` —— **已实测全部非零，判定收口为陈旧**
 
 `admin/room/spaces`、`extractors/mod`、`federation/{media,membership/query,transaction/edus}`、
 `handlers/room/management/{upgrade,visibility}`、`sticky_event`。
 
-路由只能由 **integration 腿**覆盖，而 integration 全量在插桩下是 42 min+。它们最可能是"陈旧"
-（路由会被集成测试打到）但不是必然 —— 本轮另一个会话刚给 r0/v1 匿名读口径加了守卫，
-说明这类面还在动。**这 8 个是真的只能等 CI 的 diff**。
+上一版结论是"路由只能由 integration 腿覆盖 ⇒ 真的只能等 CI 的 diff"。**两条都已证伪**。
+
+**(1) 不需要 integration 腿**：这 8 个文件全部属于 `synapse-web` crate、且都在 `routes/mod.rs` 里
+**无条件** `pub mod`（不在任何 `#[cfg(feature)]` 后面），并且**每个文件都自带内联 `#[cfg(test)] mod tests`**。
+⇒ 它自己 crate 的 lib 腿就能回答，integration 腿只可能把它抬得更高。
+
+实测（`cargo llvm-cov -p synapse-web --lib`，`REST_FEATURES` 同一 feature 集，6m02s，
+**967 passed / 0 failed / 1 ignored**，lcov 落 `/tmp/web_lib.info`）：
+
+| 文件 | `LH` / `LF` | line_pct | 基线记录 |
+|---|---|---|---|
+| `routes/extractors/mod.rs` | 66 / 66 | **100.0%** | 0.0 |
+| `routes/federation/media.rs` | 115 / 162 | **71.0%** | 0.0 |
+| `routes/sticky_event.rs` | 116 / 217 | **53.5%** | 0.0 |
+| `routes/federation/membership/query.rs` | 104 / 236 | **44.1%** | 0.0 |
+| `routes/handlers/room/management/visibility.rs` | 42 / 96 | **43.8%** | 0.0 |
+| `routes/handlers/room/management/upgrade.rs` | 25 / 78 | **32.1%** | 0.0 |
+| `routes/admin/room/spaces.rs` | 47 / 231 | **20.3%** | 0.0 |
+| `routes/federation/transaction/edus.rs` | 29 / 191 | **15.2%** | 0.0 |
+
+**(2) 0.0 的成因是"地板冻结"，不是"没测到"** —— 三条独立证据：
+
+| 证据 | 做法 | 结果 |
+|---|---|---|
+| bootstrap 时这些文件**没有测试** | `git show 4565cecd5:<file>` 数 `#[cfg(test)]`/`#[test]` | 8 个里全部为 **0**（bootstrap = 2026-09-19） |
+| 地板只在**写回**时才抬升 | `save_baseline()` = `max(prev, cur)`，`--save-baseline` 只在 CI 的 auto-ratchet 步用到 | 抬升通道**只有** CI 那一条 |
+| 那条通道**从未成功过** | `git log --all --grep="auto-update per-file baseline"` | **0 条提交**（`ci.yml:1539` 的 "Commit coverage baseline (auto-ratchet)" 一次都没落地） |
+
+**(3) 更进一步：覆盖率车道在最近的运行里连启动都没有。**
+
+`coverage` job 的前置是 `needs: [integration-test, changes]`（`ci.yml:1397`），而 `integration-test`
+的前置是 `needs: [test, changes]`（`ci.yml:908`）—— **`test` 一旦红，下游全部 skip**。
+实测最近 30 次 CI 运行**全部 failure**，抽查 6 次的 `Code Coverage` 与 `Integration Tests` 结论**全是 `skipped`**：
+
+```
+gh run view 40287200935 --json jobs --jq '.jobs[] | "\(.conclusion)\t\(.name)"'
+→ failure  Test & Lint (all-features)  …  skipped  Integration Tests  skipped  Code Coverage
+```
+
+⇒ 这条"等 CI 会给我答案"的等待理由与 §7.5 里那 3 个 `feature` 关文件**同性质：永远不会兑现**。
+**处置：不改基线文件**（本地只有单腿读数，且 `--update` 会把 608 条截断的风险重新引进来）；
+把实测值作为**下限证据**记在这里。要让地板真的抬起来，得先让 `test` 车道绿、或把覆盖率车道从
+`needs: [integration-test]` 解耦 —— 那是独立决策，不在本次审计范围。
 
 #### 本轮为此付出的两次失败（记下来省下一次的时间）
 
@@ -1138,7 +1184,10 @@ storage 自己的 `--lib` 测试永远走固有方法（`event/basic.rs:14`、`e
 2. 复现尝试（普通 `cargo test --workspace --lib --all-features`）跑了 **41 min 仍在 storage 的 DB 用例上**，
    被我中止 —— 这条复现路径本身太贵。
 
-⇒ 所以"59 个 0%"这件事，正确做法仍是**让 CI 跑一次 main push**，本地不要重跑。
+⇒ **别**为了取数去跑 `--workspace --lib --all-features` / 全量 integration 插桩（代价见上两条）。
+但"别跑全量"不等于"只能等 CI"：**按 crate 切**就能用分钟级成本拿到读数 ——
+`-p synapse-web --lib` 6m02s 就回答了 8 个文件（§7.5 G），`-p synapse-services --lib`、`-p synapse-storage --lib`
+同理。上一版这里写"正确做法仍是让 CI 跑一次 main push"，**那条路已经不通**（G 的第 3 条证据）。
 
 #### 那个 flake：机制已坐实、已修（2026-10-26 本轮）
 
@@ -1169,7 +1218,7 @@ storage 自己的 `--lib` 测试永远走固有方法（`event/basic.rs:14`、`e
 `rows_before > 0` 的前提直接不成立 → 测试红。**清理必须放在开头**（`DROP SCHEMA IF EXISTS`），
 不能只放在结尾。
 
-### 7.6 途中被证伪的十个判断（留着，防止后来者重走）
+### 7.6 途中被证伪的十二个判断（留着，防止后来者重走）
 
 | 我说过 | 实测/核实结果 | 靠什么推翻 |
 |---|---|---|
@@ -1183,10 +1232,15 @@ storage 自己的 `--lib` 测试永远走固有方法（`event/basic.rs:14`、`e
 | "给 `PreviewUrlParams` 加 `deny_unknown_fields` 会让那条 `ts` 用例先红"（写在**测试注释**里） | **不会红**——`ts` 是已声明字段，不属于 unknown field；有效变异是 `ts` 改必填 | 变异自证实跑：`deny_unknown_fields` ⇒ PASS，`ts: i64` ⇒ `left: 400 / right: 200` |
 | "`synapse-common/config/manager.rs` 是**最实的一个真缺口**，`ConfigManager` 是没人测的配置读写器，值得补 `tempdir` 测试" | **它不是"没人测"，是"没人用"**：全仓 `ConfigManager::new` **0 个构造点**（命中的全是 `RateLimitConfigManager`），`read_config/write_config` 的 `_location` 参数被**完全忽略**、没有任何文件 IO —— 一个从未接线的 `Arc<RwLock<Config>>` 壳。补测试等于给死代码刷覆盖率 | `grep -rn "ConfigManager::new"` 逐条看命中 + 读 81 行源码（无 `std::fs`/`Path`）+ 删除后 `cargo check` 两次全绿 |
 | "`src/common/error.rs` 的 2 个转换 fn 是真缺口（小）" | **是死代码**：除了自身定义与 `common/mod.rs` 的 re-export，**零调用点**；`synapse-e2ee` 里那几个 `test_crypto_error_to_api_error_*` 测的是该 crate 自己的同名函数（跨 crate 不可见） | 全仓分别 `grep` 这两个函数名，命中只有定义 + re-export（详见 §7.4 的两条 grep） |
+| "这 8 个 `synapse-web/routes/**` 只能等 CI 的 integration 腿，本地拿不到读数" | **不需要那条腿**：8 个文件全在 `synapse-web` crate、模块**无条件**编译、**每个都自带内联测试** ⇒ `-p synapse-web --lib`（6m02s，967 passed）一次全出，15.2%–100% 无一为 0。上一版把它归因于"插桩口径不允许局部回答"，是把只适用于**跨 crate** 情形的 `--exclude-from-test` 结论套到了本 crate 文件上 | `cargo llvm-cov -p synapse-web --lib … --lcov` 实测 `LH`/`LF`（§7.5 G 表）+ `grep -B2 'pub mod'` 确认无 `cfg` 门控 |
+| "等 CI 跑一次 main push 就能把 0.0 刷新掉" | **那条通道从未成功过**：`git log --all --grep="auto-update per-file baseline"` **0 条**；最近 30 次 CI 全 `failure`，抽查 6 次的 `Code Coverage` / `Integration Tests` 结论**全 `skipped`**（`coverage` 需要 `needs: [integration-test]`，而 `integration-test` 需要 `needs: [test]`，`test` 恒红 ⇒ 下游一律 skip）⇒ 基线里 32 个 0.0 是 2026-09-19 bootstrap 的**冻结值**，不是当期读数 | `gh run view <id> --json jobs --jq` 逐 job 取结论 + `git log --all --grep` + `ci.yml:1397/908` 的 `needs` 链 |
 
-共同根因有三条：①**把"代码看起来像 X"当成"X 成立"** —— 写"高危 / 看板会 / 这条测试覆盖了"之前，
+共同根因有四条：①**把"代码看起来像 X"当成"X 成立"** —— 写"高危 / 看板会 / 这条测试覆盖了"之前，
 必须先 `grep` 消费者或做变异自证；②**自建口径而不复用门禁的判据** —— 统计"覆盖率缺口"时应当
 直接调用门禁自己的 `is_test_only()` / `_matches_prefix()`，否则算出来的分母包含一堆门禁压根不看的文件
 （本轮 59 vs 32 就是这么来的，白花了两轮判定）；③**把"0% 覆盖率"默认读成"缺测试"** ——
 它也可能是"没有消费者"（`config/manager.rs` 零构造点）、"只有别的 crate 会调"（reader/writer 的转发层）、
-或者"被 feature 关掉"。**先问"谁该跑它"，再决定"补测试还是删代码"**，否则就是给死代码刷覆盖率。
+或者"被 feature 关掉"，或者**只是地板冻结**（本轮 10 个）。**先问"谁该跑它"，再决定"补测试还是删代码"**；
+④**把"以后会有人给我答案"当结论** —— 凡是要"等 CI / 等下游 / 等别人"才能闭合的判定，先证明那条通道
+**还在跑**（`gh run view <id> --json jobs` 看 job 结论，而不是看 yaml 里写着），否则记下的是**永远不会兑现的
+等待理由**：本轮 3 个 `feature` 关文件 + 8 个 web 路由全部踩在这上面，11 个 0% 的"理由"其实是同一条。

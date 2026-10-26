@@ -61,7 +61,7 @@
 
 | 文档 | 描述 | 状态 |
 |------|------|------|
-| **[TEST_COMPROMISE_AUDIT_2026-10-25.md](TEST_COMPROMISE_AUDIT_2026-10-25.md)** | 测试降标审计：测试基础设施 fail-open 导致 9 条安全边界用例静默假绿；覆盖率门禁三缺口（含**基线可被一次不完整 lcov 清零**）；性能验收只有报告没有断言；mock 语义漂移。**§7 是"改了什么"的一页索引**（门禁 / 缺陷 / 可测性 / 复核命令 / 0% 分流（分母订正为 32，其中 8 个已消除） / 途中被证伪的十个判断） | ✅ Active（2026-10-26 第 8 轮） |
+| **[TEST_COMPROMISE_AUDIT_2026-10-25.md](TEST_COMPROMISE_AUDIT_2026-10-25.md)** | 测试降标审计：测试基础设施 fail-open 导致 9 条安全边界用例静默假绿；覆盖率门禁三缺口（含**基线可被一次不完整 lcov 清零**）；性能验收只有报告没有断言；mock 语义漂移。**§7 是"改了什么"的一页索引**（门禁 / 缺陷 / 可测性 / 复核命令 / 0% 分流（分母订正为 32：**10 陈旧**（全部已实测非零）/ 4 真 0 / 3 `feature` 关 / 7 无可测行 / **8 已消除**） / 途中被证伪的十二个判断） | ✅ Active（2026-10-27 第 9 轮） |
 
 ### 其他规划文档
 
@@ -183,9 +183,28 @@
 
 ## 📅 更新日志
 
+### 2026-10-27
+
+- ✅ **[TEST_COMPROMISE_AUDIT_2026-10-25.md](TEST_COMPROMISE_AUDIT_2026-10-25.md)** 第 9 轮：**最后一个开口（原 ⑦ 类 8 个 0%）关掉**，代价 6 分钟。
+  - **改判**：`synapse-web/routes/**` 那 8 个不是"只能等 CI 的 integration 腿"，而是**陈旧（地板冻结）**。
+    8 个文件都在 `synapse-web` crate、模块**无条件**编译、**每个都自带内联 `#[cfg(test)] mod tests`**
+    ⇒ `cargo llvm-cov -p synapse-web --lib`（6m02s，**967 passed**）一次全出：
+    `extractors/mod` **100%**、`federation/media` 71.0%、`sticky_event` 53.5%、`membership/query` 44.1%、
+    `visibility` 43.8%、`upgrade` 32.1%、`admin/room/spaces` 20.3%、`transaction/edus` 15.2% —— **无一为 0**
+  - **0.0 的真因**（三条独立证据）：①`git show 4565cecd5:`（2026-09-19 bootstrap）里这 8 个文件**一个测试都没有**；
+    ②`save_baseline()` 只 `max(prev,cur)`，抬升通道只有 CI 的 auto-ratchet 步；
+    ③该步**从未成功**：`git log --all --grep="auto-update per-file baseline"` = **0 条**
+  - **顺带证伪"等 CI"整条路**：最近 30 次 CI 全 `failure`，抽查 6 次的 `Code Coverage` / `Integration Tests`
+    结论**全是 `skipped`**（`coverage` 需 `needs: [integration-test]` → `integration-test` 需 `needs: [test]`，
+    `test` 恒红 ⇒ 下游一律 skip）⇒ 基线里 32 个 0.0 是 bootstrap 的**冻结值**，不是当期读数。
+    与 3 个 `feature` 关文件同性质：**11 个 0% 的"理由"其实是同一条永远不会兑现的等待**
+  - **未改的东西（有意）**：`coverage_baseline.json` 一个字节没动（本地只有单腿读数，`--update` 会重新引入
+    608→1 的截断风险）；把实测值记为**下限证据**。要让地板真的抬起来需先让 `test` 车道绿、
+    或把覆盖率车道从 `needs: [integration-test]` 解耦 —— 独立决策
+
 ### 2026-10-26
 
-- ✅ **[TEST_COMPROMISE_AUDIT_2026-10-25.md](TEST_COMPROMISE_AUDIT_2026-10-25.md)** 收敛（38 笔提交）。要点：
+- ✅ **[TEST_COMPROMISE_AUDIT_2026-10-25.md](TEST_COMPROMISE_AUDIT_2026-10-25.md)** 收敛（39 笔提交）。要点：
   - **修掉一个活缺陷**：`setup_fresh_test_app_with_config` fail-open ⇒ 9 条安全边界用例在 DB 不可达时
     **静默假绿**（且比真跑更慢，30 s vs 6 s）。入口改 fail-closed + 7 处夹具改 panic + 守卫
     `check_test_setup_fail_closed.py`（preflight，扫 74 个夹具）
@@ -204,9 +223,9 @@
     全部记在报告 §7.6 —— 这类"看起来像 X"的结论，必须先 `grep` 消费者或做变异自证
   - **0% 文件的"59 个"是错的分母**（报告 §7.5 三次订正）：22 个 `test_mocks/` 与 5 个 `src/bin/*`+`main.rs`
     本就在门禁的两张排除清单里（`TEST_ONLY_MARKERS` / `non_unit_coverable_prefixes.txt`）⇒
-    **真正落在棘轮里的是 32 个**：2 陈旧 / 4 真 0（已实测）/ 3 `feature` 关（永不刷新）/ 7 无实质可测行 /
-    **8 已消除**（2 个 trait impl + `event/models.rs` + 3 个领域错误转换补测；`ConfigManager`
-    整类与 2 个死 helper 删除）/ 8 等 CI；**能靠"再跑一次覆盖率"变好的只有 2 个**；
+    **真正落在棘轮里的是 32 个**：10 陈旧（**全部已实测非零**）/ 4 真 0（已实测）/ 3 `feature` 关（永不刷新）/
+    7 无实质可测行 / **8 已消除**（2 个 trait impl + `event/models.rs` + 3 个领域错误转换补测；
+    `ConfigManager` 整类与 2 个死 helper 删除）；**"等 CI 会给出答案"这条已证伪**（见 2026-10-27 条）；
     另一个可执行发现：`run_coverage.sh` 第 2 腿用了 `--exclude`（连报告一起排除），
     想给 storage 记账只能用 `--exclude-from-test`（本轮改用"补 `&dyn` 转发层测试"达成同一目的）
 
