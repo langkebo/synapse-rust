@@ -302,8 +302,8 @@ async fn thread_read_unknown_room_is_not_found() {
     };
     let token = register(&app, "thread_missing_room").await;
 
-    let uri = format!("/_matrix/client/v3/rooms/%21nonexistent%3Alocalhost/threads/$someevent%3Alocalhost");
-    let (status, value) = call(&app, get(&uri, Some(&token))).await;
+    let uri = "/_matrix/client/v3/rooms/%21nonexistent%3Alocalhost/threads/$someevent%3Alocalhost";
+    let (status, value) = call(&app, get(uri, Some(&token))).await;
     assert_eq!(status, StatusCode::NOT_FOUND, "房间不存在必须 404：{value}");
     assert_eq!(value["errcode"], "M_NOT_FOUND", "errcode：{value}");
 }
