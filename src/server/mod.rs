@@ -415,7 +415,12 @@ impl SynapseServer {
                 .start_auto_rotation(self.app_state.services.shutdown_token.clone())
                 .await;
             ::tracing::info!("Starting scheduled database monitoring and maintenance tasks...");
-            self.scheduled_tasks.start_all(self.app_state.services.shutdown_token.clone());
+            // 句柄有意**不** join：进程退出时 tokio runtime 会 abort 未完成任务，而
+            // `drop(JoinHandle)` 是 detach（任务继续跑），所以行为与原先"丢弃返回值"完全一致。
+            // 保留返回值是为了让"关闭后任务真的退出"可被测试观测 —— 见
+            // `src/tasks/mod.rs::shutdown_cancels_every_task_before_first_tick` 与
+            // `docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md` §3.1.2。
+            let _task_handles = self.scheduled_tasks.start_all(self.app_state.services.shutdown_token.clone());
             // P0-2: Spawn pool metrics periodic task (30s interval) to wire
             // update_pool_metrics → ServerMetrics. This restores visibility
             // into db_connections_active/idle, pool_utilization, and

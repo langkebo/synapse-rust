@@ -301,8 +301,22 @@ cargo llvm-cov --test integration --features "…" --lcov --output-path /tmp/rou
       首轮执行在分钟级之后 ⇒ 不用 `tokio::time::pause()`（需 `test-util`）就没法在测试里推进。
    3. **五个循环全部依赖真库**（`database.health_check()` 等）⇒ 还要可控的数据状态。
 
-   结论：第 ③ 项应作为**独立一笔**（先改 `start_all` 返回值使其可观测，再补 2–3 条
-   "关闭即退出"与"静默期内不执行"的用例），不要塞进"补覆盖"这种说法里 —— 那是两次不同性质的改动。
+   **障碍 1 已解除（2026-10-26）**：`start_all` 现在返回 `Vec<JoinHandle<()>>`，5 个
+   `start_*` 各自返回句柄。调用方（`src/server/mod.rs`）用 `let _task_handles = …` **有意不 join**
+   —— 进程退出时 runtime 会 abort 未完成任务，而 `drop(JoinHandle)` 是 detach，所以生产行为
+   与改动前完全一致；留下句柄是为了让关闭过程**可被观测**。
+
+   新增 `shutdown_cancels_every_task_before_first_tick`：用**已取消**的 token 启动，
+   断言 5 个句柄都在 5s 内 `Ok(())` 结束、且四个台账仍为 `None`（证明取消路径没先跑一次真实巡检）。
+   五个任务的第一处 `select!` 都是 `biased` + `shutdown.cancelled()` 在前，三个带 grace 期的
+   任务也把 `time::sleep` 放在 select 里竞争 —— 这是它能在秒级验证的前提。
+
+   变异自证：删掉 `start_health_check_task` 的 `cancelled` 分支 ⇒ 测试 5s 超时红，消息直接指向
+   **"第 0 个后台任务"**（索引即 `start_all` 里的顺序），还原后 4 passed。
+
+   **障碍 2、3 仍在**：静默期内的时间推进（需 `tokio::time::pause()` / `test-util`）与"首轮巡检
+   真的清了什么"（需真库 + 造数）都还没覆盖。当前测到的是**关闭正确性**，不是**巡检正确性**
+   —— 后者才是这 170 行的主体。
 
 `logging.rs` / `telemetry.rs` 登记为已知缺口不排期（启动路径，收益低）。
 
@@ -502,5 +516,5 @@ ARCH-02 等价用例**一直红着**，当次只跑了 `api_sliding_sync_routes_
 | ~~4~~ | ~~`--new-file-floor 30 → 50`~~ **✅ 已完成** | 1 行 + 3 处文档同步 | 已验：40% 假 lcov ⇒ exit 1；50% ⇒ exit 0 |
 | ~~5~~ | ~~"改动面 → 必跑套件"映射 + preflight 提示~~ **✅ 已完成**（`test_impact_map` + `check_test_impact.py` + preflight `advise` 步骤） | ~1 h | 改 `rooms` 结构 ⇒ 提交前自动打印 `-E 'test(sync_path_equivalence_tests)'`（详见 §4.3.1） |
 | ~~6~~ | ~~性能断言改相对阈值~~ **✅ 已完成**：改成「每行成本折算数据库往返次数」（比 p95 比值更抗噪），注入 N+1 ⇒ 0.985/1.026 红；正常 0.061/0.031 绿（§3.2.1） | 中 | **已实测**：变异体 FAIL / 还原后 PASS，CI 同款命令 2.6s |
-| ~~7~~ | ~~覆盖率为 0% 的 3 个文件各补冒烟~~ → 拆成两件：①**重测基线**（未执行，用户中断）②**补 `tasks/mod.rs`** —— **✅ 已补 3 条**（`from_config` 的 `0` 语义 + 逐字段生效 + 台账初值），无需数据库，变异自证通过；**5 个 `start_*` 循环（约 170 行）仍未覆盖**（§3.1.2） | 中 | 3 passed / 变异后第一条红（`left: 0ns / right: 10s`）；其余两条仍绿 |
+| ~~7~~ | 拆成三件：①重测基线 → **改判交给 CI**（本地 1.5h 且撞 PG 锁配额）；②`tasks/mod.rs` 配置层 **✅ 3 条**；③`start_all` 可观测性 **✅ 已改**（返回 `Vec<JoinHandle>`）＋关闭测试 **✅** —— 巡检**业务逻辑**（约 170 行的主体）仍未覆盖，需 `pause()` + 造数（§3.1.2） | 中 | 4 passed；变异（删 cancelled 分支）⇒ 5s 超时红且指向"第 0 个后台任务" |
 | ~~8~~ | ~~`test_mocks/` 差异声明守卫~~ → **✅ 已改判并落地**：不守「doc 声明差异」（不可机械判定），改守「忽略参数却假装成功」——实测 **106/429 = 24.7%**，棘轮上限 106 只许下降（`check_mock_stub_drift.py`，接入 preflight）；6 处高危已列清单（§4.2.1） | 中 | 探针文件 ⇒ 107 > 106 红；删除后绿 |

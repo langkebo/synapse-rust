@@ -118,15 +118,17 @@ impl ScheduledTasks {
     /// as a noisy stream of "failed to perform database X" errors during
     /// graceful shutdown and delays process exit by the longest loop
     /// interval.
-    pub fn start_all(&self, shutdown: CancellationToken) {
-        self.start_health_check_task(shutdown.clone());
-        self.start_pool_metrics_update_task(shutdown.clone());
-        self.start_performance_check_task(shutdown.clone());
-        self.start_integrity_check_task(shutdown.clone());
-        self.start_maintenance_task(shutdown);
+    pub fn start_all(&self, shutdown: CancellationToken) -> Vec<tokio::task::JoinHandle<()>> {
+        vec![
+            self.start_health_check_task(shutdown.clone()),
+            self.start_pool_metrics_update_task(shutdown.clone()),
+            self.start_performance_check_task(shutdown.clone()),
+            self.start_integrity_check_task(shutdown.clone()),
+            self.start_maintenance_task(shutdown),
+        ]
     }
 
-    fn start_health_check_task(&self, shutdown: CancellationToken) {
+    fn start_health_check_task(&self, shutdown: CancellationToken) -> tokio::task::JoinHandle<()> {
         let interval = self.health_check_interval;
         let database = self.database.clone();
         let last_status = self.last_health_status.clone();
@@ -184,10 +186,10 @@ impl ScheduledTasks {
                     }
                 }
             }
-        });
+        })
     }
 
-    fn start_pool_metrics_update_task(&self, shutdown: CancellationToken) {
+    fn start_pool_metrics_update_task(&self, shutdown: CancellationToken) -> tokio::task::JoinHandle<()> {
         let interval = self.pool_metrics_update_interval;
         let database = self.database.clone();
 
@@ -207,10 +209,10 @@ impl ScheduledTasks {
                     }
                 }
             }
-        });
+        })
     }
 
-    fn start_performance_check_task(&self, shutdown: CancellationToken) {
+    fn start_performance_check_task(&self, shutdown: CancellationToken) -> tokio::task::JoinHandle<()> {
         let interval = self.performance_check_interval;
         let database = self.database.clone();
         let last_metrics = self.last_performance_metrics.clone();
@@ -264,10 +266,10 @@ impl ScheduledTasks {
                     }
                 }
             }
-        });
+        })
     }
 
-    fn start_integrity_check_task(&self, shutdown: CancellationToken) {
+    fn start_integrity_check_task(&self, shutdown: CancellationToken) -> tokio::task::JoinHandle<()> {
         let interval = self.integrity_check_interval;
         let database = self.database.clone();
         let last_report = self.last_integrity_report.clone();
@@ -330,10 +332,10 @@ impl ScheduledTasks {
                     }
                 }
             }
-        });
+        })
     }
 
-    fn start_maintenance_task(&self, shutdown: CancellationToken) {
+    fn start_maintenance_task(&self, shutdown: CancellationToken) -> tokio::task::JoinHandle<()> {
         let interval = self.maintenance_interval;
         let pool = self.database.pool().clone();
         let last_report = self.last_maintenance_report.clone();
@@ -389,7 +391,7 @@ impl ScheduledTasks {
                     }
                 }
             }
-        });
+        })
     }
 }
 
@@ -458,6 +460,41 @@ mod tests {
     async fn new_scheduler_reports_no_results_yet() {
         let tasks = ScheduledTasks::from_config(offline_database(), &ServerConfig::default(), None);
 
+        assert!(tasks.last_health_status.try_read().expect("未被争用").is_none());
+        assert!(tasks.last_performance_metrics.try_read().expect("未被争用").is_none());
+        assert!(tasks.last_integrity_report.try_read().expect("未被争用").is_none());
+        assert!(tasks.last_maintenance_report.try_read().expect("未被争用").is_none());
+    }
+
+    /// 关闭信号必须让**全部**五个后台任务退出。
+    ///
+    /// 这条断言在 `start_all` 返回句柄之前**写不出来**：`CancellationToken` 只负责发信号，
+    /// 没有任何可等待的对象 ⇒ "任务是不是真退出了"不可观测（连"还在跑但恰好没 tick"
+    /// 都区分不了）。见 `docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md` §3.1.2。
+    ///
+    /// 用**已取消**的 token 启动：五个任务的第一处 `select!` 都是 `biased` + `shutdown.cancelled()`
+    /// 在前，所以它们应在第一次被调度时就退出 —— 既不去连库，也不写台账。
+    #[tokio::test]
+    async fn shutdown_cancels_every_task_before_first_tick() {
+        let tasks = ScheduledTasks::from_config(offline_database(), &ServerConfig::default(), None);
+        let shutdown = CancellationToken::new();
+        shutdown.cancel();
+
+        let handles = tasks.start_all(shutdown.clone());
+        assert_eq!(handles.len(), 5, "start_all 必须暴露全部五个后台任务，否则有任务在关闭时无人可等");
+
+        for (index, handle) in handles.into_iter().enumerate() {
+            match tokio::time::timeout(Duration::from_secs(5), handle).await {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => panic!("第 {index} 个后台任务 panic 而非干净退出: {error}"),
+                Err(_) => panic!(
+                    "第 {index} 个后台任务在取消后 5s 内没有退出 —— 检查它的 select! 是否漏了 \
+                     `biased; shutdown.cancelled()` 分支，或 grace 期 sleep 没有与取消竞争"
+                ),
+            }
+        }
+
+        // 走了取消路径就不该写台账：写了说明它先跑了一次真实巡检（那要连库）。
         assert!(tasks.last_health_status.try_read().expect("未被争用").is_none());
         assert!(tasks.last_performance_metrics.try_read().expect("未被争用").is_none());
         assert!(tasks.last_integrity_report.try_read().expect("未被争用").is_none());
