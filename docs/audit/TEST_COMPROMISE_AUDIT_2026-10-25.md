@@ -457,16 +457,25 @@ cost_per_row        = (总耗时 / (N × 迭代)) / reference_roundtrip
 | `room.rs:635 get_room_block_status` | `room/state/info.rs:137` | `Arc<dyn RoomStoreApi>` | **可达** |
 | `threepid.rs:77 verify_threepid` | `identity/storage.rs:40,60` | `ThreepidStorage`（**具体类型**） | **mock 走不到** |
 
-⇒ 定级结果：**6 个候选里 2 个死代码、1 个 mock 走不到、3 个真正可达**。
+三个"可达"的又逐个读了断言，**全部排除假绿**：
 
-但"可达"仍不等于"造成假绿"：**还取决于测试是否用多组参数值、且断言结果不同**。
-例如 `info.rs` 里 `svc.get_room_block_status("!missing:ex.com")` 只用了一个参数、断言"不存在的房间返回 None"
-—— mock 恒返回 `None` 与真实现给出同样结论，这条测试**不是假绿**，改成正确实现它照样通过。
-真正危险的是"用两个不同 room_id 断言两种不同结果"这类用例。
+| 方法 | 断言侧实况 | 判定 |
+|---|---|---|
+| `room.rs get_room_block_status` | 测试名就叫 `get_room_block_status_is_unmodelled_by_the_in_memory_store`，断言消息写「MOCK DEVIATION 记录：InMemoryRoomStore 的 block_room 是 no-op、get_room_block_status 恒为 None。若这里变成 Some，说明 mock 已被补充实现，请同步更新偏差说明与本测试名」 | **已声明偏差**，反而是个正面范式 |
+| `media get_media_quarantine_status` | `quarantine_tests.rs:41` 装配的是 `QuarantinedMediaChangeStorage::new(&pool)`（**真实 storage**），mock 根本没用上 | **mock 走不到** |
+| `refresh_token mark_family_compromised` | 全文件 `replay` 只出现在**注释**里（149–212），没有任何测试断言"重放 ⇒ 族被封禁" | **无测试覆盖**（见下） |
 
-⇒ 结论：`test_mocks` 有 **106 处忽略参数**；已核实 6 处 → 2 死代码、1 不可达、3 可达但**未判定是否假绿**。
-**"忽略参数"本身不是缺陷**，缺陷是"忽略了参数、还有测试断言依赖该参数的结果"——
-后者需要逐测试看断言，静态规则做不到。剩下 100 处同理，不值得批量盲改。
+⇒ **这批"忽略参数"没有造成任何一处假绿。** 最初把它们列成"6 处高危、会让安全断言永远成立"
+是**错的** —— 那只是静态候选，不是风险结论。
+
+**但顺手发现一个真缺口**：`mark_family_compromised` 所在的分支是 **token 重放检测**
+（日志 `Potential token replay attack detected`，S-9 / A+ W1 的 fail-closed 改造点），
+它**没有任何测试**。要补这条，mock 必须先能记录"族被封禁"（现在 `mark_family_compromised` 返回
+`Ok(())` 不留痕），否则测试写不出来 —— 这才是该处 mock 真正该改的地方。
+
+结论：`test_mocks` 有 **106 处忽略参数**；已核实 6 处 → 2 死代码、2 mock 走不到、1 已声明偏差、
+1 无覆盖（安全关键）。**"忽略参数"本身不是缺陷**，缺陷是"忽略了参数、还有测试断言依赖该参数的结果"
+——后者必须逐测试看断言，静态规则做不到，剩下 100 处不值得批量盲改。
 
 **为什么不一次性清零**：106 处里多数是良性的（`cleanup_expired_tokens(_now_ts)`：mock 没有"过期"
 概念，返回 `Ok` 不产生副作用，调用方不会因此得出错误结论）。逐个裁定"实现 or 改 fail-loud"
