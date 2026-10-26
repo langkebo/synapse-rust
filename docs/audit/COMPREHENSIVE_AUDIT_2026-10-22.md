@@ -17,15 +17,15 @@
 | 代码质量 | 0 | 0 | 1 | 1 | 2 |
 | 功能完整性 | 0 | 0 | 0 | 0 | 0 |
 | 性能（含数据层） | 0 | 0 | 1 | 3 | 4 |
-| 安全性 | 0 | 0 | 0 | 5 | 5 |
+| 安全性 | 0 | 0 | 0 | 2 | 2 |
 | 可维护性 | 0 | 0 | 1 | 0 | 1 |
 | 测试覆盖 | 0 | 0 | 0 | 0 | 0 |
 | 文档完整性 | 0 | 0 | 0 | 0 | 0 |
 | 专项：冗余与过度开发 | 0 | 0 | 0 | 0 | 0 |
-| **合计** | **0** | **0** | **5** | **9** | **14** |
+| **合计** | **0** | **0** | **5** | **6** | **11** |
 
-> 计数口径（2026-10-26 逐条重算，**按表格行**计，合并行只算一行）：**P0 = 0，P1 = 0，P2 = 5，P3 = 9，合计 14**。
-> 来源 = §0.2.2 的 2 条 + §0.2.3 的 12 条（§0.1 已于 2026-10-26 清空）。
+> 计数口径（2026-10-26 逐条重算，**按表格行**计，合并行只算一行）：**P0 = 0，P1 = 0，P2 = 5，P3 = 6，合计 11**。
+> 来源 = §0.2.2 的 2 条 + §0.2.3 的 9 条（§0.1 已于 2026-10-26 清空）。
 > ⚠️ **本版更正一处旧账**：上一版写 `P3 = 13`，但把 §0.1 / §0.2.2 / §0.2.3 三处表格按行数出来是
 > **14 行**（正则 `^\| \*\*ID\*\* \| P[0-9] \|` 扫一遍即可复核）—— 13 是漏计，不是有 1 条被关掉。
 > 本版关闭 **NEW-19**（P2/功能完整性，`2e33c45a8`）、**NEW-10**（P3/测试覆盖，`d9fa05d26`）、
@@ -33,6 +33,10 @@
 > ⇒ P2 `6 → 5`、P3 `14 → 11`、合计 `20 → 16`。
 > 本轮（2026-10-26）裁决并落地 **NEW-15**（删除未知任务统一 404）与 **NEW-16**（不限额时
 > `remaining: null`）⇒ P3 `11 → 9`、合计 `16 → 14`；§0.1 自此清空，判据见附录 D。
+> 同轮继续收口三条 P3 安全项：**SEC-09** 成立（CAS `redirect_after` 开放重定向，已修 +
+> 11 组输入单测）、**SEC-11** 判为**误报**（`[0u8; 32]` 是 HKDF 输出缓冲，必被 `hk.expand`
+> 覆盖，不是全零密钥）、**SEC-13** 成立但原描述有偏差（泄露的是**被签名的请求字节**，不是
+> 签名串；已改成 `len` + 8 字符 SHA-256 指纹 + 源码棘轮）⇒ P3 `9 → 6`、合计 `14 → 11`。
 > ✅ NEW-19：`/send` 的线程回复现在同时进 `thread_relations` 与 `thread_replies`
 > （时间戳回查刚落库的事件，不用本地时钟；重试同一 txn 不重复计数）。
 > ✅ NEW-10：4 处手写轮询折成 `tests/common/mod.rs::wait_until`，测试域 `sleep` 计数
@@ -45,21 +49,21 @@
 > ✅ **NEW-14 已收口**：C3 审计面 15 → 95 个文件（零误伤），14 个 `NONE` 族已逐族重跑 ⇒
 > 4 族误判（改登记）、3 族幽灵、7 族真缺口（见 §0.1.1）。
 > `NEW-08` 已于 2026-10-25 关闭（`device_sync.rs` 整模块删除，判据与变异证据见附录 D），不再计入。
-> 其中 **14 条是"登记项"**（明确不做或只等外部条件）；§0.1 已于 2026-10-26 清空
+> 其中 **9 条是"登记项"**（明确不做或只等外部条件）；§0.1 已于 2026-10-26 清空
 > （最后两条 `NEW-15` / `NEW-16` 已裁决并落地），没有"我们已经知道怎么改但还没动手"的条目了。
 
 **结论摘要**：**P0 = 0，P1 = 0**（原 9 条 P1 全部有实现 + 能失败的门禁，逐条见附录 D）。
 ⚠️ 第八轮曾把一条误报成 P1（NEW-06「设备吊销通知静默丢失」），**已撤回**：真实广播路径在
 `routes/device.rs::broadcast_device_list_update`（签名事务），死的是 `device_sync` 里那条
 零调用者的重复实现，已删除；更正过程记在[附录 D](#附录-d已关闭条目索引)。
-剩下的 14 条里，**没有一条会造成数据丢失或越权**；5 条 P2 分别是 `events` 未分区（ARCH-04）、
+剩下的 11 条里，**没有一条会造成数据丢失或越权**；5 条 P2 分别是 `events` 未分区（ARCH-04）、
 7 个 >2000 行生产文件（ARCH-05）、837 处静默忽略（CODE-10）、`to_device` 无按龄清理（PERF-01）、
 测试替身未做特性隔离（MAINT-01）—— 全是**长期结构债**：
-不修也不会立刻出错，但每加一个功能都在加利息。9 条 P3 **全部是 §0.2.3 的登记项**
+不修也不会立刻出错，但每加一个功能都在加利息。6 条 P3 **全部是 §0.2.3 的登记项**
 （规范漂移/文档失真/死代码），没有待裁决项。
 
-**下一批该做什么**：**没有"我们知道怎么改但还没动手"的条目了**。剩下的 14 条分两类 ——
-① 12 条**登记项**（§0.2.3，明确不做或只等外部条件）；
+**下一批该做什么**：**没有"我们知道怎么改但还没动手"的条目了**。剩下的 11 条分两类 ——
+① 9 条**登记项**（§0.2.3，明确不做或只等外部条件）；
 ② ARCH-04/ARCH-05（§0.2.2）这两条结构债要真实数据量/行为不变的证明才谈得上动。
 
 ## 0.1 第七轮新发现（2026-10-24，只列仍开着的）
@@ -111,7 +115,7 @@
 ### 0.2.1 可先红后绿
 
 > 2026-10-24 已清空：最后一条 `TEST-05` 已按「逐处分类 + 注解门禁」收口（见附录 D）。
-> 剩下的 14 条全部落在 §0.2.2（需要决策/等价断言）与 §0.2.3（登记项）。
+> 剩下的 11 条全部落在 §0.2.2（需要决策/等价断言）与 §0.2.3（登记项）。
 
 ### 0.2.2 需要决策或外部条件
 
@@ -127,14 +131,11 @@
 | **CODE-10** | P2 | 生产 **837 处** `let _ =` / `unwrap_or_default()`（238 文件） | 大部分是合法用法；设下降配额会诱导写 `unwrap()` 来"减少计数"（§10.10） |
 | **CODE-11** | P3 | `#[allow(...)]`：棘轮口径（`python3 scripts/ci/check_clippy_allow_ratchet.py --print`，2026-10-24 W8 现算）**160 site / 159 处无 `// reason:`（95 文件）**，基线 159/95；原记「271 处 / 117 文件」是裸 `#[allow` grep 的宽口径，与棘轮不可比 | 棘轮已在工作（只许下降）；剩"补理由"是纯体力活，随触达文件顺手补（W8 触达的 4 个文件/2 个脚本未新增任何无理由 allow，计数 160 → 160、无理由 160 → **159**） |
 | **PERF-01** | P2 | `to_device_messages` 对**普通设备**无按龄清理（脱水设备路径有 `DELETE`） | 需要先定"客户端未确认算不算已投递"，是产品语义 |
-| **PERF-10** | P3 | PostgreSQL **实例级**未设 `statement_timeout`（应用侧每连接已设 30s） | 只影响直连 psql 的场景，属部署配置，不在仓库内 |
+| **PERF-10** | P3 | PostgreSQL **实例级**未设 `statement_timeout`（应用侧每连接已设 30s） | 只影响直连 psql 的场景，属部署配置：仓里有 `docker/config/postgres.conf` 可改，但生产实例的 `postgresql.conf` 由部署方管理，改仓库文件只覆盖 docker 这一种形态 |
 | **PERF-11** | P3 | N+1 查询 3 处（风险可控） | 当前数据量下无实测劣化，缺 benchmark 支撑 |
 | **PERF-12 / MAINT-07** | P3 | `INDEXES.md` 人工表无法从 DDL 反推 | 重生成会让"索引治理"退化成"索引清单"；计数已由 `check_doc_metrics.py` 现算 |
 | **MAINT-01** | P2 | 测试替身/工具二进制与生产 crate 未做特性隔离 | 已覆盖 `user_store_fake`、`federation_test_keys`；其余属"每个 crate 一次评估"，收益低于改动面 |
-| **SEC-09** | P3 | CAS 回调的 `redirect_after` 未做同源校验 | 需要 CAS 部署形态（回调域名）才能定白名单 |
-| **SEC-11** | P3 | 静态密钥封装存在全零密钥死代码 | 无运行时路径可达；删它需先确认没有部署依赖 |
 | **SEC-12** | P3 | legacy r0/v1/r1 媒体下载端点匿名可读 | **是 Matrix legacy 语义**（新版才要求 token）；收紧会破坏老客户端 |
-| **SEC-13** | P3 | 联邦鉴权 DEBUG 日志打印签名原文 | DEBUG 默认关闭；改它要同时改运维的排障手册 |
 | **SEC-15** | P3 | 鉴权覆盖率约 94.4%，client/media 面存在未覆盖路由 | 覆盖率本身未重测；补测要先有"哪些路由该公开"的白名单口径 |
 
 ## 0.3 复核历史（压缩）
@@ -219,7 +220,7 @@
 的等价断言（涉及懒加载成员集、`include_redundant_members`、`state_after` 三组语义），属独立一笔。
 所以本条关闭的是"**时间线语义**单点化 + 有断言守护"，不是"整个组装层已合并"。
 
-### ARCH-03（P2）"未实现"存在两套错误语义
+### ARCH-03（P2）"未实现"存在两套错误语义 —— ✅ 已关闭（见附录 D）
 
 - **位置**：`synapse-common/src/error.rs:314`（`not_implemented` → 404 `M_UNRECOGNIZED`）
   与 `:449`（`not_supported` → 501 `M_UNKNOWN`）
@@ -262,7 +263,7 @@
 
 ## 二、代码质量
 
-### CODE-01b（P2）`hash_token` 缺 secret 时 panic；8 个 `src/bin` 入口完全不校验
+### CODE-01b（P2）`hash_token` 缺 secret 时 panic；8 个 `src/bin` 入口完全不校验 —— ✅ 已关闭（见附录 D）
 
 - **位置**：`synapse-common/src/crypto.rs`（`hash_token` 的 `unreachable!`，已带
   `#[expect(clippy::unreachable, reason = …)]` 登记）；`src/bin/` 下 8 个可执行入口
@@ -284,7 +285,7 @@
 - **下一轮要做的事**：先定义三条边界（是否含 `#[cfg(test)]`、是否含生成物、是否按行数还是圈复杂度），
   然后再报数。**不要**把 52 写进缺陷清单 —— 那是口径混出来的假增长。
 
-### CODE-08（P2）已注册端点恒 403，用无理由 `#[allow(dead_code)]` 掩盖
+### CODE-08（P2）已注册端点恒 403，用无理由 `#[allow(dead_code)]` 掩盖 —— ✅ 已关闭（见附录 D）
 
 - **位置**：`synapse-web/src/routes/e2ee/devices.rs:108` 一带（`GET /_matrix/client/v3/rooms/{room_id}/keys/distribution`
   恒 403，自述 "server-internal endpoint"）
@@ -311,7 +312,7 @@
 
 ## 三、功能完整性
 
-### FUNC-05（P3）联邦能力项有意不注册，未全部登记为设计决策
+### FUNC-05（P3）联邦能力项有意不注册，未全部登记为设计决策 —— ✅ 已关闭（见附录 D）
 
 - **已登记**：thirdparty 4 条 + 联邦 key 上传 5 条（RD-15/16）。
 - **未登记**：`/_synapse/admin/v1/backups` 等"无路由"项，读者会误判为遗漏。
@@ -351,20 +352,27 @@
 
 ## 五、安全性
 
-> 原 15 条安全项里 8 条已关闭（SEC-01…SEC-08、SEC-10）。剩下 6 条全是 P3，且没有一条是"越权"：
-> 四条是**运维面**（实例配置、日志、部署形态），两条是**legacy 语义**（矩阵老客户端要求匿名可读）。
+> 原 15 条安全项里 13 条已关闭或已裁决（SEC-01…SEC-08、SEC-10，本轮 SEC-09 / SEC-13；
+> SEC-11 判为误报、SEC-14 判为原建议有误——均见附录 D）。剩下 **2 条**全是 P3，且没有一条是"越权"：
+> 一条是**legacy 语义**（矩阵老客户端要求匿名可读），一条是**覆盖率口径**未定。
+>
+> 下面四条已关闭项保留原正文作历史，判定与证据在附录 D。
 
-### SEC-09（P3）CAS 回调的 `redirect_after` 未做同源校验
+### SEC-09（P3）CAS 回调的 `redirect_after` 未做同源校验 —— ✅ 已关闭（2026-10-26，`e83fdbb6f`）
 
 - **位置**：`synapse-web/src/routes/cas.rs`（`/login?service={redirect}`）
 - **影响**：开放重定向 —— 攻击者可构造看起来指向本域的 CAS 登录链接，登录后跳去外站。
 - **修法**：`redirect_after` 只接受同源路径；非空且非同源 ⇒ 400。
+- **落地**：`is_same_origin_path` 要求「以 `/` 开头、不是 `//host`、不含 `\`、不含控制字符」
+  （浏览器会把 `/\host` 归一化成 `//host`，所以单独挡 `\`）；非法值回 `400 M_INVALID_PARAM`，
+  且**不回显**原值（它是攻击者可控的）；空串等同"没传"。11 组输入的单测覆盖接受/拒绝两侧。
 
-### SEC-11（P3）静态密钥封装存在全零密钥死代码
+### SEC-11（P3）静态密钥封装存在全零密钥死代码 —— ✅ 不成立（误报，2026-10-26）
 
 - **位置**：`synapse-common/src/key_encryption.rs`（`let mut okm = [0u8; 32]`）一带
-- **影响**：死路径，但"全零密钥"出现在密钥封装里会被读成"可能用了全零密钥"。
-- **修法**：删除或改成显式 `unreachable`（需要 CODE-01 的 `#[expect]` 形式登记）。
+- **判定**：`okm` 是 **HKDF 的输出缓冲区**，紧随其后的 `hk.expand(info, &mut okm)` 把 32 字节
+  全部覆盖后才使用；`[0u8; 32]` 只是"先分配后填充"的写法，不是"以全零密钥工作"。
+  该处已带 `#[allow(clippy::expect_used, reason = …)]` 说明 fail-closed 意图。**不改代码。**
 
 ### SEC-12（P3）legacy r0/v1/r1 媒体下载端点匿名可读
 
@@ -374,17 +382,26 @@
   新版 `v3` 路径已要求鉴权。
 - **修法**：登记为设计决策 + 在部署文档里说明"如需关闭匿名读，需按客户端版本分布决定"。
 
-### SEC-13（P3）联邦鉴权 DEBUG 日志打印签名原文
+### SEC-13（P3）联邦鉴权 DEBUG 日志打印签名原文 —— ✅ 已关闭（2026-10-26，`c2783c680`）
 
 - **位置**：`synapse-web/src/middleware/federation_auth.rs`
 - **影响**：DEBUG 默认关闭；一旦为排障打开，日志里就有可重放的签名原文（配合 SEC-14 的窗口问题更危险）。
 - **修法**：改成打印签名哈希的前 8 位。
+- **落地（原描述有偏差）**：泄露的不是签名串，而是**被签名的规范化请求字节**（含 room 消息、
+  to-device 载荷）。改为字段化 `origin` / `len` / `fingerprint`（`signature_fingerprint` 取
+  SHA-256 前 8 字符），并加源码棘轮 `debug_logs_do_not_dump_signed_bytes`
+  （用 `concat!` 拆针，避免门禁匹配到自身）。
+- **残留**：`ROUTE_CONTRACT.md` 的行号引用已随同批刷新（漂移 57 → 55）。
 
-### SEC-14（P3）联邦请求缺 `ts` 仅告警不拒绝
+### SEC-14（P3）联邦请求缺 `ts` 仅告警不拒绝 —— ✅ 已关闭（裁决：不改，见附录 D）
 
 - **位置**：`synapse-web/src/middleware/federation_auth.rs`（`signing_ts` 缺失走 warn 分支）
 - **影响**：无 `ts` 的请求无法参与重放窗口判定，等价于"跳过新鲜度检查"。
 - **修法**：缺失即拒绝（401），并补一条"缺 ts ⇒ 401"的用例（**先写用例证明当前会放行**）。
+- **判定**：`ts` **不在规范里**（Authentication 一节只列 `origin`/`destination`/`key`/`sig`，
+  且写明 unknown parameters 忽略），本仓出站请求也不带 `ts` ⇒ 按原建议硬拒会拒掉自己发出的
+  每一个联邦请求。已改为显式建模 `TimestampCheck` 四态 + 一条"文档说我们不发 ts"与代码
+  双向一致的门禁。
 
 ### SEC-15（P3）鉴权覆盖率约 94.4%，client/media 面存在未覆盖路由
 
@@ -401,7 +418,7 @@
 - **仍开着**：其余测试工具（`test_mocks`、`synapse-test-utils` 的部分模块）仍随默认构建进入生产依赖图。
 - **修法**：逐 crate 评估——不是一次性机械替换，每个 crate 的 `test-utils` feature 传播路径不同。
 
-### MAINT-04（P2）能力台账手工维护，已出现多处失真
+### MAINT-04（P2）能力台账手工维护，已出现多处失真 —— ✅ 已关闭（见附录 D）
 
 - **证据**：FUNC-04 的两行（`animated`、`M_APPSERVICE_LOGIN_UNSUPPORTED`）**两轮都被判为"与实现相反"**，
   本轮已改对并加了守卫（`capability_ledger_absence_claims_match_the_code`：代码里有该标识符 ⇒
@@ -543,7 +560,7 @@ TEST_FILE 47 = 107**；测试域合计 81。
 
 ## 八、文档完整性
 
-### DOC-04（P3）三份文档共 9 组行号漂移
+### DOC-04（P3）三份文档共 9 组行号漂移 —— ✅ 已关闭（见附录 D）
 
 - **修法**：把"引用行号"改成"引用符号名"（`fn xxx` / `const YYY`），行号每一次改动都会漂。
 
@@ -579,13 +596,21 @@ TEST_FILE 47 = 107**；测试域合计 81。
 | W5 | P2 安全一致性（SEC-02…08） | ✅ `ca6980c51` |
 | W6 | P3 冗余与文档（RD-01…26） | ✅ 四批 + RD-14 接入 |
 | W7 | 门禁可达性（TEST-04）+ 三处文档失真（MAINT-05/CODE-09/FUNC-04） | ✅ 见提交 `01345e38f` |
+| W8 | 测试面（TEST-05/NEW-05/NEW-09/NEW-14）+ 能力台账（MAINT-04/FUNC-05/ARCH-03/CODE-01b/CODE-08）+ 文档漂移（DOC-04） | ✅ 逐条判据见附录 D |
 
-### 10.2 下一批（W8）建议
+### 10.2 下一批建议
 
-**顺序**：`TEST-05` → `NEW-05`（逐文件判定）→ `FUNC-05`。清单里已无 P0/P1。
+W8 计划的三项（`TEST-05` → `NEW-05` → `FUNC-05`）已全部收口，清单里已无 P0/P1、也无 P3 待裁决项。
+剩下 11 条里能动的只有 4 条 P2 结构债，而每条都**卡在一个前提上**，不是排期问题：
 
-理由：`TEST-05` 剩余 81 处测试域 `sleep` 是体力活但收益最长尾；`NEW-05` 要先逐文件判定"接真 router 还是改名"才有判据；`FUNC-05` 只差把已登记的能力项接进生成段（MAINT-04 的前置）。
-**需要先确认规范是否允许缺省** —— 硬拒可能与老版本 homeserver 断联邦，所以它排在需要判断的位置。
+| 待办 | 前提 |
+|---|---|
+| ARCH-04（`events` 分区） | 需要真实数据量证明收益；本机无生产级数据 |
+| ARCH-05（7 个 >2000 行文件） | 需要"拆分后行为不变"的可失败验证；当前拿不出 |
+| PERF-01（`to_device` 按龄清理） | 要先定"客户端未确认算不算已投递"的产品语义 |
+| CODE-10（837 处静默忽略） | 只按"错误被吞有无用户可见后果"分类处理，且**不设配额** |
+
+其余（`MAINT-01`、`CODE-11`、`PERF-10/11/12`、`SEC-12/15`）都是随触达顺手做或等外部条件的登记项。
 
 ### 10.3 明确不做（防止过度开发）
 
@@ -712,4 +737,7 @@ TEST_FILE 47 = 107**；测试域合计 81。
 | RD-27 | `to_device` 的 4 个存储方法零调用，其中一个名字与语义相反 | **审计前提部分不成立，只删真正死的 2 个**。`git grep` 实测：`get_messages` / `delete_messages` 生产与测试均 0 调用 ⇒ 删除（各带一条静态 `query!`）；`delete_messages_up_to` **有生产调用**（`synapse-services/src/sync_service/mod.rs:209`）⇒ 保留；`get_and_delete_messages` 名字不反（实现确实先读后删），但被 `get_messages_for_sync` → `synapse-e2ee/src/to_device/service.rs:120` 与 `tests/integration/to_device_sync_tests_migrated.rs:271` 消费 ⇒ 保留。**"名字相反"的真问题在 `get_messages_for_sync` / sync 路径，不在存储层**。"无外部消费者"的判定依据：`synapse-e2ee` 全仓 re-export 只有 `ToDeviceStorage`（被删方法不是 trait 成员、不在 `lib.rs` 的 `pub use` 里），且删除后 `cargo check --bins` 与 `synapse-e2ee` 测试目标均通过。`check_sqlx_dynamic_ratio.sh`：静态 1363 → 1357（−2 属本卡、−4 属基线滞后），test 786 → 791（基线滞后，非本卡），两条都在 `scripts/ci/sqlx_dynamic_ratio_baseline` 就地写了原因 |
 | MAINT-04 | 能力台账手工维护，已出现多处失真 | 新建 `scripts/contract/check_capability_ledger.py`：C1 每行恰一个判定词（`已实现` / `设计决策` / `未实现`）、C2 `已实现` 必须带可解析 `path:line`（越界即错）、C3 `设计决策` 必须引用审计文档里真实存在的编号、C4 "不注册"声明的路径不得同时在 `ledger_annotations.txt` 里是 `unsupported=true`（两条台账互相矛盾即红）。接入 `check_route_contract.sh`（含 `--mutation-check` 自证）。`API_COVERAGE_REPORT.md` §6.2 四行 + §6.5 两行补规范判定词与可解析引用。**判据**：脚本绿（15 行 / 1 条不注册声明）；`--mutation-check` 三类缺陷各红。**变异**：把 §6.2 MSC3814 的引用改成 `:99999` ⇒ 红（`行号越界（… 只有 321 行）`，实测） |
 | FUNC-05 | 联邦能力项有意不注册，未全部登记为设计决策 | `API_COVERAGE_REPORT.md` 新增 §6.6「设计决策台账」，5 行覆盖：`/_synapse/admin/v1/backups`（不注册）、thirdparty 4 条（RD-15）、联邦 legacy key 5 条（FUNC-05；RD 族详表见审计归档）、voice 3 条（DOC-03）、keys/distribution（RD-19）。判定词闭集由 C1 强制：残留"未登记"即红，三态在 §6.6 内互斥 |
+| SEC-09 | CAS 回调的 `redirect_after` 未做同源校验 ⇒ 开放重定向 | **真实缺陷，已修**（`e83fdbb6f`）。`cas_sso_redirect` 原先把 `redirect_after` 原样编码进 `/login?service=…`，登录页据此跳转，攻击者可用 `https://evil.example/steal` 或协议相对 `//evil.example` 借本域域名完成跳转。新增 `is_same_origin_path`：必须 `starts_with('/')`、**不是** `//host`、不含 `\`（浏览器会把 `/\host` 归一化成 `//host`）、不含 `< 0x20` 与 `0x7f`（可用来截断/逃逸）；非法值回 `400 M_INVALID_PARAM` 且**不回显**原值；空串等同未传。**判据**：`test_redirect_after_accepts_only_same_origin_paths` 覆盖接受侧（`/`、带 `?via=` 的房间路径、带 `#` 的客户端路由）与拒绝侧（`https://` / `http://` / `//host` / `/\host` / `javascript:` / 裸域名 / 空串 / 含 `\r\n` / 含 `\u{7f}`）；`cas::tests` **7 passed**（`--features test-utils,cas-sso`） |
+| SEC-11 | 静态密钥封装存在全零密钥死代码 | **误报，不改代码**。`synapse-common/src/key_encryption.rs` 的 `let mut okm = [0u8; 32];` 是 **HKDF 的输出缓冲区**，下一行 `hk.expand(info, &mut okm)` 把 32 字节全部覆盖后才读取；`[0u8; 32]` 只是"先分配、后填充"的写法，不存在"用全零密钥工作"的路径。该处已带 `#[allow(clippy::expect_used, reason = …)]` 说明 fail-closed 意图。**没有改动**，本条从清单移除 |
+| SEC-13 | 联邦鉴权 DEBUG 日志打印签名原文 | **真实缺陷，但原描述有偏差，已修**（`c2783c680`）。泄露的不是签名串，而是 `canonical_federation_request_bytes` 的**结果**（规范化请求体，含 room 消息与 to-device 载荷）——排障打开 DEBUG 就等于把明文落盘。改为字段化日志：`origin` / `len` / `fingerprint`（新增 `signature_fingerprint`，取 `compute_signature_content_hash` 的前 8 字符；该函数原先只在 `#[cfg(test)]` 下编译，本轮去掉 cfg 供生产日志使用）。**判据**：新增 `signature_fingerprint_is_short_and_deterministic` + 源码棘轮 `debug_logs_do_not_dump_signed_bytes`（用 `concat!` 拆针，避免门禁匹配到自身），`--features test-utils` **2 passed**；同批把 `ROUTE_CONTRACT.md` 的 5 处 `cas.rs` 行号引用刷新，`check_doc_line_refs.py` 漂移 57 → **55**（基线 56） |
 | NEW-08 | `synapse-federation/src/device_sync.rs`（735 行）自称"设备列表同步"，实际生产零调用，与 `routes/device.rs::broadcast_device_list_update` 重复实现同一件事 | **删除整模块**。`DeviceSyncManager::new` 全仓唯一构造点在它自己的 `#[cfg(test)]` 与 `tests/integration/federation_service_tests_migrated.rs`（2 条只测死代码的用例，已删）；同步移除 `synapse-federation/src/lib.rs`、`synapse-services/src/lib.rs`、`synapse-web/src/federation/mod.rs` 三处 re-export。棘轮同步：`scripts/ci/sqlx_dynamic_ratio_baseline` static 1357 → 1354（该模块 3 条生产静态查询）、test 动态 791 → 784、总 926 → 925，均就地写明"只因查询确实被删"；`file_size_baseline` / `clippy_allow_baseline` 删除过期文件条目；`TESTING.md` 与 `docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md` 数字块跟改。守卫 `federation_device_list_writer_tests::the_dead_device_revocation_job_does_not_come_back` 改为"文件缺失即跳过"——重加回来仍会被扫描。**判据**：`cargo check --workspace --all-targets --all-features` 通过；`check_sqlx_dynamic_ratio.sh`、`check_file_size_ratchet.py`（该文件无 stale 条目）、`check_clippy_allow_ratchet.py`、`check_sqlx_cache_fresh.sh --static` 全绿。**变异**：把 `pub fn notify_device_revocation() {}` 写回同名文件 ⇒ 守卫红（实测）。真实广播路径 `broadcast_device_list_update` 未动 |
