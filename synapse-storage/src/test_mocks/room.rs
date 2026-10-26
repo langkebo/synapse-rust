@@ -115,13 +115,6 @@ impl InMemoryRoomStore {
             .cloned()
     }
 
-    /// See [`get_user_rooms`].
-    pub async fn get_user_rooms(&self, _user_id: &str) -> Result<Vec<String>, String> {
-        // This data lives in InMemoryMemberStore — stub returns all rooms.
-        // Real implementation would join with membership data.
-        Ok(self.rooms.read().await.keys().cloned().collect())
-    }
-
     /// See [`get_rooms_map`].
     pub async fn get_rooms_map(&self, room_ids: &[String]) -> Result<HashMap<String, crate::room::Room>, String> {
         let rooms = self.rooms.read().await;

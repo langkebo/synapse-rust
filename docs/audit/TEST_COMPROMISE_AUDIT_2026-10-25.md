@@ -437,18 +437,23 @@ cost_per_row        = (总耗时 / (N × 迭代)) / reference_roundtrip
 | `unimplemented!("… has no database pool")` | 3 | **安全**：调用即 panic ⇒ 测试红（fail-loud） |
 | 参数 `_xxx` + 函数体 `Ok(...)` | **106** | **危险**：调用方拿到"成功"，依赖该参数的断言**恒真**（fail-silent） |
 
-最危险的几处（会让**安全语义**的断言永远成立）：
+#### ⚠️ 「高危」必须逐个核调用链，不能只看静态规则（自我纠正，2026-10-26）
 
-| 位置 | 忽略的参数 | 后果 |
-|---|---|---|
-| `room.rs:119 get_user_rooms(_user_id)` | 用户 | 返回**全部**房间 ⇒ "用户只看得到自己的房间"永远通过 |
-| `presence.rs:131 set_typing(_room_id, _user_id, _typing)` | 全部 | 恒成功 ⇒ "typing 被正确记录/清除"永远通过 |
-| `refresh_token.rs:189 mark_family_compromised(_family_id)` | 族 id | 恒成功 ⇒ "泄露的 token 族已被封禁"永远通过 |
-| `quarantine_media.rs:111 get_media_quarantine_status(_media_id, _server_name)` | 媒体 | 忽略媒体 ⇒ "被隔离的媒体不可下载"永远通过 |
-| `threepid.rs:77 verify_threepid(_user_id, _medium, _address)` | 全部 | 恒成功 ⇒ "错误的验证码必须被拒"永远通过 |
-| `room.rs:635 get_room_block_status(_room_id)` | 房间 | 忽略房间 ⇒ "被屏蔽房间的行为"断言不可信 |
+上一版本在这里列了 6 处"最危险"，**说重了**。静态规则只能找"忽略参数"，判不了两件事：
+① 该方法**有没有生产调用者**；② 有没有测试**断言它的语义**。前两条候选核实后**都是死代码**：
 
-⇒ **这几条对应的 unit 测试不能当作安全保证**；真正的端到端覆盖得看 integration 腿（真 PG）。
+| 位置 | 在 trait impl 内？ | 有生产调用者？ | 判定 |
+|---|---|---|---|
+| `room.rs:119 get_user_rooms(_user_id)` | 否（inherent method） | `RoomStoreApi` **根本没声明**它（只有 `get_user_rooms_paginated`）；`search_service` 走的是真实 `RoomStorage` | **死代码** |
+| `presence.rs:131 set_typing(_room_id, _user_id, _typing)` | 是（`PresenceStoreApi`） | 未找到 —— `typing_service` 自己维护内存状态，不调 store | **疑似死代码** |
+
+其余四处（`mark_family_compromised` / `get_media_quarantine_status` / `verify_threepid` /
+`get_room_block_status`）**未核实**，它们确实在各自的 trait impl 内，但"是否被调用 + 是否有语义断言"
+还没查。
+
+⇒ 诚实的结论：`test_mocks` 有 **106 处忽略参数**，其中**已确认 2 处是死代码**，其余未定级。
+把它们当"高危清单"会误导 —— 真正该做的是**逐处看调用链与断言**（这是业务判断，不是静态规则能替代的）。
+**"忽略参数"本身不是缺陷**，缺陷是"忽略了参数、还有测试断言依赖该参数的结果"。
 
 **为什么不一次性清零**：106 处里多数是良性的（`cleanup_expired_tokens(_now_ts)`：mock 没有"过期"
 概念，返回 `Ok` 不产生副作用，调用方不会因此得出错误结论）。逐个裁定"实现 or 改 fail-loud"
