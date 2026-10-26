@@ -2194,8 +2194,13 @@ BASELINE_DYNAMIC_PRODUCTION=141
 BASELINE_DYNAMIC_TEST_INFRA=784
 BASELINE_STATIC=1354
 BASELINE_QUERY_BUILDER=17
-SQLX_CACHE_ENTRIES=1317
+SQLX_CACHE_ENTRIES=1318
 <!-- sqlx-plan-numbers:end -->
+
+> **2026-10-26 更新（补漏：`get_family_id` 的 query cache）**，数字块一处：
+> - `SQLX_CACHE_ENTRIES` **1317 → 1318**（+1）：`92afc93af` 补上了上一笔漏跟踪的
+>   `.sqlx/query-*.json`（refresh token 族的 `get_family_id`），但没同步本数字块，
+>   `check_plan_numbers_fresh.sh` 因此转红。本条只做文档随访，不改任何 .sqlx 内容。
 
 > **2026-10-26 更新（tags 全局读改以 `m.tag` 账户数据为准）**，数字块一处：
 > - `SQLX_CACHE_ENTRIES` **1323 → 1317**（净 −6）：新增 `list_room_account_data_by_type`
