@@ -817,14 +817,95 @@ python3 -c "import json;print(len(json.load(open('scripts/ci/coverage_baseline.j
 git checkout -- scripts/ci/coverage_baseline.json
 ```
 
-### 7.5 仍未闭合（唯一一条）
+### 7.5 59 个 0% 文件的分流：已定 31 个，剩 28 个等 CI（2026-10-26 本轮）
 
-**59 个 0% 文件的分流**：`src/server/router.rs` 已证是"基线陈旧"（实测 82.9%），但其余 58 个
-属"陈旧"还是"真缺口"**没有答案**。判据已定：**下一次 main push 后看 `coverage_baseline.json` 的 diff**
-——被抬起来的即陈旧，仍为 0 的才是真缺口。这一步依赖 §3.1.1 的修复（不完整报告不再截断基线）。
+先说结论：**不是 59 个都"待定"**。按证据强度可以分成四类，只有最后一类真的需要等 CI 的 diff。
 
-本地重跑不可行（实测 1 h 15 m 才走到 storage 步骤，且撞 PG 锁配额；CI 的 postgres service
-又无法传 `-c max_locks_per_transaction`，靠 `--test-threads 4` 规避）。
+| 类别 | 数量 | 判定 | 证据强度 |
+|---|---|---|---|
+| A. 二进制入口 | **5** | **既非陈旧也非缺口**：任何测试腿都看不到 | 结构性（`[[bin]]`/`main.rs` 不在 lib 目标里） |
+| B. `synapse-storage/test_mocks/*` | **22** | **基线陈旧**（在**不含 `test-utils`** 的 feature 集下测得） | 强（见下） |
+| C. 已双腿实测 | **4** | `router.rs` = 陈旧（82.9%）；`tasks/mod.rs` / `telemetry.rs` / `logging.rs` = **真 0** | 实测 |
+| D. 其余 | **28** | **待 CI 确认** | 无 |
+
+#### A. 二进制入口（5 个）：覆盖率对它们没有意义，应从棘轮里排除
+
+`src/main.rs`、`src/bin/federation_sign_request.rs`、`src/bin/generate_test_keypair.rs`、
+`src/bin/run_migrations.rs`、`src/bin/schema_health_check.rs`。
+
+根 crate 的 `src/lib.rs` 只声明 `pub mod {cli, common, server, tasks, worker}`（+ 私有 `test_exit_hook`）
+—— `main.rs` 与 `src/bin/*` 是**独立 bin 目标**，`--lib` 与 `--test` 腿都不会链接它们。
+把它们记成 0% 并在 CI 里当"覆盖率缺口"追，是**口径错误**：它们只能靠实际运行二进制来覆盖。
+（真要覆盖，路径是给 `run_migrations` 这类加集成冒烟测试去 `Command::new(env!("CARGO_BIN_EXE_…"))`，
+不是补单测。）
+
+#### B. 22 个 `test_mocks/*.rs`：基线陈旧的证据
+
+`test_mocks` 整个目录是 `#[cfg(any(test, feature = "test-utils"))]` 门控的 —— **不含 `test-utils`
+的构建里它们根本不被编译**，覆盖率自然记 0%。而权威 CI 车道带 `--all-features`。
+
+结构性证据（机械统计，不依赖覆盖率数字）：**32 个 `InMemory*` mock 结构体，全部有非 mock 调用者**，
+每个被 1–25 个文件引用（`InMemoryEventStore` 22 个、`InMemoryMemberStore` 25 个、
+`InMemoryRoomStore` 15 个、`InMemoryRefreshTokenStore` 4 个……）。零个"无外部引用"。
+
+旁证：本轮新写的 `replay_outside_window_revokes_the_whole_family` 直接 `new()` 了
+`InMemoryRefreshTokenStore` 并断言其内部状态（`age_rotations` 生效）—— 这类文件在单测里**确实被执行**。
+
+⚠️ **但我没能拿到"LH > 0"的直接读数**：`cargo llvm-cov -p synapse-services --lib --all-features`
+产出的 lcov **只有 196 条、全是本 crate 的文件**（`test_mocks/` 一条都没有）——
+**按 crate 插桩看不到依赖 crate 的源码**。所以 B 类的判定是"结构性证据 + 旁证"，
+最终仍需 `--workspace` 腿的数字确认。
+
+#### C. 已双腿实测（4 个）
+
+| 文件 | lib 腿 | integration 腿 | 判定 |
+|---|---|---|---|
+| `src/server/router.rs` | 0/35 | **29/35 = 82.9%** | 陈旧（§3.1.2） |
+| `src/tasks/mod.rs` | 0/203 | 0/203 | 真 0（见 §3.1.2 的"不必补"判断） |
+| `src/server/telemetry.rs` | 0/18 | 0/18 | 真 0（启动期一次性初始化） |
+| `synapse-common/logging.rs` | 0/49 | 该腿不编译 | 真 0（同上） |
+
+#### D. 剩下 28 个：只能等 CI 的 diff
+
+- **8 个 `synapse-web/routes/**`**（`admin/room/spaces`、`extractors/mod`、`federation/{media,membership/query,transaction/edus}`、
+  `handlers/room/management/{upgrade,visibility}`、`sticky_event`）：路由只能由 **integration 腿**覆盖，
+  而 integration 全量在插桩下是 42 min+。它们最可能是"陈旧"（路由被集成测试打到）但不是必然 ——
+  本轮另一个会话刚给 r0/v1 匿名读口径加了守卫，说明这类面还在动。
+- **6 个 `synapse-storage/**/api.rs`**（trait 定义 + 默认实现）：trait 声明的行**不是可执行行**，
+  但文件里的默认实现/`impl` 块是。0% 究竟是"没有可执行行"还是"真没跑到"，必须看 lcov 的 `LF` 计数才能判。
+- **其余 14 个**（`event/{models,reader,writer}`、`burn_after_read`、`widget`、`friend_room/repository`、
+  `worker/api`、`synapse-services/{rtc,room/state,friend_room_service}/error.rs`、`room/membership/federation`、
+  `synapse-common/config/manager`、`src/common/error`、`src/server/services`）。
+
+#### 本轮为此付出的两次失败（记下来省下一次的时间）
+
+1. **`cargo llvm-cov --workspace --lib --all-features` 不可靠**：跑到 997 passed / **1 failed** 就整体退出，
+   **lcov 一条都没落盘**（`cargo llvm-cov` 在测试失败时不生成报告，也没有 `--ignore-run-fail`）。
+   失败的是 `synapse-common::test_isolation::tests::prune_backfills_legacy_zero_row_marker_and_spares_it`，
+   而它**单独跑、单 crate 全量跑都通过**（998 passed / 7.16 s）。
+2. 复现尝试（普通 `cargo test --workspace --lib --all-features`）跑了 **41 min 仍在 storage 的 DB 用例上**，
+   被我中止 —— 这条复现路径本身太贵。
+
+⇒ 所以"59 个 0%"这件事，正确做法仍是**让 CI 跑一次 main push**，本地不要重跑。
+
+#### 那个 flake 值得单独盯（假设，未坐实）
+
+`synapse-common/src/test_isolation.rs::build_template`（第 786–802 行）在"模板已就绪"分支是：
+
+```rust
+DELETE FROM "<template>"."<ready table>";     // best-effort，失败只 warn
+INSERT INTO "<template>"."<ready table>" DEFAULT VALUES;   // best-effort，失败只 warn
+return Ok(());
+```
+
+**DELETE 与 INSERT 之间不是原子的**，两步失败都只 `warn!` 不返回错误。而失败的那个测试断言
+`has_rows > 0`（"a freshly built template must have at least one marker row"）—— 只要 INSERT 那步
+在重载下失败一次，标记表就留下**零行**，该测试必红。
+`--workspace` 并发（storage 的 1800 条 DB 用例同时克隆 220 表模板）正是"重载"的来源。
+
+**这是假设，不是结论**：我没拿到那次失败的断言原文，也没能复现。
+若要坐实，最小实验是手工把某模板标记表清空后**让 INSERT 失败**（例如临时改名该表）再跑测试。
+真要修，方向是把两步合成一条 `INSERT ... ON CONFLICT` 或"先插后删"，让标记表**不可能**出现零行。
 
 ### 7.6 途中被证伪的五个判断（留着，防止后来者重走）
 
