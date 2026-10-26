@@ -4,6 +4,14 @@ use synapse_common::ApiError;
 use synapse_storage::refresh_token::*;
 use tracing::{info, instrument, warn};
 
+/// 并发刷新窗口（毫秒）：距该族**最近一次轮换** ≤ 这个值时，把"旧 token 又被提交"
+/// 判为并发刷新 / 网络重试（良性，只拒本次）；超出则判为 **token 重放**并撤销整族。
+///
+/// 为什么需要时间判据：并发重试与真重放的 `revoked_reason` 都是 `"Rotated"`，
+/// 字段上无法区分（`docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md` §2.5）。
+/// 客户端并发刷新/重试几乎都在秒级内完成，而攻击者事后重放通常会晚得多。
+const CONCURRENT_REFRESH_WINDOW_MS: i64 = 5_000;
+
 /// The `RefreshTokenService` struct.
 pub struct RefreshTokenService {
     storage: Arc<dyn synapse_storage::refresh_token::RefreshTokenStoreApi>,
@@ -53,6 +61,24 @@ impl RefreshTokenService {
     /// See [`validate_token`].
     #[instrument(skip(self))]
     pub async fn validate_token(&self, token: &str) -> Result<RefreshToken, ApiError> {
+        self.load_token_inner(token, true).await
+    }
+
+    /// refresh 专用：**不因 `is_revoked` 提前返回**。
+    ///
+    /// 为什么不能直接用 [`validate_token`]：它在入口就把任何已撤销的 token 判死，
+    /// 于是重放检测永远到不了（`docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md` §2.5）。
+    /// refresh 需要看到"已撤销"这个事实，才能在 CAS-miss 处区分
+    /// 「并发刷新的良性竞争」与「真重放」。黑名单、不存在、已过期仍然一律拒绝。
+    async fn load_token_for_refresh(&self, token: &str) -> Result<RefreshToken, ApiError> {
+        self.load_token_inner(token, false).await
+    }
+
+    /// [`validate_token`] 与 [`load_token_for_refresh`] 的唯一实现。
+    ///
+    /// `reject_revoked = false` 只放行"已撤销"这一种情况，其余判据完全一致 ——
+    /// 这样两条路径不会各自漂移。
+    async fn load_token_inner(&self, token: &str, reject_revoked: bool) -> Result<RefreshToken, ApiError> {
         let token_hash = Self::hash_token(token);
         let legacy_hash = Self::hash_token_legacy(token);
 
@@ -91,7 +117,7 @@ impl RefreshTokenService {
                 .ok_or_else(|| ApiError::unauthorized("Invalid refresh token"))?,
         };
 
-        if token_record.is_revoked {
+        if reject_revoked && token_record.is_revoked {
             return Err(ApiError::unauthorized("Token has been revoked"));
         }
 
@@ -114,7 +140,7 @@ impl RefreshTokenService {
         ip_address: Option<&str>,
         user_agent: Option<&str>,
     ) -> Result<(String, RefreshToken), ApiError> {
-        let old_token = self.validate_token(refresh_token).await?;
+        let old_token = self.load_token_for_refresh(refresh_token).await?;
 
         info!(
             user_id = %old_token.user_id,
@@ -167,10 +193,30 @@ impl RefreshTokenService {
             .map_err(|e| ApiError::internal_with_cause("Failed to read token rotations for replay check", e))?;
         if let Some(last_rotation) = rotations.first() {
             if last_rotation.new_token_hash != old_token_hash {
+                // 先看「是不是刚刚才轮换过」：并发刷新/网络重试会在毫秒级内重复提交同一个
+                // 旧 token，此时它确实不等于最新轮换的 new_token_hash —— 若直接撤族，
+                // 一次客户端重试就会把用户踢下线。所以窗口内只拒本次，窗口外才按泄露处理。
+                let elapsed_ms = current_timestamp_millis() - last_rotation.rotated_ts;
+                if elapsed_ms <= CONCURRENT_REFRESH_WINDOW_MS {
+                    warn!(
+                        user_id = %old_token.user_id,
+                        family_id = %family_id,
+                        device_id = ?old_token.device_id,
+                        elapsed_ms,
+                        window_ms = CONCURRENT_REFRESH_WINDOW_MS,
+                        "Token submitted again within the concurrency window; refusing this request only"
+                    );
+                    return Err(ApiError::unauthorized(
+                        "Refresh token has already been used. Please use the new token.",
+                    ));
+                }
+
                 warn!(
                     user_id = %old_token.user_id,
                     family_id = %family_id,
                     device_id = ?old_token.device_id,
+                    elapsed_ms,
+                    window_ms = CONCURRENT_REFRESH_WINDOW_MS,
                     "Potential token replay attack detected"
                 );
 
@@ -227,27 +273,40 @@ impl RefreshTokenService {
                     .await
                     .map_err(|e| ApiError::internal_with_cause("Failed to re-read token after CAS miss", e))?;
 
-                if let Some(ref t) = current_token {
-                    if t.revoked_reason.as_deref() == Some("Rotated") {
-                        // Benign race: another refresh already rotated this token.
-                        warn!(
-                            user_id = %old_token.user_id,
-                            family_id = %family_id,
-                            device_id = ?old_token.device_id,
-                            "Token already rotated by a concurrent refresh; returning benign error"
-                        );
-                        return Err(ApiError::unauthorized(
-                            "Refresh token has already been used. Please use the new token.",
-                        ));
-                    }
+                // 窗口判定：只有"被正常轮换撤销"且**离现在足够近**才算良性并发。
+                // 读 rotations 失败一律 fail-closed（500）—— 不能因为读不到就当成良性。
+                let within_concurrency_window =
+                    if current_token.as_ref().is_some_and(|t| t.revoked_reason.as_deref() == Some("Rotated")) {
+                        let rotations = self.storage.get_rotations(&family_id).await.map_err(|e| {
+                            ApiError::internal_with_cause("Failed to read rotations for replay window", e)
+                        })?;
+                        let last_rotated_ts = rotations.first().map(|r| r.rotated_ts).unwrap_or(0);
+                        current_timestamp_millis() - last_rotated_ts <= CONCURRENT_REFRESH_WINDOW_MS
+                    } else {
+                        false
+                    };
+
+                if within_concurrency_window {
+                    // Benign race: another refresh already rotated this token moments ago.
+                    warn!(
+                        user_id = %old_token.user_id,
+                        family_id = %family_id,
+                        device_id = ?old_token.device_id,
+                        window_ms = CONCURRENT_REFRESH_WINDOW_MS,
+                        "Token already rotated by a concurrent refresh; returning benign error"
+                    );
+                    return Err(ApiError::unauthorized(
+                        "Refresh token has already been used. Please use the new token.",
+                    ));
                 }
 
-                // Genuine replay or unknown state — revoke the family.
+                // Genuine replay（距上次轮换已超出并发窗口）或未知状态 —— 撤销整族。
                 warn!(
                     user_id = %old_token.user_id,
                     family_id = %family_id,
                     device_id = ?old_token.device_id,
-                    "Token reuse detected (CAS miss with non-Rotated reason); revoking family"
+                    window_ms = CONCURRENT_REFRESH_WINDOW_MS,
+                    "Token reuse detected (CAS miss outside the concurrency window); revoking family"
                 );
 
                 self.storage
@@ -490,24 +549,14 @@ mod tests {
         }
     }
 
-    /// **记录缺陷**：重放同一个 refresh token 会被拒绝，但**不会撤销整个族**。
+    /// 并发窗口**之内**重复提交同一个 refresh token ⇒ 只拒绝本次，**不撤族**。
     ///
-    /// 这是 `docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md` §2.5 的可执行证据：
-    /// `refresh_access_token` 的第一步 `validate_token` 就对 `is_revoked` 返回
-    /// `401 "Token has been revoked"`，于是**走不到**后面两段族撤销代码
-    /// （第 1 层前置检查 130–179、第 2 层 CAS-miss 206–254）。
-    ///
-    /// 实测（2026-10-26，修掉 `get_family_id` 传参问题之后仍然是这个结果）：
-    /// 第二次 refresh 的错误是 `"Token has been revoked"`，而不是 `"All tokens revoked"`。
-    ///
-    /// **修复方向**（需要设计决策，未实施）：让 refresh 路径跳过 `is_revoked` 的前置拒绝，
-    /// 在 CAS-miss 处用**时间窗口**区分"并发刷新/网络重试"与"真重放"（超出窗口即撤族）。
-    /// 修好之后本测试的第 2 条断言会**转红**，届时应把断言改为
-    /// `"All tokens revoked"` 且 `validate_token(&first_new).is_err()`。
+    /// 这是窗口存在的理由：客户端并发刷新 / 网络重试会在毫秒级内重发旧 token，
+    /// 它确实不等于最新轮换的 `new_token_hash`。若无窗口判定，一次重试就会把用户踢下线。
     #[tokio::test]
-    async fn replayed_refresh_token_is_refused_without_revoking_the_family() {
+    async fn replay_within_window_is_refused_but_family_survives() {
         let store = Arc::new(InMemoryRefreshTokenStore::new());
-        let service = RefreshTokenService::new(store, DEFAULT_EXPIRY_MS);
+        let service = RefreshTokenService::new(store.clone(), DEFAULT_EXPIRY_MS);
         let user = "@alice:example.com";
 
         let raw = RefreshTokenService::generate_token();
@@ -521,19 +570,61 @@ mod tests {
             service.refresh_access_token(&raw, "AT1", None, None).await.expect("第一次 refresh 应当成功");
         assert_ne!(first_new, raw);
 
-        // 第二次仍然用旧 token ⇒ 被拒（这一层是好的）。
-        let error = service.refresh_access_token(&raw, "AT2", None, None).await.expect_err("重放的 token 必须被拒绝");
+        // 把这次轮换挪到"窗口**之内但非零**"（1s 前）。
+        // 不这么做的话，两次调用会落在同一毫秒里、`elapsed == 0`，于是窗口取任何非负值都判良性
+        // —— 测试会变成一个抓不到"窗口被设成 0"的空壳（实测：窗口=0 时它照样绿）。
+        let family_id = store
+            .get_family_id(user, Some("DEV1"))
+            .await
+            .expect("get_family_id")
+            .expect("第一次 refresh 之后应当已有族");
+        store.age_rotations(&family_id, 1_000).await;
+
+        // 紧接着用旧 token（典型的并发/重试形态）
+        let error = service.refresh_access_token(&raw, "AT2", None, None).await.expect_err("必须拒绝");
         assert_eq!(
             error.message(),
-            "Token has been revoked",
-            "当前实现是在 validate_token 就拒绝；若变成 \"All tokens revoked\" 说明族撤销已接通，请更新本测试"
+            "Refresh token has already been used. Please use the new token.",
+            "窗口内应判为良性并发，只拒本次"
         );
 
-        // 缺陷的可观测证据：族**没有**被撤销 ⇒ 刚发出的新 token 依然有效。
+        // 族**没有**被撤销 ⇒ 刚发出的新 token 仍然可用（用户不会被踢下线）。
         assert!(
             service.validate_token(&first_new).await.is_ok(),
-            "同族的新 token 仍有效 ⇒ 族未被封禁（§2.5）。修好后此断言应反转为 is_err()"
+            "窗口内的重复提交不应撤销族，否则一次客户端重试就会强制登出"
         );
+    }
+
+    /// 超出并发窗口后再用旧 token ⇒ **真重放** ⇒ 撤销整族（RFC 6819 / OAuth Security BCP）。
+    #[tokio::test]
+    async fn replay_outside_window_revokes_the_whole_family() {
+        let store = Arc::new(InMemoryRefreshTokenStore::new());
+        let service = RefreshTokenService::new(store.clone(), DEFAULT_EXPIRY_MS);
+        let user = "@alice:example.com";
+
+        let raw = RefreshTokenService::generate_token();
+        let hash = RefreshTokenService::hash_token(&raw);
+        service
+            .create_token(make_request(&hash, user, current_timestamp_millis() + DEFAULT_EXPIRY_MS))
+            .await
+            .expect("create_token");
+
+        let (first_new, _) =
+            service.refresh_access_token(&raw, "AT1", None, None).await.expect("第一次 refresh 应当成功");
+
+        // 把这次轮换"推"到并发窗口之外（模拟攻击者事后重放）。
+        let family_id = store
+            .get_family_id(user, Some("DEV1"))
+            .await
+            .expect("get_family_id")
+            .expect("第一次 refresh 之后应当已有族");
+        store.age_rotations(&family_id, CONCURRENT_REFRESH_WINDOW_MS + 1_000).await;
+
+        let error = service.refresh_access_token(&raw, "AT2", None, None).await.expect_err("重放必须被拒绝");
+        assert_eq!(error.message(), "Token reuse detected. All tokens revoked.", "超出窗口的重放应撤销整族");
+
+        // 族被撤销 ⇒ 已经发出的新 token 也必须失效。
+        assert!(service.validate_token(&first_new).await.is_err(), "族被封禁后，同族的新 token 也必须失效");
     }
 
     #[test]

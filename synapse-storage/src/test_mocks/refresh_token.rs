@@ -27,6 +27,17 @@ impl InMemoryRefreshTokenStore {
         Self::default()
     }
 
+    /// 测试辅助：把该族的轮换时间戳整体往前挪 `by_ms`，用于模拟
+    /// "重放发生在并发窗口之外"（窗口内属良性并发，不撤族）。
+    pub async fn age_rotations(&self, family_id: &str, by_ms: i64) {
+        let mut rotations = self.rotations.write().await;
+        if let Some(rows) = rotations.get_mut(family_id) {
+            for row in rows.iter_mut() {
+                row.rotated_ts -= by_ms;
+            }
+        }
+    }
+
     /// See [`seed_token`].
     pub async fn seed_token(&self, user_id: &str, token_id: i64, token_hash: &str, device_id: Option<&str>) {
         let mut tokens = self.tokens.write().await;

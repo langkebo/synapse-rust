@@ -189,50 +189,50 @@ if let Some(last_rotation) = rotations.first() { /* 重放处理 */ }           
 `refresh_access_token` **没有任何测试调用**（全仓 grep 只命中定义处）；`replay` 在文件里只出现在注释。
 这正是 R1 的形态：**安全能力缺失不是因为难写测试，是因为没人确认它在跑**。
 
-#### 已实施的部分（2026-10-26）
+#### 已接通（2026-10-26，含一次实施中发现的误杀）
 
-1. **`RefreshTokenStoreApi::get_family_id(user_id, device_id)`**（trait +1、真实实现 +1 SQL
-   `WHERE user_id = $1 AND device_id IS NOT DISTINCT FROM $2`、mock +1，`.sqlx` 新增 1 条）。
-2. **第 130 行改用它**，并把**读取失败改为 fail-closed**（`.map_err(...)?` → 500）：
-   原来 `_ =>` 分支把"读失败"和"还没有族"一起处理，等于静默跳过重放检测。
-3. **mock 有状态化**：`create_family` 真的登记族、`record_rotation` 真的追加轮换、
-   `rotate_token_atomic` 真的写一条 rotation、`get_rotations` 按族返回（`rotated_ts DESC`）。
-   没有这些，重放检测在单测里连素材都构造不出来。顺带让 mock 棘轮 105 → **102**（3 处不再忽略参数）。
+四处改动：
 
-**实际效果**：消除了"每次 refresh 都新建一族"的资源问题（families 表不再单调增长），
-并且读失败不再是静默跳过。**但没有接通"族撤销"** —— 见下。
+1. **`get_family_id(user_id, device_id)`**（trait +1、真实 SQL
+   `WHERE user_id = $1 AND device_id IS NOT DISTINCT FROM $2`、mock +1，`.sqlx` +1）。
+2. **`validate_token` 抽出 `load_token_inner(token, reject_revoked)`**：`validate_token` 保持原语义
+   （公开 API + 7 条既有测试不动），refresh 走 `reject_revoked = false` —— 即**允许看到"已撤销"这个事实**，
+   否则 CAS-miss 分支永远到不了。黑名单 / 不存在 / 过期仍然一律拒。
+3. **第 1 层（前置检查）加并发窗口**：`old_token_hash != latest.new_token_hash` 时，
+   若距该次轮换 ≤ `CONCURRENT_REFRESH_WINDOW_MS`（5s）⇒ 只拒本次；超出 ⇒ 撤族。
+4. **第 2 层（CAS-miss）同样按窗口分流**（原来只按 `revoked_reason == "Rotated"` 判良性，
+   而正常轮换写的正是 `"Rotated"` ⇒ 重放会被当成并发）。
 
-#### 实测结果否掉了我原先的判断
+**实施中发现的新问题（差点引入误杀）**：第 1 层一旦可达，它**无条件**撤族。而客户端并发刷新 /
+网络重试会在毫秒级内重发旧 token，`old_token_hash` 同样不等于最新 `new_token_hash`
+⇒ **一次重试就把用户踢下线**。这正是加窗口的原因 —— 第 1 层和第 2 层都必须有。
 
-我此前写"修第 1 层即可同时解决两件事"。**错了。** 修完跑同一条测试：
+#### 双向变异自证
 
-```
-第一次 refresh                 → 成功
-第二次用旧 token               → 401 "Token has been revoked"   ← 仍然不是 "All tokens revoked"
-同族刚发出的新 token 仍有效     → 族没有被封禁
-```
-
-原因还是第 0 层：`validate_token` 在**入口**就拒绝任何 `is_revoked` 的 token，所以第 1 层即使参数修对了
-（`rotations` 现在非空）也**永远到不了**。第 1 层实际只服务"历史遗留数据"（rotation 已记但 token 未撤销）。
-
-#### 真正接通它需要的改动（需设计决策，未实施）
-
-让 refresh 路径**跳过 `is_revoked` 的前置拒绝**，把判断下沉到 CAS-miss 处，并用**时间窗口**区分：
-
-| 场景 | 判据 | 处理 |
+| 变异 | 期望 | 实测 |
 |---|---|---|
-| 并发刷新 / 网络重试 | `revoked_reason == "Rotated"` 且距撤销时间 < 窗口（如 10s） | 只拒绝本次（保留现有良性分支） |
-| 真重放 | 同上但**超出窗口** | `mark_family_compromised` + `revoke_all_user_tokens` |
+| `CONCURRENT_REFRESH_WINDOW_MS = 0`（一切算超窗口） | 「窗口内」测试红 | **FAILED** ✓ |
+| `CONCURRENT_REFRESH_WINDOW_MS = i64::MAX`（永不撤族） | 「窗口外」测试红 | **FAILED** ✓ |
+| 还原 5_000 | 两条都绿 | **2 passed** ✓ |
 
-这需要记录 `revoked_at`（`RefreshToken` 目前只有 `revoked_reason`，没有撤销时间戳），
-属于协议层语义改动，应先确认产品期望（是否接受"重放会强制用户重新登录"）。
+⚠️ 第一版「窗口内」测试**抓不到**变异 A：两次调用落在同一毫秒、`elapsed == 0`，
+窗口取任何非负值都判良性 ⇒ 测试是空壳。改成 `age_rotations(&family, 1_000)` 把轮换挪到
+"窗口内但非零"之后才真正有效。
 
-#### 当前状态
+#### 行为变化（产品可感知）
 
-`replayed_refresh_token_is_refused_without_revoking_the_family`（已提交）**记录了这个缺陷**：
-它断言第二次的错误是 `"Token has been revoked"`、且同族新 token 仍有效。等上面那笔修好，
-这两条断言会**转红**，迫使更新为 `"All tokens revoked"` + `validate_token(...).is_err()`。
-—— 这是故意留的"修复触发器"，不是一条安慰性测试。
+**超出 5s 窗口的重放会撤销整个 token 族 ⇒ 该用户全部 token 失效、被迫重新登录。**
+这是 RFC 6819 / OAuth Security BCP 的要求，但确实改变了用户可感知行为：
+- 正常客户端在 5s 内重试 ⇒ 只收到 `"Refresh token has already been used. Please use the new token."`，不登出；
+- 攻击者事后重放（或受害者在 >5s 后用旧 token）⇒ `"Token reuse detected. All tokens revoked."`。
+
+窗口取值 5s 是经验值（客户端并发/重试普遍在秒级内）；若线上出现误登出，先调大它再怀疑逻辑。
+时钟回拨时 `elapsed` 为负 ⇒ `<= 窗口` 成立 ⇒ 判良性 ⇒ **偏向不误杀**，方向是安全的。
+
+#### 测试
+
+- `replay_within_window_is_refused_but_family_survives` —— 窗口内只拒本次，族保留（新 token 仍可用）；
+- `replay_outside_window_revokes_the_whole_family` —— 超窗口 ⇒ `"All tokens revoked"` 且同族新 token 失效。
 
 ## 3 R2：制度性降标
 
