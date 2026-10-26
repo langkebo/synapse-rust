@@ -3584,7 +3584,18 @@ BASELINE_DYNAMIC_PRODUCTION=106
 #      仅 `aba957945` 带出的 1 处。
 #   **收紧方向**：已对齐实测（829）。①的 6 处随 `test_isolation` 下次重构回落；
 #   ③的 3 处是 per-test 夹具，若把 `prune_*` 的 db 播种/读回抽出公共夹具可回落 1–2 点。
-BASELINE_DYNAMIC_TEST_INFRA=829
+# 2026-10-26: 829 → **831**（+2，`fd5a978d1` 的 trait 转发层契约测试夹具；非本批所写）。
+#   `synapse-storage/src/event/trait_object_dispatch_tests.rs` 新增两处动态 SQL：
+#   ① `ensure_test_room` 的 `INSERT INTO rooms … ON CONFLICT DO NOTHING`；
+#   ② `ensure_test_user` 的 `INSERT INTO users … ON CONFLICT DO NOTHING`。
+#   两处都是**测试数据播种**：该文件的目标是钉住 `Arc<dyn EventReader>` / `Arc<dyn EventWriter>`
+#   的转发层与固有方法读写一致，不播种就无法走通写入路径。为什么不能改静态宏：
+#   `#[cfg(test)]` 内的 `query!` 不进 `cargo sqlx prepare`（默认 target 集），
+#   `--all-targets` 会 E0432 —— 同上方各条。
+#   **收紧方向**：`synapse-storage` 已有 `test_isolation` 级别的建行夹具需求，若把
+#   "确保 room / user 存在"抽成 `event/db_tests.rs` 与 `trait_object_dispatch_tests.rs`
+#   共用的单点夹具，可回落 1–2 点；届时本项必须同批下调并就地登记。
+BASELINE_DYNAMIC_TEST_INFRA=831
 # 2026-10-15: 1353 → 1354（+1，方案 B4.3）。新增
 #   `synapse-storage/src/schema_health_check.rs` 的 `check_invalid_indexes()` —— 它让
 #   **半建索引**（`pg_index.indisvalid = false`）可见；此前只查"缺表/缺列/缺索引名"，
@@ -3691,7 +3702,9 @@ BASELINE_STATIC=1354
 # 2026-10-24: 926 → **925**，随上述两条同步（141 + 784 = 925；NEW-08 / B5 删 7 处测试动态）。
 # 2026-10-26: 925 → **935**，随上述两条同步（106 + 829 = 935；生产 −35、测试 +45，净 +10，
 #   逐段归因见本文件 2026-10-26 两条同批条目）。本项不入棘轮，仅保持"总数 = 生产 + 测试"一致。
-BASELINE_DYNAMIC=935
+# 2026-10-26: 935 → **937**，随 `BASELINE_DYNAMIC_TEST_INFRA` 的 +2 同步（106 + 831 = 937；
+#   来源 `fd5a978d1` 的 trait 转发层测试夹具，见上方同批条目）。
+BASELINE_DYNAMIC=937
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

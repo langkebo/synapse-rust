@@ -2191,11 +2191,21 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 <!-- sqlx-plan-numbers:start -->
 <!-- 以下数字由 `scripts/ci/check_plan_numbers_fresh.sh` 与基线/实测现算比对；改基线必须同步改这里。 -->
 BASELINE_DYNAMIC_PRODUCTION=106
-BASELINE_DYNAMIC_TEST_INFRA=829
+BASELINE_DYNAMIC_TEST_INFRA=831
 BASELINE_STATIC=1354
 BASELINE_QUERY_BUILDER=17
 SQLX_CACHE_ENTRIES=1318
 <!-- sqlx-plan-numbers:end -->
+
+> **2026-10-26 更新（`fd5a978d1` 的 trait 转发层夹具跟手）**，数字块一项：
+> - `BASELINE_DYNAMIC_TEST_INFRA` **829 → 831**（+2）：`synapse-storage/src/event/
+>   trait_object_dispatch_tests.rs` 的 `ensure_test_room` / `ensure_test_user` 两条
+>   `INSERT … ON CONFLICT DO NOTHING` 播种语句。该文件钉的是 `Arc<dyn EventReader>` /
+>   `Arc<dyn EventWriter>` 转发层与固有方法读写一致，不播种就没有写入路径可走；
+>   `#[cfg(test)]` 内的 `query!` 不进 `cargo sqlx prepare`，故保持运行时 `query`。
+> - `BASELINE_DYNAMIC` 同步 935 → **937**（106 + 831，本项不入棘轮、只保持一致）。
+> - 生产 106 / 静态 1354 / QueryBuilder 17 / `SQLX_CACHE_ENTRIES` 均不变。
+> - 逐点归因与收紧方向见 `scripts/ci/sqlx_dynamic_ratio_baseline` 的就地注记。
 
 > **2026-10-26 更新（PERF-01 to-device 消息保留期 + MAINT-01 归类漂移对齐）**，数字块两项：
 > - `BASELINE_DYNAMIC_PRODUCTION` **141 → 106**（−36 是 `aba957945` 把四个测试基建模块
