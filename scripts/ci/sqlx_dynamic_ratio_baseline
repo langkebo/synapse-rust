@@ -3460,7 +3460,22 @@ BASELINE_QUERY_BUILDER=17
 #   `sqlx_literal_production_baseline`）。
 #   **收紧方向**：同上方 2026-10-23 条目——等 census 把无条件编译的测试基础设施划入
 #   test 分区后，本项与那 7 处一并迁出生产区。
-BASELINE_DYNAMIC_PRODUCTION=141
+# 2026-10-26: 141 → **106**（−35 = −36 归类漂移 + 1 本批新增；逐处已复核）。
+#   ① −36 `aba957945`（MAINT-01）给 `synapse-common` 四个测试基建模块加了**文件级**
+#      `#[cfg(any(test, feature = "test-utils"))]`。census 的 `collect_test_gated_files`
+#      会把这类整文件划入 test 区 ⇒ 这 36 处**没有被删**，只是从 production 移到 test。
+#      总数不变可自证：改前 141 + 790 = 931，改后 105 + 826 = 931。逐文件：
+#      `test_isolation.rs` 25、`test_schema_guard.rs` 4、`test_schema_orphans.rs` 4、
+#      `test_database_guard.rs` 3（`git archive` 取 `aba957945^` 与 `aba957945` 各跑
+#      一次 `sqlx_query_census.py` 得到该对称差）。
+#   ② +1 本批 PERF-01：`synapse-storage/src/pruning.rs::prune_old_to_device_messages`
+#      —— `to_device_messages` 此前只有取信路径的 `DELETE`，设备永不回来时队列无界增长。
+#      用运行时 `sqlx::query` 是**故意**的：`.cargo/config.toml` 全局 `SQLX_OFFLINE=true`，
+#      `query!` 站点必须先在活库上跑 `scripts/ci/sqlx_prepare.sh` 重刷缓存，本机无 PG；
+#      运行时形态只动 census 计数，`.sqlx` 条目数与 `SQLX_CACHE_ENTRIES` 不变。
+#   **收紧方向**：已按实测收紧到零余量（106）。①的 36 处应稳定留在 test 区；
+#   若将来 census 的 `test_gated` 口径变化，须同批重算本项与下面 TEST_INFRA 项。
+BASELINE_DYNAMIC_PRODUCTION=106
 # 2026-10-15: 769 → 768（按实测收紧；棘轮是**上限**，留着 1 个空位等于允许一次静默回归）。
 #   本批（方案 B4.3）只新增了**静态**查询，这一项是复核实测时发现的既有余量。
 # 2026-10-16: 768 → **769**（+1，B1/UG-5 lazy-load 位置列）。
@@ -3549,7 +3564,27 @@ BASELINE_DYNAMIC_PRODUCTION=141
 #   `synapse-federation/src/device_sync.rs` 整体删除，其 `#[cfg(test)]` 模块里 7 处动态
 #   `sqlx::query(` / `query_scalar(` / `query_as(` 一并消失；生产动态度未变（141）。
 #   **收紧方向**：同上方各条 —— 基线是上限，只随"确实被删"下调。
-BASELINE_DYNAMIC_TEST_INFRA=784
+# 2026-10-26: 784 → **829**（+45 = +6 未钉版滞后 +36 归类漂移 +3 本批夹具，按实测对齐）。
+#   棘轮是上限，留 45 点余量等于允许 45 次静默新增，故收紧到零余量。三段逐条可复核：
+#   ① +6 `synapse-common/src/test_isolation.rs`（102 → 108）：`a2d9337ad`
+#      （模板标记行刷新改为事务，消除"零行"窗口）的判据夹具；在上次钉版点
+#      `dc77c1822` 之后落地但基线未跟手。`git archive` 实测：`dc77c1822` = 784、
+#      `aba957945^` = 790，差值全部落在这一个文件。
+#   ② +36 `aba957945`（MAINT-01）的**归类漂移**：`test_isolation.rs` +25、
+#      `test_schema_guard.rs` +4、`test_schema_orphans.rs` +4、
+#      `test_database_guard.rs` +3 —— 这四个文件被整文件 gate 到
+#      `any(test, feature = "test-utils")`，census 的 `collect_test_gated_files`
+#      随即将它们的动态点整体划入 test 区。对称的另一半是 `BASELINE_DYNAMIC_PRODUCTION`
+#      的 −36，动态总数 931 未变。
+#   ③ +3 本批 PERF-01 的 `pruning::db_tests` 夹具：`CREATE TABLE to_device_messages`、
+#      一条 `INSERT … SELECT generate_series UNION ALL`（一次播种"2 条过窗 + 1 条窗口内"）、
+#      一条 `SELECT created_ts`（断言存活的是窗口内那行，防比较方向取反的假通过）。
+#      为什么不能改静态宏：`#[cfg(test)]` 内的 `query!` 不进 `cargo sqlx prepare`
+#      （默认 target 集），`--all-targets` 会 E0432 —— 同上方各条；全仓 `static_test`
+#      仅 `aba957945` 带出的 1 处。
+#   **收紧方向**：已对齐实测（829）。①的 6 处随 `test_isolation` 下次重构回落；
+#   ③的 3 处是 per-test 夹具，若把 `prune_*` 的 db 播种/读回抽出公共夹具可回落 1–2 点。
+BASELINE_DYNAMIC_TEST_INFRA=829
 # 2026-10-15: 1353 → 1354（+1，方案 B4.3）。新增
 #   `synapse-storage/src/schema_health_check.rs` 的 `check_invalid_indexes()` —— 它让
 #   **半建索引**（`pg_index.indisvalid = false`）可见；此前只查"缺表/缺列/缺索引名"，
@@ -3654,7 +3689,9 @@ BASELINE_STATIC=1354
 # 2026-10-23: 912 → **926**，随跨进程 schema 池复用（133 + 779 = 912 → 140 + 786 = 926；
 #   生产侧 +7 与测试侧 +6 的逐点归因见上方两条同名条目）。
 # 2026-10-24: 926 → **925**，随上述两条同步（141 + 784 = 925；NEW-08 / B5 删 7 处测试动态）。
-BASELINE_DYNAMIC=925
+# 2026-10-26: 925 → **935**，随上述两条同步（106 + 829 = 935；生产 −35、测试 +45，净 +10，
+#   逐段归因见本文件 2026-10-26 两条同批条目）。本项不入棘轮，仅保持"总数 = 生产 + 测试"一致。
+BASELINE_DYNAMIC=935
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

@@ -922,9 +922,13 @@ impl SynapseServer {
             //   - device_lists_changes older than 30 days
             //   - presence records inactive beyond the presence prune timeout
             //   - one-time keys that are used or older than 7 days
+            //   - to-device messages queued for a device that never collected
+            //     them (`retention.to_device_retention_days`, PERF-01)
             // Runs daily.
             let pruning_pool = self.app_state.services.account.user_storage.pool().clone();
             let configured_pruning_secs = self.app_state.services.core.config.server.pruning_interval_secs;
+            let to_device_retention_days =
+                self.app_state.services.core.config.retention.to_device_retention_days as i64;
             let pruning_interval_secs =
                 if configured_pruning_secs > 0 { configured_pruning_secs } else { PRUNING_INTERVAL_SECS };
             tokio::spawn(async move {
@@ -947,6 +951,10 @@ impl SynapseServer {
                             // tables that accumulate without bound on long-running
                             // instances.
                             prune_step!("to-device transactions", synapse_storage::pruning::prune_old_to_device_transactions(&pruning_pool));
+
+                            // PERF-01: the queue of a device that never came back
+                            // must not grow forever. `0` disables it.
+                            prune_step!("to-device messages", synapse_storage::pruning::prune_old_to_device_messages(&pruning_pool, to_device_retention_days));
 
                             // The worker bus is one row per room event in worker
                             // deployments; prune it so it stays bounded.

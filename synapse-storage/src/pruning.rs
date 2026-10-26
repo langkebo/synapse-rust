@@ -96,6 +96,29 @@ pub const QUARANTINED_MEDIA_CHANGES_RETENTION_DAYS: i64 = 30;
 /// counts in `/sync` are computed from `events` + `read_markers`, not from here.
 pub const NOTIFICATIONS_RETENTION_DAYS: i64 = 30;
 
+/// Retention period for queued to-device messages (`to_device_messages`, 30 days).
+///
+/// PERF-01: `to_device_messages` is a per-device **delivery queue** — a row is
+/// removed the moment the recipient device collects it (`claim_messages` issues
+/// `DELETE … RETURNING`, and `delete_messages_up_to` drops the acknowledged
+/// prefix). So a row that survives this window is one the device never came back
+/// for. Before PERF-01 the table had no time-based retention for ordinary
+/// devices at all: the only `DELETE` statements were the collect path and the
+/// dehydrated-device purge, so an abandoned device leaked its queue forever.
+///
+/// Consequence worth stating plainly: a device that stays away longer than this
+/// window loses the to-device messages queued for it. That is the same bargain
+/// already accepted for [`DEVICE_LIST_STREAM_RETENTION_DAYS`] (a client that
+/// returns later resyncs instead of receiving a delta), and 30 days matches
+/// [`DEVICE_LIST_CHANGES_RETENTION_DAYS`].
+///
+/// Not indexed on `created_ts`, deliberately: `idx_to_device_ordered` serves the
+/// collect path (`recipient_user_id, recipient_device_id, stream_id`), and a
+/// queue that is being drained normally holds only a handful of rows per device,
+/// so the prune's sequential predicate runs against a small table on a daily
+/// schedule. Revisit only with evidence of an actual backlog.
+pub const TO_DEVICE_MESSAGES_RETENTION_DAYS: i64 = 30;
+
 /// Rows removed per statement by every `prune_*` job (PERF-06).
 ///
 /// The prune jobs used to issue a single unbounded `DELETE`, so a backlog that
@@ -296,6 +319,47 @@ pub async fn prune_old_to_device_transactions(pool: &PgPool) -> Result<u64, sqlx
     .await
 }
 
+/// Prune queued to-device messages that were never collected.
+///
+/// Deletes rows from `to_device_messages` whose `created_ts` is older than
+/// `retention_days` days. This is the only time-based retention on the table:
+/// the other deletes are the collect path itself (`claim_messages` /
+/// `delete_messages_up_to`), so what is left here is exactly the queue of a
+/// device that never came back. See
+/// [`TO_DEVICE_MESSAGES_RETENTION_DAYS`] for the accepted consequence.
+///
+/// `retention_days == 0` means "disabled" and must be handled **before**
+/// computing the cutoff: a zero-day window would otherwise make every queued
+/// message older than "now" — i.e. the whole table — eligible.
+///
+/// Uses the runtime `sqlx::query` form rather than the `query!` macro on
+/// purpose: adding a macro site requires regenerating the offline cache with
+/// `scripts/ci/sqlx_prepare.sh` against a migrated database, whereas the runtime
+/// form only moves the SQLx census counters (see the dated note in
+/// `scripts/ci/sqlx_dynamic_ratio_baseline`).
+///
+/// Returns the number of rows deleted.
+pub async fn prune_old_to_device_messages(pool: &PgPool, retention_days: i64) -> Result<u64, sqlx::Error> {
+    if retention_days == 0 {
+        return Ok(0);
+    }
+
+    let cutoff = current_timestamp_millis() - (retention_days * 86400 * 1000);
+
+    prune_in_batches(PRUNE_BATCH_SIZE, |batch| async move {
+        let result = sqlx::query(
+            "DELETE FROM to_device_messages WHERE ctid IN (SELECT ctid FROM to_device_messages WHERE created_ts < $1 LIMIT $2)",
+        )
+        .bind(cutoff)
+        .bind(batch as i64)
+        .execute(pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    })
+    .await
+}
+
 /// Prune expired token blacklist entries.
 ///
 /// Deletes rows from `token_blacklist` where `expires_at` is non-null and
@@ -395,6 +459,8 @@ mod tests {
         assert_eq!(FEDERATION_QUEUE_RETENTION_DAYS, 7);
         // Quarantined media changes: 30 days (admin-action-bound write rate)
         assert_eq!(QUARANTINED_MEDIA_CHANGES_RETENTION_DAYS, 30);
+        // To-device messages: 30 days (PERF-01; matches the device list windows)
+        assert_eq!(TO_DEVICE_MESSAGES_RETENTION_DAYS, 30);
     }
 
     #[test]
@@ -755,6 +821,64 @@ mod db_tests {
         assert_eq!(surviving_max_ts, now - 10 * day_ms);
         assert_eq!(surviving_min_ts, now - 10 * day_ms);
     }
+
+    /// PERF-01: queued to-device messages of a device that never came back are
+    /// dropped after the window; the queue of an active device is untouched, and
+    /// `retention_days == 0` means "off" rather than "delete everything".
+    #[tokio::test]
+    async fn prune_to_device_messages_respects_window_and_the_zero_day_off_switch() {
+        let Some(pool) = test_pool().await else { return };
+        sqlx::query(
+            "CREATE TABLE to_device_messages (
+                 id BIGSERIAL PRIMARY KEY,
+                 sender_user_id TEXT NOT NULL,
+                 sender_device_id TEXT NOT NULL,
+                 recipient_user_id TEXT NOT NULL,
+                 recipient_device_id TEXT NOT NULL,
+                 event_type TEXT NOT NULL,
+                 content JSONB NOT NULL DEFAULT '{}',
+                 message_id TEXT,
+                 stream_id BIGINT NOT NULL,
+                 created_ts BIGINT NOT NULL
+             )",
+        )
+        .execute(&*pool)
+        .await
+        .expect("create to_device_messages");
+
+        let day_ms = 86_400_000;
+        let now = current_timestamp_millis();
+        // Two messages an idle device never collected (40 days old) plus one still
+        // inside the window (1 day old).
+        sqlx::query(
+            "INSERT INTO to_device_messages (sender_user_id, sender_device_id, recipient_user_id, recipient_device_id, event_type, stream_id, created_ts) \
+             SELECT '@sender:hs', 'S', '@idle:hs', 'D', 'm.room_key', g, $1 FROM generate_series(1,2) g \
+             UNION ALL SELECT '@sender:hs', 'S', '@idle:hs', 'D', 'm.room_key', 3, $2",
+        )
+        .bind(now - 40 * day_ms)
+        .bind(now - day_ms)
+        .execute(&*pool)
+        .await
+        .unwrap();
+
+        assert_eq!(prune_old_to_device_messages(&pool, 0).await.unwrap(), 0, "0 days disables retention");
+        assert_eq!(
+            count(&pool, "to_device_messages").await,
+            3,
+            "0 days must not be read as 'delete everything older than now'"
+        );
+
+        let deleted = prune_old_to_device_messages(&pool, TO_DEVICE_MESSAGES_RETENTION_DAYS).await.unwrap();
+        assert_eq!(deleted, 2, "only messages the device never collected are dropped");
+        assert_eq!(count(&pool, "to_device_messages").await, 1);
+
+        // The survivor must be the recent row, not merely the same count: an
+        // inverted comparison would delete 2 rows as well.
+        let surviving_ts: i64 =
+            sqlx::query_scalar("SELECT created_ts FROM to_device_messages").fetch_one(&*pool).await.unwrap();
+        assert_eq!(surviving_ts, now - day_ms, "the in-window message must survive");
+    }
+
     /// D-68：保留期只删过窗的行，窗口内的行必须原样保留 —— 并且存活断言走
     /// **生产读路径**（`PushStorage::get_notifications`），而不是另写一条 COUNT 查询：
     /// 这样"行还在但读不出来"（列名/可空性漂移）同样会被抓住。

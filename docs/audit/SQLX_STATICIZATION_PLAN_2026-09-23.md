@@ -2190,12 +2190,22 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 
 <!-- sqlx-plan-numbers:start -->
 <!-- 以下数字由 `scripts/ci/check_plan_numbers_fresh.sh` 与基线/实测现算比对；改基线必须同步改这里。 -->
-BASELINE_DYNAMIC_PRODUCTION=141
-BASELINE_DYNAMIC_TEST_INFRA=784
+BASELINE_DYNAMIC_PRODUCTION=106
+BASELINE_DYNAMIC_TEST_INFRA=829
 BASELINE_STATIC=1354
 BASELINE_QUERY_BUILDER=17
 SQLX_CACHE_ENTRIES=1318
 <!-- sqlx-plan-numbers:end -->
+
+> **2026-10-26 更新（PERF-01 to-device 消息保留期 + MAINT-01 归类漂移对齐）**，数字块两项：
+> - `BASELINE_DYNAMIC_PRODUCTION` **141 → 106**（−36 是 `aba957945` 把四个测试基建模块
+>   整文件 gate 到 `any(test, feature = "test-utils")` 后 census 的 test 分区漂移，**不是删除**；
+>   +1 是本批 `prune_old_to_device_messages`）。
+> - `BASELINE_DYNAMIC_TEST_INFRA` **784 → 829**（+6 未钉版滞后 `a2d9337ad`、+36 同一批
+>   归类漂移、+3 本批 `pruning::db_tests` 夹具）。
+> - 动态总数 931（改前 141 + 790，改后 105 + 826）未变，可自证归类漂移不是新增；
+>   `SQLX_CACHE_ENTRIES` 不动（新函数用运行时 `sqlx::query`，不产生 `.sqlx` 条目）。
+>   逐点归因见 `scripts/ci/sqlx_dynamic_ratio_baseline` 的两条 2026-10-26 注记。
 
 > **2026-10-26 更新（补漏：`get_family_id` 的 query cache）**，数字块一处：
 > - `SQLX_CACHE_ENTRIES` **1317 → 1318**（+1）：`92afc93af` 补上了上一笔漏跟踪的

@@ -381,6 +381,9 @@ retention:
   lifecycle_cleanup_enabled: true
   lifecycle_cleanup_interval_secs: 900
   audit_retention_days: 30
+  # Days before a to-device message that was never collected by its device is
+  # dropped. 0 disables the prune (the queue then grows without bound).
+  to_device_retention_days: 30
 
 telemetry:
   enabled: true
