@@ -393,7 +393,32 @@ cargo llvm-cov --test integration --features "…" --lcov --output-path /tmp/rou
    变异自证：把 `health` 那段改成直接用 `interval_secs`（0 不再回落默认值）⇒ 第一条红、
    另两条仍绿（`left: 0ns / right: 10s`），还原后 3 passed。
 
-   **仍未覆盖**：5 个 `start_*` 循环（约 170 行）。实际评估后有**三个结构性障碍**，不是"缺一条测试"：
+   #### 巡检业务逻辑：已在 storage 层覆盖，tasks 只负责调度（2026-10-26 核实）
+
+   上一版把"约 170 行的 `start_*` 循环"当作待补覆盖。核完代码后**改判：不值得补**。
+
+   `start_maintenance_task` 的循环体实质只有三件事：
+
+   ```rust
+   let maintenance = DatabaseMaintenance::new(pool.clone());
+   match maintenance.perform_maintenance().await {
+       Ok(report) => { *last_report.write() = Some(report); info!(…) }   // 台账无人读（§3.1.3）
+       Err(e) => { error!(…) }
+   }
+   ```
+
+   而 `perform_maintenance()` 的**行为**（VACUUM 了哪些表、report 字段、幂等性）在
+   `synapse-storage/src/maintenance.rs` 已有 15 处测试：
+   `test_perform_maintenance_returns_valid_report`、`..._errors_field_is_present`、
+   `..._vacuum_result_is_present`、`..._idempotent_twice`、
+   `vacuum_analyze_skips_tables_below_the_modification_threshold`、
+   `reindex_tables_reindexes_every_existing_index_in_the_list` 等。
+
+   ⇒ tasks 层未被覆盖的只是"**定时器到点会调用一次**"。要测它，得 `pause()` + 推进 60s/300s
+   静默期 + 真库 + 捕获日志（台账无人读，只能靠日志断言），成本高而收益接近零 ——
+   真正会坏的东西（`perform_maintenance` 清了什么）已经被测了。
+
+   **下面保留的是"为什么不能简单补"的三条结构性障碍**，作为将来若要做的备忘：
 
    1. **`start_all` 丢弃了 `JoinHandle`**（`tokio::spawn` 的返回值直接丢）⇒ "任务是否优雅退出"
       **不可观测**。`CancellationToken` 只能发信号，没法等它生效；现在的测试最多断言
@@ -613,6 +638,34 @@ cost_per_row        = (总耗时 / (N × 迭代)) / reference_roundtrip
 结论：`test_mocks` 有 **106 处忽略参数**；已核实 6 处 → 2 死代码、2 mock 走不到、1 已声明偏差、
 1 无覆盖（安全关键）。**"忽略参数"本身不是缺陷**，缺陷是"忽略了参数、还有测试断言依赖该参数的结果"
 ——后者必须逐测试看断言，静态规则做不到，剩下 100 处不值得批量盲改。
+
+#### 4.2.2 剩余 102 处抽样核查（2026-10-26）：危险与否取决于「忽略的是哪个参数」
+
+先量了结构：**102 处里 99 处在 trait impl 内**（生产代码可经 trait 调用），
+所以"可达性"不能用来降级风险。
+
+抽 6 处（跨 6 个文件）逐个看"忽略的是关键参数还是元数据"，得到的区分比"102"这个数字有用：
+
+| 样本 | 忽略的参数 | 判定 |
+|---|---|---|
+| `access_token.rs add_to_blacklist(_user_id, _reason)` | 仅**元数据**（`token_hash`/`expires_at` 仍生效） | **良性** —— 核心语义保留了 |
+| `admin_media.rs get_room_media(_room_id)` | **唯一筛选键**，且返回全集 | **理论危险**，但其上层 `quarantine_room_media` / `unquarantine_room_media` **零调用者**（连 web 路由都没接）⇒ 无测试可假绿 |
+| `background_update.rs acquire_lock_with_retry(...)` | 锁持有者/时长/重试次数 | 待查（测试直接调 storage，见 `background_update_service.rs:521` 等 5 处） |
+| `cas.rs validate_proxy_ticket(_service_url)` | service_url | 待查 |
+| `dehydrated_device.rs claim_to_device_events(全部)` | 全部 | 待查 |
+| `device_list.rs get_device_list_changed_users(全部)` | 全部 | 待查 |
+
+**两个可复用的判据**：
+
+1. **忽略强 / 弱参数**：`_reason` / `_user_id` 这类元数据被忽略通常无害（核心键仍参与）；
+   忽略**唯一的筛选键**（`_room_id`、`_media_id`）才会让"按 X 过滤"的断言恒真。
+2. **可达 ≠ 有调用者**：`get_room_media` 在 trait impl 内、production 也有一处调用，
+   但那个调用者（`quarantine_room_media`）本身没人调 ⇒ 整条链是**未接线的功能**。
+   抽样里已经撞到一个 ⇒ 说明这批"忽略参数"里有相当比例反映的是**功能没做完**，
+   而不是"测试被蒙蔽"。
+
+⇒ **结论**：不值得逐处核 102 个。要么按"忽略唯一筛选键 + 有真实调用链 + 有依赖该参数的断言"
+三条同时成立去筛（预计剩个位数），要么就只保留棘轮防新增。批量盲改是纯成本。
 
 **为什么不一次性清零**：106 处里多数是良性的（`cleanup_expired_tokens(_now_ts)`：mock 没有"过期"
 概念，返回 `Ok` 不产生副作用，调用方不会因此得出错误结论）。逐个裁定"实现 or 改 fail-loud"
