@@ -1534,6 +1534,9 @@ impl RoomStorage {
 mod db_tests;
 
 #[cfg(test)]
+mod api_dyn_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

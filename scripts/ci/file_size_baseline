@@ -25,7 +25,7 @@
 1573 synapse-services/src/builtin_oidc_provider.rs
 1569 synapse-storage/src/thread/storage.rs
 1560 synapse-services/src/room/messaging/events.rs
-1557 synapse-storage/src/room/mod.rs
+1560 synapse-storage/src/room/mod.rs
 1549 synapse-services/src/thread_service.rs
 1538 synapse-storage/src/captcha.rs
 1527 synapse-storage/src/push_notification.rs
