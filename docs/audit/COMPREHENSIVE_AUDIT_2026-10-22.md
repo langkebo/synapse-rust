@@ -17,15 +17,15 @@
 | 代码质量 | 0 | 0 | 1 | 1 | 2 |
 | 功能完整性 | 0 | 0 | 0 | 0 | 0 |
 | 性能（含数据层） | 0 | 0 | 1 | 2 | 3 |
-| 安全性 | 0 | 0 | 0 | 1 | 1 |
+| 安全性 | 0 | 0 | 0 | 0 | 0 |
 | 可维护性 | 0 | 0 | 1 | 0 | 1 |
 | 测试覆盖 | 0 | 0 | 0 | 0 | 0 |
 | 文档完整性 | 0 | 0 | 0 | 0 | 0 |
 | 专项：冗余与过度开发 | 0 | 0 | 0 | 0 | 0 |
-| **合计** | **0** | **0** | **5** | **4** | **9** |
+| **合计** | **0** | **0** | **5** | **3** | **8** |
 
-> 计数口径（2026-10-26 逐条重算，**按表格行**计，合并行只算一行）：**P0 = 0，P1 = 0，P2 = 5，P3 = 4，合计 9**。
-> 来源 = §0.2.2 的 2 条 + §0.2.3 的 7 条（§0.1 已于 2026-10-26 清空）。
+> 计数口径（2026-10-26 逐条重算，**按表格行**计，合并行只算一行）：**P0 = 0，P1 = 0，P2 = 5，P3 = 3，合计 8**。
+> 来源 = §0.2.2 的 2 条 + §0.2.3 的 6 条（§0.1 已于 2026-10-26 清空）。
 > ⚠️ **本版更正一处旧账**：上一版写 `P3 = 13`，但把 §0.1 / §0.2.2 / §0.2.3 三处表格按行数出来是
 > **14 行**（正则 `^\| \*\*ID\*\* \| P[0-9] \|` 扫一遍即可复核）—— 13 是漏计，不是有 1 条被关掉。
 > 本版关闭 **NEW-19**（P2/功能完整性，`2e33c45a8`）、**NEW-10**（P3/测试覆盖，`d9fa05d26`）、
@@ -43,6 +43,9 @@
 > 同轮再收口 **PERF-10**（`postgres.conf` 补实例级 `statement_timeout=5min` /
 > `idle_in_transaction_session_timeout=60s`，并由 `check_connection_budget.py` 断言
 > 「显式存在 + 不比应用默认更严」）⇒ P3 `5 → 4`、合计 `10 → 9`。
+> 同轮再收口 **SEC-12**（legacy r0/v1 匿名读**是裁决不是漏检**：`docker/deploy/README.md`
+> 登记六条路径的实际鉴权口径，由 `doc_credibility_guard_tests` 把「文档声明 / r1 必须收紧 /
+> r0·v1 必须仍匿名 / handler 仍 token 可选」四方钉在一起）⇒ P3 `4 → 3`、合计 `9 → 8`。
 > ✅ NEW-19：`/send` 的线程回复现在同时进 `thread_relations` 与 `thread_replies`
 > （时间戳回查刚落库的事件，不用本地时钟；重试同一 txn 不重复计数）。
 > ✅ NEW-10：4 处手写轮询折成 `tests/common/mod.rs::wait_until`，测试域 `sleep` 计数
@@ -55,21 +58,21 @@
 > ✅ **NEW-14 已收口**：C3 审计面 15 → 95 个文件（零误伤），14 个 `NONE` 族已逐族重跑 ⇒
 > 4 族误判（改登记）、3 族幽灵、7 族真缺口（见 §0.1.1）。
 > `NEW-08` 已于 2026-10-25 关闭（`device_sync.rs` 整模块删除，判据与变异证据见附录 D），不再计入。
-> 其中 **7 条是"登记项"**（明确不做或只等外部条件）；§0.1 已于 2026-10-26 清空
+> 其中 **6 条是"登记项"**（明确不做或只等外部条件）；§0.1 已于 2026-10-26 清空
 > （最后两条 `NEW-15` / `NEW-16` 已裁决并落地），没有"我们已经知道怎么改但还没动手"的条目了。
 
 **结论摘要**：**P0 = 0，P1 = 0**（原 9 条 P1 全部有实现 + 能失败的门禁，逐条见附录 D）。
 ⚠️ 第八轮曾把一条误报成 P1（NEW-06「设备吊销通知静默丢失」），**已撤回**：真实广播路径在
 `routes/device.rs::broadcast_device_list_update`（签名事务），死的是 `device_sync` 里那条
 零调用者的重复实现，已删除；更正过程记在[附录 D](#附录-d已关闭条目索引)。
-剩下的 9 条里，**没有一条会造成数据丢失或越权**；5 条 P2 分别是 `events` 未分区（ARCH-04）、
+剩下的 8 条里，**没有一条会造成数据丢失或越权**；5 条 P2 分别是 `events` 未分区（ARCH-04）、
 7 个 >2000 行生产文件（ARCH-05）、837 处静默忽略（CODE-10）、`to_device` 无按龄清理（PERF-01）、
 测试替身未做特性隔离（MAINT-01）—— 全是**长期结构债**：
-不修也不会立刻出错，但每加一个功能都在加利息。4 条 P3 **全部是 §0.2.3 的登记项**
+不修也不会立刻出错，但每加一个功能都在加利息。3 条 P3 **全部是 §0.2.3 的登记项**
 （规范漂移/文档失真/死代码），没有待裁决项。
 
-**下一批该做什么**：**没有"我们知道怎么改但还没动手"的条目了**。剩下的 9 条分两类 ——
-① 7 条**登记项**（§0.2.3，明确不做或只等外部条件）；
+**下一批该做什么**：**没有"我们知道怎么改但还没动手"的条目了**。剩下的 8 条分两类 ——
+① 6 条**登记项**（§0.2.3，明确不做或只等外部条件）；
 ② ARCH-04/ARCH-05（§0.2.2）这两条结构债要真实数据量/行为不变的证明才谈得上动。
 
 ## 0.1 第七轮新发现（2026-10-24，只列仍开着的）
@@ -121,7 +124,7 @@
 ### 0.2.1 可先红后绿
 
 > 2026-10-24 已清空：最后一条 `TEST-05` 已按「逐处分类 + 注解门禁」收口（见附录 D）。
-> 剩下的 9 条全部落在 §0.2.2（需要决策/等价断言）与 §0.2.3（登记项）。
+> 剩下的 8 条全部落在 §0.2.2（需要决策/等价断言）与 §0.2.3（登记项）。
 
 ### 0.2.2 需要决策或外部条件
 
@@ -140,7 +143,6 @@
 | **PERF-11** | P3 | N+1 查询 3 处（风险可控） | 当前数据量下无实测劣化，缺 benchmark 支撑 |
 | **PERF-12 / MAINT-07** | P3 | `INDEXES.md` 人工表无法从 DDL 反推 | 重生成会让"索引治理"退化成"索引清单"；计数已由 `check_doc_metrics.py` 现算 |
 | **MAINT-01** | P2 | 测试替身/工具二进制与生产 crate 未做特性隔离 | 已覆盖 `user_store_fake`、`federation_test_keys`；其余属"每个 crate 一次评估"，收益低于改动面 |
-| **SEC-12** | P3 | legacy r0/v1/r1 媒体下载端点匿名可读 | **是 Matrix legacy 语义**（新版才要求 token）；收紧会破坏老客户端 |
 
 ## 0.3 复核历史（压缩）
 
@@ -366,9 +368,10 @@
 
 ## 五、安全性
 
-> 原 15 条安全项里 13 条已关闭或已裁决（SEC-01…SEC-08、SEC-10，本轮 SEC-09 / SEC-13；
-> SEC-11 判为误报、SEC-14 判为原建议有误——均见附录 D）。剩下 **2 条**全是 P3，且没有一条是"越权"：
-> 一条是**legacy 语义**（矩阵老客户端要求匿名可读），一条是**覆盖率口径**未定。
+> 原 15 条安全项**已全部关闭或裁决**（SEC-01…SEC-08、SEC-10、SEC-15 已修；SEC-09 / SEC-12 / SEC-13
+> 本轮或上一轮收口；SEC-11 判为误报、SEC-14 判为原建议有误——均见附录 D）。
+> 本节**已无开放项**：最后一条 SEC-12 不是漏洞而是**裁决**（legacy 匿名读是 Matrix 语义），
+> 本轮把口径登记进部署文档，并用守卫把「文档 / r1 收紧 / r0·v1 保持匿名」绑在一起。
 >
 > 下面四条已关闭项保留原正文作历史，判定与证据在附录 D。
 
@@ -388,13 +391,26 @@
   全部覆盖后才使用；`[0u8; 32]` 只是"先分配后填充"的写法，不是"以全零密钥工作"。
   该处已带 `#[allow(clippy::expect_used, reason = …)]` 说明 fail-closed 意图。**不改代码。**
 
-### SEC-12（P3）legacy r0/v1/r1 媒体下载端点匿名可读
+### SEC-12（P3）legacy r0/v1 媒体下载端点匿名可读 —— ✅ 已关闭（2026-10-26，登记 + 双向守卫）
 
-- **位置**：`synapse-web/src/routes/media/`（`create_media_r0_router` / `r1` / `v1` 的下载 handler
-  用 `OptionalAuthenticatedUser`）
-- **判据**：这是 **Matrix legacy 语义**（v1.11 之前媒体仓库允许匿名读），收紧会破坏老客户端；
-  新版 `v3` 路径已要求鉴权。
-- **修法**：登记为设计决策 + 在部署文档里说明"如需关闭匿名读，需按客户端版本分布决定"。
+- **位置**：`synapse-web/src/routes/media/mod.rs`（`create_media_r0_router` / `create_media_v1_router`
+  合并 legacy 下载 router；handler `download::download_media_v1` 取 `OptionalAuthenticatedUser`）
+- **判据**：这是 **Matrix legacy 语义**（媒体仓库在 v1.11 之前允许匿名读），收紧会破坏老客户端。
+  **原描述有偏差**：审计原文写「r0/v1/r1 匿名可读」，实际 **r1 早已挂 `auth_middleware`**
+  （VULN-01 / VULN-02，`api_security_vuln_fix_tests` 有 401 证据）；匿名的是 r0/v1，
+  外加 v3（`download`/`thumbnail` 仍可匿名，`download_signed` 走 HMAC 签名）。
+- **修法**：登记为设计决策 + 部署文档说明"如需关闭匿名读，需按客户端版本分布决定"。
+- **落地**：`docker/deploy/README.md` 新增「媒体下载的匿名读语义」小节，用一张表列全六类路径
+  （r0/v1 匿名、v3 匿名、v3 signed HMAC、r1 必须 token、`/_matrix/client/v1/media` 必须 token）
+  与"要关就改代码"的入口。守卫
+  `doc_credibility_guard_tests::legacy_media_anonymous_read_is_registered_and_matches_the_router`
+  四个断言组把四方钉住：① 部署文档小节必须存在且点名 r0/v1 + `auth_middleware`；
+  ② `create_media_r1_router` **必须**挂 `auth_middleware`；③ `create_media_r0_router` /
+  `create_media_v1_router` **不得**挂它、且必须合并 `create_media_legacy_download_router()`；
+  ④ handler `download_media_v1` 仍取 `OptionalAuthenticatedUser`。用新增的 `fn_body` 按
+  **函数体切片**判断，避免"同文件里 r1 挂了鉴权 ⇒ 整文件 `contains` 让 r0 的断言假通过"。
+- **变异自证**（三条，均实测）：删 README 小节标题 ⇒ 红（"找不到「媒体下载的匿名读语义」小节"）；
+  给 `create_media_r0_router` 挂 `auth_middleware` ⇒ 红；去掉 r1 的 `auth_middleware` ⇒ 红。
 
 ### SEC-13（P3）联邦鉴权 DEBUG 日志打印签名原文 —— ✅ 已关闭（2026-10-26，`c2783c680`）
 
@@ -638,7 +654,7 @@ TEST_FILE 47 = 107**；测试域合计 81。
 ### 10.2 下一批建议
 
 W8 计划的三项（`TEST-05` → `NEW-05` → `FUNC-05`）已全部收口，清单里已无 P0/P1、也无 P3 待裁决项。
-剩下 9 条里能动的只有 4 条 P2 结构债，而每条都**卡在一个前提上**，不是排期问题：
+剩下 8 条里能动的只有 4 条 P2 结构债，而每条都**卡在一个前提上**，不是排期问题：
 
 | 待办 | 前提 |
 |---|---|
@@ -647,7 +663,7 @@ W8 计划的三项（`TEST-05` → `NEW-05` → `FUNC-05`）已全部收口，�
 | PERF-01（`to_device` 按龄清理） | 要先定"客户端未确认算不算已投递"的产品语义 |
 | CODE-10（837 处静默忽略） | 只按"错误被吞有无用户可见后果"分类处理，且**不设配额** |
 
-其余（`MAINT-01`、`CODE-11`、`PERF-11/12`、`SEC-12`）都是随触达顺手做或等外部条件的登记项。
+其余（`MAINT-01`、`CODE-11`、`PERF-11/12`）都是随触达顺手做或等外部条件的登记项。
 
 ### 10.3 明确不做（防止过度开发）
 
@@ -780,3 +796,4 @@ W8 计划的三项（`TEST-05` → `NEW-05` → `FUNC-05`）已全部收口，�
 | SEC-15 | 鉴权覆盖率约 94.4%，client/media 面存在未覆盖路由 | **已从"静态快照"改成"可重跑门禁"**。新增 `scripts/contract/route_auth_public.txt`（161 条，`METHOD PATH<TAB>kind<TAB>reason`，kind ∈ `public`/`federation`/`middleware`/`secret`/`manual`）+ `scripts/contract/check_route_auth.py`（双向：无提取器且未登记 ⇒ 红；登记了但路由已消失、或现已带提取器 ⇒ 也红），并作为 `preflight.sh` 的独立 step（不放进契约 gate 的 `if/else`，否则会被 SKIP 分支吞掉）。**判据**：门禁输出 `979 route(s): 818 declare an auth extractor, 161 declared (public 76 · federation 43 · middleware 8 · secret 14 · manual 20)` / `credential required by 903/979 = 92.2%; open 76 (7.8%)`；`--self-test` 16 例全过；`check_gate_reachability.py` 58 个 `check_*` 全部可达。**变异**：删掉 `GET /_matrix/client/v3/login` 那一行 ⇒ 红（`handler takes no auth extractor and the route is not declared`，实测），还原 ⇒ 绿 |
 | NEW-08 | `synapse-federation/src/device_sync.rs`（735 行）自称"设备列表同步"，实际生产零调用，与 `routes/device.rs::broadcast_device_list_update` 重复实现同一件事 | **删除整模块**。`DeviceSyncManager::new` 全仓唯一构造点在它自己的 `#[cfg(test)]` 与 `tests/integration/federation_service_tests_migrated.rs`（2 条只测死代码的用例，已删）；同步移除 `synapse-federation/src/lib.rs`、`synapse-services/src/lib.rs`、`synapse-web/src/federation/mod.rs` 三处 re-export。棘轮同步：`scripts/ci/sqlx_dynamic_ratio_baseline` static 1357 → 1354（该模块 3 条生产静态查询）、test 动态 791 → 784、总 926 → 925，均就地写明"只因查询确实被删"；`file_size_baseline` / `clippy_allow_baseline` 删除过期文件条目；`TESTING.md` 与 `docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md` 数字块跟改。守卫 `federation_device_list_writer_tests::the_dead_device_revocation_job_does_not_come_back` 改为"文件缺失即跳过"——重加回来仍会被扫描。**判据**：`cargo check --workspace --all-targets --all-features` 通过；`check_sqlx_dynamic_ratio.sh`、`check_file_size_ratchet.py`（该文件无 stale 条目）、`check_clippy_allow_ratchet.py`、`check_sqlx_cache_fresh.sh --static` 全绿。**变异**：把 `pub fn notify_device_revocation() {}` 写回同名文件 ⇒ 守卫红（实测）。真实广播路径 `broadcast_device_list_update` 未动 |
 | PERF-10 | PostgreSQL 实例级未设 `statement_timeout`（直连 psql 的运维查询可无限挂起） | **已修**（`812661672`）。应用侧本就按连接兜底（`src/server/database.rs` 的 `after_connect` 对每个连接 `set_config` 三个超时，默认 30s/10s/60s；迁移器逐语句 `SET statement_timeout='30s'`），缺的只是实例级。`docker/config/postgres.conf` 新增小节：`statement_timeout = 5min`、`idle_in_transaction_session_timeout = 60s` —— **刻意不比应用更严**：应用连接会被会话级 `set_config` 覆盖，实例级只防直连；写成 10s 只会提前掐断运维手工 `CREATE INDEX` / `VACUUM`。门禁沿用既有 `scripts/ci/check_connection_budget.py`（不新增脚本，避免 `check_gate_reachability` 登记）：两个键必须显式存在（缺 ⇒ `exit 2`）、实例级 ≥ `synapse-common/src/config/database.rs` 的应用默认（违例 ⇒ `exit 1`）。`docker/deploy/README.md` 同名小节写明「应用侧已兜底，这里防的是直连」。**变异**：`5min → 10s` ⇒ `exit 1`；删键 ⇒ `exit 2`；还原 ⇒ 绿（三次实测）。**边界**：生产实例的 `postgresql.conf` 由部署方管理，本仓只覆盖 docker 形态 |
+| SEC-12 | legacy r0/v1/r1 媒体下载端点匿名可读 | **裁决：不是漏洞，是 Matrix legacy 语义**（r0/v1 匿名可读；原描述把 **r1 也算进去了，实际 r1 早已挂 `auth_middleware`**——VULN-01/02，`api_security_vuln_fix_tests` 三条 401 用例是证据）。做法按审计原修法：**登记为设计决策 + 部署文档说明**，不改 `auth`。`docker/deploy/README.md` 新增「媒体下载的匿名读语义」小节，表格列全六类路径（r0/v1 匿名 · v3 匿名 · v3 `download_signed` HMAC · r1 必须 token · `/_matrix/client/v1/media` 必须 token）并写明"要关闭匿名读就得给 legacy router 挂 `auth_middleware`，且先按客户端版本分布裁决"。**判据**：`doc_credibility_guard_tests::legacy_media_anonymous_read_is_registered_and_matches_the_router` 四方绑定（部署文档小节存在且点名 r0/v1 + `auth_middleware` / r1 必须挂 / r0·v1 不得挂且必须 merge legacy router / `download_media_v1` 仍 `OptionalAuthenticatedUser`），用新 helper `fn_body` 按**函数体**切片，防止同文件里 r1 的 `auth_middleware` 让 r0 断言假通过；`doc_credibility_guard_tests` **16 passed**。**变异**：删 README 小节标题 ⇒ 红；给 `create_media_r0_router` 挂 `auth_middleware` ⇒ 红；去掉 r1 的 `auth_middleware` ⇒ 红（三条均实测，还原后 16 passed） |

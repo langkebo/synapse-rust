@@ -88,6 +88,24 @@ fn read(relative: &str) -> String {
         .unwrap_or_else(|error| std::panic::panic_any(format!("failed to read {}: {error}", path.display())))
 }
 
+/// 从 `marker` 所在行起到下一个**顶格** `}` 为止的源码片段（含起止行）。
+///
+/// 守卫要判断的是"某个函数**自己**做了什么"：整文件 `contains` 会被同文件里别的函数
+/// 污染（r1 挂了 `auth_middleware`，整文件匹配会让 r0/v1 的断言假通过）。
+fn fn_body(source: &str, marker: &str) -> String {
+    let lines: Vec<&str> = source.lines().collect();
+    let start = lines
+        .iter()
+        .position(|line| line.contains(marker))
+        .unwrap_or_else(|| std::panic::panic_any(format!("源码里找不到 `{marker}` —— 守卫前提失效")));
+    let end = lines[start..]
+        .iter()
+        .position(|line| line.trim_end() == "}")
+        .map(|offset| start + offset)
+        .unwrap_or_else(|| std::panic::panic_any(format!("`{marker}` 的函数体没有顶格 `}}`")));
+    lines[start..=end].join("\n")
+}
+
 /// 把一处原始引用（反引号内容或 markdown 链接目标）规范化为「仓库相对路径声明」。
 ///
 /// 先去掉行号后缀（`:112-142` / `:170,210`）与链接锚点（`#L112`），再按白名单过滤；
@@ -832,5 +850,63 @@ fn signature_timestamp_claim_matches_the_outbound_header() {
          出站头：{:?}",
         if sends_ts { "现在带了 ts" } else { "仍然不带 ts" },
         header_lines
+    );
+}
+
+// ── SEC-12：legacy 媒体匿名读是裁决，不是漏洞 —— 文档与代码必须同时改 ────────
+
+/// `/_matrix/media/r0|v1/download` 匿名可读是 **Matrix legacy 语义**（媒体仓库在 v1.11
+/// 之前允许匿名读），收紧会让未升级的客户端所有历史图片加载失败。SEC-12 的裁决因此是
+/// "登记为设计决策 + 在部署文档里说明"，**不是**给它们补鉴权。
+///
+/// 判据三方绑定，任一侧单独变化都会红：
+///   * `docker/deploy/README.md` 的登记小节必须存在，并点名 r0/v1 与 `auth_middleware`；
+///   * `create_media_r1_router` 必须挂 `auth_middleware`（r1 已收紧，VULN-01/02）；
+///   * `create_media_r0_router` / `create_media_v1_router` **不得**挂它，且必须合并
+///     legacy 下载 router；handler 仍取 `OptionalAuthenticatedUser`（token 可选）。
+#[test]
+fn legacy_media_anonymous_read_is_registered_and_matches_the_router() {
+    const ROUTES: &str = "synapse-web/src/routes/media/mod.rs";
+    const DOWNLOAD: &str = "synapse-web/src/routes/media/download.rs";
+    const DEPLOY_DOC: &str = "docker/deploy/README.md";
+
+    // ① 部署文档必须登记这件事：删掉小节等于把 SEC-12 重新打开。
+    let doc = read(DEPLOY_DOC);
+    let heading = doc
+        .lines()
+        .position(|line| line.contains("媒体下载的匿名读语义"))
+        .unwrap_or_else(|| panic!("`{DEPLOY_DOC}` 里找不到「媒体下载的匿名读语义」小节 —— SEC-12 的登记被删了"));
+    let section = doc.lines().skip(heading).take(40).collect::<Vec<_>>().join("\n");
+    for needle in ["/_matrix/media/r0/download", "/_matrix/media/v1/download", "auth_middleware"] {
+        assert!(section.contains(needle), "登记小节里缺少 `{needle}`：读者无法据此判断哪条路径匿名、哪条要 token");
+    }
+
+    // ② r1 必须收紧（否则它的匿名读是真漏洞，而不是"已裁决的 legacy"）。
+    let routes = read(ROUTES);
+    assert!(
+        fn_body(&routes, "fn create_media_r1_router").contains("auth_middleware"),
+        "`create_media_r1_router` 不再挂 `auth_middleware` —— 文档说 r1 要求 token，\
+         代码说不用，二者必须同步"
+    );
+
+    // ③ r0/v1 必须保持匿名（挂上鉴权就等于悄悄关掉 legacy 语义，客户端会全量破图）。
+    for name in ["fn create_media_v1_router", "fn create_media_r0_router"] {
+        let body = fn_body(&routes, name);
+        assert!(
+            !body.contains("auth_middleware"),
+            "`{name}` 挂上了 `auth_middleware`：这等于关闭 legacy 匿名读 —— \
+             请先按客户端版本分布裁决，并同步 `{DEPLOY_DOC}` 与 SEC-12"
+        );
+        assert!(
+            body.contains("create_media_legacy_download_router()"),
+            "`{name}` 不再合并 legacy 下载 router：文档描述的路径与代码不一致"
+        );
+    }
+
+    // ④ handler 级：legacy 下载仍取"token 可选"。
+    assert!(
+        fn_body(&read(DOWNLOAD), "async fn download_media_v1(").contains("OptionalAuthenticatedUser"),
+        "`download_media_v1` 改成了强制鉴权 —— legacy r0/v1 的匿名读语义变了，\
+         必须同步 `{DEPLOY_DOC}` 与 SEC-12 裁决"
     );
 }

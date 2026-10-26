@@ -464,3 +464,26 @@ max_connections）都必须同步更新本表，否则门禁会失败。
 
 长时间维护（重建索引、大批量 `VACUUM`）请在**同一会话**内自行放开：
 `SET statement_timeout = 0;`。
+
+## 媒体下载的匿名读语义（legacy r0/v1，SEC-12）
+
+`/_matrix/media/r0/download/*` 与 `/_matrix/media/v1/download/*`（含 `/{filename}` 变体）
+**不要求 access token**。这是 **Matrix legacy 语义**（媒体仓库在 v1.11 之前允许匿名读），
+不是本仓漏挂鉴权 —— 老客户端依赖它，收紧会让它们所有历史图片加载失败。
+
+当前各路径的实际口径（由 `tests/unit/doc_credibility_guard_tests.rs` 与代码双向校验）：
+
+| 路径 | 鉴权 | 实现 |
+|---|---|---|
+| `/_matrix/media/r0/download/{server}/{media_id}[/{filename}]` | 匿名（token 可选） | `download_media_v1`（`OptionalAuthenticatedUser`） |
+| `/_matrix/media/v1/download/{server}/{media_id}[/{filename}]` | 匿名（token 可选） | 同上 |
+| `/_matrix/media/v3/download/...`、`/_matrix/media/v3/thumbnail/...` | 匿名（token 可选） | `download_media` / `get_thumbnail` |
+| `/_matrix/media/v3/download_signed/...` | HMAC 签名（`?signature=`） | `download_media_signed` |
+| `/_matrix/media/r1/download/...` | **必须** access token | 路由层挂 `auth_middleware`（VULN-01/VULN-02） |
+| `/_matrix/client/v1/media/download/...`、`.../thumbnail/...` | **必须** access token | `download_media_authenticated` |
+
+**如需关闭 r0/v1 的匿名读**：这不是配置项，要改代码 —— 给 r0/v1 的 legacy 下载 router
+挂 `auth_middleware`（与 r1 完全相同的做法，`synapse-web/src/routes/media/mod.rs` 里
+`create_media_r1_router` 即范例）。动手前先按**客户端版本分布**决定：客户端通常以
+`/_matrix/client/versions` 是否声明 `v1.11` 作为切换依据，未升级的客户端仍会走 r0/v1。
+在此之前保持现状；改了代码就必须同步改本节（守卫会因此变红）。
