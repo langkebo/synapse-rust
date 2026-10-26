@@ -214,6 +214,17 @@ else
     run "gen_route_handlers.py --check" python3 scripts/contract/gen_route_handlers.py --check
 fi
 
+# 路由鉴权口径（SEC-15）：每条路由要么由 `AuthenticatedUser`/`AdminUser` 等提取器把住，
+# 要么在 `scripts/contract/route_auth_public.txt` 里逐条登记不这么做的理由。
+# 为什么独立成 step 而不是并进上面的契约 gate：`route_layer` 上的鉴权中间件
+# （federation X-Matrix / admin / replication / webhook guard）在路由抽取器里是**不可见**的
+# （`apply_call` 把 `layer`/`route_layer` 当透明装饰器），所以判据不能靠抽取器推断，
+# 只能靠逐条白名单；而这一步只读源码 + 白名单、不与 HEAD 比，因此在"改了契约链文件"的
+# 分支里也必须照跑 —— 放进上面的 if/else 会被 SKIP 分支吞掉。
+# 双向：漏登记 ⇒ 红；登记了但路由已消失 / 现已带提取器 ⇒ 也红。~1s。
+step "路由鉴权口径（SEC-15）"
+run "check_route_auth.py" python3 scripts/contract/check_route_auth.py
+
 # 文档可信度守卫：`docs/synapse-rust-vs-synapse-comparison.md` 的计数必须等于
 # `ROUTE_CONTRACT.md`，引用的路径必须存在，五个历史章节必须带 §18 指针。
 #

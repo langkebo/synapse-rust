@@ -1,0 +1,193 @@
+# Routes that do NOT take an auth extractor in the handler signature.
+#
+# Format: `METHOD PATH<TAB>kind<TAB>reason`
+#   * Lines starting with `#` are comments; blank lines are skipped.
+#   * `METHOD PATH` is whitespace-separated (paths contain no spaces).
+#   * EXACTLY two tabs follow: kind, then a free-text reason. A missing tab is a
+#     parse error so a stray tab can never silently become part of the kind.
+#   * `kind` is one of:
+#       public     - no credential at all; the spec (or our deployment surface)
+#                    keeps the route open
+#       federation - authenticated by an `X-Matrix` request signature applied in
+#                    a `route_layer`, which the source extractor cannot see
+#       middleware - authenticated by a `route_layer` auth middleware (e.g.
+#                    `admin_auth_middleware`) rather than an extractor
+#       secret     - authenticated by a shared secret / HMAC the handler (or its
+#                    middleware) compares itself
+#       manual     - the handler parses and validates the bearer token itself
+#
+# Why this table exists
+# ---------------------
+# SEC-15: "鉴权覆盖率" had no falsifiable definition. A route could be added with
+# no auth at all and nothing failed. The invariant enforced by
+# `check_route_auth.py` is now:
+#
+#   every route either declares `AuthenticatedUser` / `AdminUser` /
+#   `OptionalAuthenticatedUser` in its handler signature, or appears here with a
+#   reason.
+#
+# The gate is bidirectional: an entry whose route disappears, or whose handler
+# later gains an auth extractor, is RED (the entry is stale). Adding a fresh
+# unauthenticated route is RED until someone records why it is not authenticated.
+
+DELETE /_matrix/app/v1/proxy/{as_id}/{*path}	manual	as_token bearer check inside the handler (extract_as_token + validate_token)
+DELETE /_matrix/client/unstable/org.matrix.msc4108/rendezvous/{session_id}	public	MSC4108 rendezvous: the session URL is the capability, no access token
+DELETE /_matrix/client/v1/proxy/{as_id}/{*path}	manual	as_token bearer check inside the handler (extract_as_token + validate_token)
+DELETE /_synapse/admin/v1/saml/mapping/{name_id}	middleware	admin surface: route_layer admin_auth_middleware
+GET /	public	server status page at the root path (closure handler, no credential)
+GET /.well-known/jwks.json	public	well-known discovery document (spec-public)
+GET /.well-known/matrix/client	public	well-known discovery document (spec-public)
+GET /.well-known/matrix/server	public	well-known discovery document (spec-public)
+GET /.well-known/matrix/support	public	well-known discovery document (spec-public)
+GET /.well-known/openid-configuration	public	well-known discovery document (spec-public)
+GET /_health	public	liveness/readiness probe (public by design)
+GET /_matrix/app/v1/proxy/{as_id}/{*path}	manual	as_token bearer check inside the handler (extract_as_token + validate_token)
+GET /_matrix/app/v1/rooms/{alias}	manual	as_token bearer check inside the handler (extract_as_token + validate_token)
+GET /_matrix/app/v1/users/{user_id}	manual	as_token bearer check inside the handler (extract_as_token + validate_token)
+GET /_matrix/app/v1/{as_id}	manual	as_token bearer check inside the handler (extract_as_token + validate_token)
+GET /_matrix/client/unstable/org.matrix.msc2965/auth_metadata	public	MSC2965 auth metadata discovery (spec-public)
+GET /_matrix/client/unstable/org.matrix.msc4108/rendezvous/{session_id}	public	MSC4108 rendezvous: the session URL is the capability, no access token
+GET /_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}	public	profile read the spec keeps public (Client-Server §Profile)
+GET /_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}/{key_name}	public	profile read the spec keeps public (Client-Server §Profile)
+GET /_matrix/client/v1/auth_metadata	public	MSC2965 auth metadata discovery (spec-public)
+GET /_matrix/client/v1/config/client	public	client config discovery (spec-public)
+GET /_matrix/client/v1/proxy/{as_id}/{*path}	manual	as_token bearer check inside the handler (extract_as_token + validate_token)
+GET /_matrix/client/v3/account/whoami	manual	handler parses the bearer token itself and calls validate_token (P-035 errcodes)
+GET /_matrix/client/v3/auth/{auth_type}/fallback/web	public	UIA fallback web page served to a browser mid-auth-flow
+GET /_matrix/client/v3/login	public	login flow entry point (no session yet)
+GET /_matrix/client/v3/login/saml/callback	public	SAML ACS callback posted by the IdP (the assertion is the credential)
+GET /_matrix/client/v3/login/sso/redirect	public	SSO redirect entry point hit by the browser before a session exists
+GET /_matrix/client/v3/login/sso/redirect/cas	public	SSO redirect entry point hit by the browser before a session exists
+GET /_matrix/client/v3/login/sso/redirect/saml	public	SSO redirect entry point hit by the browser before a session exists
+GET /_matrix/client/v3/logout/saml/callback	public	SAML SLO callback posted by the IdP
+GET /_matrix/client/v3/oidc/authorize	public	OIDC authorization-code flow (the code/redirect is the credential)
+GET /_matrix/client/v3/oidc/callback	public	OIDC authorization-code flow (the code/redirect is the credential)
+GET /_matrix/client/v3/profile/{user_id}	public	profile read the spec keeps public (Client-Server §Profile)
+GET /_matrix/client/v3/profile/{user_id}/avatar_url	public	profile read the spec keeps public (Client-Server §Profile)
+GET /_matrix/client/v3/profile/{user_id}/displayname	public	profile read the spec keeps public (Client-Server §Profile)
+GET /_matrix/client/v3/profile/{user_id}/{key_name}	public	profile read the spec keeps public (Client-Server §Profile)
+GET /_matrix/client/v3/register	public	registration flow entry point (no session yet)
+GET /_matrix/client/v3/register/available	public	registration flow entry point (no session yet)
+GET /_matrix/client/v3/register/captcha/status	public	captcha challenge during registration (no session yet)
+GET /_matrix/client/v3/saml/metadata	public	SAML SP metadata consumed by the IdP (spec-public)
+GET /_matrix/client/v3/saml/sp_metadata	public	SAML SP metadata consumed by the IdP (spec-public)
+GET /_matrix/client/v3/versions	public	versions endpoint (spec-public)
+GET /_matrix/client/versions	public	versions endpoint (spec-public)
+GET /_matrix/federation/v1	public	federation endpoint the spec keeps public (server keys/version/discovery/publicRooms)
+GET /_matrix/federation/v1/backfill/{room_id}	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+GET /_matrix/federation/v1/event/{event_id}	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+GET /_matrix/federation/v1/get_event_auth/{room_id}/{event_id}	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+GET /_matrix/federation/v1/hierarchy/{room_id}	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+GET /_matrix/federation/v1/make_join/{room_id}/{user_id}	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+GET /_matrix/federation/v1/make_leave/{room_id}/{user_id}	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+GET /_matrix/federation/v1/media/download/{server_name}/{media_id}	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+GET /_matrix/federation/v1/media/thumbnail/{server_name}/{media_id}	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+GET /_matrix/federation/v1/members/{room_id}	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+GET /_matrix/federation/v1/members/{room_id}/joined	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+GET /_matrix/federation/v1/openid/userinfo	public	federation endpoint the spec keeps public (server keys/version/discovery/publicRooms)
+GET /_matrix/federation/v1/publicRooms	public	federation endpoint the spec keeps public (server keys/version/discovery/publicRooms)
+GET /_matrix/federation/v1/query/destination	public	federation endpoint the spec keeps public (server keys/version/discovery/publicRooms)
+GET /_matrix/federation/v1/query/directory	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+GET /_matrix/federation/v1/query/directory/room/{room_id}	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+GET /_matrix/federation/v1/query/profile	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+GET /_matrix/federation/v1/query/profile/{user_id}	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+GET /_matrix/federation/v1/room/{room_id}/{event_id}	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+GET /_matrix/federation/v1/state/{room_id}	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+GET /_matrix/federation/v1/state_ids/{room_id}	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+GET /_matrix/federation/v1/timestamp_to_event/{room_id}	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+GET /_matrix/federation/v1/user/devices/{user_id}	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+GET /_matrix/federation/v1/version	public	federation endpoint the spec keeps public (server keys/version/discovery/publicRooms)
+GET /_matrix/federation/v2/query/{server_name}	public	federation endpoint the spec keeps public (server keys/version/discovery/publicRooms)
+GET /_matrix/federation/v2/query/{server_name}/{key_id}	public	federation endpoint the spec keeps public (server keys/version/discovery/publicRooms)
+GET /_matrix/federation/v2/server	public	federation endpoint the spec keeps public (server keys/version/discovery/publicRooms)
+GET /_matrix/key/v2/query/{server_name}	public	server signing-key lookup the spec keeps public (no X-Matrix)
+GET /_matrix/key/v2/query/{server_name}/{key_id}	public	server signing-key lookup the spec keeps public (no X-Matrix)
+GET /_matrix/key/v2/server	public	server signing-key lookup the spec keeps public (no X-Matrix)
+GET /_matrix/media/v3/download_signed/{server_name}/{media_id}	public	MSC3916 authenticated media: the signed URL is the credential
+GET /_matrix/media/v3/download_signed/{server_name}/{media_id}/{filename}	public	MSC3916 authenticated media: the signed URL is the credential
+GET /_matrix/server_version	public	server version probe (public by design)
+GET /_matrix/static/client/login/	public	static login fallback page (public by design)
+GET /_matrix/vendor/v1/spaces/public	public	public spaces directory (vendor extension, public by design)
+GET /_synapse/admin/v1/register/nonce	secret	shared-secret HMAC + IP allowlist (config.admin_registration.shared_secret)
+GET /_synapse/admin/v1/saml/config	middleware	admin surface: route_layer admin_auth_middleware
+GET /_synapse/admin/v1/saml/mapping/{name_id}	middleware	admin surface: route_layer admin_auth_middleware
+GET /_synapse/admin/v1/saml/mappings	middleware	admin surface: route_layer admin_auth_middleware
+GET /_synapse/cas/login	public	CAS protocol endpoint hit by the IdP/browser (no access token)
+GET /_synapse/cas/logout	public	CAS protocol endpoint hit by the IdP/browser (no access token)
+GET /_synapse/cas/p3/serviceValidate	public	CAS protocol endpoint hit by the IdP/browser (no access token)
+GET /_synapse/cas/proxy	public	CAS protocol endpoint hit by the IdP/browser (no access token)
+GET /_synapse/cas/proxyValidate	public	CAS protocol endpoint hit by the IdP/browser (no access token)
+GET /_synapse/cas/serviceValidate	public	CAS protocol endpoint hit by the IdP/browser (no access token)
+GET /_synapse/federation/v1/get_joining_rules/{room_id}	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+GET /_synapse/federation/v1/query/auth	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+GET /_synapse/federation/v1/room_auth/{room_id}	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+GET /_synapse/worker/v1/events	secret	worker shared secret (replication_http_auth_middleware)
+GET /_synapse/worker/v1/replication/{worker_id}/position	secret	worker shared secret (replication_http_auth_middleware)
+GET /_synapse/worker/v1/workers/{worker_id}/commands	secret	worker shared secret (replication_http_auth_middleware)
+GET /health	public	liveness/readiness probe (public by design)
+HEAD /_matrix/app/v1/proxy/{as_id}/{*path}	manual	as_token bearer check inside the handler (extract_as_token + validate_token)
+HEAD /_matrix/client/v1/proxy/{as_id}/{*path}	manual	as_token bearer check inside the handler (extract_as_token + validate_token)
+OPTIONS /_matrix/app/v1/proxy/{as_id}/{*path}	manual	as_token bearer check inside the handler (extract_as_token + validate_token)
+OPTIONS /_matrix/client/v1/proxy/{as_id}/{*path}	manual	as_token bearer check inside the handler (extract_as_token + validate_token)
+PATCH /_matrix/app/v1/proxy/{as_id}/{*path}	manual	as_token bearer check inside the handler (extract_as_token + validate_token)
+PATCH /_matrix/client/v1/proxy/{as_id}/{*path}	manual	as_token bearer check inside the handler (extract_as_token + validate_token)
+POST /_matrix/app/v1/ping	manual	as_token bearer check inside the handler (extract_as_token + validate_token)
+POST /_matrix/app/v1/proxy/{as_id}/{*path}	manual	as_token bearer check inside the handler (extract_as_token + validate_token)
+POST /_matrix/client/unstable/org.matrix.msc4108/rendezvous	public	MSC4108 rendezvous: the session URL is the capability, no access token
+POST /_matrix/client/v1/proxy/{as_id}/{*path}	manual	as_token bearer check inside the handler (extract_as_token + validate_token)
+POST /_matrix/client/v1/rendezvous	public	MSC4108 rendezvous: the session URL is the capability, no access token
+POST /_matrix/client/v3/account/3pid/email/submitToken	public	email validation token in the body is the credential
+POST /_matrix/client/v3/account/password/email/requestToken	public	email validation request issued before a session exists
+POST /_matrix/client/v3/account/password/email/submitToken	public	email validation token in the body is the credential
+POST /_matrix/client/v3/login	public	login flow entry point (no session yet)
+POST /_matrix/client/v3/login/saml/callback	public	SAML ACS callback posted by the IdP (the assertion is the credential)
+POST /_matrix/client/v3/login/sso/redirect/saml	public	SSO redirect entry point hit by the browser before a session exists
+POST /_matrix/client/v3/oidc/login	public	builtin OIDC login form POST: username/password are the credential (no session)
+POST /_matrix/client/v3/oidc/token	public	OIDC authorization-code flow (the code/redirect is the credential)
+POST /_matrix/client/v3/refresh	public	refresh_token is the credential (Client-Server §Refresh)
+POST /_matrix/client/v3/register	public	registration flow entry point (no session yet)
+POST /_matrix/client/v3/register/captcha/send	public	captcha challenge during registration (no session yet)
+POST /_matrix/client/v3/register/captcha/verify	public	captcha challenge during registration (no session yet)
+POST /_matrix/client/v3/register/email/requestToken	public	email validation request issued before a session exists
+POST /_matrix/client/v3/register/email/submitToken	public	email validation token in the body is the credential
+POST /_matrix/client/v3/register/guest	public	guest registration (no session yet)
+POST /_matrix/federation/unstable/org.matrix.msc3720/account_status	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+POST /_matrix/federation/v1/get_missing_events/{room_id}	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+POST /_matrix/federation/v1/knock/{room_id}/{user_id}	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+POST /_matrix/federation/v1/publicRooms	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+POST /_matrix/federation/v1/thirdparty/invite	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+POST /_matrix/federation/v1/user/keys/claim	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+POST /_matrix/federation/v1/user/keys/query	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+POST /_matrix/federation/v1/user/keys/upload	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+POST /_matrix/federation/v2/user/keys/query	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+POST /_matrix/key/v2/query	public	server signing-key lookup the spec keeps public (no X-Matrix)
+POST /_synapse/admin/v1/register	secret	shared-secret HMAC + IP allowlist (config.admin_registration.shared_secret)
+POST /_synapse/admin/v1/saml/logout	middleware	admin surface: route_layer admin_auth_middleware
+POST /_synapse/admin/v1/saml/metadata/refresh	middleware	admin surface: route_layer admin_auth_middleware
+POST /_synapse/external/webhook/{service_id}	secret	webhook HMAC guard (webhook_auth_guard)
+POST /_synapse/federation/v1/keys/claim	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+POST /_synapse/federation/v1/keys/query	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+POST /_synapse/federation/v1/keys/upload	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+POST /_synapse/federation/v2/key/clone	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+POST /_synapse/worker/v1/commands/{command_id}/complete	secret	worker shared secret (replication_http_auth_middleware)
+POST /_synapse/worker/v1/commands/{command_id}/fail	secret	worker shared secret (replication_http_auth_middleware)
+POST /_synapse/worker/v1/tasks/{task_id}/complete	secret	worker shared secret (replication_http_auth_middleware)
+POST /_synapse/worker/v1/tasks/{task_id}/fail	secret	worker shared secret (replication_http_auth_middleware)
+POST /_synapse/worker/v1/workers/{worker_id}/connect	secret	worker shared secret (replication_http_auth_middleware)
+POST /_synapse/worker/v1/workers/{worker_id}/disconnect	secret	worker shared secret (replication_http_auth_middleware)
+POST /_synapse/worker/v1/workers/{worker_id}/heartbeat	secret	worker shared secret (replication_http_auth_middleware)
+PUT /_matrix/app/v1/proxy/{as_id}/{*path}	manual	as_token bearer check inside the handler (extract_as_token + validate_token)
+PUT /_matrix/app/v1/transactions/{as_id}/{txn_id}	manual	as_token bearer check inside the handler (extract_as_token + validate_token)
+PUT /_matrix/client/unstable/org.matrix.msc4108/rendezvous/{session_id}	public	MSC4108 rendezvous: the session URL is the capability, no access token
+PUT /_matrix/client/v1/proxy/{as_id}/{*path}	manual	as_token bearer check inside the handler (extract_as_token + validate_token)
+PUT /_matrix/federation/v1/exchange_third_party_invite/{room_id}	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+PUT /_matrix/federation/v1/invite/{room_id}/{event_id}	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+PUT /_matrix/federation/v1/send/{txn_id}	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+PUT /_matrix/federation/v1/send_join/{room_id}/{event_id}	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+PUT /_matrix/federation/v1/send_leave/{room_id}/{event_id}	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+PUT /_matrix/federation/v2/invite/{room_id}/{event_id}	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+PUT /_matrix/federation/v2/send_join/{room_id}/{event_id}	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+PUT /_matrix/federation/v2/send_leave/{room_id}/{event_id}	federation	signed with X-Matrix by federation_auth_middleware (route_layer), not a user token
+PUT /_synapse/admin/v1/saml/config	middleware	admin surface: route_layer admin_auth_middleware
+PUT /_synapse/admin/v1/saml/mapping/{name_id}	middleware	admin surface: route_layer admin_auth_middleware
+PUT /_synapse/worker/v1/replication/{worker_id}/{stream_name}	secret	worker shared secret (replication_http_auth_middleware)

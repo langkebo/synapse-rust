@@ -17,15 +17,15 @@
 | 代码质量 | 0 | 0 | 1 | 1 | 2 |
 | 功能完整性 | 0 | 0 | 0 | 0 | 0 |
 | 性能（含数据层） | 0 | 0 | 1 | 3 | 4 |
-| 安全性 | 0 | 0 | 0 | 2 | 2 |
+| 安全性 | 0 | 0 | 0 | 1 | 1 |
 | 可维护性 | 0 | 0 | 1 | 0 | 1 |
 | 测试覆盖 | 0 | 0 | 0 | 0 | 0 |
 | 文档完整性 | 0 | 0 | 0 | 0 | 0 |
 | 专项：冗余与过度开发 | 0 | 0 | 0 | 0 | 0 |
-| **合计** | **0** | **0** | **5** | **6** | **11** |
+| **合计** | **0** | **0** | **5** | **5** | **10** |
 
-> 计数口径（2026-10-26 逐条重算，**按表格行**计，合并行只算一行）：**P0 = 0，P1 = 0，P2 = 5，P3 = 6，合计 11**。
-> 来源 = §0.2.2 的 2 条 + §0.2.3 的 9 条（§0.1 已于 2026-10-26 清空）。
+> 计数口径（2026-10-26 逐条重算，**按表格行**计，合并行只算一行）：**P0 = 0，P1 = 0，P2 = 5，P3 = 5，合计 10**。
+> 来源 = §0.2.2 的 2 条 + §0.2.3 的 8 条（§0.1 已于 2026-10-26 清空）。
 > ⚠️ **本版更正一处旧账**：上一版写 `P3 = 13`，但把 §0.1 / §0.2.2 / §0.2.3 三处表格按行数出来是
 > **14 行**（正则 `^\| \*\*ID\*\* \| P[0-9] \|` 扫一遍即可复核）—— 13 是漏计，不是有 1 条被关掉。
 > 本版关闭 **NEW-19**（P2/功能完整性，`2e33c45a8`）、**NEW-10**（P3/测试覆盖，`d9fa05d26`）、
@@ -37,6 +37,9 @@
 > 11 组输入单测）、**SEC-11** 判为**误报**（`[0u8; 32]` 是 HKDF 输出缓冲，必被 `hk.expand`
 > 覆盖，不是全零密钥）、**SEC-13** 成立但原描述有偏差（泄露的是**被签名的请求字节**，不是
 > 签名串；已改成 `len` + 8 字符 SHA-256 指纹 + 源码棘轮）⇒ P3 `9 → 6`、合计 `14 → 11`。
+> 同轮再收口 **SEC-15**（鉴权覆盖率从静态快照变成可重跑门禁：979 条路由 / 818 带提取器 /
+> 161 条逐条登记，需凭证 92.2%、真正无凭证 76 条 = 7.8%，由
+> `scripts/contract/check_route_auth.py` + `route_auth_public.txt` 双向守住）⇒ P3 `6 → 5`、合计 `11 → 10`。
 > ✅ NEW-19：`/send` 的线程回复现在同时进 `thread_relations` 与 `thread_replies`
 > （时间戳回查刚落库的事件，不用本地时钟；重试同一 txn 不重复计数）。
 > ✅ NEW-10：4 处手写轮询折成 `tests/common/mod.rs::wait_until`，测试域 `sleep` 计数
@@ -49,21 +52,21 @@
 > ✅ **NEW-14 已收口**：C3 审计面 15 → 95 个文件（零误伤），14 个 `NONE` 族已逐族重跑 ⇒
 > 4 族误判（改登记）、3 族幽灵、7 族真缺口（见 §0.1.1）。
 > `NEW-08` 已于 2026-10-25 关闭（`device_sync.rs` 整模块删除，判据与变异证据见附录 D），不再计入。
-> 其中 **9 条是"登记项"**（明确不做或只等外部条件）；§0.1 已于 2026-10-26 清空
+> 其中 **8 条是"登记项"**（明确不做或只等外部条件）；§0.1 已于 2026-10-26 清空
 > （最后两条 `NEW-15` / `NEW-16` 已裁决并落地），没有"我们已经知道怎么改但还没动手"的条目了。
 
 **结论摘要**：**P0 = 0，P1 = 0**（原 9 条 P1 全部有实现 + 能失败的门禁，逐条见附录 D）。
 ⚠️ 第八轮曾把一条误报成 P1（NEW-06「设备吊销通知静默丢失」），**已撤回**：真实广播路径在
 `routes/device.rs::broadcast_device_list_update`（签名事务），死的是 `device_sync` 里那条
 零调用者的重复实现，已删除；更正过程记在[附录 D](#附录-d已关闭条目索引)。
-剩下的 11 条里，**没有一条会造成数据丢失或越权**；5 条 P2 分别是 `events` 未分区（ARCH-04）、
+剩下的 10 条里，**没有一条会造成数据丢失或越权**；5 条 P2 分别是 `events` 未分区（ARCH-04）、
 7 个 >2000 行生产文件（ARCH-05）、837 处静默忽略（CODE-10）、`to_device` 无按龄清理（PERF-01）、
 测试替身未做特性隔离（MAINT-01）—— 全是**长期结构债**：
-不修也不会立刻出错，但每加一个功能都在加利息。6 条 P3 **全部是 §0.2.3 的登记项**
+不修也不会立刻出错，但每加一个功能都在加利息。5 条 P3 **全部是 §0.2.3 的登记项**
 （规范漂移/文档失真/死代码），没有待裁决项。
 
-**下一批该做什么**：**没有"我们知道怎么改但还没动手"的条目了**。剩下的 11 条分两类 ——
-① 9 条**登记项**（§0.2.3，明确不做或只等外部条件）；
+**下一批该做什么**：**没有"我们知道怎么改但还没动手"的条目了**。剩下的 10 条分两类 ——
+① 8 条**登记项**（§0.2.3，明确不做或只等外部条件）；
 ② ARCH-04/ARCH-05（§0.2.2）这两条结构债要真实数据量/行为不变的证明才谈得上动。
 
 ## 0.1 第七轮新发现（2026-10-24，只列仍开着的）
@@ -115,7 +118,7 @@
 ### 0.2.1 可先红后绿
 
 > 2026-10-24 已清空：最后一条 `TEST-05` 已按「逐处分类 + 注解门禁」收口（见附录 D）。
-> 剩下的 11 条全部落在 §0.2.2（需要决策/等价断言）与 §0.2.3（登记项）。
+> 剩下的 10 条全部落在 §0.2.2（需要决策/等价断言）与 §0.2.3（登记项）。
 
 ### 0.2.2 需要决策或外部条件
 
@@ -136,7 +139,6 @@
 | **PERF-12 / MAINT-07** | P3 | `INDEXES.md` 人工表无法从 DDL 反推 | 重生成会让"索引治理"退化成"索引清单"；计数已由 `check_doc_metrics.py` 现算 |
 | **MAINT-01** | P2 | 测试替身/工具二进制与生产 crate 未做特性隔离 | 已覆盖 `user_store_fake`、`federation_test_keys`；其余属"每个 crate 一次评估"，收益低于改动面 |
 | **SEC-12** | P3 | legacy r0/v1/r1 媒体下载端点匿名可读 | **是 Matrix legacy 语义**（新版才要求 token）；收紧会破坏老客户端 |
-| **SEC-15** | P3 | 鉴权覆盖率约 94.4%，client/media 面存在未覆盖路由 | 覆盖率本身未重测；补测要先有"哪些路由该公开"的白名单口径 |
 
 ## 0.3 复核历史（压缩）
 
@@ -406,10 +408,30 @@
   每一个联邦请求。已改为显式建模 `TimestampCheck` 四态 + 一条"文档说我们不发 ts"与代码
   双向一致的门禁。
 
-### SEC-15（P3）鉴权覆盖率约 94.4%，client/media 面存在未覆盖路由
+### SEC-15（P3）鉴权覆盖率约 94.4%，client/media 面存在未覆盖路由 —— ✅ 已关闭（见附录 D）
 
-- **事实**：覆盖率本身**未重测**（原值是静态统计）。
-- **修法**：先重测，再按"哪些路由本来就该公开"建白名单；没有白名单口径就没法判断 5.6% 里哪些是真缺口。
+- **原口径的问题**：「94.4%」是一次静态统计，**没有可复跑的定义**——"哪些路由本来就该公开"
+  没有落成文件，所以既无法重测，也无法判断剩下的 5.6% 里哪些是真缺口。
+- **重测（2026-10-26，`scripts/contract/check_route_auth.py` 现算）**：全域 **979** 条路由，
+  其中 **818** 条 handler 签名带 `AuthenticatedUser` / `AdminUser` / `OptionalAuthenticatedUser`；
+  其余 **161** 条逐条登记（`public 76 · federation 43 · middleware 8 · secret 14 · manual 20`）。
+  ⇒ **需凭证 903/979 = 92.2%**，**真正无凭证 76 条 = 7.8%**（`public` 那一档，含 `/_matrix/client/*`
+  的登录/注册/能力发现、`/_matrix/media/*` 公开缩略图、well-known、`/_health` 等）。
+  若只认 handler 签名提取器这一种形态，则是 **818/979 = 83.6%**，剩下的 65 条靠 route_layer 中间件
+  或共享密钥；三个数字**不可互相替代**，引用时必须说明分子口径。
+- **与旧 94.4% 的关系**：旧值是按桶估的静态计数（归档记为 client 301/321、media 28/37、
+  federation 36/48），分母只有约 406 条，也**没有**区分"签名"、"中间件"、"共享密钥"；
+  新口径的分母是 979 条（含 `/_synapse/*` 管理面、worker、appservice、CAS/OIDC 等旧统计未覆盖的桶）。
+  两者不是同一件事的两次测量，所以不复述"涨了/跌了"。
+- **口径落地**：白名单写在 `scripts/contract/route_auth_public.txt`，格式 `METHOD PATH<TAB>kind<TAB>reason`，
+  五种 kind 各自表达"凭证从哪来"：`public`（确实不需要）/ `federation`（X-Matrix 签名）/
+  `middleware`（route_layer 上的鉴权中间件）/ `secret`（共享密钥或 HMAC）/ `manual`（handler 自己校验 bearer）。
+- **为什么必须逐条而不是前缀规则**：路由抽取器把 `layer` / `route_layer` 当透明装饰器，
+  **看不到**中间件挂载；而 `/_matrix/federation/` 下有 8 条规范要求公开的端点、`/_synapse/admin/`
+  下同时存在两种保护机制 —— 任何整段前缀规则都会判错。
+- **可失败验证**：门禁双向 —— 路由无提取器且未登记 ⇒ 红；登记了但路由已消失、或现已带提取器 ⇒ 也红。
+  已做「删掉 `GET /_matrix/client/v3/login` 那一行 → 门禁红 → 还原 → 绿」的探针自证，
+  并接了 `--self-test`（16 例）与 `preflight.sh` 的独立 step。
 
 ---
 
@@ -607,7 +629,7 @@ TEST_FILE 47 = 107**；测试域合计 81。
 ### 10.2 下一批建议
 
 W8 计划的三项（`TEST-05` → `NEW-05` → `FUNC-05`）已全部收口，清单里已无 P0/P1、也无 P3 待裁决项。
-剩下 11 条里能动的只有 4 条 P2 结构债，而每条都**卡在一个前提上**，不是排期问题：
+剩下 10 条里能动的只有 4 条 P2 结构债，而每条都**卡在一个前提上**，不是排期问题：
 
 | 待办 | 前提 |
 |---|---|
@@ -616,7 +638,7 @@ W8 计划的三项（`TEST-05` → `NEW-05` → `FUNC-05`）已全部收口，�
 | PERF-01（`to_device` 按龄清理） | 要先定"客户端未确认算不算已投递"的产品语义 |
 | CODE-10（837 处静默忽略） | 只按"错误被吞有无用户可见后果"分类处理，且**不设配额** |
 
-其余（`MAINT-01`、`CODE-11`、`PERF-10/11/12`、`SEC-12/15`）都是随触达顺手做或等外部条件的登记项。
+其余（`MAINT-01`、`CODE-11`、`PERF-10/11/12`、`SEC-12`）都是随触达顺手做或等外部条件的登记项。
 
 ### 10.3 明确不做（防止过度开发）
 
@@ -746,4 +768,5 @@ W8 计划的三项（`TEST-05` → `NEW-05` → `FUNC-05`）已全部收口，�
 | SEC-09 | CAS 回调的 `redirect_after` 未做同源校验 ⇒ 开放重定向 | **真实缺陷，已修**（`e83fdbb6f`）。`cas_sso_redirect` 原先把 `redirect_after` 原样编码进 `/login?service=…`，登录页据此跳转，攻击者可用 `https://evil.example/steal` 或协议相对 `//evil.example` 借本域域名完成跳转。新增 `is_same_origin_path`：必须 `starts_with('/')`、**不是** `//host`、不含 `\`（浏览器会把 `/\host` 归一化成 `//host`）、不含 `< 0x20` 与 `0x7f`（可用来截断/逃逸）；非法值回 `400 M_INVALID_PARAM` 且**不回显**原值；空串等同未传。**判据**：`test_redirect_after_accepts_only_same_origin_paths` 覆盖接受侧（`/`、带 `?via=` 的房间路径、带 `#` 的客户端路由）与拒绝侧（`https://` / `http://` / `//host` / `/\host` / `javascript:` / 裸域名 / 空串 / 含 `\r\n` / 含 `\u{7f}`）；`cas::tests` **7 passed**（`--features test-utils,cas-sso`） |
 | SEC-11 | 静态密钥封装存在全零密钥死代码 | **误报，不改代码**。`synapse-common/src/key_encryption.rs` 的 `let mut okm = [0u8; 32];` 是 **HKDF 的输出缓冲区**，下一行 `hk.expand(info, &mut okm)` 把 32 字节全部覆盖后才读取；`[0u8; 32]` 只是"先分配、后填充"的写法，不存在"用全零密钥工作"的路径。该处已带 `#[allow(clippy::expect_used, reason = …)]` 说明 fail-closed 意图。**没有改动**，本条从清单移除 |
 | SEC-13 | 联邦鉴权 DEBUG 日志打印签名原文 | **真实缺陷，但原描述有偏差，已修**（`c2783c680`）。泄露的不是签名串，而是 `canonical_federation_request_bytes` 的**结果**（规范化请求体，含 room 消息与 to-device 载荷）——排障打开 DEBUG 就等于把明文落盘。改为字段化日志：`origin` / `len` / `fingerprint`（新增 `signature_fingerprint`，取 `compute_signature_content_hash` 的前 8 字符；该函数原先只在 `#[cfg(test)]` 下编译，本轮去掉 cfg 供生产日志使用）。**判据**：新增 `signature_fingerprint_is_short_and_deterministic` + 源码棘轮 `debug_logs_do_not_dump_signed_bytes`（用 `concat!` 拆针，避免门禁匹配到自身），`--features test-utils` **2 passed**；同批把 `ROUTE_CONTRACT.md` 的 5 处 `cas.rs` 行号引用刷新，`check_doc_line_refs.py` 漂移 57 → **55**（基线 56） |
+| SEC-15 | 鉴权覆盖率约 94.4%，client/media 面存在未覆盖路由 | **已从"静态快照"改成"可重跑门禁"**。新增 `scripts/contract/route_auth_public.txt`（161 条，`METHOD PATH<TAB>kind<TAB>reason`，kind ∈ `public`/`federation`/`middleware`/`secret`/`manual`）+ `scripts/contract/check_route_auth.py`（双向：无提取器且未登记 ⇒ 红；登记了但路由已消失、或现已带提取器 ⇒ 也红），并作为 `preflight.sh` 的独立 step（不放进契约 gate 的 `if/else`，否则会被 SKIP 分支吞掉）。**判据**：门禁输出 `979 route(s): 818 declare an auth extractor, 161 declared (public 76 · federation 43 · middleware 8 · secret 14 · manual 20)` / `credential required by 903/979 = 92.2%; open 76 (7.8%)`；`--self-test` 16 例全过；`check_gate_reachability.py` 58 个 `check_*` 全部可达。**变异**：删掉 `GET /_matrix/client/v3/login` 那一行 ⇒ 红（`handler takes no auth extractor and the route is not declared`，实测），还原 ⇒ 绿 |
 | NEW-08 | `synapse-federation/src/device_sync.rs`（735 行）自称"设备列表同步"，实际生产零调用，与 `routes/device.rs::broadcast_device_list_update` 重复实现同一件事 | **删除整模块**。`DeviceSyncManager::new` 全仓唯一构造点在它自己的 `#[cfg(test)]` 与 `tests/integration/federation_service_tests_migrated.rs`（2 条只测死代码的用例，已删）；同步移除 `synapse-federation/src/lib.rs`、`synapse-services/src/lib.rs`、`synapse-web/src/federation/mod.rs` 三处 re-export。棘轮同步：`scripts/ci/sqlx_dynamic_ratio_baseline` static 1357 → 1354（该模块 3 条生产静态查询）、test 动态 791 → 784、总 926 → 925，均就地写明"只因查询确实被删"；`file_size_baseline` / `clippy_allow_baseline` 删除过期文件条目；`TESTING.md` 与 `docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md` 数字块跟改。守卫 `federation_device_list_writer_tests::the_dead_device_revocation_job_does_not_come_back` 改为"文件缺失即跳过"——重加回来仍会被扫描。**判据**：`cargo check --workspace --all-targets --all-features` 通过；`check_sqlx_dynamic_ratio.sh`、`check_file_size_ratchet.py`（该文件无 stale 条目）、`check_clippy_allow_ratchet.py`、`check_sqlx_cache_fresh.sh --static` 全绿。**变异**：把 `pub fn notify_device_revocation() {}` 写回同名文件 ⇒ 守卫红（实测）。真实广播路径 `broadcast_device_list_update` 未动 |
