@@ -273,7 +273,11 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // `users` 三个密码生命周期列）：基线 247716 → 245636 字节 ⇒ FNV-1a 64 =
 // `90f2bf165cb2f005`。自检：复算改动前的 `HEAD:migrations/…v12.sql`（247716 字节）得
 // `f151aaa3c500793e`，与改动前常量逐字节吻合，证明哈希实现未变后才取新值。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "90f2bf165cb2f005";
+// 2026-10-26（tags 收口：为只有 `room_tags` 的存量补 `m.tag` 幂等回填）：基线 245636 →
+// 247657 字节 ⇒ FNV-1a 64 = `1694426daf4fb659`。自检：复算改动前的
+// `aeb48b283^:migrations/…v12.sql`（245636 字节）得 `90f2bf165cb2f005`，
+// 与改动前常量逐字节吻合，证明哈希实现未变后才取新值。
+const EXPECTED_BASELINE_FINGERPRINT: &str = "1694426daf4fb659";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))

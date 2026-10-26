@@ -1671,7 +1671,7 @@ async fn clone_schema_from_template(database_url: &str, template_name: &str) -> 
     // `Only(SEED_REFERENCE_TABLES)` is this fixture's historical behaviour
     // written down: phase 1b copies the baseline's seeded reference rows and
     // nothing else. Behaviour is identical to `Everything` today (measured: the
-    // template's only non-empty tables are exactly these three), and the
+    // template's only non-empty tables are exactly these), and the
     // `the_seed_allowlist_matches_what_the_baseline_seeds` guard keeps that true.
     synapse_common::test_isolation::clone_schema_from_template(
         &admin_pool,

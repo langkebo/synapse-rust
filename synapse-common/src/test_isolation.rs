@@ -87,8 +87,10 @@ pub fn template_ready_marker_path(schema_name: &str) -> std::path::PathBuf {
 /// The template rows the **baseline migrations** seed, and therefore the only
 /// tables [`SeedSource::Only`] ever has anything to copy for.
 ///
-/// Measured against the two inlined baseline files: `00000000_unified_schema_v12.sql`
-/// has exactly three `INSERT INTO` statements (lines 4554, 4563, 4568) and
+/// Measured against the inlined baseline file: `00000000_unified_schema_v12.sql`
+/// seeds rows into exactly the tables listed below — five config/reference rows
+/// plus the `m.tag` backfill (`room_account_data` is an `INSERT ... SELECT` over
+/// `room_tags`, which is empty in a fresh database, so it contributes no rows).
 /// (The former `00000001_extensions_v10.sql` no-op duplicate has been deleted.)
 /// The template's other 250-odd tables
 /// are empty, so this allowlist and [`SeedSource::Everything`] currently produce
@@ -104,8 +106,14 @@ pub fn template_ready_marker_path(schema_name: &str) -> std::path::PathBuf {
 /// "the `@admin:localhost` seed is skipped": that hardcoded `INSERT` was removed
 /// from the v11 baseline (DB-04) and only an `UPDATE ... WHERE username = 'admin'`
 /// over zero rows remains. A freshly migrated database has no users row.
-pub const SEED_REFERENCE_TABLES: &[&str] =
-    &["event_search", "room_summary_members", "server_media_quota", "server_retention_policy", "sync_stream_id"];
+pub const SEED_REFERENCE_TABLES: &[&str] = &[
+    "event_search",
+    "room_account_data",
+    "room_summary_members",
+    "server_media_quota",
+    "server_retention_policy",
+    "sync_stream_id",
+];
 
 /// Which template rows a clone starts with.
 ///
