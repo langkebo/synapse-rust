@@ -257,8 +257,20 @@ cargo llvm-cov --test integration --features "…" --lcov --output-path /tmp/rou
    变异自证：把 `health` 那段改成直接用 `interval_secs`（0 不再回落默认值）⇒ 第一条红、
    另两条仍绿（`left: 0ns / right: 10s`），还原后 3 passed。
 
-   **仍未覆盖**：5 个 `start_*` 循环（约 170 行）—— 补它们需要可控时钟 + 库里造出待清理数据 +
-   断言"清了什么、留下什么"，属独立一笔。
+   **仍未覆盖**：5 个 `start_*` 循环（约 170 行）。实际评估后有**三个结构性障碍**，不是"缺一条测试"：
+
+   1. **`start_all` 丢弃了 `JoinHandle`**（`tokio::spawn` 的返回值直接丢）⇒ "任务是否优雅退出"
+      **不可观测**。`CancellationToken` 只能发信号，没法等它生效；现在的测试最多断言
+      "cancel 之后台账没被更新"，那连"任务还在跑但恰好没 tick"都区分不了。
+      要真正测"关闭后全部退出"，得让 `start_all` 返回 `Vec<JoinHandle<()>>` 之类可等待的句柄
+      —— 这是**生产 API 的可测性改进**（也是良好设计：关闭应当可等待），不是测试专用钩子。
+      调用方只有 `src/server/mod.rs` 一处，改动面小。
+   2. **启动静默期**：`STARTUP_GRACE_PERIOD = 60s`、`MAINTENANCE_STARTUP_DELAY = 300s`，
+      首轮执行在分钟级之后 ⇒ 不用 `tokio::time::pause()`（需 `test-util`）就没法在测试里推进。
+   3. **五个循环全部依赖真库**（`database.health_check()` 等）⇒ 还要可控的数据状态。
+
+   结论：第 ③ 项应作为**独立一笔**（先改 `start_all` 返回值使其可观测，再补 2–3 条
+   "关闭即退出"与"静默期内不执行"的用例），不要塞进"补覆盖"这种说法里 —— 那是两次不同性质的改动。
 
 `logging.rs` / `telemetry.rs` 登记为已知缺口不排期（启动路径，收益低）。
 
