@@ -475,7 +475,12 @@ fn canonical_federation_request_bytes(
 ) -> Result<Vec<u8>, ApiError> {
     match crate::federation::signing::canonical_federation_request_bytes(method, uri, origin, destination, content) {
         Ok(result) if !result.is_empty() => {
-            tracing::debug!("Canonical request bytes: {}", String::from_utf8_lossy(&result));
+            tracing::debug!(
+                origin = %origin,
+                len = result.len(),
+                fingerprint = %signature_fingerprint(&result),
+                "Canonical federation request bytes built"
+            );
             Ok(result)
         }
         Ok(_) => {
@@ -539,13 +544,24 @@ pub(crate) async fn verify_federation_signature_with_cache(
     result
 }
 
-#[cfg(test)]
 fn compute_signature_content_hash(content: &[u8]) -> String {
     use sha2::Digest;
     let mut hasher = sha2::Sha256::new();
     hasher.update(content);
     let result = hasher.finalize();
     base64::engine::general_purpose::STANDARD_NO_PAD.encode(result)
+}
+
+/// SEC-13: a short, non-reversible stand-in for the signed request bytes.
+///
+/// The canonical form embeds the whole request body (room messages, to-device
+/// payloads, …). Logging it at DEBUG puts user data — and, for the signature
+/// itself, a replayable value — into the log the moment anyone raises the level
+/// for troubleshooting. Eight base64 characters of the SHA-256 are enough to
+/// correlate two log lines about the same request and can't be turned back into
+/// the payload.
+fn signature_fingerprint(signed_bytes: &[u8]) -> String {
+    compute_signature_content_hash(signed_bytes).chars().take(8).collect()
 }
 
 async fn verify_federation_signature(
@@ -569,10 +585,11 @@ async fn verify_federation_signature(
     };
 
     tracing::debug!(
-        "Verifying signature for origin={}, key_id={}, signed_bytes={}",
-        origin,
-        key_id,
-        String::from_utf8_lossy(signed_bytes)
+        origin = %origin,
+        key_id = %key_id,
+        len = signed_bytes.len(),
+        fingerprint = %signature_fingerprint(signed_bytes),
+        "Verifying federation signature"
     );
 
     match verifying_key.verify_strict(signed_bytes, &signature_bytes) {
@@ -1154,6 +1171,39 @@ mod tests {
 
         assert_eq!(hash.len(), 43);
         assert!(hash.chars().all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/' || c == '='));
+    }
+
+    // ------------------------------------------------------------------
+    // SEC-13: DEBUG logs must not carry the signed request bytes
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn signature_fingerprint_is_short_and_deterministic() {
+        let bytes = br#"{"content":{"body":"secret message"},"method":"PUT","uri":"/_matrix/federation/v1/send/1"}"#;
+        let fingerprint = signature_fingerprint(bytes);
+
+        assert_eq!(fingerprint.len(), 8, "fingerprint must be short enough to log");
+        assert_eq!(fingerprint, signature_fingerprint(bytes), "same bytes must fingerprint the same");
+        assert!(!fingerprint.contains("secret message"), "fingerprint must not leak the signed payload: {fingerprint}");
+        assert_ne!(
+            fingerprint,
+            signature_fingerprint(br#"{"content":{"body":"other"}}"#),
+            "different payloads must be distinguishable"
+        );
+    }
+
+    /// SEC-13 ratchet: the two DEBUG sites that used to dump the canonical
+    /// request bytes now log `len` + `fingerprint`. Put the dump back and this
+    /// test goes red.
+    ///
+    /// The needles are `concat!`ed so this test cannot match its own source.
+    #[test]
+    fn debug_logs_do_not_dump_signed_bytes() {
+        let source = include_str!("federation_auth.rs");
+        let payload_dump = concat!("String::from_utf8_lossy(", "signed_bytes)");
+        let canonical_dump = concat!("Canonical request bytes", ": ");
+        assert!(!source.contains(payload_dump), "SEC-13: DEBUG logs must not print the signed request bytes");
+        assert!(!source.contains(canonical_dump), "SEC-13: DEBUG logs must not print the canonical request bytes");
     }
 
     // ------------------------------------------------------------------
