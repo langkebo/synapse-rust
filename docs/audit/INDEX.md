@@ -4,8 +4,12 @@
 
 ### 核心问题追踪
 
+> **先看下面第一行**。`COMPREHENSIVE_AUDIT_2026-10-22.md` 是**逐轮更新的 living audit**
+> （只写"还没解决"的），其余 2026-10-06 的报告是**历史快照**，其"当前权威"标注指的是当时。
+
 | 文档 | 描述 | 更新日期 |
 |------|------|----------|
+| **[COMPREHENSIVE_AUDIT_2026-10-22.md](COMPREHENSIVE_AUDIT_2026-10-22.md)** | **未解决问题清单（living audit，逐轮更新；已关闭条目正文在 `archive/` 的 closed-detail）** | 2026-10-24（第七轮） |
 | **[UNRESOLVED_ISSUES_SUMMARY.md](UNRESOLVED_ISSUES_SUMMARY.md)** | 当前仍存问题总结（权威来源） | 2026-10-06 |
 | **[INDEX.md](INDEX.md)** | 本索引文档 | 2026-10-06 |
 | **[COMPREHENSIVE_LEGACY_ISSUES_REPORT_20261006.md](COMPREHENSIVE_LEGACY_ISSUES_REPORT_20261006.md)** | **全面系统遗留问题排查报告（当前权威）** | 2026-10-06 |
@@ -52,6 +56,12 @@
 | 文档 | 描述 | 状态 |
 |------|------|------|
 | **[WORKER_TOPOLOGY_VERIFICATION_AUDIT_2026-10-16.md](WORKER_TOPOLOGY_VERIFICATION_AUDIT_2026-10-16.md)** | Worker 拓扑验证现状审计与完善方案（W-1…W-9 缺口 + 批次 W-A…W-E；判定"静态校验已成型、运行时对账/强制力/参考部署未做"） | ✅ Active（2026-10-16） |
+
+### 测试质量与门禁
+
+| 文档 | 描述 | 状态 |
+|------|------|------|
+| **[TEST_COMPROMISE_AUDIT_2026-10-25.md](TEST_COMPROMISE_AUDIT_2026-10-25.md)** | 测试降标审计：测试基础设施 fail-open 导致 9 条安全边界用例静默假绿；覆盖率门禁三缺口（含**基线可被一次不完整 lcov 清零**）；性能验收只有报告没有断言；mock 语义漂移。**§7 是"改了什么"的一页索引**（门禁 / 缺陷 / 可测性 / 复核命令 / 未闭合项 / 途中被证伪的四个判断） | ✅ Active（2026-10-26 第 5 轮） |
 
 ### 其他规划文档
 
@@ -173,6 +183,25 @@
 
 ## 📅 更新日志
 
+### 2026-10-26
+
+- ✅ **[TEST_COMPROMISE_AUDIT_2026-10-25.md](TEST_COMPROMISE_AUDIT_2026-10-25.md)** 收敛（24 笔提交）。要点：
+  - **修掉一个活缺陷**：`setup_fresh_test_app_with_config` fail-open ⇒ 9 条安全边界用例在 DB 不可达时
+    **静默假绿**（且比真跑更慢，30 s vs 6 s）。入口改 fail-closed + 7 处夹具改 panic + 守卫
+    `check_test_setup_fail_closed.py`（preflight，扫 74 个夹具）
+  - **修掉一个门禁自毁**：`check_file_coverage.py` 在默认参数下**写回**基线且只遍历本次 lcov 的键
+    ⇒ 一份不完整报告曾把 `coverage_baseline.json` 从 **608 条砍成 1 条**、零警告。现改为保留 previous 的键
+  - **新增三条门禁**：mock「忽略参数却假装成功」棘轮（106 → 102，只降）、改动面→必跑套件提示、
+    **第一条能进 CI 的性能门禁**（每行成本折算 DB 往返次数，注入 N+1 实测 1.03 vs 正常 0.03–0.06）
+  - **审计外发现并接通一条安全能力**：refresh token 重放"撤销全族"曾因三层判断互相阻断而**从未生效**
+    （`validate_token` 入口即拒已撤销 token；第 1 层参数传错恒空转；第 2 层把重放判成良性并发）
+    ⇒ 抽 `load_token_inner` + 5 s 并发窗口（两层都加）+ mock 有状态化，双向变异验证
+  - **四条曾被写进报告的判断被自己证伪**（"6 处 mock 高危"→0 假绿、静默期测试→假测试、
+    "看板会误读台账"→台账没有生产读者、"修第 1 层即可"→第 0 层才是阻断点），
+    全部记在报告 §7.6 —— 这类"看起来像 X"的结论，必须先 `grep` 消费者或做变异自证
+  - 仍未闭合：59 个 0% 文件中除 `src/server/router.rs`（实测 82.9%，属基线陈旧）外的分流，
+    等下一次 main push 由 CI 自动收紧基线后看 diff
+
 ### 2026-10-06
 
 - ✅ **全量测试与性能门禁运行验证（2026-10-06）**：四条 CI 测试车道 + 三个性能门禁全部 PASS——lib **6683/0**、unit **1824/0**（2 skipped）、integration **1534/0/0**（4121.50s）、e2e **20/0**（7 ignored）；计算性能门禁 `17/0/0`、Sliding Sync `33/33`（p95≈0.70–0.90ms）、分页 keyset 较 offset **10.54×**。运行中修复 1 处集成存量红（判定为**测试过时**，见下）。证据登记于 [FINAL_AUDIT_SUMMARY_20261006.md](FINAL_AUDIT_SUMMARY_20261006.md) §3.1 与全面报告 §1.5。
@@ -272,5 +301,5 @@
 如有问题或需要更新此索引，请联系项目维护团队。
 
 **文档维护者**: Audit Team  
-**最后审核**: 2026-10-06  
-**下次计划更新**: 2026-10-13
+**最后审核**: 2026-10-26  
+**下次计划更新**: 随 living audit（`COMPREHENSIVE_AUDIT_2026-10-22.md`）逐轮更新

@@ -12,14 +12,19 @@
 在数据库不可达时，一批**安全边界用例会静默报 PASS，一条断言都不跑**，且**耗时比真跑更长**
 （30 s vs 6 s），所以"跑得快 = 没跑"这个常用判据在这里是反的。
 
+另有一条**同根因**（没有任何测试确认那段代码在跑）的独立发现：refresh token 重放检测里
+"检测到重用即撤销全族"这条能力，**在真实路径上三层判断互相阻断、一次都没生效过**（§2.5），
+现已接通。它不是覆盖率数字能反映的问题，所以单列。
+
 | 等级 | 条目 | 受影响功能 | 状态 |
 |---|---|---|---|
 | **R1** | `setup_fresh_test_app_with_config` fail-open ⇒ 9 条安全边界用例可静默假绿 | 语音上传体积上限（含 CVE-2026-102592 缓解）、媒体 2 MiB 边界、worker surface gate 窄化授权 | **✅ 已修复**（入口改 fail-closed + 9 处换 `skip_or_fail_without_db`，双向验证见 §2.4） |
-| **R2** | 覆盖率门禁不在 PR 车道；新文件达标线 30%；已入库文件无绝对下限 | 全仓覆盖率回归（事后才发现） | 制度性降标 |
+| **R1** | refresh token 重放「撤销全族」不可达：`validate_token` 在入口就拒已撤销 token，第 1 层参数传错恒空转，第 2 层把重放判成良性并发 | 会话安全（RFC 6819 / OAuth Security BCP） | **✅ 已接通**：抽 `load_token_inner` + 5 s 并发窗口（两层都加）+ mock 有状态化；双向变异（窗口 0 / MAX）各自红（§2.5） |
+| **R2** | 覆盖率门禁不在 PR 车道；新文件达标线 30%；已入库文件无绝对下限 | 全仓覆盖率回归（事后才发现） | **🟡 已收紧**：达标线 30 → **50**（§3.1.1 双向验证）；**基线自毁缺陷已修**（一次不完整 lcov 曾把 608 条砍成 1 条，§3.1.1）；59 个 0% 里 `src/server/router.rs` 已证是**基线陈旧**（实测 82.9%，§3.1.2），分流等 CI main push 自动收紧 |
 | **R2** | 性能验收只打印不断言（`appservice_scheduler_perf_tests` 全 `#[ignore]`） | appservice 调度器吞吐 | **🟡 已补 1 条**：`get_statistics` 每行成本折算往返次数，进 CI（§3.2.1）；其余仍 ignore |
 | **R2** | `cargo test --doc` 是编译门禁，不是执行覆盖（4 个 doc test 全 `#[ignore]`） | 文档示例 | 已知并登记 |
 | **R3** | 572 处 `else { return; }` 静默跳过**残留模式**（当前恒 `Some`，但 R1 已证明该模式会复活） | 全 integration 面 | **✅ 已止损**：7 处 fail-open 夹具改 panic + 守卫禁新增（§4.1.1）；调用点本身保留为死代码 |
-| **R3** | 测试替身与生产 crate 未做特性隔离（MAINT-01） | unit 层 mock 语义 | 已登记不修 |
+| **R3** | 测试替身与生产 crate 未做特性隔离（MAINT-01） | unit 层 mock 语义 | **🟡 已设棘轮**：实测 106 处「忽略参数却假装成功」（24.7%），上限**只许下降**（`check_mock_stub_drift.py`，已接 preflight）；**抽样 6 处无一处假绿**、另有 2 处是死代码（§4.2.1 / §4.2.2） |
 | **R3** | 回归范围按"改了哪个文件"选，而非"影响哪些契约" | 跨路径契约（ARCH-02 等价用例曾静默腐烂） | **✅ 已建机制**：`test_impact_map` + 提交前提示（§4.3.1） |
 
 **没有发现**的（同样重要，见 §5）：无裸 `#[ignore]`、无"形状测试冒充覆盖"、无生产代码
@@ -77,6 +82,33 @@ Summary: 7 tests run: 7 passed
 ⇒ 定性是**间歇性假绿**：正常有库时真跑真断言；DB 抖动 / 模板建池失败时**静默变绿**。
 危险点在于**假绿比真跑还慢**（30 s vs 6 s），任何"耗时异常短"的巡检都发现不了它。
 
+### 2.2 受影响清单（9 条，全部为安全边界）
+
+| 文件:行 | 用例 | 该用例守的边界 |
+|---|---|---|
+| `voice_routes_tests.rs:599` | `test_voice_upload_accepts_body_above_the_axum_default_limit` | 2.5 MiB 必须被接受（axum 默认 2 MiB 不能成为事实上限） |
+| `voice_routes_tests.rs:622` | `test_voice_upload_rejects_body_above_the_configured_limit` | 超 4 MiB 必须拒绝 |
+| `voice_routes_tests.rs:649` | `test_voice_upload_body_limit_is_content_type_case_insensitive` | **CVE-2026-102592 对应项**：`Multipart/Form-Data` 大小写变体不得绕过上限 |
+| `voice_routes_tests.rs:676` | `test_voice_upload_streamed_body_without_content_length_is_still_rejected` | 无 `Content-Length` 的流式体仍须受限 |
+| `api_media_routes_tests.rs:123` | `test_media_upload_with_id_accepts_over_2mb_body` | 媒体 2 MiB 边界（接受侧） |
+| `api_media_routes_tests.rs:177` | `test_media_preview_and_delete_boundaries` | 预览/删除边界 |
+| `api_media_routes_tests.rs:298` | `test_client_v1_authenticated_media_thumbnail_and_preview_routes_work` | v1 认证缩略图/预览 |
+| `api_worker_surface_gate_tests.rs:51` | `a_narrowed_instance_serves_its_own_prefix_and_refuses_the_rest` | W-F 窄化授权：非属主实例必须 404 |
+| `api_worker_surface_gate_tests.rs:89` | `without_the_switch_the_same_paths_are_not_refused` | 同上（开关关闭时的反向断言） |
+
+**为什么偏偏是它们**：这 9 条都要改 `ServiceContainer` 配置（如 `server.max_upload_size`），
+唯一能改配置的入口就是 `with_config` —— 而它恰好是 fail-open 的那一个。
+即**测试基础设施的缺陷，把最关键的安全测试降级了**。
+
+### 2.3 补齐项
+
+| 优先级 | 动作 | 判据 |
+|---|---|---|
+| **P0 ✅ 已完成** | `setup_fresh_test_app_with_config` 内部先 `require_test_database().await`（与 `TestContext` 同口径），并把 `.ok()?` 改成 `Err` ⇒ `panic!` | 重跑 §1 ⑤ 的假绿实验 ⇒ 已 **FAIL**；真库下 9 条仍 **9 passed**（见 §2.4） |
+| **P0 ✅ 已完成** | 9 个 `else { return; }` 换成 `else { skip_or_fail_without_db(); return; }`（双保险） | 同上 |
+| **P1 🟡 3/9 已做** | 变异自证 ① voice 体上限 ② worker surface gate ③ 全局上限 vs Content-Type 大小写。覆盖了三种不同机制（业务判据 / 路由门禁 / 全局 layer）。**其余 6 条待补**（多为同机制重复：media 2 MiB 与 ①同层、`without_the_switch` 与 ②互补） | 见 §2.4 |
+| ~~P2~~ **✅ 已达成** | 全仓 `with_config` 族 helper 内 `return None` 改 fail-closed | `check_test_setup_fail_closed.py` 扫 **74 个**夹具型函数报 **OK**；`grep "return None" tests/integration/mod.rs` 仅剩 1 处、在**注释**里（"2026-10-18：数据库不可达时 panic，不再 return None"） |
+
 ### 2.4 修复与双向自证（2026-10-25）
 
 改动面只有 4 个文件共 +28/−1：
@@ -103,34 +135,7 @@ Summary: 7 tests run: 7 passed
   "必须是 **413**（规范状态码）"，比"必须被拒"更严格 —— 这一条顺带否掉了"这个 CVE 缓解只有单层
   保护"的猜想。
 
-### 2.2 受影响清单（9 条，全部为安全边界）
-
-| 文件:行 | 用例 | 该用例守的边界 |
-|---|---|---|
-| `voice_routes_tests.rs:599` | `test_voice_upload_accepts_body_above_the_axum_default_limit` | 2.5 MiB 必须被接受（axum 默认 2 MiB 不能成为事实上限） |
-| `voice_routes_tests.rs:622` | `test_voice_upload_rejects_body_above_the_configured_limit` | 超 4 MiB 必须拒绝 |
-| `voice_routes_tests.rs:649` | `test_voice_upload_body_limit_is_content_type_case_insensitive` | **CVE-2026-102592 对应项**：`Multipart/Form-Data` 大小写变体不得绕过上限 |
-| `voice_routes_tests.rs:676` | `test_voice_upload_streamed_body_without_content_length_is_still_rejected` | 无 `Content-Length` 的流式体仍须受限 |
-| `api_media_routes_tests.rs:123` | `test_media_upload_with_id_accepts_over_2mb_body` | 媒体 2 MiB 边界（接受侧） |
-| `api_media_routes_tests.rs:177` | `test_media_preview_and_delete_boundaries` | 预览/删除边界 |
-| `api_media_routes_tests.rs:298` | `test_client_v1_authenticated_media_thumbnail_and_preview_routes_work` | v1 认证缩略图/预览 |
-| `api_worker_surface_gate_tests.rs:51` | `a_narrowed_instance_serves_its_own_prefix_and_refuses_the_rest` | W-F 窄化授权：非属主实例必须 404 |
-| `api_worker_surface_gate_tests.rs:89` | `without_the_switch_the_same_paths_are_not_refused` | 同上（开关关闭时的反向断言） |
-
-**为什么偏偏是它们**：这 9 条都要改 `ServiceContainer` 配置（如 `server.max_upload_size`），
-唯一能改配置的入口就是 `with_config` —— 而它恰好是 fail-open 的那一个。
-即**测试基础设施的缺陷，把最关键的安全测试降级了**。
-
-### 2.3 补齐项
-
-| 优先级 | 动作 | 判据 |
-|---|---|---|
-| **P0 ✅ 已完成** | `setup_fresh_test_app_with_config` 内部先 `require_test_database().await`（与 `TestContext` 同口径），并把 `.ok()?` 改成 `Err` ⇒ `panic!` | 重跑 §1 ⑤ 的假绿实验 ⇒ 已 **FAIL**；真库下 9 条仍 **9 passed**（见 §2.4） |
-| **P0 ✅ 已完成** | 9 个 `else { return; }` 换成 `else { skip_or_fail_without_db(); return; }`（双保险） | 同上 |
-| **P1 🟡 3/9 已做** | 变异自证 ① voice 体上限 ② worker surface gate ③ 全局上限 vs Content-Type 大小写。覆盖了三种不同机制（业务判据 / 路由门禁 / 全局 layer）。**其余 6 条待补**（多为同机制重复：media 2 MiB 与 ①同层、`without_the_switch` 与 ②互补） | 见 §2.4 |
-| **P2** | 全仓 `with_config` 的 12 处 helper 内 `return None` 一并改 fail-closed | `grep -c "else {" tests/integration/*.rs` 复查 |
-
-### 2.5 顺带发现：「检测到重用即撤销全族」这条安全能力，在真实路径上几乎不可达
+### 2.5 「检测到重用即撤销全族」曾不可达，现已接通（含一次实施中发现的误杀）
 
 本来要给「重放检测」补测试（它是 S-9 / A+ W1 的 fail-closed 改造点，全文件零测试）。
 读完整调用链后，结论比"没有防护"更精确：**有三层判断，前两层让第三层到不了，第三层又会把重放判成良性。**
@@ -733,5 +738,85 @@ ARCH-02 等价用例**一直红着**，当次只跑了 `api_sliding_sync_routes_
 | ~~4~~ | ~~`--new-file-floor 30 → 50`~~ **✅ 已完成** | 1 行 + 3 处文档同步 | 已验：40% 假 lcov ⇒ exit 1；50% ⇒ exit 0 |
 | ~~5~~ | ~~"改动面 → 必跑套件"映射 + preflight 提示~~ **✅ 已完成**（`test_impact_map` + `check_test_impact.py` + preflight `advise` 步骤） | ~1 h | 改 `rooms` 结构 ⇒ 提交前自动打印 `-E 'test(sync_path_equivalence_tests)'`（详见 §4.3.1） |
 | ~~6~~ | ~~性能断言改相对阈值~~ **✅ 已完成**：改成「每行成本折算数据库往返次数」（比 p95 比值更抗噪），注入 N+1 ⇒ 0.985/1.026 红；正常 0.061/0.031 绿（§3.2.1） | 中 | **已实测**：变异体 FAIL / 还原后 PASS，CI 同款命令 2.6s |
-| ~~7~~ | 拆成三件：①重测基线 → **改判交给 CI**（本地 1.5h 且撞 PG 锁配额）；②`tasks/mod.rs` 配置层 **✅ 3 条**；③`start_all` 可观测性 **✅ 已改**（返回 `Vec<JoinHandle>`）＋关闭测试 **✅** —— 巡检**业务逻辑**（约 170 行的主体）仍未覆盖，需 `pause()` + 造数（§3.1.2） | 中 | 4 passed；变异（删 cancelled 分支）⇒ 5s 超时红且指向"第 0 个后台任务" |
-| ~~8~~ | ~~`test_mocks/` 差异声明守卫~~ → **✅ 已改判并落地**：不守「doc 声明差异」（不可机械判定），改守「忽略参数却假装成功」——实测 **106/429 = 24.7%**，棘轮上限 106 只许下降（`check_mock_stub_drift.py`，接入 preflight）；6 处高危已列清单（§4.2.1） | 中 | 探针文件 ⇒ 107 > 106 红；删除后绿 |
+| ~~7~~ | 拆成三件：①重测基线 → **改判交给 CI**（本地 1.5h 且撞 PG 锁配额）；②`tasks/mod.rs` 配置层 **✅ 3 条**；③`start_all` 可观测性 **✅ 已改**（返回 `Vec<JoinHandle>`）＋关闭测试 **✅**；④巡检业务逻辑 → **❌ 改判不必补**：`perform_maintenance` 的行为在 `synapse-storage/src/maintenance.rs` 已有 **15 处**测试，tasks 层未覆盖的只是"定时器到点调一次"（§3.1.2） | 中 | 3 条配置 + 1 条关闭用例；变异（删 cancelled 分支）⇒ 5s 超时红且指向"第 0 个后台任务" |
+| ~~8~~ | ~~`test_mocks/` 差异声明守卫~~ → **✅ 已改判并落地**：不守「doc 声明差异」（不可机械判定），改守「忽略参数却假装成功」——实测 **106/429 = 24.7%**，棘轮只许下降（`check_mock_stub_drift.py`，接入 preflight）；当前上限 **102**（删死代码 −1、mock 有状态化 −3）。**候选 6 处已全部定级：0 处假绿**（§4.2.1/§4.2.2） | 中 | 探针文件 ⇒ 超上限红；删除后绿 |
+| **9** | refresh token 重放「撤销全族」（审计外发现，§2.5）：`get_family_id` + 抽 `load_token_inner` + 5 s 并发窗口（第 1、2 层都要加）+ mock 有状态化 | 中（含 `.sqlx` 重生成） | **双向变异**：窗口 `0` ⇒ 「窗口内」红；窗口 `i64::MAX` ⇒ 「窗口外」红；还原 5 000 ⇒ 双绿 |
+| ~~10~~ | ~~全仓 `with_config` 族 helper 内的 `return None`~~ **✅ 已达成**（§2.3 P2） | — | 守卫扫 74 个夹具报 OK |
+
+## 7 一页索引：这轮到底改了什么（24 笔提交，按用途分组）
+
+前六节回答"问题是什么"；本节只回答"**现在仓库里多了/少了什么**"，便于复核与接手。
+
+### 7.1 新增的门禁（都会真失败）
+
+| 门禁 | 脚本 / 用例 | 位置 | 钉住什么 |
+|---|---|---|---|
+| 夹具不得 fail-open | `scripts/ci/check_test_setup_fail_closed.py` | preflight | 74 个夹具型函数的缺库路径必须 panic；白名单 1 项 |
+| mock 不得新增"忽略参数假装成功" | `scripts/ci/check_mock_stub_drift.py` + `mock_stub_drift_baseline`（102） | preflight | 棘轮只许下降；失败时只列本次改动文件里的命中 |
+| 改动面 → 必跑套件 | `scripts/ci/test_impact_map` + `check_test_impact.py` | preflight（`advise`，只提示不判定） | 改 `rooms` 结构 ⇒ 提示跑等价用例；默认只看暂存区 |
+| 性能不退化（**第一条能进 CI 的性能门禁**） | `tests/performance/appservice_scheduler_perf_tests.rs::statistics_per_service_cost_does_not_grow_with_service_count` | `ci.yml` Test & Lint | 每行成本折算"几次 DB 往返" `< 0.5`（正常 0.031–0.061，注入 N+1 ⇒ 1.03） |
+| 新文件覆盖率 ramp-up | `check_file_coverage.py --new-file-floor` 30 → **50** | `run_coverage.sh` | 假 lcov 40% ⇒ exit 1；50% ⇒ exit 0 |
+
+### 7.2 修掉的缺陷
+
+| 缺陷 | 提交 | 后果（修前） |
+|---|---|---|
+| `setup_fresh_test_app_with_config` fail-open | `fb9b68847` | 9 条安全边界用例**静默假绿**，且比真跑更慢（30 s vs 6 s） |
+| 7 处夹具 `else { return; }` | `82f417fad` | 同一形态的复活路径 |
+| 覆盖率基线被一次不完整 lcov 清零 | `4134ab1bc` | 608 条 → **1 条**，棘轮报废且**零警告** |
+| refresh 重放在真实路径不可达 | `3f9145a43` + `f35d7dd1f` | "检测到重用即撤销全族"**一次都没生效过**；每次 refresh 还新建 token 族 |
+| `InMemoryRoomStore::get_user_rooms` 死代码 | `4e07c5052` | 无调用者（trait 未声明），只在守卫计数里制造噪声 |
+
+### 7.3 可测性改进（生产 API 改动，行为不变）
+
+| 改动 | 提交 | 为什么必须改生产代码 |
+|---|---|---|
+| `ScheduledTasks::start_all` → `Vec<JoinHandle<()>>` | `7b149393b` | 原来丢弃句柄 ⇒ "关闭后是否真退出"**不可观测**；`CancellationToken` 只能发信号、无法等待 |
+| `RefreshTokenService::validate_token` 抽出 `load_token_inner(token, reject_revoked)` | `f35d7dd1f` | refresh 必须"看到已撤销"才能判重放；公开 API 语义与 7 条既有测试**一字未动** |
+| mock 有状态化（`create_family` / `record_rotation` / `rotate_token_atomic` / `get_rotations` / `age_rotations`） | `3f9145a43` / `f35d7dd1f` | 原 mock 全空转 ⇒ 重放检测连素材都构造不出来 |
+
+### 7.4 复核命令（复现本报告的每个关键数字）
+
+```bash
+# 门禁三件
+python3 scripts/ci/check_test_setup_fail_closed.py
+python3 scripts/ci/check_mock_stub_drift.py
+python3 scripts/ci/check_test_impact.py --all
+
+# 性能门禁（需本地测试库；CI 同款命令）
+cargo nextest run --test performance_manual --features "performance-tests,test-utils" \
+  --locked --test-threads 1 -E 'test(statistics_per_service_cost)'
+
+# 重放窗口双向语义
+cargo test -p synapse-services --lib --features test-utils replay_
+
+# 覆盖率基线是否又会自毁（108 行保护）
+cp scripts/ci/coverage_baseline.json /tmp/bak.json
+printf 'SF:synapse-common/src/probe.rs\nLF:10\nLH:5\nend_of_record\n' > /tmp/p.info
+python3 scripts/check_file_coverage.py --report /tmp/p.info --baseline scripts/ci/coverage_baseline.json \
+  --global-floor 40 --new-file-floor 50 --core-files scripts/ci/core_file_coverage_prefixes.txt \
+  --core-threshold 70 --non-unit-coverable scripts/ci/non_unit_coverable_prefixes.txt
+python3 -c "import json;print(len(json.load(open('scripts/ci/coverage_baseline.json'))['files']))"  # 应为 609
+git checkout -- scripts/ci/coverage_baseline.json
+```
+
+### 7.5 仍未闭合（唯一一条）
+
+**59 个 0% 文件的分流**：`src/server/router.rs` 已证是"基线陈旧"（实测 82.9%），但其余 58 个
+属"陈旧"还是"真缺口"**没有答案**。判据已定：**下一次 main push 后看 `coverage_baseline.json` 的 diff**
+——被抬起来的即陈旧，仍为 0 的才是真缺口。这一步依赖 §3.1.1 的修复（不完整报告不再截断基线）。
+
+本地重跑不可行（实测 1 h 15 m 才走到 storage 步骤，且撞 PG 锁配额；CI 的 postgres service
+又无法传 `-c max_locks_per_transaction`，靠 `--test-threads 4` 规避）。
+
+### 7.6 途中被证伪的四个判断（留着，防止后来者重走）
+
+| 我说过 | 实测/核实结果 | 靠什么推翻 |
+|---|---|---|
+| "6 处 mock 高危，会让安全断言永远成立" | **0 处假绿**（2 死代码 / 2 mock 走不到 / 1 已声明偏差 / 1 无覆盖） | 逐个核调用链 + 读断言 |
+| "静默期测试写好了"（`pause()` + 断言台账 `None`） | **假测试**：把静默期 300 s 改 10 s 仍 PASS | 变异自证 |
+| "看板读到台账非空会误判正常" | 四个台账**没有任何生产读者**，是只写不读的死字段 | `grep` 全仓消费者 |
+| "修第 1 层的参数就能接通族撤销" | 修完仍 `"Token has been revoked"` —— 第 0 层 `validate_token` 才是阻断点 | 改完直接跑那条测试 |
+
+共同根因：**把"代码看起来像 X"当成"X 成立"**。可复用的纪律：写"高危 / 看板会 / 这条测试覆盖了"
+之前，必须先 `grep` 消费者或做变异自证。
