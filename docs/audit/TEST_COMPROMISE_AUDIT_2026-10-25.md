@@ -329,13 +329,27 @@ cargo llvm-cov --test integration --features "…" --lcov --output-path /tmp/rou
 
    ⇒ 那条测试已删除：宁可没有，也不要一条永远绿的假测试。
 
-   ⇒ 顺带暴露一个**运维可见性缺口**：`last_*` 的语义是「**最后一次成功**」而非「最后一次执行」。
-   看板读到 `last_maintenance_report` 非空就以为"维护正常"，但它可能是 20 小时前那次成功，
-   此后每次都在失败 —— **失败是静默的**（只有日志，没有指标）。
+   #### 再纠正一次：那四个台账**没有任何生产读者**
 
-   建议（生产改动，未做）：台账补 `last_attempt_ts` + `last_outcome`（成功 / 失败+摘要）。
-   有了它，① 静默期可以用 `advance` 有效验证（断言"尝试次数仍为 0"）② 面板能区分
-   "没跑"与"跑挂了"。这也是为什么"补覆盖率"在这个文件上不能只靠加测试 —— 得先让行为**可观测**。
+   上一版本写的是"看板读到 `last_maintenance_report` 非空就以为正常"—— **这句话不成立**。
+   全仓 grep `last_health_status` / `last_performance_metrics` / `last_integrity_report` /
+   `last_maintenance_report`：命中全部落在 `src/tasks/mod.rs` 内部（声明 / 初始化 / 写 / 测试断言），
+   **没有一个 web 或 service 层读者**。
+
+   ⇒ 它们是**只写不读**的字段（除测试）。所以：
+   - "失败是静默的"这个判断仍然对，但**不是"面板看不到"，而是"根本没有面板"**；
+   - 想加 `last_attempt_ts` / `last_outcome` 也**没有意义** —— 没有消费者的字段，加多少列都是死数据。
+
+   这个模块真正的运维出口只有两处：**`tracing` 日志**（`info!` / `warn!` / `error!`）和
+   **`ServerMetrics`**（只有 `pool_metrics` 任务接了：`metrics.update_pool_metrics(...)`）。
+   其余四个巡检**既无指标、台账也无人读** —— 要看它们是否在跑、跑成没跑成，只能翻日志。
+
+   建议改为两条（都需要产品决策，未做）：
+   1. **接线**：把 `last_*` 接到一个有消费者的地方（`/health` 明细或 Prometheus gauge，
+      例如 `synapse_inspection_last_success_ts{kind="maintenance"}`）⇐ 这时才值得补 attempt 字段；
+   2. **或者删除**：如果这些结果确实只服务日志，那就删掉四个字段，别留"看起来像监控"的死数据。
+
+   在二选一落地之前，往这个文件加覆盖率的收益上限很低 —— 断言的对象本身没有消费者。
 
 `logging.rs` / `telemetry.rs` 登记为已知缺口不排期（启动路径，收益低）。
 
