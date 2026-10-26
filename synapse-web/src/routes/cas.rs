@@ -123,15 +123,32 @@ impl From<CasRegisteredService> for ServiceResponse {
     }
 }
 
+/// SEC-09: `redirect_after` must be a **same-origin path**.
+///
+/// The value is carried into `/login?service=<encoded>`, and the login page
+/// sends the browser on to that `service` after authentication. Accepting an
+/// absolute URL (or a protocol-relative `//host`, or the `/\host` form that
+/// browsers normalise to `//host`) would turn this endpoint into an open
+/// redirect, so anything that is not a plain local path is rejected.
+fn is_same_origin_path(url: &str) -> bool {
+    url.starts_with('/') && !url.starts_with("//") && !url.contains('\\') && !url.bytes().any(|b| b < 0x20 || b == 0x7f)
+}
+
 async fn cas_sso_redirect(
     State(ctx): State<SsoContext>,
     Query(params): Query<SsoRedirectQuery>,
 ) -> Result<axum::response::Response, ApiError> {
     if ctx.cas_service.is_configured().await {
-        let redirect_url = if let Some(ref redirect) = params.redirect_after {
-            format!("/login?service={}", urlencoding::encode(redirect))
-        } else {
-            "/login".to_string()
+        let redirect_url = match params.redirect_after.as_deref() {
+            // An empty value means "no redirect requested", same as omitting it.
+            None | Some("") => "/login".to_string(),
+            Some(redirect) if is_same_origin_path(redirect) => {
+                format!("/login?service={}", urlencoding::encode(redirect))
+            }
+            Some(_) => {
+                // Deliberately not echoing the value back: it is attacker-controlled.
+                return Err(ApiError::invalid_param("redirect_after must be a same-origin path"));
+            }
         };
         return Ok((StatusCode::FOUND, [(header::LOCATION, redirect_url)]).into_response());
     }
@@ -459,5 +476,30 @@ mod tests {
         let body: SetAttributeBody = serde_json::from_value(json).unwrap();
         assert_eq!(body.attribute_name, "email");
         assert_eq!(body.attribute_value, "user@example.com");
+    }
+
+    /// SEC-09: only same-origin paths may flow into `/login?service=…`.
+    #[test]
+    fn test_redirect_after_accepts_only_same_origin_paths() {
+        // Local paths are the supported form.
+        assert!(is_same_origin_path("/"));
+        assert!(is_same_origin_path("/rooms/!abc:example.org?via=example.org"));
+        assert!(is_same_origin_path("/home#/room/!abc:example.org"));
+
+        // Absolute URLs, protocol-relative URLs and the `/\host` variant that
+        // browsers normalise to `//host` are all open redirects.
+        assert!(!is_same_origin_path("https://evil.example/steal"));
+        assert!(!is_same_origin_path("http://evil.example"));
+        assert!(!is_same_origin_path("//evil.example/steal"));
+        assert!(!is_same_origin_path("/\\evil.example"));
+        assert!(!is_same_origin_path("javascript:alert(1)"));
+
+        // A bare host or an empty string is not a path either.
+        assert!(!is_same_origin_path("evil.example"));
+        assert!(!is_same_origin_path(""));
+
+        // Control characters would let the value escape its query slot.
+        assert!(!is_same_origin_path("/ok\r\nLocation: https://evil.example"));
+        assert!(!is_same_origin_path("/ok\u{7f}"));
     }
 }
