@@ -18,7 +18,7 @@
 
 | 等级 | 条目 | 受影响功能 | 状态 |
 |---|---|---|---|
-| **R1** | `setup_fresh_test_app_with_config` fail-open ⇒ 9 条安全边界用例可静默假绿 | 语音上传体积上限（含 CVE-2026-102592 缓解）、媒体 2 MiB 边界、worker surface gate 窄化授权 | **✅ 已修复**（入口改 fail-closed + 9 处换 `skip_or_fail_without_db`，双向验证见 §2.4） |
+| **R1** | `setup_fresh_test_app_with_config` fail-open ⇒ 9 条安全边界用例可静默假绿 | 语音上传体积上限（含 CVE-2026-102592 缓解）、媒体 2 MiB 边界、worker surface gate 窄化授权 | **✅ 已修复**（入口改 fail-closed + 9 处换 `skip_or_fail_without_db`；**9/9 变异自证**，双向验证见 §2.4） |
 | **R1** | refresh token 重放「撤销全族」不可达：`validate_token` 在入口就拒已撤销 token，第 1 层参数传错恒空转，第 2 层把重放判成良性并发 | 会话安全（RFC 6819 / OAuth Security BCP） | **✅ 已接通**：抽 `load_token_inner` + 5 s 并发窗口（两层都加）+ mock 有状态化；双向变异（窗口 0 / MAX）各自红（§2.5） |
 | **R2** | 覆盖率门禁不在 PR 车道；新文件达标线 30%；已入库文件无绝对下限 | 全仓覆盖率回归（事后才发现） | **🟡 已收紧**：达标线 30 → **50**（§3.1.1 双向验证）；**基线自毁缺陷已修**（一次不完整 lcov 曾把 608 条砍成 1 条，§3.1.1）；59 个 0% 里 `src/server/router.rs` 已证是**基线陈旧**（实测 82.9%，§3.1.2），分流等 CI main push 自动收紧 |
 | **R2** | 性能验收只打印不断言（`appservice_scheduler_perf_tests` 全 `#[ignore]`） | appservice 调度器吞吐 | **🟡 已补 1 条**：`get_statistics` 每行成本折算往返次数，进 CI（§3.2.1）；其余仍 ignore |
@@ -106,7 +106,7 @@ Summary: 7 tests run: 7 passed
 |---|---|---|
 | **P0 ✅ 已完成** | `setup_fresh_test_app_with_config` 内部先 `require_test_database().await`（与 `TestContext` 同口径），并把 `.ok()?` 改成 `Err` ⇒ `panic!` | 重跑 §1 ⑤ 的假绿实验 ⇒ 已 **FAIL**；真库下 9 条仍 **9 passed**（见 §2.4） |
 | **P0 ✅ 已完成** | 9 个 `else { return; }` 换成 `else { skip_or_fail_without_db(); return; }`（双保险） | 同上 |
-| **P1 🟡 3/9 已做** | 变异自证 ① voice 体上限 ② worker surface gate ③ 全局上限 vs Content-Type 大小写。覆盖了三种不同机制（业务判据 / 路由门禁 / 全局 layer）。**其余 6 条待补**（多为同机制重复：media 2 MiB 与 ①同层、`without_the_switch` 与 ②互补） | 见 §2.4 |
+| ~~P1~~ **✅ 9/9 已完成** | 9 条安全用例逐条变异自证，覆盖 6 种不同机制（业务判据 / 路由门禁 / 全局 layer / 传输层+业务层纵深 / serde 参数语义 / 认证提取器）。其中 ⑦ 第一次用的变异（`deny_unknown_fields`）**无效**，换 `ts` 必填才红（§2.4） | 见 §2.4 |
 | ~~P2~~ **✅ 已达成** | 全仓 `with_config` 族 helper 内 `return None` 改 fail-closed | `check_test_setup_fail_closed.py` 扫 **74 个**夹具型函数报 **OK**；`grep "return None" tests/integration/mod.rs` 仅剩 1 处、在**注释**里（"2026-10-18：数据库不可达时 panic，不再 return None"） |
 
 ### 2.4 修复与双向自证（2026-10-25）
@@ -125,8 +125,14 @@ Summary: 7 tests run: 7 passed
 | 变异自证 ①（`voice_multipart_body_limit` 退回 axum 默认 2 MiB） | — | **红**：`2.5 MiB 语音必须被接受：/voice/config 宣告的上限是 4194304 字节，响应 {"errcode":"M_BAD_JSON",…}`；还原后 7 passed |
 | 变异自证 ②（`worker_surface_middleware` 的 `role_owns_path` 恒真） | — | **红**：`/_matrix/client/v3/media/config must be refused for a synchrotron: {"errcode":"M_UNAUTHORIZED",…}`，`left: 401 / right: 404` |
 | 变异自证 ③（全局 `RequestBodyLimitLayer` 抬到 `usize::MAX`） | — | **红**：`大小写变体不得绕过请求体上限…响应 {"errcode":"M_BAD_JSON","error":"Voice message too large. Max size is 524288 bytes"}`，`left: 400 / right: 413` |
+| 变异自证 ④（voice 层 `usize::MAX` + 全局层 `usize::MAX`，两层传输上限同时取消） | — | **红**：`超过 server.max_upload_size 的请求体必须在传输层被拒`，`left: 400 / right: 413` —— 只剩业务判据，它给不了 413 |
+| 变异自证 ⑤（④ + 业务判据 `if false`，三层全关） | — | **红**：panic @ `voice_routes_tests.rs:691`（`流式超限 body 绝不能成功`）—— 544 KiB 流式体变成 200 |
+| 变异自证 ⑥（MSC2246 PUT 上传的 `DefaultBodyLimit` 退回 2 MiB） | — | **红**：`S27 回归：3MB 的 MSC2246 上传被 413 拒绝`，`left: 413 / right: 413`（`assert_ne` 两侧同值） |
+| 变异自证 ⑦（`PreviewUrlParams.ts` 由 `Option<i64>` 改必填 `i64`） | — | **红**：`left: 400 / right: 200` —— 不带 `ts` 的 v1 preview 被 serde 拒成 400 |
+| 变异自证 ⑧（v1 缩略图的 `AuthenticatedUser` 降级为 `OptionalAuthenticatedUser`） | — | **红**：匿名缩略图 `left: 200 / right: 401` |
+| 变异自证 ⑨（`if config.worker.surface_gate` 改 `if true`，无视开关） | — | **红**：`/_matrix/client/v3/media/config must not be 404 when worker.surface_gate is off`（这正是对照组要防的"空洞否定测试"） |
 
-三条变异各自钉住了不同的东西，其中两条给出了**额外信息**：
+九条变异（9/9）各自钉住了不同的东西。三条给出了**额外信息**：
 
 - ② 的 401 vs 404 证明那个 404 **确实由 gate 返回**——门禁失效后请求会穿透到 handler 变成 401，
   而不是被别的层顺手拒掉。这类"404 到底是谁给的"的歧义，只有变异能分清。
@@ -134,6 +140,17 @@ Summary: 7 tests run: 7 passed
   → 400）。⇒ 请求体上限是**纵深防御**（全局 layer + 业务判据），不是单点。测试钉的是
   "必须是 **413**（规范状态码）"，比"必须被拒"更严格 —— 这一条顺带否掉了"这个 CVE 缓解只有单层
   保护"的猜想。
+- ④/⑤ 把这条纵深数清了：**三层**（全局 `RequestBodyLimitLayer` / voice 路由 `DefaultBodyLimit` /
+  handler 的业务判据 `content.len() > max_size`）。④ 关掉前两层 ⇒ 仍被拒但状态码掉成 400；
+  ⑤ 连业务判据也关掉 ⇒ 544 KiB 流式体**成功**（`status == 200`）。⇒ **413 这个状态码只能由
+  传输层提供**，业务判据给不出；而"能拒住"最薄的一层是业务判据。
+
+**一条无效变异（值得记）**：⑦ 先试的是给 `PreviewUrlParams` 加 `#[serde(deny_unknown_fields)]`，
+测试**照样 PASS** —— 因为 `ts` 是**已声明字段**，不属于 unknown field，这个变异什么都没改变。
+它同时证明那段测试注释写错了（原注释称"加 `deny_unknown_fields` 会先红"，还称"结构体故意不声明
+`ts`"，而实际声明了 `ts: Option<i64>` + `#[expect(dead_code)]`）。注释已就地订正，并把有效变异
+（`ts` 改必填）与实测值写了进去。**"变异能让测试变红"本身要先验证**：无效变异会伪装成
+"测试没抓到"，与真的漏测完全同形。
 
 ### 2.5 「检测到重用即撤销全族」曾不可达，现已接通（含一次实施中发现的误杀）
 
@@ -733,7 +750,7 @@ ARCH-02 等价用例**一直红着**，当次只跑了 `api_sliding_sync_routes_
 | 序 | 项 | 成本 | 会失败的验证 |
 |---|---|---|---|
 | ~~1~~ | ~~`with_config` 改 fail-closed + 9 处 `else` 换 `skip_or_fail_without_db`~~ **✅ 已完成（+28/−1）** | ~30 行 | 假绿实验 **已从 PASS 变 FAIL**（§2.4） |
-| 2 | 9 条安全用例的变异自证 —— **3/9 已做**（三种不同机制各一条），其余 6 条多为同机制重复 | 中 | 每条留一次红-绿记录 |
+| ~~2~~ | ~~9 条安全用例的变异自证~~ **✅ 9/9 完成**：6 种机制各留红-绿记录，并顺手订正一处**写错了的测试注释**（`deny_unknown_fields` 对已声明字段无效） | 中 | 每条都实跑：红（含 `left/right` 实值）+ 还原后 6 passed |
 | ~~3~~ | ~~572 处调用点收口~~ → **✅ 改做「守夹具本体」**：7 处 fail-open 夹具改 panic + 新增 `check_test_setup_fail_closed.py` 守卫（接入 preflight） | 中 | 探针文件 ⇒ 守卫 exit 1；真实 4+1 族 53 passed（详见 §4.1.1） |
 | ~~4~~ | ~~`--new-file-floor 30 → 50`~~ **✅ 已完成** | 1 行 + 3 处文档同步 | 已验：40% 假 lcov ⇒ exit 1；50% ⇒ exit 0 |
 | ~~5~~ | ~~"改动面 → 必跑套件"映射 + preflight 提示~~ **✅ 已完成**（`test_impact_map` + `check_test_impact.py` + preflight `advise` 步骤） | ~1 h | 改 `rooms` 结构 ⇒ 提交前自动打印 `-E 'test(sync_path_equivalence_tests)'`（详见 §4.3.1） |
@@ -809,7 +826,7 @@ git checkout -- scripts/ci/coverage_baseline.json
 本地重跑不可行（实测 1 h 15 m 才走到 storage 步骤，且撞 PG 锁配额；CI 的 postgres service
 又无法传 `-c max_locks_per_transaction`，靠 `--test-threads 4` 规避）。
 
-### 7.6 途中被证伪的四个判断（留着，防止后来者重走）
+### 7.6 途中被证伪的五个判断（留着，防止后来者重走）
 
 | 我说过 | 实测/核实结果 | 靠什么推翻 |
 |---|---|---|
@@ -817,6 +834,7 @@ git checkout -- scripts/ci/coverage_baseline.json
 | "静默期测试写好了"（`pause()` + 断言台账 `None`） | **假测试**：把静默期 300 s 改 10 s 仍 PASS | 变异自证 |
 | "看板读到台账非空会误判正常" | 四个台账**没有任何生产读者**，是只写不读的死字段 | `grep` 全仓消费者 |
 | "修第 1 层的参数就能接通族撤销" | 修完仍 `"Token has been revoked"` —— 第 0 层 `validate_token` 才是阻断点 | 改完直接跑那条测试 |
+| "给 `PreviewUrlParams` 加 `deny_unknown_fields` 会让那条 `ts` 用例先红"（写在**测试注释**里） | **不会红**——`ts` 是已声明字段，不属于 unknown field；有效变异是 `ts` 改必填 | 变异自证实跑：`deny_unknown_fields` ⇒ PASS，`ts: i64` ⇒ `left: 400 / right: 200` |
 
 共同根因：**把"代码看起来像 X"当成"X 成立"**。可复用的纪律：写"高危 / 看板会 / 这条测试覆盖了"
 之前，必须先 `grep` 消费者或做变异自证。
