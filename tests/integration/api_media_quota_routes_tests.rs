@@ -91,7 +91,8 @@ async fn used_bytes(app: &axum::Router, token: &str) -> i64 {
     value["used"].as_i64().unwrap_or_else(|| panic!("check 必须带数值 used：{value}"))
 }
 
-/// `check` 的算术必须自洽：`remaining == limit - used`（`used >= limit` 时 `remaining` 是 0）。
+/// `check` 的算术必须自洽：`remaining == limit - used`（`used >= limit` 时 `remaining` 是 0）；
+/// `limit == 0`（不限额）时 `remaining` 必须是 `null`。
 #[tokio::test]
 async fn quota_check_reports_consistent_math() {
     let Some(app) = super::setup_fresh_test_app().await else {
@@ -104,17 +105,15 @@ async fn quota_check_reports_consistent_math() {
 
     let limit = check["limit"].as_i64().unwrap_or_else(|| panic!("必须带数值 limit：{check}"));
     let used = check["used"].as_i64().unwrap_or_else(|| panic!("必须带数值 used：{check}"));
-    let remaining = check["remaining"].as_i64().unwrap_or_else(|| panic!("必须带数值 remaining：{check}"));
 
     assert!(limit >= 0, "limit 不能是负数（0 表示**不限额**，校验处靠 `if max_storage > 0` 才拦）：{check}");
     assert!(used >= 0, "已用字节不能是负数：{check}");
     if limit == 0 {
-        // ⚠️ NEW-16：`limit == 0` 是"不限额"（上传实际能成功，见主干用例），但 handler 用
-        // `if used >= limit { 0 }` 算 remaining ⇒ 不限额时 remaining 也是 **0**，
-        // 客户端会把它显示成"空间已满"。正确表示应是 null（或干脆不给 used/remaining）。
-        // 这里断言**实际行为**，不假装它是对的。
-        assert_eq!(remaining, 0, "不限额时当前仍返回 remaining=0（见 NEW-16）：{check}");
+        // `limit == 0` 是"不限额"（上传实际能成功，见主干用例）。此时 remaining 报 `null`
+        // 而不是 0，否则客户端会把 0 显示成"空间已满"（审计 NEW-16 裁决）。
+        assert!(check["remaining"].is_null(), "不限额时 remaining 必须为 null（不是 0）：{check}");
     } else {
+        let remaining = check["remaining"].as_i64().unwrap_or_else(|| panic!("必须带数值 remaining：{check}"));
         let expected = if used >= limit { 0 } else { limit - used };
         assert_eq!(remaining, expected, "remaining 必须等于 limit-used（算错会让客户端误判剩余空间）：{check}");
     }

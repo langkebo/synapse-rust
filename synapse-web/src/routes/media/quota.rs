@@ -16,7 +16,9 @@ pub(crate) async fn check_quota(
 
     let limit = quota_info.max_storage_bytes;
     let used = quota_info.current_storage_bytes;
-    let remaining = if used >= limit { 0 } else { limit - used };
+    // `limit == 0` means "unlimited" (`repository::check_quota` allows everything),
+    // so report `remaining: null` instead of a misleading `0` that looks like a full quota.
+    let remaining = if limit == 0 { None } else { Some(if used >= limit { 0 } else { limit - used }) };
 
     Ok(Json(json!({
         "limit": limit,

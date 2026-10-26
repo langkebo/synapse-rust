@@ -245,7 +245,7 @@ async function uploadFile(base: string, token: string, file: File) {
 
 | 方法 | 端点 | 响应 |
 |---|---|---|
-| `GET` | `/_matrix/media/v1/quota/check` | `{"limit": N, "used": M, "remaining": K, "rule": "global"}` |
+| `GET` | `/_matrix/media/v1/quota/check` | `{"limit": N, "used": M, "remaining": K, "rule": "global"}`；`limit == 0` 表示不限额，此时 `remaining` 为 `null`（不是 0） |
 | `GET` | `/_matrix/media/v1/quota/stats` | `{"user_id", "storage_bytes", "media_count", "limit_bytes", "statistics"}` |
 | `GET` | `/_matrix/media/v1/quota/alerts` | `{"alerts": [{"alert_id","alert_type","threshold_percent","current_usage_bytes","quota_limit_bytes","message"}]}` |
 
