@@ -553,6 +553,7 @@ def _generate_rs_header():
 //! Each file defines `fn all_derived_*_rows()`. The aggregator
 //! `all_derived_rows()` include!s all three.
 
+// reason: 路由表（含 `include!` 进来的三张表）按规格原样保留长数字/路径字面量，不为人读性改写规格值
 #![allow(clippy::unreadable_literal)]
 
 use super::route_ledger::RouteEntry;
