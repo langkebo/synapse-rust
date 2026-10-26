@@ -314,9 +314,28 @@ cargo llvm-cov --test integration --features "…" --lcov --output-path /tmp/rou
    变异自证：删掉 `start_health_check_task` 的 `cancelled` 分支 ⇒ 测试 5s 超时红，消息直接指向
    **"第 0 个后台任务"**（索引即 `start_all` 里的顺序），还原后 4 passed。
 
-   **障碍 2、3 仍在**：静默期内的时间推进（需 `tokio::time::pause()` / `test-util`）与"首轮巡检
-   真的清了什么"（需真库 + 造数）都还没覆盖。当前测到的是**关闭正确性**，不是**巡检正确性**
-   —— 后者才是这 170 行的主体。
+   **障碍 2、3 仍在**：静默期内的时间推进与"首轮巡检真的清了什么"都还没覆盖。当前测到的是
+   **关闭正确性**，不是**巡检正确性** —— 后者才是这 170 行的主体。
+
+   #### 静默期测试写不出来：因为台账只记「成功」（2026-10-26，写过并删除）
+
+   试过 `#[tokio::test(start_paused = true)]` + `advance(59s)` + 断言三个台账仍 `None`，5 passed，
+   看起来对。**变异自证否掉了它**：把 `MAINTENANCE_STARTUP_DELAY` 从 300s 改成 10s
+   （`advance(59s)` 后维护任务必然已执行）—— 测试**仍然 PASS**。
+
+   原因：四个台账（`last_health_status` / `last_performance_metrics` / `last_integrity_report` /
+   `last_maintenance_report`）**只在 `Ok` 分支写**（`*x.write() = Some(..)`），`Err` 只 `error!` 日志
+   ⇒ "执行了但失败"与"根本没执行"在台账上**完全不可区分**。
+
+   ⇒ 那条测试已删除：宁可没有，也不要一条永远绿的假测试。
+
+   ⇒ 顺带暴露一个**运维可见性缺口**：`last_*` 的语义是「**最后一次成功**」而非「最后一次执行」。
+   看板读到 `last_maintenance_report` 非空就以为"维护正常"，但它可能是 20 小时前那次成功，
+   此后每次都在失败 —— **失败是静默的**（只有日志，没有指标）。
+
+   建议（生产改动，未做）：台账补 `last_attempt_ts` + `last_outcome`（成功 / 失败+摘要）。
+   有了它，① 静默期可以用 `advance` 有效验证（断言"尝试次数仍为 0"）② 面板能区分
+   "没跑"与"跑挂了"。这也是为什么"补覆盖率"在这个文件上不能只靠加测试 —— 得先让行为**可观测**。
 
 `logging.rs` / `telemetry.rs` 登记为已知缺口不排期（启动路径，收益低）。
 
