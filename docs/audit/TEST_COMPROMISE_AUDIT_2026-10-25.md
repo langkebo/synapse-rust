@@ -818,7 +818,7 @@ python3 -c "import json;print(len(json.load(open('scripts/ci/coverage_baseline.j
 git checkout -- scripts/ci/coverage_baseline.json
 ```
 
-### 7.5 59 个 0% 文件的分流：已定 31 个，剩 28 个等 CI（2026-10-26 本轮）
+### 7.5 59 个 0% 文件的分流：已定 38 个，剩 21 个等 CI（2026-10-26）
 
 先说结论：**不是 59 个都"待定"**。按证据强度可以分成四类，只有最后一类真的需要等 CI 的 diff。
 
@@ -827,7 +827,8 @@ git checkout -- scripts/ci/coverage_baseline.json
 | A. 二进制入口 | **5** | **既非陈旧也非缺口**：任何测试腿都看不到 | 结构性（`[[bin]]`/`main.rs` 不在 lib 目标里） |
 | B. `synapse-storage/test_mocks/*` | **22** | **基线陈旧**（在**不含 `test-utils`** 的 feature 集下测得） | 强（见下） |
 | C. 已双腿实测 | **4** | `router.rs` = 陈旧（82.9%）；`tasks/mod.rs` / `telemetry.rs` / `logging.rs` = **真 0** | 实测 |
-| D. 其余 | **28** | **待 CI 确认** | 无 |
+| E. `synapse-storage/**/api.rs` | **7** | 5 个**无行可测**（纯 trait 声明）＋2 个各只有 5 行默认实现 | 机械统计（见下） |
+| F. 其余 | **21** | **待 CI 确认** | 无 |
 
 #### A. 二进制入口（5 个）：覆盖率对它们没有意义，应从棘轮里排除
 
@@ -866,16 +867,32 @@ git checkout -- scripts/ci/coverage_baseline.json
 | `src/server/telemetry.rs` | 0/18 | 0/18 | 真 0（启动期一次性初始化） |
 | `synapse-common/logging.rs` | 0/49 | 该腿不编译 | 真 0（同上） |
 
-#### D. 剩下 28 个：只能等 CI 的 diff
+#### E. 7 个 `**/api.rs`：5 个"无行可测"，2 个只剩 5 行
+
+机械统计（去掉 `///` 注释后数 `Ok(`/`Err(`/`let`/`if`/`match`/`return`）：
+
+| 文件 | 行数 | `fn …;` 声明 | 可执行行 |
+|---|---|---|---|
+| `presence/api.rs` | 122 | 12 | **0** |
+| `cas/api.rs` | 113 | 16 | **0** |
+| `room_summary/api.rs` | 281 | 30 | **0** |
+| `server_notification/api.rs` | 300 | 32 | **0** |
+| `worker/api.rs` | 251 | 31 | **0** |
+| `room/api.rs` | 625 | 50 | **5**（2 个默认实现） |
+| `sliding_sync/api.rs` | 412 | 22 | **5**（1 个默认实现） |
+
+⇒ 前 5 个是**纯 trait 声明**，0% 是必然，**不是缺口**（与 A 类同性质：指标口径问题）。
+后 2 个的 5 行 0% 意味着**默认实现从未被调用** —— 大概率是所有实现方都 override 了，
+即**死默认实现**；处置是删掉或标注理由，不是"补测试"。
+
+#### F. 剩下 21 个：只能等 CI 的 diff
 
 - **8 个 `synapse-web/routes/**`**（`admin/room/spaces`、`extractors/mod`、`federation/{media,membership/query,transaction/edus}`、
   `handlers/room/management/{upgrade,visibility}`、`sticky_event`）：路由只能由 **integration 腿**覆盖，
   而 integration 全量在插桩下是 42 min+。它们最可能是"陈旧"（路由被集成测试打到）但不是必然 ——
   本轮另一个会话刚给 r0/v1 匿名读口径加了守卫，说明这类面还在动。
-- **6 个 `synapse-storage/**/api.rs`**（trait 定义 + 默认实现）：trait 声明的行**不是可执行行**，
-  但文件里的默认实现/`impl` 块是。0% 究竟是"没有可执行行"还是"真没跑到"，必须看 lcov 的 `LF` 计数才能判。
-- **其余 14 个**（`event/{models,reader,writer}`、`burn_after_read`、`widget`、`friend_room/repository`、
-  `worker/api`、`synapse-services/{rtc,room/state,friend_room_service}/error.rs`、`room/membership/federation`、
+- **其余 13 个**（`event/{models,reader,writer}`、`burn_after_read`、`widget`、`friend_room/repository`、
+  `synapse-services/{rtc,room/state,friend_room_service}/error.rs`、`room/membership/federation`、
   `synapse-common/config/manager`、`src/common/error`、`src/server/services`）。
 
 #### 本轮为此付出的两次失败（记下来省下一次的时间）
