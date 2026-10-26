@@ -2,4 +2,4 @@
 # 2026-10-26 首次实测 106 处 / 429 个方法（24.7%）。
 # 明细、高危清单与处置建议见 docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md §4.2.1；
 # 守卫：scripts/ci/check_mock_stub_drift.py
-MAX_IGNORED_PARAM_METHODS=105
+MAX_IGNORED_PARAM_METHODS=102

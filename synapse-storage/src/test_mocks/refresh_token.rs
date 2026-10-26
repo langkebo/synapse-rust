@@ -12,6 +12,13 @@ pub struct InMemoryRefreshTokenStore {
     token_hash_index: Arc<tokio::sync::RwLock<HashMap<String, i64>>>,
     next_id: Arc<tokio::sync::Mutex<i64>>,
     blacklist: Arc<tokio::sync::RwLock<HashMap<String, i64>>>,
+    /// 族的登记表。**必须真的记录**：refresh 的重放检测要先用
+    /// `get_family_id(user_id, device_id)` 找到族，再去 `get_rotations(family_id)` 比对
+    /// 最新一次轮换。若这里不记录，检测路径在单测里永远走不到
+    /// （见 `docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md` §2.5）。
+    families: Arc<tokio::sync::RwLock<Vec<RefreshTokenFamily>>>,
+    /// `family_id → 轮换序列`（未排序，读取时按 `rotated_ts DESC` 排）。
+    rotations: Arc<tokio::sync::RwLock<HashMap<String, Vec<RefreshTokenRotation>>>>,
 }
 
 impl InMemoryRefreshTokenStore {
@@ -173,7 +180,7 @@ impl RefreshTokenStoreApi for InMemoryRefreshTokenStore {
         device_id: Option<&str>,
     ) -> Result<RefreshTokenFamily, sqlx::Error> {
         let now = current_timestamp_millis();
-        Ok(RefreshTokenFamily {
+        let family = RefreshTokenFamily {
             id: self.next_id().await,
             family_id: family_id.to_string(),
             user_id: user_id.to_string(),
@@ -183,7 +190,10 @@ impl RefreshTokenStoreApi for InMemoryRefreshTokenStore {
             refresh_count: 0,
             is_compromised: false,
             compromised_ts: None,
-        })
+        };
+        // 真存：`get_family_id` 要靠它找到族，否则重放检测在单测里走不到。
+        self.families.write().await.push(family.clone());
+        Ok(family)
     }
 
     async fn mark_family_compromised(&self, _family_id: &str) -> Result<(), sqlx::Error> {
@@ -192,11 +202,20 @@ impl RefreshTokenStoreApi for InMemoryRefreshTokenStore {
 
     async fn record_rotation(
         &self,
-        _family_id: &str,
-        _old_token_hash: Option<&str>,
-        _new_token_hash: &str,
-        _reason: &str,
+        family_id: &str,
+        old_token_hash: Option<&str>,
+        new_token_hash: &str,
+        reason: &str,
     ) -> Result<(), sqlx::Error> {
+        let rotation = RefreshTokenRotation {
+            id: self.next_id().await,
+            family_id: family_id.to_string(),
+            old_token_hash: old_token_hash.map(str::to_string),
+            new_token_hash: new_token_hash.to_string(),
+            rotated_ts: current_timestamp_millis(),
+            rotation_reason: Some(reason.to_string()),
+        };
+        self.rotations.write().await.entry(family_id.to_string()).or_default().push(rotation);
         Ok(())
     }
 
@@ -205,8 +224,8 @@ impl RefreshTokenStoreApi for InMemoryRefreshTokenStore {
         old_token_hash: &str,
         revoke_reason: &str,
         new_token: CreateRefreshTokenRequest,
-        _family_id: &str,
-        _rotation_reason: &str,
+        family_id: &str,
+        rotation_reason: &str,
     ) -> Result<Option<RefreshToken>, sqlx::Error> {
         // CAS: revoke the old token only if it is still active. Mirror the
         // SQL path's `WHERE token_hash = $1 AND is_revoked = FALSE`.
@@ -226,12 +245,28 @@ impl RefreshTokenStoreApi for InMemoryRefreshTokenStore {
             }
         }
         // Insert the new token (mirrors `insert_refresh_token`).
+        let new_token_hash = new_token.token_hash.clone();
         let token = RefreshTokenStoreApi::create_token(self, new_token).await?;
+        // 与真实实现一致：CAS 成功即写一条轮换记录（真实实现与 CAS 在同一事务里）。
+        RefreshTokenStoreApi::record_rotation(self, family_id, Some(old_token_hash), &new_token_hash, rotation_reason)
+            .await?;
         Ok(Some(token))
     }
 
-    async fn get_rotations(&self, _family_id: &str) -> Result<Vec<RefreshTokenRotation>, sqlx::Error> {
-        Ok(Vec::new())
+    async fn get_rotations(&self, family_id: &str) -> Result<Vec<RefreshTokenRotation>, sqlx::Error> {
+        let rotations = self.rotations.read().await;
+        let mut rows = rotations.get(family_id).cloned().unwrap_or_default();
+        rows.sort_by(|a, b| b.rotated_ts.cmp(&a.rotated_ts).then_with(|| b.id.cmp(&a.id)));
+        Ok(rows)
+    }
+
+    async fn get_family_id(&self, user_id: &str, device_id: Option<&str>) -> Result<Option<String>, sqlx::Error> {
+        let families = self.families.read().await;
+        Ok(families
+            .iter()
+            .filter(|family| family.user_id == user_id && family.device_id.as_deref() == device_id)
+            .max_by_key(|family| (family.created_ts, family.id))
+            .map(|family| family.family_id.clone()))
     }
 
     async fn add_to_blacklist(

@@ -306,6 +306,15 @@ pub trait RefreshTokenStoreApi: Send + Sync {
     ) -> Result<Option<RefreshToken>, sqlx::Error>;
     /// See [`get_rotations`].
     async fn get_rotations(&self, family_id: &str) -> Result<Vec<RefreshTokenRotation>, sqlx::Error>;
+
+    /// 按 `(user_id, device_id)` 找该设备当前的 token 族 id。
+    ///
+    /// **为什么需要它**：族是按 `(family_id, user_id, device_id)` 三元建的（见 [`create_family`]），
+    /// 所以"设备"才是族的自然键。refresh 的重放检测必须先用它拿到族 id，才能去查
+    /// [`get_rotations`]；此前调用方拿 `user_id` 当 `family_id` 传（形态完全不同），
+    /// 查询恒 0 行，导致重放检测恒被跳过 —— 见
+    /// `docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md` §2.5。
+    async fn get_family_id(&self, user_id: &str, device_id: Option<&str>) -> Result<Option<String>, sqlx::Error>;
     /// See [`add_to_blacklist`].
     async fn add_to_blacklist(
         &self,
@@ -932,6 +941,29 @@ impl RefreshTokenStorage {
         Ok(rows)
     }
 
+    /// See [`get_family_id`].
+    ///
+    /// `device_id = NULL` 时用 `IS NOT DISTINCT FROM` 匹配，避免 `= NULL` 恒 false
+    /// （同一 user 的无设备 token 应当归到同一族）。
+    pub async fn get_family_id(&self, user_id: &str, device_id: Option<&str>) -> Result<Option<String>, sqlx::Error> {
+        let family_id = sqlx::query_scalar!(
+            r#"
+            SELECT family_id as "family_id!"
+            FROM refresh_token_families
+            WHERE user_id = $1
+              AND device_id IS NOT DISTINCT FROM $2
+            ORDER BY created_ts DESC, id DESC
+            LIMIT 1
+            "#,
+            user_id,
+            device_id
+        )
+        .fetch_optional(&*self.pool)
+        .await?;
+
+        Ok(family_id)
+    }
+
     /// See [`add_to_blacklist`].
     pub async fn add_to_blacklist(
         &self,
@@ -1181,6 +1213,11 @@ impl RefreshTokenStoreApi for RefreshTokenStorage {
         reason: Option<&str>,
     ) -> Result<(), sqlx::Error> {
         self.add_to_blacklist(token_hash, token_type, user_id, expires_at, reason).await
+    }
+
+    async fn get_family_id(&self, user_id: &str, device_id: Option<&str>) -> Result<Option<String>, sqlx::Error> {
+        // inherent 方法优先于 trait 方法 ⇒ 转发到上面的实现，不会递归。
+        self.get_family_id(user_id, device_id).await
     }
 
     async fn is_blacklisted(&self, token_hash: &str) -> Result<bool, sqlx::Error> {

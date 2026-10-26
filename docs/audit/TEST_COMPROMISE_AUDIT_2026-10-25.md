@@ -189,21 +189,50 @@ if let Some(last_rotation) = rotations.first() { /* 重放处理 */ }           
 `refresh_access_token` **没有任何测试调用**（全仓 grep 只命中定义处）；`replay` 在文件里只出现在注释。
 这正是 R1 的形态：**安全能力缺失不是因为难写测试，是因为没人确认它在跑**。
 
-#### 修法与代价（未实施）
+#### 已实施的部分（2026-10-26）
 
-给 `RefreshTokenStoreApi` 加按 `(user_id, device_id)` 查 family（族本来就按 `(family_id, user_id, device_id)` 建），
-用它替代第 130 行的调用。此后 `old_token_hash != latest.new_token_hash` 能在**第 1 层**被识别并走全族撤销分支；
-第 2 层就只剩并发竞态，语义也更干净。改动面：trait +1、真实实现 +1 SQL（`.sqlx` 需重新生成）、mock +1、service 1 处。
-`RefreshToken` 记录没有 `family_id` 字段，所以不能一行修好。
+1. **`RefreshTokenStoreApi::get_family_id(user_id, device_id)`**（trait +1、真实实现 +1 SQL
+   `WHERE user_id = $1 AND device_id IS NOT DISTINCT FROM $2`、mock +1，`.sqlx` 新增 1 条）。
+2. **第 130 行改用它**，并把**读取失败改为 fail-closed**（`.map_err(...)?` → 500）：
+   原来 `_ =>` 分支把"读失败"和"还没有族"一起处理，等于静默跳过重放检测。
+3. **mock 有状态化**：`create_family` 真的登记族、`record_rotation` 真的追加轮换、
+   `rotate_token_atomic` 真的写一条 rotation、`get_rotations` 按族返回（`rotated_ts DESC`）。
+   没有这些，重放检测在单测里连素材都构造不出来。顺带让 mock 棘轮 105 → **102**（3 处不再忽略参数）。
 
-#### 状态与验证方式
+**实际效果**：消除了"每次 refresh 都新建一族"的资源问题（families 表不再单调增长），
+并且读失败不再是静默跳过。**但没有接通"族撤销"** —— 见下。
 
-**静态确认，未运行验证。** 一条 integration 测试即可证伪我：同一 refresh token 连用两次，
-第 2 次目前预期返回 `401 "Token has been revoked"`（而非 `"All tokens revoked"`）——
-这就证明"族撤销"没有发生。修复后该断言应改为 `"All tokens revoked"`。
+#### 实测结果否掉了我原先的判断
 
-**所以我不能先"补一条重放测试"再修代码**：要断言"族被封禁"，得先让这条路径可达。
-先把第 1 层的参数修对，那条测试才有意义。
+我此前写"修第 1 层即可同时解决两件事"。**错了。** 修完跑同一条测试：
+
+```
+第一次 refresh                 → 成功
+第二次用旧 token               → 401 "Token has been revoked"   ← 仍然不是 "All tokens revoked"
+同族刚发出的新 token 仍有效     → 族没有被封禁
+```
+
+原因还是第 0 层：`validate_token` 在**入口**就拒绝任何 `is_revoked` 的 token，所以第 1 层即使参数修对了
+（`rotations` 现在非空）也**永远到不了**。第 1 层实际只服务"历史遗留数据"（rotation 已记但 token 未撤销）。
+
+#### 真正接通它需要的改动（需设计决策，未实施）
+
+让 refresh 路径**跳过 `is_revoked` 的前置拒绝**，把判断下沉到 CAS-miss 处，并用**时间窗口**区分：
+
+| 场景 | 判据 | 处理 |
+|---|---|---|
+| 并发刷新 / 网络重试 | `revoked_reason == "Rotated"` 且距撤销时间 < 窗口（如 10s） | 只拒绝本次（保留现有良性分支） |
+| 真重放 | 同上但**超出窗口** | `mark_family_compromised` + `revoke_all_user_tokens` |
+
+这需要记录 `revoked_at`（`RefreshToken` 目前只有 `revoked_reason`，没有撤销时间戳），
+属于协议层语义改动，应先确认产品期望（是否接受"重放会强制用户重新登录"）。
+
+#### 当前状态
+
+`replayed_refresh_token_is_refused_without_revoking_the_family`（已提交）**记录了这个缺陷**：
+它断言第二次的错误是 `"Token has been revoked"`、且同族新 token 仍有效。等上面那笔修好，
+这两条断言会**转红**，迫使更新为 `"All tokens revoked"` + `validate_token(...).is_err()`。
+—— 这是故意留的"修复触发器"，不是一条安慰性测试。
 
 ## 3 R2：制度性降标
 

@@ -127,9 +127,19 @@ impl RefreshTokenService {
         let new_token_hash = Self::hash_token(&new_refresh_token);
         let old_token_hash = old_token.token_hash.clone();
 
-        let family_id = match self.storage.get_rotations(&old_token.user_id).await {
-            Ok(rotations) if !rotations.is_empty() => rotations[0].family_id.clone(),
-            _ => {
+        // SECURITY (S-9 遗留修复)：此前这里误把 `user_id` 当 `family_id` 传给 `get_rotations`，
+        // 而族是按 `(family_id, user_id, device_id)` 建的 ⇒ 查询恒 0 行 ⇒ 每次都新建一族，
+        // 且下面第 155 行的重放检查永远拿到空列表（`docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md` §2.5）。
+        // 改用按设备查族；**读取失败必须 fail-closed**（500）—— 把"读不到"当成"还没有族"
+        // 会静默跳过重放检测，那正是 S-9 要消除的形态。
+        let family_id = match self
+            .storage
+            .get_family_id(&old_token.user_id, old_token.device_id.as_deref())
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to look up token family", e))?
+        {
+            Some(family_id) => family_id,
+            None => {
                 let family_id = Self::generate_family_id();
                 if let Err(e) =
                     self.storage.create_family(&family_id, &old_token.user_id, old_token.device_id.as_deref()).await
@@ -478,6 +488,52 @@ mod tests {
             ip_address: None,
             user_agent: None,
         }
+    }
+
+    /// **记录缺陷**：重放同一个 refresh token 会被拒绝，但**不会撤销整个族**。
+    ///
+    /// 这是 `docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md` §2.5 的可执行证据：
+    /// `refresh_access_token` 的第一步 `validate_token` 就对 `is_revoked` 返回
+    /// `401 "Token has been revoked"`，于是**走不到**后面两段族撤销代码
+    /// （第 1 层前置检查 130–179、第 2 层 CAS-miss 206–254）。
+    ///
+    /// 实测（2026-10-26，修掉 `get_family_id` 传参问题之后仍然是这个结果）：
+    /// 第二次 refresh 的错误是 `"Token has been revoked"`，而不是 `"All tokens revoked"`。
+    ///
+    /// **修复方向**（需要设计决策，未实施）：让 refresh 路径跳过 `is_revoked` 的前置拒绝，
+    /// 在 CAS-miss 处用**时间窗口**区分"并发刷新/网络重试"与"真重放"（超出窗口即撤族）。
+    /// 修好之后本测试的第 2 条断言会**转红**，届时应把断言改为
+    /// `"All tokens revoked"` 且 `validate_token(&first_new).is_err()`。
+    #[tokio::test]
+    async fn replayed_refresh_token_is_refused_without_revoking_the_family() {
+        let store = Arc::new(InMemoryRefreshTokenStore::new());
+        let service = RefreshTokenService::new(store, DEFAULT_EXPIRY_MS);
+        let user = "@alice:example.com";
+
+        let raw = RefreshTokenService::generate_token();
+        let hash = RefreshTokenService::hash_token(&raw);
+        service
+            .create_token(make_request(&hash, user, current_timestamp_millis() + DEFAULT_EXPIRY_MS))
+            .await
+            .expect("create_token");
+
+        let (first_new, _) =
+            service.refresh_access_token(&raw, "AT1", None, None).await.expect("第一次 refresh 应当成功");
+        assert_ne!(first_new, raw);
+
+        // 第二次仍然用旧 token ⇒ 被拒（这一层是好的）。
+        let error = service.refresh_access_token(&raw, "AT2", None, None).await.expect_err("重放的 token 必须被拒绝");
+        assert_eq!(
+            error.message(),
+            "Token has been revoked",
+            "当前实现是在 validate_token 就拒绝；若变成 \"All tokens revoked\" 说明族撤销已接通，请更新本测试"
+        );
+
+        // 缺陷的可观测证据：族**没有**被撤销 ⇒ 刚发出的新 token 依然有效。
+        assert!(
+            service.validate_token(&first_new).await.is_ok(),
+            "同族的新 token 仍有效 ⇒ 族未被封禁（§2.5）。修好后此断言应反转为 is_err()"
+        );
     }
 
     #[test]
