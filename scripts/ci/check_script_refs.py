@@ -36,7 +36,7 @@ ROOT = Path(__file__).resolve().parents[2]
 EXCEPTIONS = ROOT / "scripts/ci/script_ref_exceptions"
 BASELINE = ROOT / "scripts/ci/script_ref_baseline"
 
-REF = re.compile(r"(?:\./)?(scripts/[A-Za-z0-9_./-]+\.(?:sh|py|mjs|js))")
+REF = re.compile(r"(?:\./)?(scripts/[A-Za-z0-9_./-]+\.(?:sh|py|mjs|js))(?![\w])")
 SCANNED_SUFFIXES = (
     ".rs",
     ".sh",
