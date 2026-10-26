@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT family_id as \"family_id!\"\n            FROM refresh_token_families\n            WHERE user_id = $1\n              AND device_id IS NOT DISTINCT FROM $2\n            ORDER BY created_ts DESC, id DESC\n            LIMIT 1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "family_id!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "eeb69a97c797899fbcbe9b16cb9b5ae365aa422ba69c310dc1655efe274a9bae"
+}
