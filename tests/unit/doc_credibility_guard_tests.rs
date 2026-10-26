@@ -101,8 +101,7 @@ fn fn_body(source: &str, marker: &str) -> String {
     let end = lines[start..]
         .iter()
         .position(|line| line.trim_end() == "}")
-        .map(|offset| start + offset)
-        .unwrap_or_else(|| std::panic::panic_any(format!("`{marker}` 的函数体没有顶格 `}}`")));
+        .map_or_else(|| std::panic::panic_any(format!("`{marker}` 的函数体没有顶格 `}}`")), |offset| start + offset);
     lines[start..=end].join("\n")
 }
 
