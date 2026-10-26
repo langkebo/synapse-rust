@@ -18,14 +18,14 @@
 | 功能完整性 | 0 | 0 | 0 | 0 | 0 |
 | 性能（含数据层） | 0 | 0 | 1 | 2 | 3 |
 | 安全性 | 0 | 0 | 0 | 0 | 0 |
-| 可维护性 | 0 | 0 | 1 | 0 | 1 |
+| 可维护性 | 0 | 0 | 0 | 0 | 0 |
 | 测试覆盖 | 0 | 0 | 0 | 0 | 0 |
 | 文档完整性 | 0 | 0 | 0 | 0 | 0 |
 | 专项：冗余与过度开发 | 0 | 0 | 0 | 0 | 0 |
-| **合计** | **0** | **0** | **5** | **3** | **8** |
+| **合计** | **0** | **0** | **4** | **3** | **7** |
 
-> 计数口径（2026-10-26 逐条重算，**按表格行**计，合并行只算一行）：**P0 = 0，P1 = 0，P2 = 5，P3 = 3，合计 8**。
-> 来源 = §0.2.2 的 2 条 + §0.2.3 的 6 条（§0.1 已于 2026-10-26 清空）。
+> 计数口径（2026-10-26 逐条重算，**按表格行**计，合并行只算一行）：**P0 = 0，P1 = 0，P2 = 4，P3 = 3，合计 7**。
+> 来源 = §0.2.2 的 2 条 + §0.2.3 的 5 条（§0.1 已于 2026-10-26 清空）。
 > ⚠️ **本版更正一处旧账**：上一版写 `P3 = 13`，但把 §0.1 / §0.2.2 / §0.2.3 三处表格按行数出来是
 > **14 行**（正则 `^\| \*\*ID\*\* \| P[0-9] \|` 扫一遍即可复核）—— 13 是漏计，不是有 1 条被关掉。
 > 本版关闭 **NEW-19**（P2/功能完整性，`2e33c45a8`）、**NEW-10**（P3/测试覆盖，`d9fa05d26`）、
@@ -46,6 +46,9 @@
 > 同轮再收口 **SEC-12**（legacy r0/v1 匿名读**是裁决不是漏检**：`docker/deploy/README.md`
 > 登记六条路径的实际鉴权口径，由 `doc_credibility_guard_tests` 把「文档声明 / r1 必须收紧 /
 > r0·v1 必须仍匿名 / handler 仍 token 可选」四方钉在一起）⇒ P3 `4 → 3`、合计 `9 → 8`。
+> 同轮再收口 **MAINT-01**（`synapse-common` 四个测试基建模块从"无条件编译"改为
+> `#[cfg(any(test, feature = "test-utils"))]`，并由 7 份 manifest 在**测试侧**打开该特性；
+> 守卫同时断言生产段**不得**打开）⇒ P2 `5 → 4`、合计 `8 → 7`。
 > ✅ NEW-19：`/send` 的线程回复现在同时进 `thread_relations` 与 `thread_replies`
 > （时间戳回查刚落库的事件，不用本地时钟；重试同一 txn 不重复计数）。
 > ✅ NEW-10：4 处手写轮询折成 `tests/common/mod.rs::wait_until`，测试域 `sleep` 计数
@@ -58,21 +61,21 @@
 > ✅ **NEW-14 已收口**：C3 审计面 15 → 95 个文件（零误伤），14 个 `NONE` 族已逐族重跑 ⇒
 > 4 族误判（改登记）、3 族幽灵、7 族真缺口（见 §0.1.1）。
 > `NEW-08` 已于 2026-10-25 关闭（`device_sync.rs` 整模块删除，判据与变异证据见附录 D），不再计入。
-> 其中 **6 条是"登记项"**（明确不做或只等外部条件）；§0.1 已于 2026-10-26 清空
+> 其中 **5 条是"登记项"**（明确不做或只等外部条件）；§0.1 已于 2026-10-26 清空
 > （最后两条 `NEW-15` / `NEW-16` 已裁决并落地），没有"我们已经知道怎么改但还没动手"的条目了。
 
 **结论摘要**：**P0 = 0，P1 = 0**（原 9 条 P1 全部有实现 + 能失败的门禁，逐条见附录 D）。
 ⚠️ 第八轮曾把一条误报成 P1（NEW-06「设备吊销通知静默丢失」），**已撤回**：真实广播路径在
 `routes/device.rs::broadcast_device_list_update`（签名事务），死的是 `device_sync` 里那条
 零调用者的重复实现，已删除；更正过程记在[附录 D](#附录-d已关闭条目索引)。
-剩下的 8 条里，**没有一条会造成数据丢失或越权**；5 条 P2 分别是 `events` 未分区（ARCH-04）、
-7 个 >2000 行生产文件（ARCH-05）、837 处静默忽略（CODE-10）、`to_device` 无按龄清理（PERF-01）、
-测试替身未做特性隔离（MAINT-01）—— 全是**长期结构债**：
+剩下的 7 条里，**没有一条会造成数据丢失或越权**；4 条 P2 分别是 `events` 未分区（ARCH-04）、
+7 个 >2000 行生产文件（ARCH-05）、837 处静默忽略（CODE-10）、`to_device` 无按龄清理（PERF-01）
+—— 全是**长期结构债**：
 不修也不会立刻出错，但每加一个功能都在加利息。3 条 P3 **全部是 §0.2.3 的登记项**
 （规范漂移/文档失真/死代码），没有待裁决项。
 
-**下一批该做什么**：**没有"我们知道怎么改但还没动手"的条目了**。剩下的 8 条分两类 ——
-① 6 条**登记项**（§0.2.3，明确不做或只等外部条件）；
+**下一批该做什么**：**没有"我们知道怎么改但还没动手"的条目了**。剩下的 7 条分两类 ——
+① 5 条**登记项**（§0.2.3，明确不做或只等外部条件）；
 ② ARCH-04/ARCH-05（§0.2.2）这两条结构债要真实数据量/行为不变的证明才谈得上动。
 
 ## 0.1 第七轮新发现（2026-10-24，只列仍开着的）
@@ -124,7 +127,7 @@
 ### 0.2.1 可先红后绿
 
 > 2026-10-24 已清空：最后一条 `TEST-05` 已按「逐处分类 + 注解门禁」收口（见附录 D）。
-> 剩下的 8 条全部落在 §0.2.2（需要决策/等价断言）与 §0.2.3（登记项）。
+> 剩下的 7 条全部落在 §0.2.2（需要决策/等价断言）与 §0.2.3（登记项）。
 
 ### 0.2.2 需要决策或外部条件
 
@@ -138,11 +141,10 @@
 | 编号 | 级别 | 一句话 | 为什么不做 |
 |---|---|---|---|
 | **CODE-10** | P2 | 生产 **837 处** `let _ =` / `unwrap_or_default()`（238 文件） | 大部分是合法用法；设下降配额会诱导写 `unwrap()` 来"减少计数"（§10.10） |
-| **CODE-11** | P3 | `#[allow(...)]`：棘轮口径（`python3 scripts/ci/check_clippy_allow_ratchet.py --print`，2026-10-24 W8 现算）**160 site / 159 处无 `// reason:`（95 文件）**，基线 159/95；原记「271 处 / 117 文件」是裸 `#[allow` grep 的宽口径，与棘轮不可比 | 棘轮已在工作（只许下降）；剩"补理由"是纯体力活，随触达文件顺手补（W8 触达的 4 个文件/2 个脚本未新增任何无理由 allow，计数 160 → 160、无理由 160 → **159**） |
+| **CODE-11** | P3 | `#[allow(...)]`：棘轮口径（`python3 scripts/ci/check_clippy_allow_ratchet.py --print`，2026-10-26 W9 现算）**159 site / 157 处无 `// reason:`（94 文件）**，基线 157/94；原记「271 处 / 117 文件」是裸 `#[allow` grep 的宽口径，与棘轮不可比 | 棘轮已在工作（只许下降）；剩"补理由"是纯体力活，随触达文件顺手补 —— 本文件里的两处数字已由 `doc_credibility_guard_tests::clippy_allow_counts_in_the_audit_match_the_ratchet_baseline` 与基线文件绑死，不会再漂 |
 | **PERF-01** | P2 | `to_device_messages` 对**普通设备**无按龄清理（脱水设备路径有 `DELETE`） | 需要先定"客户端未确认算不算已投递"，是产品语义 |
 | **PERF-11** | P3 | N+1 查询 3 处（风险可控） | 当前数据量下无实测劣化，缺 benchmark 支撑 |
 | **PERF-12 / MAINT-07** | P3 | `INDEXES.md` 人工表无法从 DDL 反推 | 重生成会让"索引治理"退化成"索引清单"；计数已由 `check_doc_metrics.py` 现算 |
-| **MAINT-01** | P2 | 测试替身/工具二进制与生产 crate 未做特性隔离 | 已覆盖 `user_store_fake`、`federation_test_keys`；其余属"每个 crate 一次评估"，收益低于改动面 |
 
 ## 0.3 复核历史（压缩）
 
@@ -311,11 +313,14 @@
 - **下一轮可做的**：按"错误被吞后有没有用户可见后果"分类，只处理前两类；不要动 `unwrap_or_default()`
   在 `Option` 语义下的合法用法。
 
-### CODE-11（P3）棘轮口径 **160 site / 159 处无 `// reason:`（95 文件）**（原记 271 处 / 117 文件是裸 `#[allow` 的宽口径）
+### CODE-11（P3）棘轮口径 **159 site / 157 处无 `// reason:`（94 文件）**（原记 271 处 / 117 文件是裸 `#[allow` 的宽口径）
 
 - **现状**：`check_clippy_allow_ratchet.py` + `clippy_allow_baseline` 已在工作（只许下降，
   新条目必须带理由），所以**"无理由 allow 增长"已经不可能**。
-- **仍开着的部分**：存量 **159 处**没理由。**修法**：随触达文件顺手补 `reason`，不要为一个纯体力活单开批次。
+- **仍开着的部分**：存量 **157 处**没理由。**修法**：随触达文件顺手补 `reason`，不要为一个纯体力活单开批次。
+- **数字不再手抄**：`doc_credibility_guard_tests::clippy_allow_counts_in_the_audit_match_the_ratchet_baseline`
+  从 `scripts/ci/clippy_allow_baseline` 现算「无理由处数 / 文件数」，与本标题及 §0.2.3 那行逐字比对；
+  基线降了而这里没跟 ⇒ 红。
 
 ---
 
@@ -462,11 +467,19 @@
 
 ## 六、可维护性
 
-### MAINT-01（P2）测试替身、工具二进制与生产 crate 未做特性隔离
+### MAINT-01（P2）测试替身、工具二进制与生产 crate 未做特性隔离 —— ✅ 已关闭（2026-10-26，见附录 D）
 
-- **已做**：`user_store_fake`（RD-07）、`federation_test_keys`（RD-08）已加 `#[cfg(any(test, feature = "test-utils"))]`。
-- **仍开着**：其余测试工具（`test_mocks`、`synapse-test-utils` 的部分模块）仍随默认构建进入生产依赖图。
-- **修法**：逐 crate 评估——不是一次性机械替换，每个 crate 的 `test-utils` feature 传播路径不同。
+- **原判**：`user_store_fake`（RD-07）、`federation_test_keys`（RD-08）已 gate，但 `synapse-common`
+  的四个测试基建模块（`test_database_guard` / `test_isolation` / `test_schema_guard` /
+  `test_schema_orphans`）**无条件编译**，随每个生产二进制进入依赖图。
+- **已做**：四个模块改为 `#[cfg(any(test, feature = "test-utils"))]`；根 crate 与 5 个成员的
+  `[dev-dependencies]`、`synapse-test-utils` 的 `[dependencies]` 显式打开
+  `synapse-common/test-utils`（依赖方的 `cfg(test)` 对被依赖 crate 不可见，所以只能在测试侧
+  打开；dev-dep 的 feature 不并入非测试构建）。
+- **判据**：`doc_credibility_guard_tests::test_infrastructure_is_feature_gated_and_never_ships_in_production`
+  四段断言（gate 紧邻 / dev 段必须开 / 生产段必须没开 / `synapse-test-utils` 只经 `test-utils`
+  feature 拉入）；`cargo check --workspace --lib` 与
+  `cargo check --workspace --all-targets --features test-utils` 均 0 退出。
 
 ### MAINT-04（P2）能力台账手工维护，已出现多处失真 —— ✅ 已关闭（见附录 D）
 
@@ -650,11 +663,12 @@ TEST_FILE 47 = 107**；测试域合计 81。
 | W6 | P3 冗余与文档（RD-01…26） | ✅ 四批 + RD-14 接入 |
 | W7 | 门禁可达性（TEST-04）+ 三处文档失真（MAINT-05/CODE-09/FUNC-04） | ✅ 见提交 `01345e38f` |
 | W8 | 测试面（TEST-05/NEW-05/NEW-09/NEW-14）+ 能力台账（MAINT-04/FUNC-05/ARCH-03/CODE-01b/CODE-08）+ 文档漂移（DOC-04） | ✅ 逐条判据见附录 D |
+| W9 | 测试基建特性隔离（MAINT-01）+ `#[allow]` 计数纠偏（CODE-11 数字绑基线） | ✅ 本笔（MAINT-01 见附录 D；CODE-11 仍为登记项） |
 
 ### 10.2 下一批建议
 
 W8 计划的三项（`TEST-05` → `NEW-05` → `FUNC-05`）已全部收口，清单里已无 P0/P1、也无 P3 待裁决项。
-剩下 8 条里能动的只有 4 条 P2 结构债，而每条都**卡在一个前提上**，不是排期问题：
+剩下 7 条里能动的只有 4 条 P2 结构债，而每条都**卡在一个前提上**，不是排期问题：
 
 | 待办 | 前提 |
 |---|---|
@@ -663,7 +677,7 @@ W8 计划的三项（`TEST-05` → `NEW-05` → `FUNC-05`）已全部收口，�
 | PERF-01（`to_device` 按龄清理） | 要先定"客户端未确认算不算已投递"的产品语义 |
 | CODE-10（837 处静默忽略） | 只按"错误被吞有无用户可见后果"分类处理，且**不设配额** |
 
-其余（`MAINT-01`、`CODE-11`、`PERF-11/12`）都是随触达顺手做或等外部条件的登记项。
+其余（`CODE-11`、`PERF-11/12`）都是随触达顺手做或等外部条件的登记项。
 
 ### 10.3 明确不做（防止过度开发）
 
@@ -797,3 +811,4 @@ W8 计划的三项（`TEST-05` → `NEW-05` → `FUNC-05`）已全部收口，�
 | NEW-08 | `synapse-federation/src/device_sync.rs`（735 行）自称"设备列表同步"，实际生产零调用，与 `routes/device.rs::broadcast_device_list_update` 重复实现同一件事 | **删除整模块**。`DeviceSyncManager::new` 全仓唯一构造点在它自己的 `#[cfg(test)]` 与 `tests/integration/federation_service_tests_migrated.rs`（2 条只测死代码的用例，已删）；同步移除 `synapse-federation/src/lib.rs`、`synapse-services/src/lib.rs`、`synapse-web/src/federation/mod.rs` 三处 re-export。棘轮同步：`scripts/ci/sqlx_dynamic_ratio_baseline` static 1357 → 1354（该模块 3 条生产静态查询）、test 动态 791 → 784、总 926 → 925，均就地写明"只因查询确实被删"；`file_size_baseline` / `clippy_allow_baseline` 删除过期文件条目；`TESTING.md` 与 `docs/audit/SQLX_STATICIZATION_PLAN_2026-09-23.md` 数字块跟改。守卫 `federation_device_list_writer_tests::the_dead_device_revocation_job_does_not_come_back` 改为"文件缺失即跳过"——重加回来仍会被扫描。**判据**：`cargo check --workspace --all-targets --all-features` 通过；`check_sqlx_dynamic_ratio.sh`、`check_file_size_ratchet.py`（该文件无 stale 条目）、`check_clippy_allow_ratchet.py`、`check_sqlx_cache_fresh.sh --static` 全绿。**变异**：把 `pub fn notify_device_revocation() {}` 写回同名文件 ⇒ 守卫红（实测）。真实广播路径 `broadcast_device_list_update` 未动 |
 | PERF-10 | PostgreSQL 实例级未设 `statement_timeout`（直连 psql 的运维查询可无限挂起） | **已修**（`812661672`）。应用侧本就按连接兜底（`src/server/database.rs` 的 `after_connect` 对每个连接 `set_config` 三个超时，默认 30s/10s/60s；迁移器逐语句 `SET statement_timeout='30s'`），缺的只是实例级。`docker/config/postgres.conf` 新增小节：`statement_timeout = 5min`、`idle_in_transaction_session_timeout = 60s` —— **刻意不比应用更严**：应用连接会被会话级 `set_config` 覆盖，实例级只防直连；写成 10s 只会提前掐断运维手工 `CREATE INDEX` / `VACUUM`。门禁沿用既有 `scripts/ci/check_connection_budget.py`（不新增脚本，避免 `check_gate_reachability` 登记）：两个键必须显式存在（缺 ⇒ `exit 2`）、实例级 ≥ `synapse-common/src/config/database.rs` 的应用默认（违例 ⇒ `exit 1`）。`docker/deploy/README.md` 同名小节写明「应用侧已兜底，这里防的是直连」。**变异**：`5min → 10s` ⇒ `exit 1`；删键 ⇒ `exit 2`；还原 ⇒ 绿（三次实测）。**边界**：生产实例的 `postgresql.conf` 由部署方管理，本仓只覆盖 docker 形态 |
 | SEC-12 | legacy r0/v1/r1 媒体下载端点匿名可读 | **裁决：不是漏洞，是 Matrix legacy 语义**（r0/v1 匿名可读；原描述把 **r1 也算进去了，实际 r1 早已挂 `auth_middleware`**——VULN-01/02，`api_security_vuln_fix_tests` 三条 401 用例是证据）。做法按审计原修法：**登记为设计决策 + 部署文档说明**，不改 `auth`。`docker/deploy/README.md` 新增「媒体下载的匿名读语义」小节，表格列全六类路径（r0/v1 匿名 · v3 匿名 · v3 `download_signed` HMAC · r1 必须 token · `/_matrix/client/v1/media` 必须 token）并写明"要关闭匿名读就得给 legacy router 挂 `auth_middleware`，且先按客户端版本分布裁决"。**判据**：`doc_credibility_guard_tests::legacy_media_anonymous_read_is_registered_and_matches_the_router` 四方绑定（部署文档小节存在且点名 r0/v1 + `auth_middleware` / r1 必须挂 / r0·v1 不得挂且必须 merge legacy router / `download_media_v1` 仍 `OptionalAuthenticatedUser`），用新 helper `fn_body` 按**函数体**切片，防止同文件里 r1 的 `auth_middleware` 让 r0 断言假通过；`doc_credibility_guard_tests` **16 passed**。**变异**：删 README 小节标题 ⇒ 红；给 `create_media_r0_router` 挂 `auth_middleware` ⇒ 红；去掉 r1 的 `auth_middleware` ⇒ 红（三条均实测，还原后 16 passed） |
+| MAINT-01 | `synapse-common` 的 4 个测试基建模块（`test_database_guard` / `test_isolation` / `test_schema_guard` / `test_schema_orphans`）无条件编译，随每个生产二进制进入依赖图 | **已修（本提交）**：4 个模块改为 `#[cfg(any(test, feature = "test-utils"))]`。**为什么只能在测试侧打开**：依赖方的 `#[cfg(test)]` 对被依赖 crate 不可见，所以 `synapse-storage` / `synapse-e2ee` / `synapse-federation` / `synapse-services` / `synapse-web` 的**库内测试代码**看不到被关掉的模块 —— 只有把 `synapse-common/test-utils` 写进各自的 `[dev-dependencies]` 才成立；而 dev-dependency 的 feature 不并入非测试构建（resolver v2），生产依赖图因此保持干净。`synapse-test-utils` 是测试基建 crate 本身，走普通 `[dependencies]`。**判据**：`doc_credibility_guard_tests::test_infrastructure_is_feature_gated_and_never_ships_in_production` 四段断言（每个 `pub mod test_*;` 的紧邻上一行必须恰为 gate / 6 份消费者 manifest 的 `[dev-dependencies]` 必须含 `test-utils` 且 `[dependencies]` 必须不含 / `synapse-test-utils` 必须含 / 根 manifest 的 `synapse-test-utils` 必须 `optional` 且 `test-utils` feature 必须 `dep:synapse-test-utils`）；`cargo check --workspace --lib`（生产形态）与 `cargo check --workspace --all-targets --features test-utils`（规范测试形态）均 0 退出。**变异**：删掉 `test_isolation` 前的 gate ⇒ 红；去掉 `synapse-storage` dev 段的 `features = ["test-utils"]` ⇒ 红（两条均实测，还原后全绿） |

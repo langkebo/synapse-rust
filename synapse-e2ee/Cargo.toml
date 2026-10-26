@@ -54,3 +54,10 @@ ed25519-dalek = "2.0"
 vodozemac = "0.11"
 
 dashmap = { version = "6.2", features = ["serde"] }
+
+[dev-dependencies]
+# MAINT-01: `#[cfg(test)]` fixtures (e.g. `src/backup/storage.rs`,
+# `src/megolm/storage/db_tests.rs`) use `synapse_common::test_isolation`, which is
+# gated on `any(test, feature = "test-utils")` in synapse-common. A dependency's
+# `cfg(test)` is invisible here, hence the dev-dep feature switch.
+synapse-common = { path = "../synapse-common", features = ["test-utils"] }

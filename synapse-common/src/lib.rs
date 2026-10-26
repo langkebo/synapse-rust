@@ -108,16 +108,27 @@ pub mod task_queue;
 pub mod telemetry_config;
 /// Module `test_database_guard`. Cleanup for database-level isolation
 /// (`DROP DATABASE` + cluster-wide "in use?" check).
+///
+/// Gated behind `test-utils` (MAINT-01): the module is test infrastructure and
+/// must not enter the production dependency graph. Dependent crates reach it
+/// from their `#[cfg(test)]` code because their **dev**-dependencies re-declare
+/// `synapse-common` with `features = ["test-utils"]` — dev-dependency features
+/// are not unified into a normal (non-test) build, so production stays clean.
+#[cfg(any(test, feature = "test-utils"))]
 pub mod test_database_guard;
-/// Module `test_isolation`. Compiled unconditionally (not gated behind
-/// `cfg(test)`), because sibling crates' `#[cfg(test)]` fixtures call it.
+/// Module `test_isolation` (schema-per-test). Gated behind `test-utils` for the
+/// same reason as `test_database_guard`; see that module's note.
+#[cfg(any(test, feature = "test-utils"))]
 pub mod test_isolation;
-/// Module `test_schema_guard`. Compiled unconditionally (not gated behind
-/// `test-utils`) so that `#[cfg(test)]` fixture code in dependent crates can
-/// register cleanups even when built without the feature.
+/// Module `test_schema_guard`. Gated behind `test-utils` so that `#[cfg(test)]`
+/// fixture code in dependent crates can register cleanups (via their dev-dep on
+/// `synapse-common/test-utils`) without the module shipping in production.
+#[cfg(any(test, feature = "test-utils"))]
 pub mod test_schema_guard;
 /// Module `test_schema_orphans`. Reclaims `test_*` schemas abandoned by earlier
-/// test processes, which otherwise bloat the catalog ~17x per suite.
+/// test processes, which otherwise bloat the catalog ~17x per suite. Gated
+/// behind `test-utils` together with the janitor it drives.
+#[cfg(any(test, feature = "test-utils"))]
 pub mod test_schema_orphans;
 /// Module `time`.
 pub mod time;

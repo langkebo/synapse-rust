@@ -99,6 +99,12 @@ url = { workspace = true }
 webp-animation = "0.10.0"
 
 [dev-dependencies]
+# MAINT-01: `#[cfg(test)]` fixtures (`src/test_utils.rs`, `src/test_config.rs`,
+# `account_identity_service`, `saml_service`) use `synapse_common::test_isolation`
+# / `test_schema_guard`, gated on `any(test, feature = "test-utils")` in
+# synapse-common. A dependency's `cfg(test)` is invisible here, hence the
+# dev-dep feature switch.
+synapse-common = { path = "../synapse-common", features = ["test-utils"] }
 # atexit hook for the schema janitor: registered by this crate's **test** build only
 # (B' — keeps the `unsafe` out of the production build).
 libc = "0.2"

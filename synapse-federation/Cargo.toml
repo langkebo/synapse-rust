@@ -53,4 +53,10 @@ futures = { workspace = true }
 tracing = { workspace = true, features = ["attributes"] }
 
 [dev-dependencies]
+# MAINT-01: `#[cfg(test)]` code (`src/test_isolation.rs`, `event_broadcaster`,
+# `dead_letter_queue`) uses `synapse_common::test_isolation` /
+# `test_schema_guard`, gated on `any(test, feature = "test-utils")` in
+# synapse-common. A dependency's `cfg(test)` is invisible here, hence the
+# dev-dep feature switch.
+synapse-common = { path = "../synapse-common", features = ["test-utils"] }
 wiremock = "0.6"

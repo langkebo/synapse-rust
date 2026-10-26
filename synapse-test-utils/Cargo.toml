@@ -11,7 +11,12 @@ license = "AGPL-3.0-only"
 workspace = true
 
 [dependencies]
-synapse-common = { path = "../synapse-common" }
+# This crate *is* test infrastructure, so it always needs synapse-common's
+# `test-utils` modules (`test_schema_guard`, `test_isolation`,
+# `test_schema_orphans`, `test_database_guard`). MAINT-01 gated those modules;
+# enabling the feature here is safe because this crate is only reachable through
+# the `test-utils` feature of its consumers, never from a production build.
+synapse-common = { path = "../synapse-common", features = ["test-utils"] }
 synapse-services = { path = "../synapse-services" }
 
 sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "chrono", "json", "uuid", "ipnetwork", "migrate", "macros", "bigdecimal"] }

@@ -84,6 +84,10 @@ infer = "0.19.0"
 # feature 跑 `cargo test -p synapse-web --lib` 时 `#[cfg(test)]` 也需要它；因此
 # 另在 dev-dependencies 中声明（Cargo 会在测试构建中合并两者）。
 [dev-dependencies]
+# MAINT-01: `#[cfg(test)]` code uses `synapse_common::test_isolation` (gated on
+# `any(test, feature = "test-utils")` in synapse-common); a dependency's
+# `cfg(test)` is invisible here, hence the dev-dep feature switch.
+synapse-common = { path = "../synapse-common", features = ["test-utils"] }
 synapse-test-utils = { path = "../synapse-test-utils" }
 # 仅 `#[cfg(test)]` 使用（health.rs 的限流配置序列化、login_lockout 的故障注入），
 # 放 dev-dependencies 避免进入 release 依赖图。

@@ -109,6 +109,12 @@ lettre = { version = "0.11", default-features = false, features = ["builder", "s
 tikv-jemallocator = { version = "0.6", features = ["profiling", "unprefixed_malloc_on_supported_platforms"] }
 
 [dev-dependencies]
+# MAINT-01: `#[cfg(test)]` code below (`src/server/database.rs` and `tests/**`)
+# calls `synapse_common::test_isolation` / `test_schema_guard`. Those modules are
+# `#[cfg(any(test, feature = "test-utils"))]` in synapse-common, and a dependency's
+# `cfg(test)` is not visible here — so the test build must turn the feature on.
+# Dev-dependency features are not unified into non-test builds (resolver v2).
+synapse-common = { path = "synapse-common", features = ["test-utils"] }
 # RD-01: these crates are used only by `tests/**` (and the `#[cfg(test)]`
 # modules under `src/`), never by the root package's production code. Keeping
 # them here stops them from being compiled into the `bin`/`lib` build graph.

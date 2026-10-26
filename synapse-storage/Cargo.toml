@@ -52,6 +52,11 @@ base64 = { workspace = true }
 rand = { workspace = true }
 
 [dev-dependencies]
+# MAINT-01: this crate's `#[cfg(test)]` fixtures (e.g. `src/test_utils.rs`) use
+# `synapse_common::{test_isolation, test_schema_guard, test_schema_orphans}`,
+# which are gated on `any(test, feature = "test-utils")` in synapse-common.
+# A dependency's `cfg(test)` is invisible here, hence the dev-dep feature switch.
+synapse-common = { path = "../synapse-common", features = ["test-utils"] }
 # atexit hook for the schema janitor: registered by this crate's **test** build only
 # (B' — keeps the `unsafe` out of the production build).
 libc = "0.2"

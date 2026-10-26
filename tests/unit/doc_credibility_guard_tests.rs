@@ -910,3 +910,152 @@ fn legacy_media_anonymous_read_is_registered_and_matches_the_router() {
          必须同步 `{DEPLOY_DOC}` 与 SEC-12 裁决"
     );
 }
+
+// ── MAINT-01：测试基建必须特性隔离，但测试构建仍须看得见它 ────────────────────
+
+/// 取 manifest 里 `[header]` 段的正文（到下一个表头为止）。
+///
+/// 不用 `toml` 反序列化：判据是"**哪一段**里写了什么"（同名键在 `[dependencies]`
+/// 与 `[dev-dependencies]` 下都合法），反序列化恰好会把这层差异吃掉。
+fn toml_section(manifest: &str, header: &str) -> String {
+    let marker = format!("[{header}]");
+    let lines: Vec<&str> = manifest.lines().collect();
+    let start = lines
+        .iter()
+        .position(|line| line.trim() == marker)
+        .unwrap_or_else(|| panic!("manifest 里找不到 `{marker}` 段 —— 守卫前提失效"));
+    let end = lines[start + 1..]
+        .iter()
+        .position(|line| line.trim_start().starts_with('['))
+        .map_or(lines.len(), |offset| start + 1 + offset);
+    lines[start + 1..end].join("\n")
+}
+
+/// 取段内某条依赖的原文（`name = { … }`）。
+fn manifest_entry(section: &str, name: &str) -> String {
+    section
+        .lines()
+        .find(|line| line.split('=').next().map(str::trim) == Some(name))
+        .unwrap_or_else(|| panic!("段里找不到 `{name}` 条目 —— 守卫前提失效"))
+        .to_string()
+}
+
+/// MAINT-01 的判据是**两半**，任一半单独回退都会红：
+///   * `synapse-common` 侧：四个测试基建模块必须 gate 在 `test-utils` 上 —— 无条件编译会让
+///     `test_schema_orphans`（带一个回收 `test_*` schema 的 janitor）随每个生产二进制进图；
+///   * 消费方侧：测试构建必须显式打开特性 —— 依赖方的 `cfg(test)` 对被依赖 crate **不可见**，
+///     只 gate 在 `any(test, …)` 上会让 `cargo check -p <crate> --tests` 解析不到这些模块。
+///
+/// 但特性只能写在**测试**那一侧：写进消费方的 `[dependencies]` 等于把隔离又撤销了。
+#[test]
+fn test_infrastructure_is_feature_gated_and_never_ships_in_production() {
+    const COMMON: &str = "synapse-common/src/lib.rs";
+    const GATE: &str = "#[cfg(any(test, feature = \"test-utils\"))]";
+    const MODULES: [&str; 4] = ["test_database_guard", "test_isolation", "test_schema_guard", "test_schema_orphans"];
+
+    // ① `synapse-common` 侧：四个模块都必须紧邻上一行就是 `test-utils` gate。
+    let common = read(COMMON);
+    let lines: Vec<&str> = common.lines().collect();
+    for module in MODULES {
+        let declaration = format!("pub mod {module};");
+        let index = lines
+            .iter()
+            .position(|line| line.trim() == declaration)
+            .unwrap_or_else(|| panic!("`{COMMON}` 里找不到 `{declaration}` —— MAINT-01 的守卫前提失效"));
+        assert_eq!(
+            lines.get(index.wrapping_sub(1)).map(|line| line.trim()),
+            Some(GATE),
+            "`{module}` 的上一行不是 `{GATE}`：无条件编译会让测试基建随生产二进制进依赖图"
+        );
+    }
+
+    // ② 消费方侧：`[dev-dependencies]` 必须打开特性，`[dependencies]` 必须没打开。
+    const DEV_CONSUMERS: [&str; 6] = [
+        "Cargo.toml",
+        "synapse-storage/Cargo.toml",
+        "synapse-e2ee/Cargo.toml",
+        "synapse-federation/Cargo.toml",
+        "synapse-services/Cargo.toml",
+        "synapse-web/Cargo.toml",
+    ];
+    for manifest in DEV_CONSUMERS {
+        let source = read(manifest);
+        assert!(
+            manifest_entry(&toml_section(&source, "dev-dependencies"), "synapse-common").contains("test-utils"),
+            "`{manifest}` 的 `[dev-dependencies]` 没打开 `synapse-common/test-utils`：该 crate 的 \
+             `#[cfg(test)]` 夹具会解析不到 `synapse_common::test_isolation`（依赖方的 `cfg(test)` 不可见）"
+        );
+        assert!(
+            !manifest_entry(&toml_section(&source, "dependencies"), "synapse-common").contains("test-utils"),
+            "`{manifest}` 的 `[dependencies]` 打开了 `synapse-common/test-utils`：\
+             测试基建会随生产依赖图一起编译（MAINT-01 回退）"
+        );
+    }
+
+    // ③ `synapse-test-utils` 本身就是测试基建：库代码直接 `use` 这些模块，只能写在 `[dependencies]`。
+    assert!(
+        manifest_entry(&toml_section(&read("synapse-test-utils/Cargo.toml"), "dependencies"), "synapse-common")
+            .contains("test-utils"),
+        "`synapse-test-utils` 的库代码（`PARKED_SCHEMA_TABLE`、`template_ready_marker_path`…）直接引用 \
+         `synapse-common` 的测试基建模块，`[dependencies]` 必须打开该特性"
+    );
+
+    // ④ 根 crate 只能经 `test-utils` feature 把 `synapse-test-utils` 拉进来，不得成硬依赖。
+    let root = read("Cargo.toml");
+    assert!(
+        manifest_entry(&toml_section(&root, "dependencies"), "synapse-test-utils").contains("optional = true"),
+        "根 crate 把 `synapse-test-utils` 写成了非 optional 依赖：它会进入默认（生产）构建"
+    );
+    assert!(
+        manifest_entry(&toml_section(&root, "features"), "test-utils").contains("dep:synapse-test-utils"),
+        "根 crate 的 `test-utils` feature 不再拉起 `dep:synapse-test-utils`：\
+         ④ 的 optional 声明会变成永远不会被打开，测试构建反而缺 crate"
+    );
+}
+
+// ── CODE-11：审计文档里的 allow 数字必须等于棘轮基线现算值 ─────────────────────
+
+/// `#[allow]` 存量在两个地方各写一遍（正文标题与 §0.2.3 登记行），而两处都是"手抄的现算值"。
+/// 基线文件 `scripts/ci/clippy_allow_baseline`（`<count> <path>`，只许下降）是唯一权威，
+/// 因此这里把两者钉死：基线降了而文档没跟、或文档写了个凭空的数字，都会红。
+///
+/// 不校验 `--print` 的 `N site(s)` 总数：它 = 无理由 + 有理由，而基线只记无理由，
+/// 从文件里算不出来 —— 硬编码它只会制造第二处会漂的数字。
+#[test]
+fn clippy_allow_counts_in_the_audit_match_the_ratchet_baseline() {
+    const BASELINE: &str = "scripts/ci/clippy_allow_baseline";
+    const AUDIT: &str = "docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md";
+
+    let (mut unjustified, mut files) = (0_u64, 0_u64);
+    for line in read(BASELINE).lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let count = line.split_whitespace().next().unwrap_or_else(|| panic!("`{BASELINE}` 行格式变了：{line}"));
+        unjustified += count.parse::<u64>().unwrap_or_else(|_| panic!("`{BASELINE}` 的行首不是计数：{line}"));
+        files += 1;
+    }
+    assert!(files > 0, "`{BASELINE}` 里没有任何条目 —— 守卫前提失效");
+
+    let audit = read(AUDIT);
+    let claims = [
+        ("### CODE-11", format!("{unjustified} 处")),
+        ("### CODE-11", format!("（{files} 文件）")),
+        ("| **CODE-11** |", format!("{unjustified} 处")),
+        ("| **CODE-11** |", format!("（{files} 文件）")),
+        ("| **CODE-11** |", format!("基线 {unjustified}/{files}")),
+        ("存量 **", format!("存量 **{unjustified} 处**")),
+    ];
+    for (marker, needle) in claims {
+        let line = audit
+            .lines()
+            .find(|line| line.contains(marker))
+            .unwrap_or_else(|| panic!("`{AUDIT}` 里找不到 `{marker}` 行 —— CODE-11 的登记被删了"));
+        assert!(
+            line.contains(&needle),
+            "CODE-11 的数字与棘轮基线不一致：基线现算 {unjustified} 处 / {files} 文件，\
+             而文档该行缺 `{needle}`。先跑 `python3 scripts/ci/check_clippy_allow_ratchet.py --print` 核对\n{line}"
+        );
+    }
+}
