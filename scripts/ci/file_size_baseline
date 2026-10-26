@@ -176,7 +176,6 @@
 765 synapse-services/src/container.rs
 744 synapse-common/src/push_rules.rs
 744 synapse-services/src/test_utils.rs
-739 synapse-storage/src/user_store_fake.rs
 738 synapse-services/src/friend_room_service/models.rs
 735 synapse-e2ee/src/vodozemac_interop_tests.rs
 734 synapse-e2ee/src/olm/storage.rs
