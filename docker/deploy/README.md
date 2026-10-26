@@ -440,3 +440,27 @@ PostgreSQL 的 `max_connections` 是**全局**资源，而每个 synapse 进程�
 **1 个 worker**（`50 × 1 + 20 = 70`）；要跑 4 个 worker 必须显式把
 `max_connections` 提到 **≥220（推荐 250）**。改了任何一项（池上限 / 进程数 /
 max_connections）都必须同步更新本表，否则门禁会失败。
+
+## 会话超时（实例级兜底，由 `scripts/ci/check_connection_budget.py` 校验）
+
+`docker/config/postgres.conf` 显式设置了两项实例级超时（PERF-10）：
+
+| 项 | 实例级值 | 应用侧默认 |
+|---|---|---|
+| `statement_timeout` | `5min` | 30s（每个连接由 `after_connect` 设置） |
+| `idle_in_transaction_session_timeout` | `60s` | 60s（同上） |
+
+**应用侧已兜底，这里防的是直连**：`src/server/database.rs` 在 `after_connect` 里对每个
+连接执行 `set_config(...)`（值来自 `synapse-common/src/config/database.rs`，默认
+30s / 10s / 60s），迁移器还会在每条语句前显式 `SET statement_timeout = '30s'`。
+所以实例级取值**不服务于应用**，只用于挡住直连 psql 的运维查询无限挂起、把连接与锁一直占住。
+
+两条约束（门禁断言）：
+
+1. 两个键必须**显式存在** —— 删掉就回到"直连无上限"，等于没兜底（门禁 `exit 2`）；
+2. 实例级**不得比应用默认更严**（`statement_timeout ≥ 30s`、`idle ≥ 60s`）。写成 10s 不会
+   影响应用（会话级 `set_config` 会覆盖），只会提前掐断运维手工执行的
+   `CREATE INDEX` / `VACUUM`。
+
+长时间维护（重建索引、大批量 `VACUUM`）请在**同一会话**内自行放开：
+`SET statement_timeout = 0;`。

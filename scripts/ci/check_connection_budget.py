@@ -6,7 +6,7 @@ PostgreSQL 的 `max_connections` 是**全局**资源，而每个 synapse 进程�
 「连接耗尽」变成运行期随机失败——仓库历史上「1408 passed + 12 failed + 7 timed out」
 （并发争用）与测试池 starvation 都是这个根因。
 
-本门禁做四件事：
+本门禁做七件事：
   1. 从源码读出生效的池上限（`default_database_max_size()`），避免脚本与代码漂移；
   2. 从**真实运行配置**读出生效的池上限与 `max_connections`
      （`docker/config/homeserver.yaml` 的 `database.max_size`、
@@ -18,7 +18,14 @@ PostgreSQL 的 `max_connections` 是**全局**资源，而每个 synapse 进程�
      会放过真实超预算 → 假绿；本步即为堵这个缺口；
   4. 在**真实运行配置**上校验不变式
         pool × 进程数 + 保留 ≤ max_connections
-     数字缺失时**必须报错**（exit 2），不能静默通过。
+     数字缺失时**必须报错**（exit 2），不能静默通过；
+  5. pids 预算：`pids_limit ≥ max_connections + 常驻进程 + max_worker_processes`；
+  6. 内存预算：`shared_buffers + work_mem × 预期并发 + maintenance_work_mem`
+     不超过容器 `mem_limit` 的 80%（按"预期并发"而非 `max_connections` 算）；
+  7. 会话超时兜底（PERF-10）：`postgres.conf` 必须**显式**设置
+     `statement_timeout` 与 `idle_in_transaction_session_timeout`，且**不得比应用默认更严**
+     —— 应用连接由 `after_connect` 按连接覆盖，实例级只防直连 psql 无限挂起；
+     写成比应用更小的值只会掐断运维手工维护。缺键 exit 2。
 
 用法：python3 scripts/ci/check_connection_budget.py
 """
@@ -150,6 +157,60 @@ def pg_conf_int(param: str, default: int) -> int:
     text = _read(POSTGRES_CONF)
     m = re.search(rf"^{param}[ \t]*=[ \t]*(\d+)", text, re.MULTILINE)
     return int(m.group(1)) if m else default
+
+
+_UNIT_SECONDS = {
+    "s": 1,
+    "sec": 1,
+    "secs": 1,
+    "second": 1,
+    "seconds": 1,
+    "min": 60,
+    "mins": 60,
+    "minute": 60,
+    "minutes": 60,
+    "h": 3600,
+    "hour": 3600,
+    "hours": 3600,
+    "d": 86400,
+    "day": 86400,
+    "days": 86400,
+}
+
+
+def _duration_seconds(value: str) -> int:
+    """把 PG 时间量统一成秒：`5min` / `60s` / `300ms` / 裸 `300`（裸值按毫秒）。"""
+    m = re.fullmatch(r"(\d+)\s*([A-Za-z]+)?", value.strip())
+    if not m:
+        raise ValueError(f"无法解析时间量：{value!r}")
+    amount = int(m.group(1))
+    unit = (m.group(2) or "ms").lower()
+    if unit in ("us", "ms"):
+        return amount // (1000 if unit == "ms" else 1_000_000)
+    if unit not in _UNIT_SECONDS:
+        raise ValueError(f"无法解析时间量：{value!r}（未知单位 {unit!r}）")
+    return amount * _UNIT_SECONDS[unit]
+
+
+def pg_conf_seconds(param: str) -> int:
+    """从 canonical postgres.conf 读时间类参数（统一为秒）；**必须显式存在**。"""
+    text = _read(POSTGRES_CONF)
+    m = re.search(rf"^{param}[ \t]*=[ \t]*([0-9]+[ \t]*[A-Za-z]*)", text, re.MULTILINE)
+    if not m:
+        _fail_missing(
+            POSTGRES_CONF,
+            f"`{param}`（PERF-10：实例级会话超时必须有显式兜底，缺省等于直连无上限）",
+        )
+    return _duration_seconds(m.group(1))
+
+
+def code_default_secs(fn_name: str) -> int:
+    """从源码读应用侧的会话超时默认值（秒）。"""
+    text = _read(DB_CONFIG)
+    m = re.search(rf"fn {fn_name}\(\) -> u64 \{{\s*(\d+)", text)
+    if not m:
+        _fail_missing(DB_CONFIG, f"{fn_name}()")
+    return int(m.group(1))
 
 
 def documented_budget() -> dict[str, int]:
@@ -287,6 +348,33 @@ def main() -> int:
 
     print(
         f"✅ pids 预算成立：{pids_needed} ≤ {pids_limit}；内存预算成立：{mem_needed}MB ≤ {mem_budget}MB"
+    )
+
+    # 7) 会话超时兜底（PERF-10）：应用侧按连接 set_config 已兜底（30s/10s/60s），
+    #    实例级只防**直连 psql** 的运维查询无限挂起。因此要求：
+    #      a. 两个键在 canonical postgres.conf 里**显式存在**（缺省 = 直连无上限）；
+    #      b. 实例级**不得比应用默认更严** —— 否则应用连接不受影响（会话级覆盖），
+    #         却会提前掐断运维手工执行的 CREATE INDEX / VACUUM，属于"只坑运维"。
+    app_statement = code_default_secs("default_database_statement_timeout_secs")
+    app_idle = code_default_secs("default_database_idle_in_transaction_timeout_secs")
+    instance_statement = pg_conf_seconds("statement_timeout")
+    instance_idle = pg_conf_seconds("idle_in_transaction_session_timeout")
+    if instance_statement < app_statement or instance_idle < app_idle:
+        print(
+            "❌ 实例级会话超时比应用默认更严："
+            f"postgres.conf statement_timeout={instance_statement}s / "
+            f"idle_in_transaction_session_timeout={instance_idle}s，"
+            f"而 database.rs 默认 {app_statement}s / {app_idle}s。"
+            "应用连接会被 after_connect 的会话级 set_config 覆盖，所以更严的实例值不会"
+            "约束应用，只会掐断运维手工维护（CREATE INDEX / VACUUM）；请把实例级放宽到"
+            "≥ 应用默认，长维护再用 SET statement_timeout = 0 临时放开。",
+            file=sys.stderr,
+        )
+        return 1
+    print(
+        f"✅ 会话超时兜底成立：实例 statement_timeout={instance_statement}s / "
+        f"idle_in_transaction_session_timeout={instance_idle}s ≥ 应用默认 "
+        f"{app_statement}s / {app_idle}s"
     )
     return 0
 
