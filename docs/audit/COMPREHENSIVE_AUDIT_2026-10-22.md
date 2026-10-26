@@ -13,12 +13,12 @@
 
 | 维度 | P0 | P1 | P2 | P3 | 合计 |
 |---|---|---|---|---|---|
-| 架构设计 | 0 | 0 | 2 | 0 | 2 |
+| 架构设计 | 0 | 0 | 1 | 0 | 1 |
 | 代码质量 | 0 | 0 | 1 | 1 | 2 |
 | 功能完整性 | 0 | 0 | 0 | 0 | 0 |
 | 性能（含数据层） | 0 | 0 | 0 | 2 | 2 |
 | 安全性 | 0 | 0 | 0 | 0 | 0 |
-| 可维护性 | 0 | 0 | 0 | 0 | 0 |
+| 可维护性 | 0 | 0 | 1 | 0 | 1 |
 | 测试覆盖 | 0 | 0 | 0 | 0 | 0 |
 | 文档完整性 | 0 | 0 | 0 | 0 | 0 |
 | 专项：冗余与过度开发 | 0 | 0 | 0 | 0 | 0 |
@@ -54,6 +54,15 @@
 > 并接进 prune 循环；语义裁决「`claim_messages` 取走即删 ⇒ 存活超窗 = 设备从未回来取」，
 > 代价是离线超窗设备丢积压，与 `DEVICE_LIST_STREAM_RETENTION_DAYS` 同等取舍）
 > ⇒ P2 `4 → 3`、合计 `7 → 6`。
+> 同轮再收口 **ARCH-05**（7 个 >2000 行文件里，**绝大部分体积是内联测试模块**：如 `error.rs` 生产段
+> 只到 1229 行、测试块 1251 行。按仓库已有约定（`event/db_tests.rs` / `thread/db_tests.rs` 那种
+> 独立测试文件）把 9 个内联测试模块外移，7 个文件的**生产段**全部 ≤1557 行；
+> `scripts/ci/file_size_baseline` 的对应 7 条**逐条收紧**而不是整表 `--update`）
+> ⇒ 架构设计 P2 `2 → 1`、合计 `6 → 5`。
+> ⚠️ 同一轮**新登记** **NEW-20**（P2）：`check_file_size_ratchet.py` **在 HEAD 上就是红的**
+> —— 67 个文件涨过各自上限、另有 2 个新增 >600 行文件未入册（`--update` 会一次性批准全部
+> 无关增长，故本笔只收紧自拆的 7 条，闸门仍红）⇒ P2 `2 → 3`、合计 `5 → 6`。
+> **净结果：合计 6 → 6，但构成变了** —— ARCH-05 关闭、NEW-20 打开。
 > ✅ NEW-19：`/send` 的线程回复现在同时进 `thread_relations` 与 `thread_replies`
 > （时间戳回查刚落库的事件，不用本地时钟；重试同一 txn 不重复计数）。
 > ✅ NEW-10：4 处手写轮询折成 `tests/common/mod.rs::wait_until`，测试域 `sleep` 计数
@@ -74,14 +83,14 @@
 `routes/device.rs::broadcast_device_list_update`（签名事务），死的是 `device_sync` 里那条
 零调用者的重复实现，已删除；更正过程记在[附录 D](#附录-d已关闭条目索引)。
 剩下的 6 条里，**没有一条会造成数据丢失或越权**；3 条 P2 分别是 `events` 未分区（ARCH-04）、
-7 个 >2000 行生产文件（ARCH-05）、837 处静默忽略（CODE-10）
+837 处静默忽略（CODE-10）、文件行数棘轮在 HEAD 上已红（NEW-20）
 —— 全是**长期结构债**：
 不修也不会立刻出错，但每加一个功能都在加利息。3 条 P3 **全部是 §0.2.3 的登记项**
 （规范漂移/文档失真/死代码），没有待裁决项。
 
 **下一批该做什么**：**没有"我们知道怎么改但还没动手"的条目了**。剩下的 6 条分两类 ——
 ① 4 条**登记项**（§0.2.3，明确不做或只等外部条件）；
-② ARCH-04/ARCH-05（§0.2.2）这两条结构债要真实数据量/行为不变的证明才谈得上动。
+② ARCH-04（真实数据量）与 NEW-20（67 条无关增长要不要一次性批准）这两条**卡在决策上**。
 
 ## 0.1 第七轮新发现（2026-10-24，只列仍开着的）
 
@@ -139,7 +148,7 @@
 | 编号 | 级别 | 一句话 | 卡在哪 |
 |---|---|---|---|
 | **ARCH-04** | P2 | `events` 未分区、`room_memberships` 无归档 | 需要真实数据量判断分区收益；本机无生产级数据，属**等外部条件** |
-| **ARCH-05** | P2 | 7 个生产文件 >2000 行 | 拿不出可失败验证（拆完行为不变），按 §10.0 降级为**登记项**，不排期 |
+| **NEW-20** | P2 | `check_file_size_ratchet.py` **在 HEAD 上就是红的**：67 个文件涨过各自上限，另有 2 个新增 >600 行文件未入册 | 只有两条路：① 逐条回溯是谁涨的、为什么（67 条，几十次提交）；② 整表 `--update`（= 一次性批准全部无关增长）。两条都要人拍板，本笔只收紧自己拆的 7 条，**闸门仍红** |
 
 ### 0.2.3 登记项（已知、明确不做或只等时机）
 
@@ -182,7 +191,7 @@
 | clippy allow | **271 处 / 117 文件**；其中无理由 **160 / 96**（棘轮基线） | 机械扫描 + `CLIPPY_ALLOW_*` |
 | `let _ =` / `unwrap_or_default()` / `if let Ok(` | 生产 **837 / 238 文件**；全仓 **1580 / 337 文件** | 机械扫描 |
 | `tokio::time::sleep` | **90 处 / 43 文件** | 机械扫描 |
-| `>2000` 行 `.rs` | 生产 **7**；测试基建 **2**（`test_isolation.rs` 3305、`test-utils/lib.rs` 2973）；生成 **1**（`derived_route_table_always.inc.rs` 5512）；测试 **3** | `wc -l` |
+| `>2000` 行 `.rs` | 生产 **0**（W11 前 7，内联测试外移后最大 1557）；测试基建 **2**（`test_isolation.rs` 3305、`test-utils/lib.rs` 2973）；生成 **1**（`derived_route_table_always.inc.rs` 5512）；测试 **3** | `wc -l` |
 | 依赖分裂 | crate 名 **47** / 多版本 **32** / 同版本多来源 **15** | `cargo tree -d --workspace --locked` 按 crate 名聚合 |
 | `check_*` 门禁脚本 | **47 个，全部可达或已登记（豁免 0）** | `python3 scripts/ci/check_gate_reachability.py` |
 | 基线 SQL `updated_ts` 列 | **84 列**：`NOT NULL` **43** / 可空 **42**（`grep updated_ts` 的 86 里含 1 行注释与 1 行 `ALTER`） | `python3 scripts/ci/check_schema_timestamp_convention.py --print` |
@@ -254,22 +263,40 @@
 - **现状**：W4 只做了**分批 prune**（`PERF-06`，已关闭）；分区/归档未动。
 - **修法**：按 `origin_server_ts` 声明式分区（或至少按月归档表）。
 
-### ARCH-05（P2）7 个生产文件 >2000 行
+### ARCH-05（P2）7 个生产文件 >2000 行 —— ✅ 已关闭（本笔）
 
-| 文件 | 行数 |
-|---|---|
-| `synapse-storage/src/room/mod.rs` | 2531 |
-| `synapse-storage/src/membership/mod.rs` | 2502 |
-| `synapse-storage/src/refresh_token/mod.rs` | 2478 |
-| `synapse-common/src/error.rs` | 2442 |
-| `synapse-storage/src/device/mod.rs` | 2382 |
-| `synapse-common/src/config/mod.rs` | 2324 |
-| `synapse-federation/src/client.rs` | 2086 |
+| 文件 | 原行数 | 拆后 | 生产段 |
+|---|---|---|---|
+| `synapse-storage/src/room/mod.rs` | 2531 | 1557 | 1557（`db_tests` 外移 967 行） |
+| `synapse-storage/src/membership/mod.rs` | 2502 | 1187 | 1187（`tests` 188 + `db_tests` 1133 外移） |
+| `synapse-storage/src/refresh_token/mod.rs` | 2478 | 1258 | 1258（`tests` 1249 外移） |
+| `synapse-common/src/error.rs` | 2442 | 1230 | 1230（`tests` 1246 外移） |
+| `synapse-storage/src/device/mod.rs` | 2382 | 1373 | 1373（`tests` 356 + `db_tests` 620 外移） |
+| `synapse-common/src/config/mod.rs` | 2324 | 1408 | 1408（`tests` 916 外移） |
+| `synapse-federation/src/client.rs` | 2086 | 1448 | 1448（`tests` 674 外移） |
 
 - **口径边界**：以下**不计入**拆分目标 —— 生成物 `derived_route_table_always.inc.rs`（5512，改生成器而非产物）、
   测试基建 `synapse-common/src/test_isolation.rs`（3305）与 `synapse-test-utils/src/lib.rs`（2973）、
   测试文件 `tests/integration/room_service_tests_migrated.rs`（5255）等 3 个。
-- **为什么登记而不排期**：拿不出"先红后绿"的验证 —— 拆分的行为结果应完全不变，无法证明"修好了"。
+- **原判定被推翻**：本节原写"拿不出可失败验证（拆完行为不变）"。实测**不需要证明行为不变**——
+  7 个文件里 5 个超 2000 行的主因就是**内联测试模块**（`error.rs` 生产段只到 1229 行，
+  后面 1251 行全是 `mod tests`），把测试块按仓库**既有约定**（`event/db_tests.rs` /
+  `thread/db_tests.rs` / `room_summary/db_tests.rs` 都是独立测试文件）外移即可，
+  模块路径仍是 `<父模块>::<name>`、`use super::*` 语义不变 ⇒ 零行为变更。
+- **落地**：9 个内联测试模块外移到同级文件（`room/db_tests.rs`、`membership/{tests,db_tests}.rs`、
+  `refresh_token/tests.rs`、`error/tests.rs`、`device/{tests,db_tests}.rs`、`config/tests.rs`、
+  `client/tests.rs`），父文件只留 `#[cfg(test)] mod X;`（`#[allow(...)]` 等属性留在声明上，
+  lint 属性对模块内容同样生效）。
+- **判据（可失败）**：`scripts/ci/file_size_baseline` 的 7 条**逐条收紧**到新行数，
+  再把 `room/mod.rs` 人为追加 20 行 ⇒ 闸门把它列为 `room/mod.rs: 1557 -> 1577`；
+  删掉追加后该条目从失败列表消失（实测两次，见提交）。编译判据：
+  `cargo check -p synapse-common --all-targets`、`-p synapse-federation --all-targets`、
+  `-p synapse-storage --features test-utils --tests` 全绿（零警告）；
+  跑通 `error::tests` 78 passed、`config::tests` 67 passed、`client::tests` 34 passed、
+  `room::db_tests` 44 passed、`membership::` 39、`refresh_token::` 41、`device::` 54。
+- **连带（已登记 NEW-20）**：外移出的 9 个测试文件里有 7 个 >600 行，按仓库现状（`event/db_tests.rs`
+  3471 行同样在册）进入基线；同时发现 `check_file_size_ratchet.py` **在 HEAD 上本来就红**
+  （67 个文件涨过上限 + 2 个新增 >600 行文件），本笔**没有**整表 `--update`。
 
 ---
 
@@ -691,20 +718,22 @@ TEST_FILE 47 = 107**；测试域合计 81。
 | W8 | 测试面（TEST-05/NEW-05/NEW-09/NEW-14）+ 能力台账（MAINT-04/FUNC-05/ARCH-03/CODE-01b/CODE-08）+ 文档漂移（DOC-04） | ✅ 逐条判据见附录 D |
 | W9 | 测试基建特性隔离（MAINT-01）+ `#[allow]` 计数纠偏（CODE-11 数字绑基线） | ✅ 本笔（MAINT-01 见附录 D；CODE-11 仍为登记项） |
 | W10 | P2 数据层保留期：`to_device_messages` 按龄清理（PERF-01） | ✅ 本笔（见附录 D） |
+| W11 | P2 文件规模：9 个内联测试模块外移，7 个 >2000 行生产文件全部 ≤1557（ARCH-05） | ✅ 本笔（见附录 D；连带登记 NEW-20） |
 
 ### 10.2 下一批建议
 
 W8 计划的三项（`TEST-05` → `NEW-05` → `FUNC-05`）已全部收口，清单里已无 P0/P1、也无 P3 待裁决项。
-剩下 6 条里能动的只有 3 条 P2 结构债，而每条都**卡在一个前提上**，不是排期问题：
+剩下 6 条里能动的只有 2 条 P2 结构债，而每条都**卡在一个前提上**，不是排期问题：
 
 | 待办 | 前提 |
 |---|---|
 | ARCH-04（`events` 分区） | 需要真实数据量证明收益；本机无生产级数据 |
-| ARCH-05（7 个 >2000 行文件） | 需要"拆分后行为不变"的可失败验证；当前拿不出 |
 | CODE-10（837 处静默忽略） | 只按"错误被吞有无用户可见后果"分类处理，且**不设配额** |
+| NEW-20（文件行数棘轮在 HEAD 上已红） | 要么逐条回溯 67 条增长（几十次提交），要么整表 `--update` 一次性批准；需人拍板 |
 
 其余（`CODE-11`、`PERF-11/12`）都是随触达顺手做或等外部条件的登记项。
-PERF-01 已于 W10 收口（`to_device_messages` 按龄清理 + 零天关闭开关，判据与变异见附录 D）。
+PERF-01 已于 W10 收口（`to_device_messages` 按龄清理 + 零天关闭开关，判据与变异见附录 D）；
+ARCH-05 已于 W11 收口（生产段全部 ≤1557 行，行数棘轮 7 条逐条收紧，变异自证见附录 D）。
 
 ### 10.3 明确不做（防止过度开发）
 
@@ -839,4 +868,5 @@ PERF-01 已于 W10 收口（`to_device_messages` 按龄清理 + 零天关闭开�
 | PERF-10 | PostgreSQL 实例级未设 `statement_timeout`（直连 psql 的运维查询可无限挂起） | **已修**（`812661672`）。应用侧本就按连接兜底（`src/server/database.rs` 的 `after_connect` 对每个连接 `set_config` 三个超时，默认 30s/10s/60s；迁移器逐语句 `SET statement_timeout='30s'`），缺的只是实例级。`docker/config/postgres.conf` 新增小节：`statement_timeout = 5min`、`idle_in_transaction_session_timeout = 60s` —— **刻意不比应用更严**：应用连接会被会话级 `set_config` 覆盖，实例级只防直连；写成 10s 只会提前掐断运维手工 `CREATE INDEX` / `VACUUM`。门禁沿用既有 `scripts/ci/check_connection_budget.py`（不新增脚本，避免 `check_gate_reachability` 登记）：两个键必须显式存在（缺 ⇒ `exit 2`）、实例级 ≥ `synapse-common/src/config/database.rs` 的应用默认（违例 ⇒ `exit 1`）。`docker/deploy/README.md` 同名小节写明「应用侧已兜底，这里防的是直连」。**变异**：`5min → 10s` ⇒ `exit 1`；删键 ⇒ `exit 2`；还原 ⇒ 绿（三次实测）。**边界**：生产实例的 `postgresql.conf` 由部署方管理，本仓只覆盖 docker 形态 |
 | SEC-12 | legacy r0/v1/r1 媒体下载端点匿名可读 | **裁决：不是漏洞，是 Matrix legacy 语义**（r0/v1 匿名可读；原描述把 **r1 也算进去了，实际 r1 早已挂 `auth_middleware`**——VULN-01/02，`api_security_vuln_fix_tests` 三条 401 用例是证据）。做法按审计原修法：**登记为设计决策 + 部署文档说明**，不改 `auth`。`docker/deploy/README.md` 新增「媒体下载的匿名读语义」小节，表格列全六类路径（r0/v1 匿名 · v3 匿名 · v3 `download_signed` HMAC · r1 必须 token · `/_matrix/client/v1/media` 必须 token）并写明"要关闭匿名读就得给 legacy router 挂 `auth_middleware`，且先按客户端版本分布裁决"。**判据**：`doc_credibility_guard_tests::legacy_media_anonymous_read_is_registered_and_matches_the_router` 四方绑定（部署文档小节存在且点名 r0/v1 + `auth_middleware` / r1 必须挂 / r0·v1 不得挂且必须 merge legacy router / `download_media_v1` 仍 `OptionalAuthenticatedUser`），用新 helper `fn_body` 按**函数体**切片，防止同文件里 r1 的 `auth_middleware` 让 r0 断言假通过；`doc_credibility_guard_tests` **16 passed**。**变异**：删 README 小节标题 ⇒ 红；给 `create_media_r0_router` 挂 `auth_middleware` ⇒ 红；去掉 r1 的 `auth_middleware` ⇒ 红（三条均实测，还原后 16 passed） |
 | PERF-01 | `to_device_messages` 对普通设备无按龄清理（只有脱水设备路径有 `DELETE`），长期不活跃设备的积压永久累积 | **已修（W10）**。**语义裁决**：`claim_messages` 是 `WITH deleted AS (DELETE … RETURNING)`、`delete_messages_up_to` 按 `stream_id <= $3` 删 ⇒ **取走即删**，所以存活超窗的行只能是"设备从未回来取"的积压，不需要投递确认；代价显式接受——离线超窗设备丢积压（与 `DEVICE_LIST_STREAM_RETENTION_DAYS` 同等取舍），回来从 `/sync` 重拉。**落地**：`synapse-storage/src/pruning.rs` 的 `TO_DEVICE_MESSAGES_RETENTION_DAYS = 30` + `prune_old_to_device_messages`（复用 `PERF-06` 的 `ctid` 分批；`retention_days == 0` ⇒ `Ok(0)` 关闭，不是"删光"）、`RetentionConfig::to_device_retention_days`（默认 30）、`src/server/mod.rs` prune 循环第 11 步、`docker/config/homeserver.yaml` 显式写 30 并注明 0 为关闭；**不建 `created_ts` 索引**（选择性差，`ctid … LIMIT` 顺序扫描更划算）。**判据**：`prune_to_device_messages_respects_window_and_the_zero_day_off_switch`（真库；40 天前 2 条 + 1 天前 1 条 ⇒ 删 2 留 1 且留下 1 天前那条；`0` 天删 0 行且 3 行全在），`--lib pruning::` **17 passed**、`config::retention` 1 passed。**变异**：删零天 guard ⇒ 红（`left: 3, right: 0`）；`<` 改 `>` ⇒ 红（`left: 1, right: 2`），两次还原后均绿。`check_sqlx_dynamic_ratio.sh` 动态生产 +1（运行时 `sqlx::query()`，`SQLX_CACHE_ENTRIES` 不变），基线已同步并写明来源 |
+| ARCH-05 | 7 个生产文件 >2000 行（`room/mod.rs` 2531、`membership/mod.rs` 2502、`refresh_token/mod.rs` 2478、`error.rs` 2442、`device/mod.rs` 2382、`config/mod.rs` 2324、`client.rs` 2086） | **已修（W11）**。**原判定错在"要证明拆分后行为不变"**：这 7 个文件超 2000 行的主因是**内联测试模块**（`error.rs` 生产段只到 1229 行，测试块 1251 行；`config/mod.rs` 1374 + 916；`room/mod.rs` 1532 + 967），把测试块外移**本身就是零行为变更**，模块路径仍是 `<父模块>::<name>`、`use super::*` 语义不变。**落地**：9 个内联测试模块外移到同级文件（`room/db_tests.rs`、`membership/{tests,db_tests}.rs`、`refresh_token/tests.rs`、`error/tests.rs`、`device/{tests,db_tests}.rs`、`config/tests.rs`、`client/tests.rs`），父文件只留 `#[cfg(test)] mod X;`（`#[allow(...)]` 留在声明上，lint 属性对模块内容同样生效）；拆后 7 个文件分别为 1557 / 1187 / 1258 / 1230 / 1373 / 1408 / 1448，**生产 `>2000` 行数 7 → 0**。**判据（可失败）**：`scripts/ci/file_size_baseline` 的 7 条逐条收紧（不是整表 `--update`）；给 `room/mod.rs` 追加 20 行 ⇒ 闸门报 `room/mod.rs: 1557 -> 1577`，删掉后该条目消失（两次实测）。编译：`cargo check` 覆盖 `synapse-common`/`synapse-federation`/`synapse-storage` 的 `--all-targets` 全绿零警告；测试：`error::tests` **78 passed**、`config::tests` **67 passed**、`room::db_tests` **44 passed**（真库）、`client::tests` **34 passed**、`membership::` **39**、`refresh_token::` **41**、`device::` **54**（后三条含真库 db 用例）。**连带**：外移出的 9 个测试文件里 7 个 >600 行按现状入册；并发现 `check_file_size_ratchet.py` 先前就在 HEAD 上红（67 条无关增长 + 2 个新增超限文件），登记为 **NEW-20**，未整表 `--update` |
 | MAINT-01 | `synapse-common` 的 4 个测试基建模块（`test_database_guard` / `test_isolation` / `test_schema_guard` / `test_schema_orphans`）无条件编译，随每个生产二进制进入依赖图 | **已修（本提交）**：4 个模块改为 `#[cfg(any(test, feature = "test-utils"))]`。**为什么只能在测试侧打开**：依赖方的 `#[cfg(test)]` 对被依赖 crate 不可见，所以 `synapse-storage` / `synapse-e2ee` / `synapse-federation` / `synapse-services` / `synapse-web` 的**库内测试代码**看不到被关掉的模块 —— 只有把 `synapse-common/test-utils` 写进各自的 `[dev-dependencies]` 才成立；而 dev-dependency 的 feature 不并入非测试构建（resolver v2），生产依赖图因此保持干净。`synapse-test-utils` 是测试基建 crate 本身，走普通 `[dependencies]`。**判据**：`doc_credibility_guard_tests::test_infrastructure_is_feature_gated_and_never_ships_in_production` 四段断言（每个 `pub mod test_*;` 的紧邻上一行必须恰为 gate / 6 份消费者 manifest 的 `[dev-dependencies]` 必须含 `test-utils` 且 `[dependencies]` 必须不含 / `synapse-test-utils` 必须含 / 根 manifest 的 `synapse-test-utils` 必须 `optional` 且 `test-utils` feature 必须 `dep:synapse-test-utils`）；`cargo check --workspace --lib`（生产形态）与 `cargo check --workspace --all-targets --features test-utils`（规范测试形态）均 0 退出。**变异**：删掉 `test_isolation` 前的 gate ⇒ 红；去掉 `synapse-storage` dev 段的 `features = ["test-utils"]` ⇒ 红（两条均实测，还原后全绿） |
