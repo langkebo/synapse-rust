@@ -13,24 +13,26 @@
 
 | 维度 | P0 | P1 | P2 | P3 | 合计 |
 |---|---|---|---|---|---|
-| 架构设计 | 0 | 0 | 2 | 1 | 3 |
+| 架构设计 | 0 | 0 | 2 | 0 | 2 |
 | 代码质量 | 0 | 0 | 1 | 1 | 2 |
 | 功能完整性 | 0 | 0 | 0 | 0 | 0 |
 | 性能（含数据层） | 0 | 0 | 1 | 3 | 4 |
 | 安全性 | 0 | 0 | 0 | 5 | 5 |
-| 可维护性 | 0 | 0 | 1 | 1 | 2 |
+| 可维护性 | 0 | 0 | 1 | 0 | 1 |
 | 测试覆盖 | 0 | 0 | 0 | 0 | 0 |
 | 文档完整性 | 0 | 0 | 0 | 0 | 0 |
 | 专项：冗余与过度开发 | 0 | 0 | 0 | 0 | 0 |
-| **合计** | **0** | **0** | **5** | **11** | **16** |
+| **合计** | **0** | **0** | **5** | **9** | **14** |
 
-> 计数口径（2026-10-25 08:20 逐条重算，**按表格行**计，合并行只算一行）：**P0 = 0，P1 = 0，P2 = 5，P3 = 11，合计 16**。
-> 来源 = §0.1 的 2 条 open `NEW-*`（NEW-15 / NEW-16）、§0.2.2 的 2 条、§0.2.3 的 12 条。
+> 计数口径（2026-10-26 逐条重算，**按表格行**计，合并行只算一行）：**P0 = 0，P1 = 0，P2 = 5，P3 = 9，合计 14**。
+> 来源 = §0.2.2 的 2 条 + §0.2.3 的 12 条（§0.1 已于 2026-10-26 清空）。
 > ⚠️ **本版更正一处旧账**：上一版写 `P3 = 13`，但把 §0.1 / §0.2.2 / §0.2.3 三处表格按行数出来是
 > **14 行**（正则 `^\| \*\*ID\*\* \| P[0-9] \|` 扫一遍即可复核）—— 13 是漏计，不是有 1 条被关掉。
 > 本版关闭 **NEW-19**（P2/功能完整性，`2e33c45a8`）、**NEW-10**（P3/测试覆盖，`d9fa05d26`）、
 > **NEW-09**（P3/测试覆盖，`615b500d4`）与 **NEW-11**（P3，`050aefcb4` + 本笔）
 > ⇒ P2 `6 → 5`、P3 `14 → 11`、合计 `20 → 16`。
+> 本轮（2026-10-26）裁决并落地 **NEW-15**（删除未知任务统一 404）与 **NEW-16**（不限额时
+> `remaining: null`）⇒ P3 `11 → 9`、合计 `16 → 14`；§0.1 自此清空，判据见附录 D。
 > ✅ NEW-19：`/send` 的线程回复现在同时进 `thread_relations` 与 `thread_replies`
 > （时间戳回查刚落库的事件，不用本地时钟；重试同一 txn 不重复计数）。
 > ✅ NEW-10：4 处手写轮询折成 `tests/common/mod.rs::wait_until`，测试域 `sleep` 计数
@@ -43,41 +45,34 @@
 > ✅ **NEW-14 已收口**：C3 审计面 15 → 95 个文件（零误伤），14 个 `NONE` 族已逐族重跑 ⇒
 > 4 族误判（改登记）、3 族幽灵、7 族真缺口（见 §0.1.1）。
 > `NEW-08` 已于 2026-10-25 关闭（`device_sync.rs` 整模块删除，判据与变异证据见附录 D），不再计入。
-> 其中 **14 条是"登记项"**（明确不做或只等外部条件）；§0.1 只剩 **NEW-15 / NEW-16**
-> 两条**等裁决**的对外 JSON 契约项，没有"我们已经知道怎么改但还没动手"的条目了。
+> 其中 **14 条是"登记项"**（明确不做或只等外部条件）；§0.1 已于 2026-10-26 清空
+> （最后两条 `NEW-15` / `NEW-16` 已裁决并落地），没有"我们已经知道怎么改但还没动手"的条目了。
 
 **结论摘要**：**P0 = 0，P1 = 0**（原 9 条 P1 全部有实现 + 能失败的门禁，逐条见附录 D）。
 ⚠️ 第八轮曾把一条误报成 P1（NEW-06「设备吊销通知静默丢失」），**已撤回**：真实广播路径在
 `routes/device.rs::broadcast_device_list_update`（签名事务），死的是 `device_sync` 里那条
 零调用者的重复实现，已删除；更正过程记在[附录 D](#附录-d已关闭条目索引)。
-剩下的 16 条里，**没有一条会造成数据丢失或越权**；5 条 P2 分别是 `events` 未分区（ARCH-04）、
+剩下的 14 条里，**没有一条会造成数据丢失或越权**；5 条 P2 分别是 `events` 未分区（ARCH-04）、
 7 个 >2000 行生产文件（ARCH-05）、837 处静默忽略（CODE-10）、`to_device` 无按龄清理（PERF-01）、
 测试替身未做特性隔离（MAINT-01）—— 全是**长期结构债**：
-不修也不会立刻出错，但每加一个功能都在加利息。11 条 P3 里 **9 条是 §0.2.3 的登记项**，
-另 2 条在 §0.1：`NEW-15`（删除语义 204 vs 404）与 `NEW-16`（不限额时 `remaining` 报 0）——
-**两条都是对外 JSON 契约决策，需要客户端侧拍板**，不是"实现不了"。
+不修也不会立刻出错，但每加一个功能都在加利息。9 条 P3 **全部是 §0.2.3 的登记项**
+（规范漂移/文档失真/死代码），没有待裁决项。
 
-**下一批该做什么**：**没有"我们知道怎么改但还没动手"的条目了**。剩下的 16 条分三类 ——
-① 2 条**等裁决**（`NEW-15` 删除语义要 404 还是 204、`NEW-16` 不限额时 `remaining` 报 `null`），
-两条都要动对外 JSON 契约，得先确认客户端怎么读；② 14 条**登记项**（§0.2，明确不做或只等外部条件）；
-③ ARCH-04/ARCH-05 这两条结构债要真实数据量/行为不变的证明才谈得上动。
+**下一批该做什么**：**没有"我们知道怎么改但还没动手"的条目了**。剩下的 14 条分两类 ——
+① 12 条**登记项**（§0.2.3，明确不做或只等外部条件）；
+② ARCH-04/ARCH-05（§0.2.2）这两条结构债要真实数据量/行为不变的证明才谈得上动。
 
 ## 0.1 第七轮新发现（2026-10-24，只列仍开着的）
 
-> 这是第七轮（2026-10-24）新发现里**仍开着**的部分。**已关闭的 11 条不在此重复**，判据与证据见
-> [附录 D](#附录-d已关闭条目索引)：除下面列出的 2 条外，还有 **NEW-04**（`scripts/...` 悬挂引用）、
-> **NEW-05**（「自证测试」面）、**NEW-09**（端点族 HTTP 往返补测）、**NEW-10**（4 处裸 `sleep` 轮询）、
-> **NEW-11**（state 组装层等价断言）、**NEW-19**（`/send` 线程回复索引）。
-> 其余已关闭：
-> NEW-01（联邦缩略图 `animated` 未透传）、NEW-02（规则文档入库）、DOC-03（MSC3245 错标）、
-> **NEW-06（设备吊销通知「静默丢失」—— 误报，已撤回并删除死代码）**、
-> **NEW-07（联邦入站设备列表 EDU 对客户端不可见 —— 真缺陷，已修）**、
-> **NEW-08（`device_sync.rs` 零调用死模块 —— 已整模块删除）。**
+> 这是第七轮（2026-10-24）新发现里**仍开着**的部分。**2026-10-26 已清空** —— 最后两条
+> `NEW-15`（删除未知任务统一 404）与 `NEW-16`（不限额时 `remaining: null`）已裁决并落地，
+> 判据与证据见[附录 D](#附录-d已关闭条目索引)。其余已关闭条目（`NEW-04` / `NEW-05` / `NEW-09` /
+> `NEW-10` / `NEW-11` / `NEW-19` 等）同样只在附录 D 保留索引，完整正文在归档文件里。
+> 本节保留为空表，是为了让"§0.1 已清空"这件事本身可核对，而不是删掉标题让人找不到。
 
 | 编号 | 级别 | 一句话 | 证据 |
 |---|---|---|---|
-| **NEW-15** | P3 | **删除语义不对称**：`DELETE /_synapse/admin/v1/background_updates/{job}` 对**未知任务返回 204**（`background_update_service::delete_update` 只调 `storage.delete_update`，不查存在性），而 `DELETE /registration_tokens/{token}` 会先 `get_token` 再删、未知返回 404 | 写 `api_background_update_routes_tests` 时实测（同一场景两条断言：GET 404 / DELETE 204）。DELETE 幂等返回 204 本身符合 HTTP 语义，但**打错任务名的删除会静默成功**，运维会以为删掉了。两条路统一成哪种（都 404 / 都 204）属 API 契约决策，需要单独裁决；当前测试钉住的是**实际行为**，不是理想行为 |
-| **NEW-16** | P3 | **不限额时 `remaining` 报 0**：`GET /_matrix/media/v1/quota/check` 用 `if used >= limit { 0 } else { limit - used }` 算剩余空间，而 `limit == 0` 在本仓表示**不限额**（写入路径靠 `if max_storage > 0` 才拦，实测 limit=0 时上传成功）⇒ 不限额的用户看到的是"剩余 0 字节"，客户端会渲染成"空间已满" | 写 `api_media_quota_routes_tests` 时实测（默认配置 `{"limit":0,"used":0,"remaining":0}`，同一条链上传 1KB 成功且 `used` 正常增长）。修法是把 `limit == 0` 明确映射成 `remaining: null`（或 `limit: null`），属对外 JSON 契约变更，需与客户端确认后再改；测试当前断言**实际行为**并在注释里标 NEW-16 |
+| — | — | 无开放项（2026-10-26 清空） | 见附录 D 的 `NEW-15` / `NEW-16` |
 
 ### 0.1.1 NEW-14 重跑结果：14 个 `NONE` 族的逐族判定（2026-10-25）
 
@@ -116,7 +111,7 @@
 ### 0.2.1 可先红后绿
 
 > 2026-10-24 已清空：最后一条 `TEST-05` 已按「逐处分类 + 注解门禁」收口（见附录 D）。
-> 剩下的 19 条全部落在 §0.2.2（需要决策/等价断言）与 §0.2.3（登记项）。
+> 剩下的 14 条全部落在 §0.2.2（需要决策/等价断言）与 §0.2.3（登记项）。
 
 ### 0.2.2 需要决策或外部条件
 
@@ -651,6 +646,8 @@ TEST_FILE 47 = 107**；测试域合计 81。
 
 | 编号 | 一句话 | 关闭依据 |
 |---|---|---|
+| NEW-15 | `DELETE /_synapse/admin/v1/background_updates/{job}` 对未知任务返回 204，与同族 `DELETE /registration_tokens/{token}` 的 404 不一致 | **裁决：统一 404 `M_NOT_FOUND`**。理由：静默 204 让"打错任务名"看起来删成功了，运维会误判为已清理，而真正该做的清理漏掉没人发现；同族 admin 删除端点未知即 404，语义应当一致。实现：`BackgroundUpdateStoreApi::delete_update` 返回 `Result<bool, _>`（PG 侧 `rows_affected() > 0`），trait / PG 实现 / trait impl / `InMemoryBackgroundUpdateStore` mock 四处同步；`background_update_service::delete_update` 在 `false` 时 `ApiError::not_found("Update not found")`，handler 不改（错误自动传播）。**幂等保留**：删已存在的任务仍 204，只是第二次删才 404。**判据**：`unknown_update_is_not_found` 的 DELETE 断言从 204 翻成 **404 + `M_NOT_FOUND`** 并转绿；新增服务层单测 `delete_unknown_update_is_not_found`（断言 `error.kind == ApiErrorKind::NotFound`；`ApiError` 是结构体不是 enum）；`test_db_delete_update` 增加「首次 true / 再次 false 且不报错」两条断言 |
+| NEW-16 | 不限额（`limit == 0`）时 `GET /_matrix/media/v1/quota/check` 的 `remaining` 报 0，客户端会渲染成"空间已满" | **裁决：`limit == 0` ⇒ `remaining: null`**（`limit` 仍为数值 0，`used` 不变）。理由：`0` 在字节域里天然读作"剩余零"，而本仓 `limit == 0` 的语义是**不限额**（`media/repository.rs::check_quota` 在 `max_storage == 0` 时直接放行）；只把 `remaining` 可空化、不动 `limit`/`used` 的数值语义，对客户端是**单字段的向后兼容**，且让"无上限"变成可判别的显式信号。实现：`synapse-web/src/routes/media/quota.rs` 的 `remaining` 改为 `Option<i64>`。**判据**：`quota_check_reports_consistent_math` 在 `limit == 0` 分支改为断言 `check["remaining"].is_null()`，`limit > 0` 分支仍校验 `remaining == limit - used`；`docs/sdk/media.md` 的 `/quota/check` 响应行补「`limit == 0` 时 `remaining` 为 `null`」 |
 | ARCH-02 | `sync` 与 `sliding_sync` 无共享语义基座（时间线裁剪/顺序/`limited` 各写一遍） | **先断言后抽取**：新增 `tests/integration/sync_path_equivalence_tests.rs` 3 条等价断言（完整序列一致 / 裁剪后保留最新 N 条 / 两条路径都置 `limited`）。断言**首次运行即红**，抓到 `get_room_events_batch_inner` 的 `ORDER BY stream_ordering ASC` + `rn <= limit` 取**最旧** N 条 ⇒ 初始同步让长房间的客户端永远看不到最新消息（实测 5 条消息、上限 2：`/sync` 给最旧两条、滑动同步给最新两条）；只对**无 `since`** 的初始同步改 DESC，增量保持 ASC 按批追赶。timeline 层抽成 `sync_helpers::timeline_window`（含 `TimelineOrder`），两条路径共用。判据：修复后 3 passed；`sync_service_tests_migrated` + `sliding_sync_service_tests_migrated` + `sync_handlers_coverage_tests` 全绿；services lib 的 timeline 相关 32 条单测全绿。**state 组装层未共享**，另登记 NEW-11 |
 | NEW-13 | `thread` 两处 MSC3440 偏差：`/send` 不登记线程根、`thread_id` ≠ 根事件 id | **已修（两半）**：① `send_message` 在事件落库后 best-effort 调 `ThreadService::ensure_thread_root_for_reply`（幂等：先按根事件查，缺了才建，撞 `UNIQUE(room_id, root_event_id)` 就重读确认；失败只 warn，**不回滚发送**）；② 读侧在 `get_thread` 里"按 thread_id 查不到就按 `root_event_id` 回退"，**不迁移**既有 `thread_roots.thread_id` 值（迁移是破坏性改动，读侧兼容够用）。判据：新增 `threaded_send_alone_is_readable`（纯 `/send` → `GET /threads/{root}` 200 且 `root.root_event_id` 对得上）转绿；`api_thread_read_routes_tests` **6 passed**。遗留（另开 NEW-19）：`/send` 的回复仍不进 `thread_replies` 索引 ⇒ `replies` 为空 —— **NEW-19 已收口**，同一处在登记根之后再写 `thread_replies`（时间戳回查事件本体），见该行 |
 | NEW-17 | 滑动同步 `rooms` 结构不符合 MSC3575/MSC4186（扁平 map，规范要 `{join, invite, leave}`） | **已修**：在**序列化边界**分组（新增 `filters::group_rooms_by_membership`），内部仍保留扁平 map —— 因为 `extensions.rs` 的 4 处房间枚举与长轮询的 `has_new_timeline_events` 都按扁平读，改内部会让三处一起漂。分桶依据 payload 的 `invited` 布尔；`leave` 无数据来源但**键必须存在**。判据：`sliding_sync_lists_joined_room` 的断言从"房间在 rooms 顶层"翻成"在 `rooms.join` 里、且顶层不再有该房间"并转绿；`api_sliding_sync_routes_tests`(5) + 滑动同步 service 单测(74) 全绿。**后续（2026-10-25）**：这笔改动让 `sync_path_equivalence_tests` 的三条 ARCH-02 用例失效（它们按扁平 `rooms[room_id]` 读，改桶后一直是红的，当次没复跑）—— 已在 NEW-11 那一笔收口到 `rooms.join[…]` |
