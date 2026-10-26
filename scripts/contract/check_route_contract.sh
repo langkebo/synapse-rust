@@ -106,7 +106,8 @@ python3 scripts/contract/check_query_unknown_decisions.py
 
 # 第三批-1: API_COVERAGE_REPORT.md 的三口径 / 分类数字只允许由脚本产出。
 # 数据源就是上面刚校验过的 sidecar，因此本步必须排在其后。`--check` 比对报告里的
-# 三个生成块（TOTALS / CLIENT / ADMIN），任何手改都判红；`--self-test` 篡改一份
+# 三个生成块（TOTALS / CLIENT / ADMIN），以及 ROUTE_CONTRACT.md 总览的三口径
+# （注册条目 / 唯一路径 / 逻辑端点），任何手改都判红；`--self-test` 篡改一份
 # 正确内容并要求门禁判红，证明它不是"永远绿"的摆设（铁律 8）。
 echo "==> Coverage metrics drift gate (route_metrics.py) ..."
 python3 scripts/contract/route_metrics.py --self-test

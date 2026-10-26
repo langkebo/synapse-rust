@@ -264,7 +264,7 @@ INLINE_SITES: tuple[tuple[str, str, str, str], ...] = (
     (
         "docs/synapse-rust/ROUTE_CONTRACT.md",
         "LIVE_ROUTES",
-        r"本文件路由面（\*\*(?P<v>\d+)\*\* 条路由）",
+        r"本文件路由面（\*\*(?P<v>\d+)\*\* 条",
         "附录 B「后端事实源」：当前路由面条数",
     ),
     (

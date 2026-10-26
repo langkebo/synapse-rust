@@ -1,6 +1,6 @@
 # synapse-rust 路由契约（Route Contract）
 
-> 自动生成于 2026-10-25，源 = `synapse-web/src/routes/**` 真实 `.route()` 注册面 + `derived_routes.rs`（含按 profile 拆分的 `derived_route_table_{always,worker,oidc}.inc.rs`）派生覆盖。
+> 自动生成于 2026-10-26，源 = `synapse-web/src/routes/**` 真实 `.route()` 注册面 + `derived_routes.rs`（含按 profile 拆分的 `derived_route_table_{always,worker,oidc}.inc.rs`）派生覆盖。
 >
 > 本文件是后端 HTTP 契约的**事实来源之一**（机器侧权威为 `derived_routes.rs` 生成的 `RouteLedger`，启动时校验、集成测试 PATCH 探测）。人工文档（INDEX.md / API_COVERAGE_REPORT.md）须与之保持一致。
 >
@@ -8,8 +8,17 @@
 
 ## 总览
 
-- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**979**
-- 含路由注册的模块文件：**66**
+> **路由三口径**（互不可加、不可互换）的唯一计算实现是 `scripts/contract/route_metrics.py --json`，
+> 数据源为本目录的 `ROUTE_HANDLERS.json`；`route_metrics.py --check` 会拿本节三个数字与 sidecar 对账，
+> 任何一处手改或漂移都判红。引用「路由数量」时必须写明口径，三个数字不可互相替代。
+
+- **注册路由条目**（唯一 `(method, absolute_path)`，经 `.nest()` 前缀解析后去重）：**979**
+  · `/_matrix/client` 333 · `/_synapse/admin` 299 · 其他命名空间 347
+- **唯一路径**（去掉方法后的唯一 `absolute_path`）：**779**
+  · `/_matrix/client` 246 · `/_synapse/admin` 232 · 其他命名空间 301
+- **逻辑端点**（唯一路径再折叠 `v1`/`v3`/`r0`/`unstable/<seg>` → `vX`）：**760**
+  · `/_matrix/client` 229 · `/_synapse/admin` 230 · 其他命名空间 301
+- 含路由注册的模块文件：**66**（生成器口径；sidecar 口径 113/74/51 的差异见附录 B）
 - `derived_routes.rs` 中的 `registered_by` 标签：**75**
 - 非默认 profile 门控的路由（`default` 构建不注册）：**19**（worker **11** · oidc **8**，明细见「运行时 Profile 门控」）
 - 已被派生表覆盖的模块：**66**
@@ -1864,7 +1873,7 @@ EXTERNAL_TYPE_FILES = ("synapse-storage/src/sliding_sync/models.rs",)
 
 > 本附录为人工维护，基于 **SDK Manager 源码 + 后端 handler 源码双侧实读**，逐条核对「已封装后端功能」的完整性；重新生成脚本不覆盖本段。
 > **审计对象**：`@langkebo/matrix-js-sdk@40.2.0-langkebo.5`（`/Users/ljf/Desktop/hu_ts/matrix-js-sdk`）。
-> **后端事实源**：本文件路由面（**979** 条路由）+ `synapse-web/src/routes/**` handler 源码。
+> **后端事实源**：本文件路由面（**979** 条注册条目；另两个口径 779 / 760 见「总览」）+ `synapse-web/src/routes/**` handler 源码。
 > 　· 计数口径（2026-10-24 复核）：**979** = `all` profile 去重后的 `method + path` 条目数，三处独立读数一致 ——
 > 　　`tests/unit/fixtures/ledger_export_sdk/all.json` 的 `entry_count`、`docs/synapse-rust/ROUTE_HANDLERS.json` 的 `counts.routes`、
 > 　　以及 `derived_route_table_*.inc.rs` 的 981 行去重结果（960 `always` + 11 `worker` + 10 `oidc`）。

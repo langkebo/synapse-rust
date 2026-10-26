@@ -4,7 +4,8 @@
 背景：`docs/synapse-rust/API_COVERAGE_REPORT.md` 里的「注册条目 / 唯一路径 / 逻辑端点」
 长期靠人工递增抄写，v1.15 / v1.16 / v1.17 三个版本各自写下互相矛盾的数字，而机器侧
 sidecar 实测是 1048 条。本脚本是这些数字的**唯一实现**：报告只允许引用它生成的块，
-人工手改会被 `--check` 判红。
+人工手改会被 `--check` 判红。`--check` 同时校验 `ROUTE_CONTRACT.md` 总览的三个口径
+（注册条目 / 唯一路径 / 逻辑端点）与 sidecar 同数 —— 两份文档各写一份数字时，必须同源。
 
 数据源（唯一）：`docs/synapse-rust/ROUTE_HANDLERS.json`
   —— 由 `scripts/contract/gen_route_handlers.py` 从真实 `.route()` 注册面生成并入库，
@@ -332,22 +333,58 @@ def replace_block(text, name, body):
     return f"{head}{start_marker}\n{body}\n{end_marker}{tail}"
 
 
-def check_contract_total(m):
-    """sidecar 与 ROUTE_CONTRACT.md 的总览必须同数（两份独立产物）。"""
+CONTRACT_CALIBERS = (
+    ("注册路由条目", "registered_entries"),
+    ("唯一路径", "unique_paths"),
+    ("逻辑端点", "logical_endpoints"),
+)
+
+
+def contract_caliber_drift(text, m):
+    """返回 `ROUTE_CONTRACT.md` 总览三口径的漂移列表；空即一致。
+
+    每项为 `(label, declared_or_None, actual)`；`declared=None` 表示缺该口径行。
+    """
+    if "## 总览" not in text:
+        return [("总览", None, "章节")]
+    section = text.split("## 总览", 1)[1].split("\n## ", 1)[0]
+    drift = []
+    for label, key in CONTRACT_CALIBERS:
+        hit = re.search(
+            rf"^\s*[-*]\s*\*\*{label}\*\*[^\n]*?\*\*(\d+)\*\*", section, re.M
+        )
+        actual = m["calibers"][key]["total"]
+        if not hit:
+            drift.append((label, None, actual))
+        elif int(hit.group(1)) != actual:
+            drift.append((label, int(hit.group(1)), actual))
+    return drift
+
+
+def check_contract_calibers(m):
+    """`ROUTE_CONTRACT.md` 总览的三口径必须与 sidecar 同数（两份独立产物）。
+
+    三个数字缺一不可：只校验注册条目时，另外两个口径可以静默漂移，
+    正是历史上「979 / 779 / 760 各说各话」的成因。总览以外的章节不参与本检查
+    （附录 B 讲的是模块口径，不是这三个数的副本）。
+    """
     if not os.path.exists(CONTRACT):
         return None
     with open(CONTRACT, encoding="utf-8") as f:
         txt = f.read()
-    hit = re.search(r"注册路由条目[^\n]*?\*\*(\d+)\*\*", txt)
-    if not hit:
-        return None
-    declared = int(hit.group(1))
-    if declared != m["calibers"]["registered_entries"]["total"]:
-        raise SystemExit(
-            f"route_metrics: ROUTE_CONTRACT.md 总览 {declared} ≠ sidecar "
-            f"{m['calibers']['registered_entries']['total']}；两份机器产物已分叉，先修契约链。"
-        )
-    return declared
+    drift = contract_caliber_drift(txt, m)
+    if drift:
+        for label, declared, actual in drift:
+            if declared is None:
+                raise SystemExit(
+                    f"route_metrics: ROUTE_CONTRACT.md 总览缺少「{label}」口径行；"
+                    "三口径必须同时出现且带数值（定义见本脚本头部）。"
+                )
+            raise SystemExit(
+                f"route_metrics: ROUTE_CONTRACT.md 总览「{label}」{declared} ≠ sidecar "
+                f"{actual}；两份机器产物已分叉，先修契约链。"
+            )
+    return {label: m["calibers"][key]["total"] for label, key in CONTRACT_CALIBERS}
 
 
 def human(m):
@@ -403,6 +440,26 @@ def main():
             raise SystemExit(
                 "route_metrics --self-test: 手改一个数字后 --check 仍然通过 ⇒ 门禁无效"
             )
+        # 契约文档的三口径同样要能被判红：只测报告块等于放任 ROUTE_CONTRACT 漂移。
+        with open(CONTRACT, encoding="utf-8") as f:
+            contract = f.read()
+        if contract_caliber_drift(contract, m):
+            raise SystemExit(
+                "route_metrics --self-test: ROUTE_CONTRACT.md 总览三口径未判绿 —— "
+                "先按 definition 补齐/修正再跑自检"
+            )
+        tampered_contract = re.sub(
+            rf"(^\s*[-*]\s*\*\*唯一路径\*\*[^\n]*?\*\*)"
+            rf"{m['calibers']['unique_paths']['total']}(\*\*)",
+            r"\g<1>9999\g<2>",
+            contract,
+            count=1,
+            flags=re.M,
+        )
+        if not contract_caliber_drift(tampered_contract, m):
+            raise SystemExit(
+                "route_metrics --self-test: 手改 ROUTE_CONTRACT.md 唯一路径后仍然通过 ⇒ 门禁无效"
+            )
         print("✅ self-test: 篡改被检出，正确内容判绿")
         return 0
 
@@ -422,7 +479,7 @@ def main():
         return 0
 
     if sub.check:
-        check_contract_total(m)
+        check_contract_calibers(m)
         with open(REPORT, encoding="utf-8") as f:
             text = f.read()
         drift = block_drift(text, m)

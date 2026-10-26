@@ -25,6 +25,7 @@ ROOT = os.environ.get("SYNAPSE_RUST_ROOT") or os.path.dirname(
 # drifting copy of the list.
 sys.path.insert(0, SCRIPT_DIR)
 from extract_registered import load_ledger_annotations  # noqa: E402
+from route_metrics import compute as compute_route_metrics  # noqa: E402
 
 
 def _generated_stamp() -> str:
@@ -308,10 +309,44 @@ lines.append(
 lines.append("")
 lines.append("## 总览")
 lines.append("")
+# 三口径必须由 `route_metrics.py` 这一份实现产出：这里如果手写数字（或只写一个口径），
+# 重新生成就会悄悄把手写的另外两个口径抹掉，而 `route_metrics.py --check` 又会判红 ——
+# 历史上 979 / 779 / 760 各说各话就是这么来的。
 lines.append(
-    f"- 注册路由条目（绝对 `(method, path)`，经 `.nest()` 前缀解析后去重）：**{total}**"
+    "> **路由三口径**（互不可加、不可互换）的唯一计算实现是 `scripts/contract/route_metrics.py --json`，"
 )
-lines.append(f"- 含路由注册的模块文件：**{sum(1 for v in reg.values() if v)}**")
+lines.append(
+    "> 数据源为本目录的 `ROUTE_HANDLERS.json`；`route_metrics.py --check` 会拿本节三个数字与 sidecar 对账，"
+)
+lines.append(
+    "> 任何一处手改或漂移都判红。引用「路由数量」时必须写明口径，三个数字不可互相替代。"
+)
+lines.append("")
+
+_metrics = compute_route_metrics()
+for _label, _definition, _key in (
+    (
+        "注册路由条目",
+        "唯一 `(method, absolute_path)`，经 `.nest()` 前缀解析后去重",
+        "registered_entries",
+    ),
+    ("唯一路径", "去掉方法后的唯一 `absolute_path`", "unique_paths"),
+    (
+        "逻辑端点",
+        "唯一路径再折叠 `v1`/`v3`/`r0`/`unstable/<seg>` → `vX`",
+        "logical_endpoints",
+    ),
+):
+    _c = _metrics["calibers"][_key]
+    lines.append(f"- **{_label}**（{_definition}）：**{_c['total']}**")
+    lines.append(
+        f"  · `/_matrix/client` {_c['client']} · `/_synapse/admin` {_c['admin']}"
+        f" · 其他命名空间 {_c['other']}"
+    )
+lines.append(
+    f"- 含路由注册的模块文件：**{sum(1 for v in reg.values() if v)}**"
+    "（生成器口径；sidecar 口径 113/74/51 的差异见附录 B）"
+)
 lines.append(
     f"- `derived_routes.rs` 中的 `registered_by` 标签：**{len(derived_labels)}**"
 )
