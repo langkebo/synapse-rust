@@ -254,6 +254,25 @@ cargo llvm-cov --test integration --features "…" --lcov --output-path /tmp/rou
    不完整的 lcov 只会保留旧条目，不会再把 608 条砍成几十条。
 
    本地重跑只在"必须马上看分流"时才做，且预期 1.5 小时起。
+
+   **本地实测还撞到第二个障碍（已修）**：跑完 1h15m 时**失败**在 storage 步骤 ——
+   1796 passed / **2 failed**，两条都是
+   `clone of test_… from test_isolation_template_… failed: error returned from database:
+   out of shared memory`。根因不是覆盖率，是本地 `synapse-test-db`（55432）的
+   **`max_locks_per_transaction = 64`（PostgreSQL 默认）**：克隆 220 表模板要上千把锁，
+   并发两三个克隆就爆。
+
+   ```bash
+   docker exec synapse-test-db psql -U synapse -d synapse_test \
+     -c "ALTER SYSTEM SET max_locks_per_transaction = 256;"
+   docker restart synapse-test-db          # 专用测试库，dev 栈在 5432 不受影响
+   ```
+   复跑同族 10 条（含此前失败的那 2 条）⇒ **10 passed**。这类 `out of shared memory` 以前被当成
+   "偶发 flake"，其实是配额不足 —— 值得写进本地环境说明。
+
+   而 CI 的 postgres service container **无法**传 `-c max_locks_per_transaction`（runner 会把
+   `-c` 当成 `--cpu-shares`，`ci.yml` 的注释里已有此结论），CI 是靠 `--test-threads 4` 降并发规避的
+   —— 又一条"本地重跑不如 CI"的理由。
 2. **补 `src/tasks/mod.rs` 的测试** —— 它是唯一经两条腿验证、确实是 0 执行的生产模块（203 行，
    后台维护任务）。**已补第一批（2026-10-26，3 条，无需数据库）**：
    - `from_config_treats_zero_intervals_as_defaults_not_disabled` —— 钉住 `0` 的语义是
