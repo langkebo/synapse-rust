@@ -818,7 +818,7 @@ python3 -c "import json;print(len(json.load(open('scripts/ci/coverage_baseline.j
 git checkout -- scripts/ci/coverage_baseline.json
 ```
 
-### 7.5 59 个 0% 文件的分流：已定 38 个，剩 21 个等 CI（2026-10-26）
+### 7.5 59 个 0% 文件的分流：已定 51 个，只剩 8 个等 CI（2026-10-26）
 
 先说结论：**不是 59 个都"待定"**。按证据强度可以分成四类，只有最后一类真的需要等 CI 的 diff。
 
@@ -828,7 +828,8 @@ git checkout -- scripts/ci/coverage_baseline.json
 | B. `synapse-storage/test_mocks/*` | **22** | **基线陈旧**（在**不含 `test-utils`** 的 feature 集下测得） | 强（见下） |
 | C. 已双腿实测 | **4** | `router.rs` = 陈旧（82.9%）；`tasks/mod.rs` / `telemetry.rs` / `logging.rs` = **真 0** | 实测 |
 | E. `synapse-storage/**/api.rs` | **7** | 5 个**无行可测**（纯 trait 声明）＋2 个各只有 5 行默认实现 | 机械统计（见下） |
-| F. 其余 | **21** | **待 CI 确认** | 无 |
+| F. 13 个杂项 | **13** | 5 个**陈旧** / 1 个**无实质可测行** / 2 个**未被实例化的泛型路径** / 5 个**真 0（各 1–7 行）** | 强（含一次编译实验） |
+| G. `synapse-web` 路由 | **8** | **待 CI 确认**（只能 integration 腿覆盖） | 无 |
 
 #### A. 二进制入口（5 个）：覆盖率对它们没有意义，应从棘轮里排除
 
@@ -885,15 +886,49 @@ git checkout -- scripts/ci/coverage_baseline.json
 后 2 个的 5 行 0% 意味着**默认实现从未被调用** —— 大概率是所有实现方都 override 了，
 即**死默认实现**；处置是删掉或标注理由，不是"补测试"。
 
-#### F. 剩下 21 个：只能等 CI 的 diff
+#### F. 13 个杂项：逐个查了引用与调用链
 
-- **8 个 `synapse-web/routes/**`**（`admin/room/spaces`、`extractors/mod`、`federation/{media,membership/query,transaction/edus}`、
-  `handlers/room/management/{upgrade,visibility}`、`sticky_event`）：路由只能由 **integration 腿**覆盖，
-  而 integration 全量在插桩下是 42 min+。它们最可能是"陈旧"（路由被集成测试打到）但不是必然 ——
-  本轮另一个会话刚给 r0/v1 匿名读口径加了守卫，说明这类面还在动。
-- **其余 13 个**（`event/{models,reader,writer}`、`burn_after_read`、`widget`、`friend_room/repository`、
-  `synapse-services/{rtc,room/state,friend_room_service}/error.rs`、`room/membership/federation`、
-  `synapse-common/config/manager`、`src/common/error`、`src/server/services`）。
+| 文件 | 可执行行 | 证据 | 判定 |
+|---|---|---|---|
+| `friend_room/repository.rs` | ~147 | `friend_room/db_tests.rs` 有 **27 条** `#[tokio::test]` 引用 `FriendRoomStorage` | **陈旧** |
+| `src/server/services.rs` | ~18 | `build_router`（`src/server/mod.rs:203`）调 `build_service_container`，而集成测试都走 `build_router` | **陈旧** |
+| `burn_after_read.rs` / `widget.rs` / `room/membership/federation.rs` | 81/74/11 fn | 各自**内联 `#[cfg(test)]`** 模块会执行本文件 | **陈旧** |
+| `event/reader.rs` | 130 个方法 | 转发 impl **不能删**（摘掉即 `E0277: EventStorage: EventReader` 不满足，下游多处依赖）；但它一次也没被执行 | **未被实例化的泛型路径** |
+| `event/writer.rs` | 同上 | 同上（`EventWriter` 同样 E0277） | 同上 |
+| `event/models.rs` | ~2 | 基本是 `struct`/`enum` 声明 | 无实质可测行 |
+| `rtc/error.rs` / `room/state/error.rs` / `friend_room_service/error.rs` | 各 ~2 | 只有 `Display`/`IntoResponse` 之类，被本模块 2 个文件引用 | 真 0（小） |
+| `src/common/error.rs` | ~1 | 2 个转换 fn 只被 `common/mod.rs` re-export，无调用者 | 真 0（疑似死） |
+| `config/manager.rs` | ~7 | 7 行可执行；`get_database_url`/`get_redis_url`/`get_server_host`/`get_server_port`/`update_config` 全仓**无引用** | 真 0 + 死 getter |
+
+两条值得单独说的结论：
+
+- **`event/reader.rs` + `event/writer.rs`：转发体 0% ≠ 死代码 —— 这是"未被实例化的泛型路径"。**
+  静态看很像死转发（130 个方法原样转发回 inherent 方法，全仓 `grep "dyn EventReader"` = **0**，
+  没有动态分发）。**但编译实验否决了"删掉"**：把两个 `impl … for EventStorage` 用 `#[cfg(any())]`
+  摘掉后，`cargo check -p synapse-storage --all-features --tests` **通过**，而
+  `cargo check -p synapse-services -p synapse-web -p synapse-rust --all-features --tests`
+  报 **10+ 处 `error[E0277]: the trait bound EventStorage: EventReader is not satisfied`**。
+
+  ⇒ 正确结论：这些 impl 是**为了满足下游泛型 bound 而存在的**，bound 也确实在用；
+  但**没有任何泛型路径用 `EventStorage` 实例化并调用过**（0% 就是这么来的）——
+  泛型路径只在测试里用 `InMemoryEventStore` 实例化过。
+
+  ⇒ 处置不是"删"，而是**给泛型路径补一条以真实 `EventStorage` 实例化的测试**（真缺口）；
+  若确认这些泛型只服务 mock，则把 bound 收到 mock 侧（`#[cfg]` 收窄）。
+
+  ⚠️ 这一条是本节的自我纠正：上一版写的是"死转发层，处置是删"，那是**只做了静态 grep 的结论**；
+  一次 `cargo check` 就推翻了它。**"没人调用"和"可以删"是两件事** —— 后者必须让编译器回答。
+- **`config/manager.rs` 有 5 个从未被引用的 getter**，`src/common/error.rs` 的 2 个转换函数同理。
+  这属于死代码清理，与"覆盖率缺口"是两件事。
+
+#### G. 只剩 8 个：`synapse-web/routes/**`
+
+`admin/room/spaces`、`extractors/mod`、`federation/{media,membership/query,transaction/edus}`、
+`handlers/room/management/{upgrade,visibility}`、`sticky_event`。
+
+路由只能由 **integration 腿**覆盖，而 integration 全量在插桩下是 42 min+。它们最可能是"陈旧"
+（路由会被集成测试打到）但不是必然 —— 本轮另一个会话刚给 r0/v1 匿名读口径加了守卫，
+说明这类面还在动。**这 8 个是真的只能等 CI 的 diff**。
 
 #### 本轮为此付出的两次失败（记下来省下一次的时间）
 
