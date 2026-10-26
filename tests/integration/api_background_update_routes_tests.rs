@@ -11,8 +11,8 @@
 //! * `start` 后 `started_ts` 必须被填、`complete` 后 `completed_ts` 必须被填
 //!   （运维靠这两个时间戳算耗时，缺了就只能看日志）；
 //! * `progress` 必须真的累加 `processed_items`，并且留下 history 记录；
-//! * 查询未知任务 ⇒ 404；**删除未知任务当前返回 204**（不查存在性，与 `registration_tokens`
-//!   的"先查再删、未知 404"不一致 ⇒ 审计 NEW-15，测试钉住实际行为）。
+//! * 查询/删除未知任务都 ⇒ 404（审计 NEW-15 已统一：与 `registration_tokens` 的
+//!   "先查再删、未知 404"一致）。
 
 use axum::{
     body::Body,
@@ -192,13 +192,11 @@ async fn unknown_update_is_not_found() {
     let (status, value) = call(&app, get(&format!("{BASE}/no_such_job"), &admin_token)).await;
     assert_eq!(status, StatusCode::NOT_FOUND, "未知任务必须 404：{value}");
 
-    // ⚠️ DELETE 未知任务返回 **204**（不是 404）：`background_update_service::delete_update`
-    // 只调 `storage.delete_update`，**不查存在性**；而 `registration_tokens` 的删除会先
-    // `get_token` 再删、未知即 404。两处删除语义因此不一致（审计 NEW-15）。
-    // 这里断言**实际行为**：DELETE 幂等返回 204 本身符合 HTTP 语义，但它会让"打错任务名的
-    // 删除"静默成功，运维会以为删掉了。改不改由裁决决定，测试先把现状钉住。
+    // DELETE 未知任务与 GET 保持同一语义：404（审计 NEW-15 裁决）。
+    // 静默 204 会让"打错任务名的删除"看起来成功，运维误判为已清理。
     let (status, deleted) = call(&app, delete(&format!("{BASE}/no_such_job"), &admin_token)).await;
-    assert_eq!(status, StatusCode::NO_CONTENT, "删除未知任务当前返回 204（幂等，见 NEW-15）：{deleted}");
+    assert_eq!(status, StatusCode::NOT_FOUND, "删除未知任务必须 404：{deleted}");
+    assert_eq!(deleted["errcode"], "M_NOT_FOUND", "errcode：{deleted}");
 }
 
 /// 普通用户 ⇒ 403。

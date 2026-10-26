@@ -151,9 +151,8 @@ impl BackgroundUpdateStoreApi for InMemoryBackgroundUpdateStore {
         Ok(Some(update.clone()))
     }
 
-    async fn delete_update(&self, job_name: &str) -> Result<(), sqlx::Error> {
-        self.updates.write().await.remove(job_name);
-        Ok(())
+    async fn delete_update(&self, job_name: &str) -> Result<bool, sqlx::Error> {
+        Ok(self.updates.write().await.remove(job_name).is_some())
     }
 
     async fn acquire_lock_with_retry(

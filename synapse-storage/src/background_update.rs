@@ -214,8 +214,9 @@ pub trait BackgroundUpdateStoreApi: Send + Sync {
     ) -> Result<Option<BackgroundUpdate>, sqlx::Error>;
     /// See [`set_error`].
     async fn set_error(&self, job_name: &str, error_message: &str) -> Result<Option<BackgroundUpdate>, sqlx::Error>;
-    /// See [`delete_update`].
-    async fn delete_update(&self, job_name: &str) -> Result<(), sqlx::Error>;
+    /// See [`delete_update`]. Returns whether a row was actually removed, so the
+    /// service layer can answer `404` for unknown jobs instead of a silent `204`.
+    async fn delete_update(&self, job_name: &str) -> Result<bool, sqlx::Error>;
     /// See [`acquire_lock_with_retry`].
     async fn acquire_lock_with_retry(
         &self,
@@ -589,10 +590,12 @@ impl BackgroundUpdateStorage {
     }
 
     /// See [`delete_update`].
-    pub async fn delete_update(&self, job_name: &str) -> Result<(), sqlx::Error> {
-        sqlx::query!("DELETE FROM background_updates WHERE update_name = $1", job_name).execute(&*self.pool).await?;
+    pub async fn delete_update(&self, job_name: &str) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query!("DELETE FROM background_updates WHERE update_name = $1", job_name)
+            .execute(&*self.pool)
+            .await?;
 
-        Ok(())
+        Ok(result.rows_affected() > 0)
     }
 
     /// See [`acquire_lock`].
@@ -838,7 +841,7 @@ impl BackgroundUpdateStoreApi for BackgroundUpdateStorage {
     async fn set_error(&self, job_name: &str, error_message: &str) -> Result<Option<BackgroundUpdate>, sqlx::Error> {
         self.set_error(job_name, error_message).await
     }
-    async fn delete_update(&self, job_name: &str) -> Result<(), sqlx::Error> {
+    async fn delete_update(&self, job_name: &str) -> Result<bool, sqlx::Error> {
         self.delete_update(job_name).await
     }
     async fn acquire_lock_with_retry(
@@ -1331,10 +1334,18 @@ mod tests {
         let now = current_timestamp_millis();
         insert_update_row(&pool, "delete_job", "completed", now, 100, 100, 0, 3).await;
 
-        storage.delete_update("delete_job").await.expect("Failed to delete update");
+        assert!(
+            storage.delete_update("delete_job").await.expect("Failed to delete update"),
+            "existing row must report true"
+        );
 
         let after = storage.get_update("delete_job").await.expect("Failed to get update");
         assert!(after.is_none());
+
+        assert!(
+            !storage.delete_update("delete_job").await.expect("Deleting an unknown job must not error"),
+            "second delete must report false"
+        );
     }
 
     #[tokio::test]
@@ -1651,9 +1662,12 @@ mod tests {
 
         // Test trait method delete_update — `create_update` writes `update_name` itself,
         // so delete locates the row without any test-side repair (D-31).
-        BackgroundUpdateStoreApi::delete_update(&storage, &format!("trait_job_{suffix}"))
-            .await
-            .expect("trait delete_update failed");
+        assert!(
+            BackgroundUpdateStoreApi::delete_update(&storage, &format!("trait_job_{suffix}"))
+                .await
+                .expect("trait delete_update failed"),
+            "trait delete_update must report the row it removed"
+        );
 
         let after = BackgroundUpdateStoreApi::get_update(&storage, &format!("trait_job_{suffix}"))
             .await
@@ -1710,7 +1724,10 @@ mod tests {
             "expected a unique-constraint violation, got {duplicate_error}"
         );
 
-        storage.delete_update(&job_name).await.expect("delete_update must succeed");
+        assert!(
+            storage.delete_update(&job_name).await.expect("delete_update must succeed"),
+            "deleting an existing row must report true"
+        );
         let after_delete = storage.get_update(&job_name).await.expect("get_update after delete must succeed");
         assert!(after_delete.is_none(), "delete_update must remove the row addressed by update_name");
     }

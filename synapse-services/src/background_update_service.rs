@@ -297,10 +297,17 @@ impl BackgroundUpdateService {
     /// See [`delete_update`].
     #[instrument(skip(self))]
     pub async fn delete_update(&self, job_name: &str) -> Result<(), ApiError> {
-        self.storage
+        let deleted = self
+            .storage
             .delete_update(job_name)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to delete update", e))?;
+
+        // Unknown job ⇒ 404 (same contract as `DELETE /registration_tokens/{token}`):
+        // a silently successful delete makes a typo look like a real deletion.
+        if !deleted {
+            return Err(ApiError::not_found("Update not found"));
+        }
 
         info!(job_name = %job_name, "Deleted background update");
 
@@ -690,6 +697,14 @@ mod tests {
         svc.create_update(create_request("job1")).await.unwrap();
         svc.delete_update("job1").await.unwrap();
         assert!(svc.get_update("job1").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn delete_unknown_update_is_not_found() {
+        let svc = test_service();
+        let error = svc.delete_update("no_such_job").await.expect_err("unknown job must not delete silently");
+
+        assert_eq!(error.kind, synapse_common::ApiErrorKind::NotFound, "unknown job must map to 404, got {error:?}");
     }
 
     #[tokio::test]
