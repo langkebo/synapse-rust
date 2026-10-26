@@ -93,7 +93,7 @@
 `routes/device.rs::broadcast_device_list_update`（签名事务），死的是 `device_sync` 里那条
 零调用者的重复实现，已删除；更正过程记在[附录 D](#附录-d已关闭条目索引)。
 剩下的 4 条里，**没有一条会造成数据丢失或越权**；2 条 P2 分别是 `events` 未分区（ARCH-04）、
-837 处静默忽略（CODE-10）
+830 行静默忽略（CODE-10）
 —— 全是**长期结构债**：
 不修也不会立刻出错，但每加一个功能都在加利息。2 条 P3 **全部是 §0.2.3 的登记项**
 （N+1 缺 benchmark 支撑 / 索引清单人工不可反推），没有待裁决项。
@@ -163,7 +163,7 @@
 
 | 编号 | 级别 | 一句话 | 为什么不做 |
 |---|---|---|---|
-| **CODE-10** | P2 | 生产 **837 处** `let _ =` / `unwrap_or_default()`（238 文件） | 大部分是合法用法；设下降配额会诱导写 `unwrap()` 来"减少计数"（§10.10） |
+| **CODE-10** | P2 | 生产 **830 行** `let _ =` / `unwrap_or_default()`（241 文件） | 大部分是合法用法；设下降配额会诱导写 `unwrap()` 来"减少计数"（§10.10） |
 | **PERF-11** | P3 | N+1 查询 3 处（风险可控） | 当前数据量下无实测劣化，缺 benchmark 支撑 |
 | **PERF-12 / MAINT-07** | P3 | `INDEXES.md` 人工表无法从 DDL 反推 | 重生成会让"索引治理"退化成"索引清单"；计数已由 `check_doc_metrics.py` 现算 |
 
@@ -193,18 +193,22 @@
 
 | 度量 | 真值 | 命令 / 来源 |
 |---|---|---|
-| 测试文件 | **375**（`.rs` **287**；unit **129** / integration **147** / e2e **3** / perf **5**） | `python3 scripts/ci/check_doc_metrics.py --print` |
+| 测试文件 | **395**（`.rs` **307**；unit **130** / integration **166** / e2e **3** / perf **5**） | `python3 scripts/ci/check_doc_metrics.py --print` |
 | 基线索引定义 | **343** | 同上 |
 | 活路由 / 派生表行 / `INDEXES.md` 人工表 | **979** / **981** / **134** | 同上（`LIVE_ROUTES` / `DERIVED_TABLE_ROWS` / `INDEXES_DOC_ROWS`） |
-| clippy allow | **271 处 / 117 文件**；其中无理由 **160 / 96**（棘轮基线） | 机械扫描 + `CLIPPY_ALLOW_*` |
-| `let _ =` / `unwrap_or_default()` / `if let Ok(` | 生产 **837 / 238 文件**；全仓 **1580 / 337 文件** | 机械扫描 |
-| `tokio::time::sleep` | **90 处 / 43 文件** | 机械扫描 |
-| `>2000` 行 `.rs` | 生产 **0**（W11 前 7，内联测试外移后最大 1557）；测试基建 **2**（`test_isolation.rs` 3305、`test-utils/lib.rs` 2973）；生成 **1**（`derived_route_table_always.inc.rs` 5512）；测试 **3** | `wc -l` |
+| clippy allow | **159 处 / 111 文件**（扫描 **828** 个 `.rs`）；其中无理由 **0 / 0**（棘轮基线） | `python3 scripts/ci/check_clippy_allow_ratchet.py`（全量站点走其 `scan()`） |
+| `let _ =` / `unwrap_or_default()` / `if let Ok(` | 生产 **830** 行 / **241** 文件；全仓 **1607** 行 / **350** 文件 | `git ls-files -z '*.rs' \| xargs -0 grep -cE 'let _ =\|if let Ok\(\|unwrap_or_default\(\)'`；生产口径再剔 `tests/`、`*/tests.rs`、`*_tests.rs` |
+| `tokio::time::sleep` | **104** 站点（PROD **26** / TEST_INLINE **34** / TEST_FILE **44**） | `python3 scripts/ci/check_sleep_ratchet.py` |
+| `>2000` 行 `.rs` | 生产 **0**（W11 前 7，内联测试外移后最大 1557）；测试基建 **2**（`test_isolation.rs` **3403**、`test-utils/lib.rs` **2974**）；生成 **1**（`derived_route_table_always.inc.rs` **5512**）；测试 **3**（`room_service_tests_migrated.rs` **5248**、`event/db_tests.rs` **3516**、`sync_service/tests.rs` **2510**） | `git ls-files '*.rs' \| xargs wc -l \| awk '$1>2000'` |
 | 依赖分裂 | crate 名 **47** / 多版本 **32** / 同版本多来源 **15** | `cargo tree -d --workspace --locked` 按 crate 名聚合 |
-| `check_*` 门禁脚本 | **47 个，全部可达或已登记（豁免 0）** | `python3 scripts/ci/check_gate_reachability.py` |
-| 基线 SQL `updated_ts` 列 | **84 列**：`NOT NULL` **43** / 可空 **42**（`grep updated_ts` 的 86 里含 1 行注释与 1 行 `ALTER`） | `python3 scripts/ci/check_schema_timestamp_convention.py --print` |
+| `check_*` 门禁脚本 | **58 个，全部可达或已登记（豁免 0）** | `python3 scripts/ci/check_gate_reachability.py` |
+| 基线 SQL `updated_ts` 列 | **85 列**：`NOT NULL` **43** / 可空 **42** | `python3 scripts/ci/check_schema_timestamp_convention.py --print` |
 
 > 漂移是正常的（代码在动）。**不要把本表当常量**：下一轮先跑上面这几条命令再引用。
+> 除「依赖分裂」「`check_*` 门禁脚本数」「`>2000` 行明细」三行外，其余数字都由
+> `scripts/ci/check_doc_metrics.py` 的内联锚点守住 —— 改代码会让数字对不上、改文案会让
+> 锚点失配，两种都会红。这三行需要人工复核（前两个要跑 `cargo tree` / 元门禁，成本高于
+> 其余扫描；明细行只做记录，真正的守卫是「生产 0」这一条）。
 
 ---
 
@@ -344,9 +348,10 @@
   读代码的人分不清"预留"与"忘了删"。
 - **修法**：补 `reason = "by-design unsupported: …"` 指向契约条目。
 
-### CODE-10（P2）生产 837 处 `let _ =` / `unwrap_or_default()`，无收敛策略
+### CODE-10（P2）生产 830 行 `let _ =` / `unwrap_or_default()`，无收敛策略
 
-- **口径**：生产 **837 处 / 238 文件**；全仓 **1580 / 337 文件**（§0.4 有命令）。
+- **口径**：生产 **830 行 / 241 文件**；全仓 **1607 行 / 350 文件**（命令与门禁见 §0.4 ——
+  `grep -c` 计的是**行**，一行里两处只算一次）。
 - **已做**：W0 只加了"危险性扫描"（缓存/存储删除禁止 `let _`）+ 3 个 helper 收敛 19 处缓存失效。
 - **明确不做**：总数下降配额（§10.10：配额会诱导写 `unwrap()` 来"减少计数"）。
 - **下一轮可做的**：按"错误被吞后有没有用户可见后果"分类，只处理前两类；不要动 `unwrap_or_default()`
@@ -646,8 +651,9 @@ fn test_send_captcha_request() {
 > ⚠️ 本节在 2026-10-24 的 NEW-05 改写里被误删过一次（那次 splice 的结束锚点越过了本节），
 > 现在按当时的内容 + 本轮分类重建；`check_plan_doc_sections.py` 的基线只校验章节数，拦不住这种删法。
 
-分布（`python3 scripts/ci/check_sleep_ratchet.py --print` 现算）：**PROD 26 / TEST_INLINE 34 /
-TEST_FILE 47 = 107**；测试域合计 81。
+分布（`python3 scripts/ci/check_sleep_ratchet.py --print`，**2026-10-24 当时值**）：**PROD 26 /
+TEST_INLINE 34 / TEST_FILE 47 = 107**；测试域合计 81。此后 NEW-10 把 4 个轮询折成
+`wait_until`，`TEST_FILE` 47 → **44**（当前值以 §0.4 为准，那一行有内联锚点）。
 
 **`tests/**`（35 处，成员 A 的范围）已全部带 `// sleep-reason: <类别>`**，分五类：
 
@@ -736,6 +742,7 @@ TEST_FILE 47 = 107**；测试域合计 81。
 | W11 | P2 文件规模：9 个内联测试模块外移，7 个 >2000 行生产文件全部 ≤1557（ARCH-05） | ✅ 本笔（见附录 D；连带登记 NEW-20） |
 | W12 | P3 `#[allow]` 无理由存量清零（CODE-11）：157 处 / 94 文件逐个补 `// reason:`，基线 157/94 → 0/0；顺带把 fmt 棘轮从 9 清到 0 | ✅ 本笔（见附录 D；含"空基线 = 失败"的自相矛盾修正） |
 | W13 | P2 文件行数棘轮（NEW-20）：按拍板走**整表 `--update` 一次性批准**，基线 220 → 222 条（67 条增长 + 2 个新增 >600 行文件全部入册），同时收紧 19 条已缩小的 ceiling | ✅ 本笔（见附录 D；闸门 `file_size: 825 files scanned, 222 over 600 (baseline 222) → OK`） |
+| W14 | P3 审计 §0.4「数字真值」失真：7 组数字按脚本/基线现算重写（含「84 列」与 43 + 42 的自相矛盾 → **85**、「clippy allow 无理由」160/96 → **0/0** 与 CODE-11 对齐、门禁 47 → **58**）；27 个内联锚点并入 `check_doc_metrics.py`（内联 12 → **39**） | ✅ 本笔（判据：改 §0.4 数字 ⇒ 红；改 `sleep_baseline` 的 `PROD` ⇒ 红；两条均为实测后还原） |
 
 ### 10.2 下一批建议
 
@@ -745,7 +752,7 @@ W8 计划的三项（`TEST-05` → `NEW-05` → `FUNC-05`）已全部收口，�
 | 待办 | 前提 |
 |---|---|
 | ARCH-04（`events` 分区） | 需要真实数据量证明收益；本机无生产级数据 |
-| CODE-10（837 处静默忽略） | 只按"错误被吞有无用户可见后果"分类处理，且**不设配额** |
+| CODE-10（830 行静默忽略） | 只按"错误被吞有无用户可见后果"分类处理，且**不设配额** |
 
 其余（`PERF-11/12`、`MAINT-07`）都是随触达顺手做或等外部条件的登记项。
 PERF-01 已于 W10 收口（`to_device_messages` 按龄清理 + 零天关闭开关，判据与变异见附录 D）；

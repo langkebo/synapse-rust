@@ -10,6 +10,14 @@ PERF-12 / DOC-07）的核心判据是「同一事实多份表示」：测试文�
 数字漂移史（同一条事实，五个读数）：`342 → 347 → 349 → 351(裸 grep，含注释行)`，
 真实值现在是 **343**（口径见 `baseline_index_names()`）。
 
+审计 §0.4「数字真值」也由本脚本守住（39 个内联锚点里的 27 个）。那张表原先只写
+「机械扫描」而没有命令，于是 4 组数字各自漂移：写「84 列」同时列出 43 + 42、静默忽略
+837 处（真值 830 行）、sleep 90 处（棘轮 104）、门禁 47 个（元门禁 58）。现在 sleep /
+`updated_ts` / 静默忽略 / clippy allow 全部从**已有基线或棘轮 `scan()`** 现算 ——
+复用而不是另写一套扫描器，避免出现第三套口径。「依赖分裂」「门禁脚本数」「>2000 行明细」
+三行仍需人工复核：前两个要跑 `cargo tree` / 元门禁，成本高于其余扫描；明细行的守卫是
+「生产 0」这一条锚点。
+
 ── 判据 ────────────────────────────────────────────────────────────────────
 1. **块**（`<!-- doc-metrics:start --> … :end -->`）内每个 `KEY = VALUE`：
    KEY 必须是已知度量（防"文档自造一个数字"），VALUE 必须等于真源实算值。
@@ -32,6 +40,8 @@ PERF-12 / DOC-07）的核心判据是「同一事实多份表示」：测试文�
 from __future__ import annotations
 
 import argparse
+import functools
+import importlib.util
 import json
 import re
 import subprocess
@@ -133,6 +143,98 @@ def _json_int(rel: str, dotted: str) -> int:
     return node
 
 
+# ── 审计 §0.4「数字真值」的其余真源 ─────────────────────────────────────────
+# 那一版曾把 4 组数字写成「机械扫描」而没有命令，结果各自漂移：`updated_ts` 写
+# 「84 列」却同时写 43 + 42（= 85）、静默忽略 837 处（真值 830 行）、sleep 90 处
+# （棘轮 104）、门禁 47 个（元门禁 58）。下面的度量全部从**已有棘轮/基线文件**现算，
+# 不让脚本再发明第三套口径。
+SLEEP_BASELINE = "scripts/ci/sleep_baseline"
+SCHEMA_TIMESTAMP_BASELINE = "scripts/ci/schema_timestamp_baseline"
+CLIPPY_RATCHET = "scripts/ci/check_clippy_allow_ratchet.py"
+
+# 与 §0.4 的生产口径逐字一致：剔除 `tests/`、`*/tests.rs`、`*_tests.rs`。
+TEST_PATH = re.compile(r"(^|/)tests?/|/tests?\.rs$|_tests\.rs$|^tests/")
+
+# §0.4 的静默忽略口径是 `grep -c` 的**行**口径（一行两处只算一次），不是出现次数 ——
+# 口径差异正是旧数字对不上的原因，这里在注释里钉死。
+SILENT_IGNORE = re.compile(r"let _ =|if let Ok\(|unwrap_or_default\(\)")
+
+# 生产源码根：与 `check_file_size_ratchet.py` / `check_clippy_allow_ratchet.py` 的九个根一致，
+# 但**去掉** `synapse-test-utils/` —— 它是测试基建，§0.4 把它单列（`test-utils/lib.rs` 2974 行）。
+PRODUCTION_ROOTS = (
+    "synapse-common/src/",
+    "synapse-cache/src/",
+    "synapse-storage/src/",
+    "synapse-e2ee/src/",
+    "synapse-federation/src/",
+    "synapse-services/src/",
+    "synapse-web/src/",
+    "src/",
+)
+
+# 按名字就是测试/测试基建的文件（§0.4 的「测试基建 2 / 测试 3」桶），不算生产。
+TEST_INFRA_FILE = re.compile(r"(^|/)test(_?[a-z_]+)?\.rs$")
+
+
+@functools.lru_cache(maxsize=4)
+def baseline_kv(rel: str) -> dict[str, int]:
+    """读 `<KEY>=<int>` 形态的棘轮基线（sleep / schema 两个基线都用这种格式）。"""
+    values: dict[str, int] = {}
+    for line in (REPO / rel).read_text(encoding="utf-8").splitlines():
+        m = re.match(r"([A-Z][A-Z_]*)=(-?\d+)$", line.strip())
+        if m:
+            values[m.group(1)] = int(m.group(2))
+    return values
+
+
+@functools.lru_cache(maxsize=1)
+def silent_ignore_counts() -> tuple[int, int, int, int]:
+    """(生产行, 生产文件, 全仓行, 全仓文件) —— 受版本控制的 `.rs`。"""
+    prod_lines = prod_files = all_lines = all_files = 0
+    for path in git_files("*.rs"):
+        try:
+            text = (REPO / path).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        hits = sum(1 for line in text.splitlines() if SILENT_IGNORE.search(line))
+        if not hits:
+            continue
+        all_lines += hits
+        all_files += 1
+        if not TEST_PATH.search(path):
+            prod_lines += hits
+            prod_files += 1
+    return prod_lines, prod_files, all_lines, all_files
+
+
+@functools.lru_cache(maxsize=1)
+def clippy_scan_totals() -> tuple[int, int, int]:
+    """(全部 allow 站点, 含 allow 的文件, 扫描的文件) —— 直接复用棘轮自己的 `scan()`。
+
+    复用而不是重写扫描器，是为了让「文档里的 159 / 111 / 828」与棘轮输出永远同源。
+    """
+    spec = importlib.util.spec_from_file_location(
+        "clippy_allow_ratchet", REPO / CLIPPY_RATCHET
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    sites, scanned = module.scan()
+    return len(sites), len({site.path for site in sites}), scanned
+
+
+def prod_files_over_2000() -> int:
+    """生产源码里 >2000 行的文件数（ARCH-05 的不变量：必须是 0）。"""
+    return sum(
+        1
+        for path in git_files("*.rs")
+        if path.startswith(PRODUCTION_ROOTS)
+        and not path.endswith(".inc.rs")
+        and not TEST_PATH.search(path)
+        and not TEST_INFRA_FILE.search(path)
+        and len((REPO / path).read_text(encoding="utf-8").splitlines()) > 2000
+    )
+
+
 def derived_table_rows() -> int:
     """`derived_route_table_*.inc.rs` 里 `rows.push(DerivedRoute` 的行数（去重前）。
 
@@ -178,6 +280,28 @@ METRICS = {
         "docs/synapse-rust/ROUTE_HANDLERS.json", "counts.routes"
     ),
     "DERIVED_TABLE_ROWS": derived_table_rows,
+    # ── 审计 §0.4「数字真值」的其余行（真源见文件头注释）──
+    "CLIPPY_ALLOW_ALL_SITES": lambda: clippy_scan_totals()[0],
+    "CLIPPY_ALLOW_ALL_FILES": lambda: clippy_scan_totals()[1],
+    "CLIPPY_ALLOW_SCAN_FILES": lambda: clippy_scan_totals()[2],
+    "SLEEP_SITES_PROD": lambda: baseline_kv(SLEEP_BASELINE)["PROD"],
+    "SLEEP_SITES_TEST_INLINE": lambda: baseline_kv(SLEEP_BASELINE)["TEST_INLINE"],
+    "SLEEP_SITES_TEST_FILE": lambda: baseline_kv(SLEEP_BASELINE)["TEST_FILE"],
+    "SLEEP_SITES_TOTAL": lambda: sum(
+        baseline_kv(SLEEP_BASELINE)[key] for key in ("PROD", "TEST_INLINE", "TEST_FILE")
+    ),
+    "SCHEMA_UPDATED_TS_STRICT": lambda: baseline_kv(SCHEMA_TIMESTAMP_BASELINE)[
+        "STRICT"
+    ],
+    "SCHEMA_UPDATED_TS_LOOSE": lambda: baseline_kv(SCHEMA_TIMESTAMP_BASELINE)["LOOSE"],
+    "SCHEMA_UPDATED_TS_TOTAL": lambda: sum(
+        baseline_kv(SCHEMA_TIMESTAMP_BASELINE).values()
+    ),
+    "SILENT_IGNORES_PROD_LINES": lambda: silent_ignore_counts()[0],
+    "SILENT_IGNORES_PROD_FILES": lambda: silent_ignore_counts()[1],
+    "SILENT_IGNORES_ALL_LINES": lambda: silent_ignore_counts()[2],
+    "SILENT_IGNORES_ALL_FILES": lambda: silent_ignore_counts()[3],
+    "PROD_FILES_OVER_2000": prod_files_over_2000,
 }
 
 # 块所在文档 → 该块必须出现的受管键。
@@ -272,6 +396,172 @@ INLINE_SITES: tuple[tuple[str, str, str, str], ...] = (
         "DERIVED_TABLE_ROWS",
         r"(?P<v>\d+) 行去重为 \d+ 条",
         "总览：派生表行数（去重前）",
+    ),
+    # ── 审计 §0.4「数字真值」─────────────────────────────────────────────
+    # 这张表原先既没写命令、也没有门禁，于是 4 组数字各自漂移（写「84 列」却列出
+    # 43 + 42、静默忽略 837 处、sleep 90 处、门禁 47 个）。以下锚点逐行钉住文案，
+    # 任何一个数字与真源对不上都会红。
+    (
+        "docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md",
+        "TEST_FILES_TESTS_DIR",
+        r"\| 测试文件 \| \*\*(?P<v>\d+)\*\*（",
+        "§0.4：测试文件总数",
+    ),
+    (
+        "docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md",
+        "TEST_FILES_TESTS_DIR_RS",
+        r"测试文件 \| \*\*\d+\*\*（`\.rs` \*\*(?P<v>\d+)\*\*",
+        "§0.4：其中 .rs 数",
+    ),
+    (
+        "docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md",
+        "TEST_FILES_UNIT",
+        r"`\.rs` \*\*\d+\*\*；unit \*\*(?P<v>\d+)\*\*",
+        "§0.4：unit 文件数",
+    ),
+    (
+        "docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md",
+        "TEST_FILES_INTEGRATION",
+        r"unit \*\*\d+\*\* / integration \*\*(?P<v>\d+)\*\*",
+        "§0.4：integration 文件数",
+    ),
+    (
+        "docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md",
+        "TEST_FILES_E2E",
+        r"integration \*\*\d+\*\* / e2e \*\*(?P<v>\d+)\*\*",
+        "§0.4：e2e 文件数",
+    ),
+    (
+        "docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md",
+        "TEST_FILES_PERFORMANCE",
+        r"e2e \*\*\d+\*\* / perf \*\*(?P<v>\d+)\*\*",
+        "§0.4：perf 文件数",
+    ),
+    (
+        "docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md",
+        "BASELINE_INDEXES",
+        r"\| 基线索引定义 \| \*\*(?P<v>\d+)\*\*",
+        "§0.4：基线索引定义数",
+    ),
+    (
+        "docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md",
+        "LIVE_ROUTES",
+        r"活路由 / 派生表行 / `INDEXES\.md` 人工表 \| \*\*(?P<v>\d+)\*\*",
+        "§0.4：活路由条数",
+    ),
+    (
+        "docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md",
+        "DERIVED_TABLE_ROWS",
+        r"人工表 \| \*\*\d+\*\* / \*\*(?P<v>\d+)\*\*",
+        "§0.4：派生表行数",
+    ),
+    (
+        "docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md",
+        "INDEXES_DOC_ROWS",
+        r"人工表 \| \*\*\d+\*\* / \*\*\d+\*\* / \*\*(?P<v>\d+)\*\*",
+        "§0.4：INDEXES.md 人工表行数",
+    ),
+    (
+        "docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md",
+        "CLIPPY_ALLOW_ALL_SITES",
+        r"\| clippy allow \| \*\*(?P<v>\d+) 处",
+        "§0.4：clippy allow 全部站点",
+    ),
+    (
+        "docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md",
+        "CLIPPY_ALLOW_ALL_FILES",
+        r"clippy allow \| \*\*\d+ 处 / (?P<v>\d+) 文件\*\*",
+        "§0.4：含 allow 的文件数",
+    ),
+    (
+        "docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md",
+        "CLIPPY_ALLOW_SCAN_FILES",
+        r"（扫描 \*\*(?P<v>\d+)\*\* 个 `\.rs`）",
+        "§0.4：clippy allow 扫描文件数",
+    ),
+    (
+        "docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md",
+        "CLIPPY_ALLOW_SITES",
+        r"其中无理由 \*\*(?P<v>\d+) / \d+\*\*",
+        "§0.4：无理由 allow 站点（棘轮基线）",
+    ),
+    (
+        "docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md",
+        "CLIPPY_ALLOW_FILES",
+        r"其中无理由 \*\*\d+ / (?P<v>\d+)\*\*",
+        "§0.4：无理由 allow 文件（棘轮基线）",
+    ),
+    (
+        "docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md",
+        "SILENT_IGNORES_PROD_LINES",
+        r"生产 \*\*(?P<v>\d+)\*\* 行 / \*\*\d+\*\* 文件；",
+        "§0.4：静默忽略 —— 生产行数",
+    ),
+    (
+        "docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md",
+        "SILENT_IGNORES_PROD_FILES",
+        r"生产 \*\*\d+\*\* 行 / \*\*(?P<v>\d+)\*\* 文件；",
+        "§0.4：静默忽略 —— 生产命中文件数",
+    ),
+    (
+        "docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md",
+        "SILENT_IGNORES_ALL_LINES",
+        r"全仓 \*\*(?P<v>\d+)\*\* 行 / \*\*\d+\*\* 文件 \|",
+        "§0.4：静默忽略 —— 全仓行数",
+    ),
+    (
+        "docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md",
+        "SILENT_IGNORES_ALL_FILES",
+        r"全仓 \*\*\d+\*\* 行 / \*\*(?P<v>\d+)\*\* 文件 \|",
+        "§0.4：静默忽略 —— 全仓命中文件数",
+    ),
+    (
+        "docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md",
+        "SLEEP_SITES_TOTAL",
+        r"`tokio::time::sleep` \| \*\*(?P<v>\d+)\*\* 站点",
+        "§0.4：sleep 站点总数",
+    ),
+    (
+        "docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md",
+        "SLEEP_SITES_PROD",
+        r"站点（PROD \*\*(?P<v>\d+)\*\*",
+        "§0.4：sleep —— PROD 桶",
+    ),
+    (
+        "docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md",
+        "SLEEP_SITES_TEST_INLINE",
+        r"TEST_INLINE \*\*(?P<v>\d+)\*\*",
+        "§0.4：sleep —— TEST_INLINE 桶",
+    ),
+    (
+        "docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md",
+        "SLEEP_SITES_TEST_FILE",
+        r"TEST_FILE \*\*(?P<v>\d+)\*\*",
+        "§0.4：sleep —— TEST_FILE 桶",
+    ),
+    (
+        "docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md",
+        "PROD_FILES_OVER_2000",
+        r"\| `>2000` 行 `\.rs` \| 生产 \*\*(?P<v>\d+)\*\*",
+        "§0.4：生产 >2000 行文件数（ARCH-05 不变量 0）",
+    ),
+    (
+        "docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md",
+        "SCHEMA_UPDATED_TS_TOTAL",
+        r"基线 SQL `updated_ts` 列 \| \*\*(?P<v>\d+) 列",
+        "§0.4：基线 SQL updated_ts 列数",
+    ),
+    (
+        "docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md",
+        "SCHEMA_UPDATED_TS_STRICT",
+        r"`updated_ts` 列 \| \*\*\d+ 列\*\*：`NOT NULL` \*\*(?P<v>\d+)\*\*",
+        "§0.4：update_ts NOT NULL 列数",
+    ),
+    (
+        "docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md",
+        "SCHEMA_UPDATED_TS_LOOSE",
+        r"`NOT NULL` \*\*\d+\*\* / 可空 \*\*(?P<v>\d+)\*\* \|",
+        "§0.4：updated_ts 可空列数",
     ),
 )
 
