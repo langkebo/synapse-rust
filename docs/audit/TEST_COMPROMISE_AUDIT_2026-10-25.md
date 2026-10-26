@@ -239,8 +239,21 @@ cargo llvm-cov --test integration --features "…" --lcov --output-path /tmp/rou
 
 **行动改判**：第 7 项从"补 3 条冒烟"拆成两件互不相同的事：
 
-1. **重测基线**（跑一次完整覆盖率腿 + `--save-baseline`）—— 只有这样才能把 `router.rs` 这类
-   "陈旧 0%" 抬起来。59 个 0% 里有多少属于这一类，现在还不知道，只能靠重测分流。
+1. **重测基线** —— 本地实测后**改判：不必本地跑，交给 CI 的既有链路**。
+
+   2026-10-26 在本机跑了一次完整 `scripts/ci/run_coverage.sh`：**1 小时后仍在编译阶段**
+   （判据：`coverage/lcov.info` 无新产出、`find target/llvm-cov-target -name '*.profraw'` = 0、
+   load average ≈ 8）。冷编译 + `-C instrument-coverage` 让整个 workspace 重编，量级 1.5 小时。
+
+   而 CI 本来就已经在做这件事：`coverage` job 的 `Per-file coverage ratchet (B.3)` 用完整两腿跑，
+   main push 时再 `Commit coverage baseline (auto-ratchet)` 自动写回基线。**本地重跑是重复劳动**，
+   且结果不如 CI 可信（本机混着同事未提交的改动）。
+
+   ⇒ 判据改为：**下一次 main push 后看 `coverage_baseline.json` 的 diff** —— 被抬起来的文件
+   就是"陈旧 0%"，仍为 0 的才是真缺口。§3.1.1 修掉"不完整报告截断基线"之后，这次自动收紧是安全的：
+   不完整的 lcov 只会保留旧条目，不会再把 608 条砍成几十条。
+
+   本地重跑只在"必须马上看分流"时才做，且预期 1.5 小时起。
 2. **补 `src/tasks/mod.rs` 的测试** —— 它是唯一经两条腿验证、确实是 0 执行的生产模块（203 行，
    后台维护任务）。**已补第一批（2026-10-26，3 条，无需数据库）**：
    - `from_config_treats_zero_intervals_as_defaults_not_disabled` —— 钉住 `0` 的语义是
