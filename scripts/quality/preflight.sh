@@ -172,6 +172,14 @@ run "check_shape_only_tests.py" python3 scripts/ci/check_shape_only_tests.py
 step "测试：夹具不得 fail-open（R1）"
 run "check_test_setup_fail_closed.py" python3 scripts/ci/check_test_setup_fail_closed.py
 
+# 测试替身不得再"忽略参数却假装成功"（审计 §4.2.1）。
+# `unimplemented!()` 是 fail-loud（调用即 panic ⇒ 测试红），安全；真正危险的是
+# `fn get_user_rooms(_user_id) -> Ok(所有房间)` 这类：参数被忽略却返回成功，
+# 于是"用户只看得到自己的房间""typing 被正确记录""泄露族已被封禁"这些断言在 mock 下**恒真**。
+# 实测 106 处 / 429 个方法（24.7%），棘轮只许下降；`--print` 看完整清单。
+step "测试替身：忽略参数假装成功的方法不得增加（棘轮）"
+run "check_mock_stub_drift.py" python3 scripts/ci/check_mock_stub_drift.py
+
 # 改动面 → 必跑套件（**提示，不阻断**）。
 # 2026-10-24 的 NEW-17 改了 `rooms` 的序列化分桶，当次只跑 routes 测试，三条跨路径等价用例
 # 静默红了近两小时 —— 这类"改了 A 却该跑 B 的测试"不在任何单文件的视野里，只能在提交前提示。

@@ -367,8 +367,44 @@ cost_per_row        = (总耗时 / (N × 迭代)) / reference_roundtrip
 ⇒ unit 层用这些替身时，**语义与真 PG 不同**（如 `stub returns all rooms` 忽略过滤）。
 审计已登记为 MAINT-01（收益低于改动面），但**没有门禁**禁止新 mock 继续简化。
 
-补（**P2**）：给 `test_mocks/` 加一条守卫测试 —— 每个实现的 doc 注释必须声明"与生产实现的差异"，
-且 `unimplemented!` 的方法必须在白名单里（新增即红）。
+#### 4.2.1 实测：106 处「忽略参数却假装成功」（2026-10-26，已加守卫）
+
+原计划是"每个 mock 方法的 doc 注释必须声明与生产的差异" —— 动手时发现这个判据**不可执行**
+（"差异"无法机械判定，最后会退化成"有没有写注释"）。换成可机械检测的形态后，规模比预想大：
+
+**429 个 mock 方法里，106 个（24.7%）至少忽略一个参数、且不 fail-loud。** 两类必须分开看：
+
+| 形态 | 数量 | 安全性 |
+|---|---|---|
+| `unimplemented!("… has no database pool")` | 3 | **安全**：调用即 panic ⇒ 测试红（fail-loud） |
+| 参数 `_xxx` + 函数体 `Ok(...)` | **106** | **危险**：调用方拿到"成功"，依赖该参数的断言**恒真**（fail-silent） |
+
+最危险的几处（会让**安全语义**的断言永远成立）：
+
+| 位置 | 忽略的参数 | 后果 |
+|---|---|---|
+| `room.rs:119 get_user_rooms(_user_id)` | 用户 | 返回**全部**房间 ⇒ "用户只看得到自己的房间"永远通过 |
+| `presence.rs:131 set_typing(_room_id, _user_id, _typing)` | 全部 | 恒成功 ⇒ "typing 被正确记录/清除"永远通过 |
+| `refresh_token.rs:189 mark_family_compromised(_family_id)` | 族 id | 恒成功 ⇒ "泄露的 token 族已被封禁"永远通过 |
+| `quarantine_media.rs:111 get_media_quarantine_status(_media_id, _server_name)` | 媒体 | 忽略媒体 ⇒ "被隔离的媒体不可下载"永远通过 |
+| `threepid.rs:77 verify_threepid(_user_id, _medium, _address)` | 全部 | 恒成功 ⇒ "错误的验证码必须被拒"永远通过 |
+| `room.rs:635 get_room_block_status(_room_id)` | 房间 | 忽略房间 ⇒ "被屏蔽房间的行为"断言不可信 |
+
+⇒ **这几条对应的 unit 测试不能当作安全保证**；真正的端到端覆盖得看 integration 腿（真 PG）。
+
+**为什么不一次性清零**：106 处里多数是良性的（`cleanup_expired_tokens(_now_ts)`：mock 没有"过期"
+概念，返回 `Ok` 不产生副作用，调用方不会因此得出错误结论）。逐个裁定"实现 or 改 fail-loud"
+是独立一笔；守卫先把**增量**钉死。
+
+**守卫**：`scripts/ci/check_mock_stub_drift.py`（已接 preflight），棘轮基线上限 106、只许下降。
+三种合法处置：① 真按参数过滤；② 改 `unimplemented!`（fail-loud）；③ 确属良性则加
+`// mock-ignores-param: <理由>`（比全局白名单更贴近代码，review 时一眼可见）。
+
+两个实现坑（都踩了）：
+- 失败时若全量打印 106 条，实战里找不到自己刚加的那条 ⇒ 改为**优先只列本次改动文件里的命中**，
+  完整清单走 `--print`。
+- 第一版统计用行内正则（要求签名同一行含 `)`），只数出 **37** 处；处理跨行签名后才是 **106**。
+  **统计"忽略参数"必须处理跨行签名**，差 2.9 倍。
 
 ### 4.3 回归范围按文件选，不按契约选
 
@@ -423,4 +459,4 @@ ARCH-02 等价用例**一直红着**，当次只跑了 `api_sliding_sync_routes_
 | ~~5~~ | ~~"改动面 → 必跑套件"映射 + preflight 提示~~ **✅ 已完成**（`test_impact_map` + `check_test_impact.py` + preflight `advise` 步骤） | ~1 h | 改 `rooms` 结构 ⇒ 提交前自动打印 `-E 'test(sync_path_equivalence_tests)'`（详见 §4.3.1） |
 | ~~6~~ | ~~性能断言改相对阈值~~ **✅ 已完成**：改成「每行成本折算数据库往返次数」（比 p95 比值更抗噪），注入 N+1 ⇒ 0.985/1.026 红；正常 0.061/0.031 绿（§3.2.1） | 中 | **已实测**：变异体 FAIL / 还原后 PASS，CI 同款命令 2.6s |
 | ~~7~~ | ~~覆盖率为 0% 的 3 个文件各补冒烟~~ → 拆成两件：①**重测基线**（未执行，用户中断）②**补 `tasks/mod.rs`** —— **✅ 已补 3 条**（`from_config` 的 `0` 语义 + 逐字段生效 + 台账初值），无需数据库，变异自证通过；**5 个 `start_*` 循环（约 170 行）仍未覆盖**（§3.1.2） | 中 | 3 passed / 变异后第一条红（`left: 0ns / right: 10s`）；其余两条仍绿 |
-| 8 | `test_mocks/` 差异声明守卫 | 中 | 新增一个 `unimplemented!` 未登记 ⇒ 红 |
+| ~~8~~ | ~~`test_mocks/` 差异声明守卫~~ → **✅ 已改判并落地**：不守「doc 声明差异」（不可机械判定），改守「忽略参数却假装成功」——实测 **106/429 = 24.7%**，棘轮上限 106 只许下降（`check_mock_stub_drift.py`，接入 preflight）；6 处高危已列清单（§4.2.1） | 中 | 探针文件 ⇒ 107 > 106 红；删除后绿 |
