@@ -447,13 +447,26 @@ cost_per_row        = (总耗时 / (N × 迭代)) / reference_roundtrip
 | `room.rs:119 get_user_rooms(_user_id)` | 否（inherent method） | `RoomStoreApi` **根本没声明**它（只有 `get_user_rooms_paginated`）；`search_service` 走的是真实 `RoomStorage` | **死代码** |
 | `presence.rs:131 set_typing(_room_id, _user_id, _typing)` | 是（`PresenceStoreApi`） | 未找到 —— `typing_service` 自己维护内存状态，不调 store | **疑似死代码** |
 
-其余四处（`mark_family_compromised` / `get_media_quarantine_status` / `verify_threepid` /
-`get_room_block_status`）**未核实**，它们确实在各自的 trait impl 内，但"是否被调用 + 是否有语义断言"
-还没查。
+其余四处已逐处核实（判据：生产调用者 + 容器是 `Arc<dyn Trait>` 还是具体类型 —— 后者说明单测
+根本换不上 mock）：
 
-⇒ 诚实的结论：`test_mocks` 有 **106 处忽略参数**，其中**已确认 2 处是死代码**，其余未定级。
-把它们当"高危清单"会误导 —— 真正该做的是**逐处看调用链与断言**（这是业务判断，不是静态规则能替代的）。
-**"忽略参数"本身不是缺陷**，缺陷是"忽略了参数、还有测试断言依赖该参数的结果"。
+| 方法 | 生产调用者 | 容器类型 | 判定 |
+|---|---|---|---|
+| `refresh_token.rs:189 mark_family_compromised` | `refresh_token_service.rs:168,244` | `Arc<dyn RefreshTokenStoreApi>` | **可达**（单测可换 mock） |
+| `quarantine_media.rs:111 get_media_quarantine_status` | `media/mod.rs:257` | `Option<Arc<dyn QuarantinedMediaChangeStoreApi>>` | **可达** |
+| `room.rs:635 get_room_block_status` | `room/state/info.rs:137` | `Arc<dyn RoomStoreApi>` | **可达** |
+| `threepid.rs:77 verify_threepid` | `identity/storage.rs:40,60` | `ThreepidStorage`（**具体类型**） | **mock 走不到** |
+
+⇒ 定级结果：**6 个候选里 2 个死代码、1 个 mock 走不到、3 个真正可达**。
+
+但"可达"仍不等于"造成假绿"：**还取决于测试是否用多组参数值、且断言结果不同**。
+例如 `info.rs` 里 `svc.get_room_block_status("!missing:ex.com")` 只用了一个参数、断言"不存在的房间返回 None"
+—— mock 恒返回 `None` 与真实现给出同样结论，这条测试**不是假绿**，改成正确实现它照样通过。
+真正危险的是"用两个不同 room_id 断言两种不同结果"这类用例。
+
+⇒ 结论：`test_mocks` 有 **106 处忽略参数**；已核实 6 处 → 2 死代码、1 不可达、3 可达但**未判定是否假绿**。
+**"忽略参数"本身不是缺陷**，缺陷是"忽略了参数、还有测试断言依赖该参数的结果"——
+后者需要逐测试看断言，静态规则做不到。剩下 100 处同理，不值得批量盲改。
 
 **为什么不一次性清零**：106 处里多数是良性的（`cleanup_expired_tokens(_now_ts)`：mock 没有"过期"
 概念，返回 `Ok` 不产生副作用，调用方不会因此得出错误结论）。逐个裁定"实现 or 改 fail-loud"
