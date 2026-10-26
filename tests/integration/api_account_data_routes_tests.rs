@@ -263,6 +263,93 @@ async fn test_put_tag_is_visible_as_m_tag_account_data() {
     assert_eq!(tags_json, json!({ "tags": {} }));
 }
 
+/// 回归（P2 tags ①）：`GET /user/{uid}/tags` 必须以 `m.tag` 账户数据为准。
+///
+/// 通过**通用账户数据路由**写入的 `m.tag` 不经过 `/tags` 的双写，`room_tags` 里没有对应行，
+/// 旧实现（只读 `room_tags`）会漏掉这些标签。同时对只有 `room_tags` 的历史数据保留回退，
+/// 且当某房间已有 `m.tag` 时以账户数据为准（即使 `tags` 为空也不回退）。
+#[tokio::test]
+async fn test_global_tags_reads_m_tag_account_data_and_falls_back_to_legacy_rows() {
+    let Some((app, pool, _cache)) = setup_test_app_with_pool().await else {
+        return;
+    };
+    let (token, user_id) = register_user(&app, &unique_username("global_tags_m_tag")).await;
+
+    let account_data_room = "!tags-accdata-room:localhost";
+    let legacy_room = "!tags-legacy-room:localhost";
+    let shadowed_room = "!tags-shadowed-room:localhost";
+
+    // 1) 只经通用账户数据路由写入 `m.tag`：`room_tags` 里不会有这一行。
+    let put = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/user/{}/rooms/{}/account_data/m.tag", user_id, account_data_room))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "tags": { "u.work": { "order": 0.2 } } }).to_string()))
+        .unwrap();
+    assert_eq!(ServiceExt::<Request<Body>>::oneshot(app.clone(), put).await.unwrap().status(), StatusCode::OK);
+
+    // 2) 历史数据：只有 `room_tags` 行，没有 `m.tag`。
+    sqlx::query("INSERT INTO room_tags (user_id, room_id, tag, order_value, created_ts) VALUES ($1, $2, $3, $4, $5)")
+        .bind(&user_id)
+        .bind(legacy_room)
+        .bind("m.lowpriority")
+        .bind(0.9_f64)
+        .bind(current_timestamp_millis())
+        .execute(&*pool)
+        .await
+        .expect("seed legacy room_tags row");
+
+    // 3) 某房间已有 `m.tag`（空 tags）⇒ 以账户数据为准，`room_tags` 的历史行不得回退。
+    sqlx::query("INSERT INTO room_tags (user_id, room_id, tag, order_value, created_ts) VALUES ($1, $2, $3, $4, $5)")
+        .bind(&user_id)
+        .bind(shadowed_room)
+        .bind("m.favourite")
+        .bind(0.5_f64)
+        .bind(current_timestamp_millis())
+        .execute(&*pool)
+        .await
+        .expect("seed shadowed room_tags row");
+
+    let put_empty = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/user/{}/rooms/{}/account_data/m.tag", user_id, shadowed_room))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "tags": {} }).to_string()))
+        .unwrap();
+    assert_eq!(ServiceExt::<Request<Body>>::oneshot(app.clone(), put_empty).await.unwrap().status(), StatusCode::OK);
+
+    let global = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/client/v3/user/{}/tags", user_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let res = ServiceExt::<Request<Body>>::oneshot(app, global).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(res.into_body(), 8192).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+
+    assert_eq!(
+        json["tags"][account_data_room]["u.work"]["order"],
+        json!(0.2),
+        "只经通用账户数据路由写入的 m.tag 必须出现在跨房总表里"
+    );
+    assert_eq!(
+        json["tags"][legacy_room]["m.lowpriority"]["order"],
+        json!(0.9),
+        "没有 m.tag 的房间应回退到 room_tags 历史行"
+    );
+    assert!(json["tags"].get(shadowed_room).is_none(), "已有 m.tag（空 tags）的房间不得回退 room_tags，实际 {json}");
+
+    sqlx::query("DELETE FROM room_tags WHERE user_id = $1")
+        .bind(&user_id)
+        .execute(&*pool)
+        .await
+        .expect("cleanup room_tags");
+}
+
 #[tokio::test]
 async fn test_filter_round_trip_across_versions() {
     let Some(app) = setup_test_app().await else {

@@ -89,6 +89,27 @@ impl RoomAccountDataStoreApi for InMemoryRoomAccountDataStore {
         Ok(records)
     }
 
+    async fn list_room_account_data_by_type(
+        &self,
+        user_id: &str,
+        data_type: &str,
+    ) -> Result<Vec<RoomAccountDataRecord>, ApiError> {
+        let mut records: Vec<_> = self
+            .data
+            .read()
+            .await
+            .iter()
+            .filter(|((uid, _, dt), _)| uid == user_id && dt == data_type)
+            .map(|((_, rid, dt), (content, _))| RoomAccountDataRecord {
+                room_id: rid.clone(),
+                data_type: dt.clone(),
+                content: content.clone(),
+            })
+            .collect();
+        records.sort_by(|a, b| a.room_id.cmp(&b.room_id));
+        Ok(records)
+    }
+
     async fn upsert_room_account_data(
         &self,
         user_id: &str,

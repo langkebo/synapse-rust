@@ -33,6 +33,12 @@ pub trait RoomAccountDataStoreApi: Send + Sync {
         user_id: &str,
         room_ids: &[String],
     ) -> Result<Vec<RoomAccountDataRecord>, ApiError>;
+    /// See [`list_room_account_data_by_type`].
+    async fn list_room_account_data_by_type(
+        &self,
+        user_id: &str,
+        data_type: &str,
+    ) -> Result<Vec<RoomAccountDataRecord>, ApiError>;
     /// See [`upsert_room_account_data`].
     async fn upsert_room_account_data(
         &self,
@@ -162,6 +168,29 @@ impl RoomAccountDataStorage {
         .map_err(|e| ApiError::internal_with_cause("Database error", e))
     }
 
+    /// 按 `(user_id, data_type)` 跨房间列出一类房间账号数据（如 `m.tag`）。
+    ///
+    /// 用于 `GET /user/{uid}/tags`：标签的真相在 `m.tag` 账户数据里，
+    /// 跨房总表必须按 data_type 扫该用户的全部房间，而不是读 `room_tags` 索引。
+    pub async fn list_room_account_data_by_type(
+        &self,
+        user_id: &str,
+        data_type: &str,
+    ) -> Result<Vec<RoomAccountDataRecord>, ApiError> {
+        sqlx::query_as!(
+            RoomAccountDataRecord,
+            r#"SELECT room_id, data_type, data AS content
+               FROM room_account_data
+               WHERE user_id = $1 AND data_type = $2
+               ORDER BY room_id ASC"#,
+            user_id,
+            data_type
+        )
+        .fetch_all(self.pool.as_ref())
+        .await
+        .map_err(|e| ApiError::internal_with_cause("Database error", e))
+    }
+
     /// See [`upsert_room_account_data`].
     pub async fn upsert_room_account_data(
         &self,
@@ -254,6 +283,14 @@ impl RoomAccountDataStoreApi for RoomAccountDataStorage {
         room_ids: &[String],
     ) -> Result<Vec<RoomAccountDataRecord>, ApiError> {
         self.list_room_account_data_batch(user_id, room_ids).await
+    }
+
+    async fn list_room_account_data_by_type(
+        &self,
+        user_id: &str,
+        data_type: &str,
+    ) -> Result<Vec<RoomAccountDataRecord>, ApiError> {
+        self.list_room_account_data_by_type(user_id, data_type).await
     }
 
     async fn upsert_room_account_data(
@@ -631,5 +668,54 @@ mod db_tests {
         assert!(result.is_none(), "non-existent record should return None");
 
         cleanup_room_account_data(&pool, &user_id, &room_id).await;
+    }
+
+    // 9. list_room_account_data_by_type scans one data_type across all of the user's rooms.
+    #[tokio::test]
+    async fn test_list_by_type_across_rooms() {
+        let (_isolated, pool) = test_pool().await;
+        let storage = RoomAccountDataStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4();
+        let user_id = format!("@bytype_{suffix}:localhost");
+        let other_user = format!("@bytype_other_{suffix}:localhost");
+        let room_a = format!("!bytype_a_{suffix}:localhost");
+        let room_b = format!("!bytype_b_{suffix}:localhost");
+
+        ensure_test_user(&pool, &user_id).await;
+        ensure_test_user(&pool, &other_user).await;
+        ensure_test_room(&pool, &room_a).await;
+        ensure_test_room(&pool, &room_b).await;
+        cleanup_room_account_data(&pool, &user_id, &room_a).await;
+        cleanup_room_account_data(&pool, &user_id, &room_b).await;
+        cleanup_room_account_data(&pool, &other_user, &room_a).await;
+
+        let now = current_timestamp_millis();
+        let tags_a = serde_json::json!({"tags": {"m.favourite": {"order": 0.5}}});
+        let tags_b = serde_json::json!({"tags": {"u.work": {"order": 0.1}}});
+
+        storage.upsert_room_account_data(&user_id, &room_a, "m.tag", &tags_a, now).await.expect("upsert room_a m.tag");
+        storage.upsert_room_account_data(&user_id, &room_b, "m.tag", &tags_b, now).await.expect("upsert room_b m.tag");
+        // 同用户其它类型：不应出现在结果里
+        storage
+            .upsert_room_account_data(&user_id, &room_a, "m.fully_read", &serde_json::json!({"event_id": "$e"}), now)
+            .await
+            .expect("upsert other type");
+        // 其它用户的同类型：不应出现在结果里
+        storage.upsert_room_account_data(&other_user, &room_a, "m.tag", &tags_a, now).await.expect("upsert other user");
+
+        let records = storage.list_room_account_data_by_type(&user_id, "m.tag").await.expect("list by type");
+
+        assert_eq!(records.len(), 2, "only this user's m.tag rows");
+        assert_eq!(records[0].room_id, room_a, "ordered by room_id ASC");
+        assert_eq!(records[1].room_id, room_b, "ordered by room_id ASC");
+        assert!(records.iter().all(|r| r.data_type == "m.tag"));
+        assert_eq!(records[0].content, tags_a);
+
+        let none = storage.list_room_account_data_by_type(&user_id, "com.example.absent").await.expect("absent type");
+        assert!(none.is_empty(), "absent data_type should return empty vec");
+
+        cleanup_room_account_data(&pool, &user_id, &room_a).await;
+        cleanup_room_account_data(&pool, &user_id, &room_b).await;
+        cleanup_room_account_data(&pool, &other_user, &room_a).await;
     }
 }

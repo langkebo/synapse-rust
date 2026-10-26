@@ -99,10 +99,34 @@ async fn get_global_tags(
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
 
-    let tags: Vec<synapse_services::room::RoomTag> = ctx.room_service.state().get_all_tags(user_id).await?;
+    // 以 `m.tag` 账户数据为准（与 `read_tag_map` 同一语义）：先按 data_type 跨房扫一遍，
+    // 再对「没有 `m.tag` 行」的房间回退 `room_tags` 历史索引。
+    //
+    // 不能只读 `room_tags`：通过通用 `PUT /user/{uid}/rooms/{rid}/account_data/m.tag`
+    // 写入的标签不会经过本文件的双写，只存在于 `room_account_data` 表里。
+    let records = ctx.account_data_service.list_room_account_data_by_type(user_id, TAGS_ACCOUNT_DATA_TYPE).await?;
 
     let mut rooms_map: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
-    for tag in tags {
+    // 只要该房间有合法的 `m.tag` 内容，就以它为准（即使 `tags` 为空也不回退历史数据）。
+    let mut covered_rooms: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    for record in records {
+        let Some(tags) = record.content.get("tags").and_then(|v| v.as_object()) else {
+            // 内容缺 `tags` 键 ⇒ 视为不存在，允许下面的 legacy 回退。
+            continue;
+        };
+        covered_rooms.insert(record.room_id.clone());
+        if !tags.is_empty() {
+            rooms_map.insert(record.room_id, serde_json::Value::Object(tags.clone()));
+        }
+    }
+
+    let legacy_tags: Vec<synapse_services::room::RoomTag> = ctx.room_service.state().get_all_tags(user_id).await?;
+    for tag in legacy_tags {
+        if covered_rooms.contains(&tag.room_id) {
+            continue;
+        }
+
         let room_tags: &mut serde_json::Value =
             rooms_map.entry(tag.room_id.clone()).or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
 

@@ -5789,3 +5789,45 @@ WHERE e.event_type IN ('m.room.message', 'm.room.name', 'm.room.topic')
   AND COALESCE(e.stream_ordering, 0) > 0
   AND src.value IS NOT NULL AND btrim(src.value) <> ''
 ON CONFLICT (event_id, key) DO NOTHING;
+
+-- ============================================================
+-- C-6 收尾：`room_tags` → `m.tag` 账户数据 回填（2026-10-25）
+-- ============================================================
+-- 背景：2026-10-25 之前 `PUT/DELETE /user/{uid}/rooms/{rid}/tags/{tag}` 只写
+-- `room_tags` 表，而 `/sync` 的房间账号数据来自 `room_account_data` ⇒ 历史标签
+-- **从未到达客户端**（SDK 侧实测，见 `artifacts/sdk-audit-and-plan-2026-10-20.md` 的 C-6）。
+--
+-- 服务层现在双写（`m.tag` 为准，`room_tags` 仅作跨房索引）并保留回退读；本段把
+-- **存量** `room_tags` 行投影成缺失的 `m.tag` 账户数据，让历史标签不必依赖回退路径
+-- 也能被 `/sync` 带到客户端。
+--
+-- 幂等性：
+--   * `NOT EXISTS` 保证「已有 `m.tag` 行」的房间一律不动 —— 包括用户删空标签后
+--     留下的 `{"tags":{}}`（服务层删空时会直接删掉该行，见 `write_tag_map`）；
+--   * `ON CONFLICT (user_id, room_id, data_type) DO NOTHING` 兜住并发与重放。
+-- 重放代价：`room_tags` 一次 anti-join（探测走唯一索引
+-- `uq_room_account_data_user_room_type`），首次之后即为 no-op。
+--
+-- `order_value` 为 NULL 的存量行按 `0` 落库，与改动前回退读的
+-- `order.unwrap_or(0.0)` 一致 —— 升级不改变任何可见标签次序。
+INSERT INTO room_account_data (user_id, room_id, data_type, data, created_ts, updated_ts)
+SELECT
+    rt.user_id,
+    rt.room_id,
+    'm.tag',
+    jsonb_build_object(
+        'tags',
+        jsonb_object_agg(rt.tag, jsonb_build_object('order', COALESCE(rt.order_value, 0)))
+    ),
+    MIN(rt.created_ts),
+    (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT
+FROM room_tags rt
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM room_account_data rad
+    WHERE rad.user_id = rt.user_id
+      AND rad.room_id = rt.room_id
+      AND rad.data_type = 'm.tag'
+)
+GROUP BY rt.user_id, rt.room_id
+ON CONFLICT (user_id, room_id, data_type) DO NOTHING;

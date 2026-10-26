@@ -2194,8 +2194,12 @@ BASELINE_DYNAMIC_PRODUCTION=141
 BASELINE_DYNAMIC_TEST_INFRA=784
 BASELINE_STATIC=1354
 BASELINE_QUERY_BUILDER=17
-SQLX_CACHE_ENTRIES=1323
+SQLX_CACHE_ENTRIES=1317
 <!-- sqlx-plan-numbers:end -->
+
+> **2026-10-26 更新（tags 全局读改以 `m.tag` 账户数据为准）**，数字块一处：
+> - `SQLX_CACHE_ENTRIES` **1323 → 1317**（净 −6）：新增 `list_room_account_data_by_type`
+>   一条静态查询（+1）；同一次 `sqlx_prepare.sh` 清掉 7 条 `device` / `to_device` 旧格式孤儿条目（−7）。
 
 > **2026-10-24 更新（W8 成员 B 批：死代码删除 + 基线滞后对齐）**，数字块两项：
 > - `BASELINE_STATIC` **1363 → 1357**（−6）：−2 是 RD-27 删除

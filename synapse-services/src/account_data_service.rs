@@ -179,6 +179,18 @@ impl AccountDataService {
         self.room_account_data_storage.delete_room_account_data(user_id, room_id, data_type).await
     }
 
+    /// 按 `(user_id, data_type)` 跨房间列出一类房间账号数据（如 `m.tag`）。
+    ///
+    /// 见 [`synapse_storage::room_account_data::RoomAccountDataStorage::list_room_account_data_by_type`]。
+    #[instrument(skip(self))]
+    pub async fn list_room_account_data_by_type(
+        &self,
+        user_id: &str,
+        data_type: &str,
+    ) -> Result<Vec<synapse_storage::room_account_data::RoomAccountDataRecord>, ApiError> {
+        self.room_account_data_storage.list_room_account_data_by_type(user_id, data_type).await
+    }
+
     /// See [`create_filter`].
     #[instrument(skip(self, content))]
     pub async fn create_filter(&self, user_id: &str, content: Value) -> Result<String, ApiError> {
