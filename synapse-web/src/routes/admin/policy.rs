@@ -107,6 +107,7 @@ fn fail_mode_string(fail_open: bool) -> &'static str {
 }
 
 /// See [`get_policy_status`].
+// reason: axum handler 必须保持 `async fn` 才能满足 `Handler`/路由约束，函数体无 `await` 不代表可以去掉 `async`
 #[allow(clippy::unused_async)]
 pub async fn get_policy_status(_admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
     let cfg = &ctx.config.policy_server;

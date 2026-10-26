@@ -20,7 +20,10 @@ wholesale rewrite of the sites that predate it.  Two mechanisms:
      inline `reason = "…"` (Rust lint-reason) or a `//` comment on the same line
      or the line directly above.  The baseline grandfathers, per file, the
      number of clippy allows that are NOT justified at their current site; that
-     count may only go DOWN.  New reasonless allows fail.
+     count may only go DOWN.  New reasonless allows fail.  A file that reaches
+     zero drops out of the baseline, so a fully justified workspace leaves it
+     empty — that is the goal state, not an error (a *missing* baseline file is
+     still fail-closed).
 
 Blanket group allows (`clippy::all` / `pedantic` / `nursery` / `restriction` /
 `cargo` / `correctness` / `suspicious` / `style` / `complexity` / `perf`) can
@@ -340,15 +343,20 @@ def main() -> int:
         )
         return 2
 
-    baseline = read_baseline()
-    if not baseline:
+    # A *missing* baseline is still fail-closed.  An empty one is not: zero
+    # unjustified allows is the ratchet's own goal state (reached 2026-10-26 when
+    # every remaining site got a local reason), and a gate that rejects its own
+    # success condition can never be closed.  Scanner integrity is guarded above
+    # by `files == 0 or not sites`.
+    if not BASELINE.exists():
         print(
-            f"FAIL: baseline {BASELINE.relative_to(ROOT)} missing/empty — "
+            f"FAIL: baseline {BASELINE.relative_to(ROOT)} missing — "
             "regenerate with --update (fail-closed)",
             file=sys.stderr,
         )
         return 2
 
+    baseline = read_baseline()
     blanket = sorted({lint for site in sites for lint in site.lints if lint in BLANKET})
     unlisted = sorted({lint for lint in all_lints if lint not in allowlist})
 

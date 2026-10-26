@@ -8,6 +8,7 @@ use crate::room_account_data::{RoomAccountDataRecord, RoomAccountDataStoreApi};
 /// `sqlx::postgres::PgRow` 暴露成公共 API）, so the mock now mirrors the typed surface exactly.
 #[derive(Clone, Debug, Default)]
 pub struct InMemoryRoomAccountDataStore {
+    // reason: 内存 fake 的状态容器：`Arc<RwLock<…>>` 的嵌套（复合键 HashMap / Vec 队列）就是该状态本身的形状，没有再抽类型别名的价值
     #[allow(clippy::type_complexity)]
     data: Arc<RwLock<HashMap<(String, String, String), (serde_json::Value, Option<i64>)>>>,
 }

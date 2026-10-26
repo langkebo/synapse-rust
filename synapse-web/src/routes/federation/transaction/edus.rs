@@ -33,6 +33,7 @@ pub(crate) struct EduProcessingStats {
 /// NOTE: This function has multiple parameters because it directly maps
 /// the inline EDU processing block from `transaction.rs`; the parameter
 /// count is inherent to the federation EDU dispatch operation.
+// reason: `process_inbound_edus` 是协议/存储字段的直传签名：参数逐个来自调用点，打包成结构体只会把同一份字段列表抄两遍
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn process_inbound_edus(
     ctx: &FederationContext,

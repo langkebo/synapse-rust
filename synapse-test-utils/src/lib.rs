@@ -1491,6 +1491,7 @@ fn default_template_schema_name() -> String {
 /// `e2ee_audit_log.device_id` nullable had no effect until the template was dropped
 /// by hand). `migrations/README.md` claims the opposite ("内容指纹随之变化，会铸造一次
 /// 新模板"), which is only true once this resolves correctly.
+// reason: 测试基建：找不到 `migrations/` 说明工作区布局被破坏；静默降级会让整条集成链跑陈旧 schema（见上方注释）
 #[allow(clippy::expect_used)]
 fn workspace_migrations_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))

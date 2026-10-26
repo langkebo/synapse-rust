@@ -3,6 +3,7 @@ use super::repository::SlidingSyncStorage;
 use async_trait::async_trait;
 
 /// The `SlidingSyncStoreApi` trait.
+// reason: `create_or_update_token` 是协议/存储字段的直传签名：参数逐个来自调用点，打包成结构体只会把同一份字段列表抄两遍
 #[allow(clippy::too_many_arguments)]
 #[async_trait]
 pub trait SlidingSyncStoreApi: Send + Sync {

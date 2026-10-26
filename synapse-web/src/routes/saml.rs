@@ -526,6 +526,7 @@ pub fn create_saml_router(state: AppState) -> axum::Router<AppState> {
 
 #[cfg(test)]
 mod tests {
+    // reason: `tests` 模块：夹具与断言失败应当直接 panic，不是生产错误路径
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;

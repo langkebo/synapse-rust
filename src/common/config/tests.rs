@@ -2,6 +2,7 @@
 //! environment variable resolution, and defaults.
 
 #[cfg(test)]
+// reason: `tests` 子模块与父模块同名是既有布局，重命名只会破坏模块路径与 `use super::*`
 #[allow(clippy::module_inception)]
 mod tests {
     use crate::common::config::*;

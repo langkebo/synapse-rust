@@ -50,6 +50,7 @@ impl LifecycleService {
     /// create event itself — its content hash *is* the room id (MSC4291), so a
     /// rewrite would desync the identity the caller already derived and pinned
     /// in `graph`.
+    // reason: `write_creation_event` 是协议/存储字段的直传签名：参数逐个来自调用点，打包成结构体只会把同一份字段列表抄两遍
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn write_creation_event(
         &self,
@@ -176,6 +177,7 @@ impl LifecycleService {
     }
 
     /// See [`set_room_metadata`].
+    // reason: 参数与房间元数据字段一一对应；body 里的 `as_deref` 由 `Option<&str>` 契约决定，改签名会波及所有调用点
     #[allow(clippy::needless_option_as_deref, clippy::too_many_arguments)]
     pub(crate) async fn set_room_metadata(
         &self,
@@ -252,6 +254,7 @@ impl LifecycleService {
     /// DB-03-b: the previous `Option<&mut tx>` signature was removed; callers
     /// that passed `None` triggered two independent auto-committed writes with
     /// no atomicity, and had zero test or production coverage.
+    // reason: `process_invites` 是协议/存储字段的直传签名：参数逐个来自调用点，打包成结构体只会把同一份字段列表抄两遍
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn process_invites(
         &self,

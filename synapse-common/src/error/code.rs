@@ -247,6 +247,7 @@ impl MatrixErrorCode {
     ///
     /// 返回 `Option<Self>`（未知 errcode → `None`）而非 `std::str::FromStr` 的
     /// `Result`，因容错语义不匹配该 trait；故允许 `should_implement_trait`。
+    // reason: 容错解析返回 `Option`（未知 errcode → None），与 `FromStr` 的 `Result` 语义不匹配；详见上方文档注释
     #[allow(clippy::should_implement_trait)]
     /// Parses a `M_*` string into a `MatrixErrorCode`. Returns `None` if unknown.
     pub fn from_str(s: &str) -> Option<Self> {

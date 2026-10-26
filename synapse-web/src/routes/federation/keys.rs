@@ -897,6 +897,7 @@ fn normalize_server_keys_body(body: Value, server_name: &str) -> Value {
 
 #[cfg(test)]
 mod tests {
+    // reason: `tests` 模块：夹具与断言失败应当直接 panic，不是生产错误路径
     #![allow(clippy::unwrap_used)]
     use super::*;
     use ed25519_dalek::{Signer, SigningKey};

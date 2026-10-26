@@ -6,9 +6,10 @@ use synapse_common::current_timestamp_millis;
 #[derive(Clone)]
 pub struct InMemoryEventStore {
     events: Arc<RwLock<HashMap<String, crate::event::RoomEvent>>>, // event_id → event
+    // reason: 内存 fake 的状态容器：`Arc<RwLock<…>>` 的嵌套（复合键 HashMap / Vec 队列）就是该状态本身的形状，没有再抽类型别名的价值
     #[allow(clippy::type_complexity)]
     txn_dedup: Arc<RwLock<HashMap<(String, String, String), String>>>, // (user, room, txn) → event_id
-    pool: Arc<PgPool>,                                             // lazy pool for trait compat (never connected)
+    pool: Arc<PgPool>, // lazy pool for trait compat (never connected)
 }
 
 impl Default for InMemoryEventStore {

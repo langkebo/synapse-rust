@@ -2,6 +2,7 @@
 //!
 //! Split from the former `user::db_tests` inline module.
 
+// reason: `db_tests` 模块：夹具与断言失败应当直接 panic，不是生产错误路径
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use super::*;

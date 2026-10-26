@@ -478,6 +478,7 @@ mod db_tests {
 
 #[cfg(test)]
 mod c61_coverage_tests {
+    // reason: `c61_coverage_tests` 模块：夹具与断言失败应当直接 panic，不是生产错误路径
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;

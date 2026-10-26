@@ -2473,6 +2473,7 @@ async fn test_search_joined_room_events_default_types_include_name_and_topic() {
 
 /// 直接插入一行 `events`（绕过 `create_event` 的 DAG/签名校验），
 /// 便于构造"同一 (user, room, txn) 去重竞争"的 winner/loser 两个事件行。
+// reason: `insert_soft_fail_event_row` 是测试夹具：逐列构造数据行/对齐 trait 方法签名，打包只会增加无谓间接
 #[allow(clippy::too_many_arguments)]
 async fn insert_soft_fail_event_row(
     pool: &Pool<Postgres>,
@@ -2747,6 +2748,7 @@ async fn test_soft_failed_events_hidden_from_all_consumer_read_paths() {
 // ---------------------------------------------------------------------------
 
 /// 插入一条最小 `events` 行（未列出的列走 schema 默认值）。
+// reason: `seed_event_row` 是测试夹具：逐列构造数据行/对齐 trait 方法签名，打包只会增加无谓间接
 #[allow(clippy::too_many_arguments)]
 async fn seed_event_row(
     pool: &Pool<Postgres>,

@@ -450,6 +450,7 @@ mod tests {
     use async_trait::async_trait;
 
     #[derive(Clone)]
+    // reason: 测试替身：`Mutex<Option<Result<..>>>` 是记录调用结果的最小形状，没有更简单的一层
     #[allow(clippy::type_complexity)]
     struct MockWidgetStore {
         create_widget: Arc<std::sync::Mutex<Option<Result<Widget, sqlx::Error>>>>,
@@ -541,8 +542,10 @@ mod tests {
             *self.cleanup_expired.lock().unwrap() = Some(r);
         }
 
+        // reason: 多字段返回值的既有形状，调用点一次性解构，未抽命名结构体
         #[allow(clippy::type_complexity)]
         async fn pop_field<T>(field: &Arc<std::sync::Mutex<Option<Result<T, sqlx::Error>>>>) -> Result<T, sqlx::Error> {
+            // reason: 测试替身：`Mutex` 中毒即夹具写坏，unwrap 是期望行为
             #[allow(clippy::unwrap_used)]
             let r = field.lock().unwrap().take().unwrap_or(Err(sqlx::Error::RowNotFound));
             r

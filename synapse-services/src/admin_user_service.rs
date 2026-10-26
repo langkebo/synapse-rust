@@ -479,6 +479,7 @@ impl AdminUserService {
     }
 
     /// See [`create_or_update_user_v2`].
+    // reason: `create_or_update_user_v2` 是协议/存储字段的直传签名：参数逐个来自调用点，打包成结构体只会把同一份字段列表抄两遍
     #[allow(clippy::too_many_arguments)]
     #[instrument(skip(self))]
     pub async fn create_or_update_user_v2(

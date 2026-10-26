@@ -5,6 +5,7 @@ use synapse_common::current_timestamp_millis;
 /// The `InMemoryCasStore` struct.
 #[cfg(feature = "cas-sso")]
 #[derive(Clone, Default)]
+// reason: 内存 fake 的状态容器：`Arc<RwLock<…>>` 的嵌套（复合键 HashMap / Vec 队列）就是该状态本身的形状，没有再抽类型别名的价值
 #[allow(clippy::type_complexity)]
 pub struct InMemoryCasStore {
     tickets: Arc<tokio::sync::RwLock<HashMap<String, CasTicket>>>,

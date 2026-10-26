@@ -3,6 +3,7 @@
 //! This module aggregates in-memory test doubles for service-layer
 //! dependencies. It re-exports the storage-layer fakes (so service
 //! tests have a single import surface) and provides [`TestSyncContext`]
+// reason: 测试替身模块（服务层 in-memory fakes）：unwrap 属夹具、type_complexity 来自 fake 的状态容器
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::type_complexity)]
 //! for exercising sync-adjacent logic without a database.
 //!

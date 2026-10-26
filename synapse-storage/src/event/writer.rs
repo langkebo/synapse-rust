@@ -60,6 +60,7 @@ pub trait EventWriter: Send + Sync {
 
     // ── mutation: graph / signatures / reports ─────────────────────────
 
+    // reason: `create_event_with_graph` 是协议/存储字段的直传签名：参数逐个来自调用点，打包成结构体只会把同一份字段列表抄两遍
     #[allow(clippy::too_many_arguments)]
     /// See [`create_event_with_graph`].
     async fn create_event_with_graph(
@@ -74,6 +75,7 @@ pub trait EventWriter: Send + Sync {
     /// See [`create_outlier_event`]: keeps the origin's graph columns verbatim
     /// but writes **no** `event_edges` rows, for events whose parents this
     /// server does not hold (inbound federation invite to an unhosted room).
+    // reason: `create_outlier_event` 是协议/存储字段的直传签名：参数逐个来自调用点，打包成结构体只会把同一份字段列表抄两遍
     #[allow(clippy::too_many_arguments)]
     async fn create_outlier_event(
         &self,
@@ -84,6 +86,7 @@ pub trait EventWriter: Send + Sync {
         tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> Result<RoomEvent, sqlx::Error>;
 
+    // reason: `save_event_signature` 是协议/存储字段的直传签名：参数逐个来自调用点，打包成结构体只会把同一份字段列表抄两遍
     #[allow(clippy::too_many_arguments)]
     /// See [`save_event_signature`].
     async fn save_event_signature(
@@ -119,6 +122,7 @@ pub trait EventWriter: Send + Sync {
         stream_id: i64,
     ) -> Result<(), sqlx::Error>;
 
+    // reason: `upsert_ephemeral_event` 是协议/存储字段的直传签名：参数逐个来自调用点，打包成结构体只会把同一份字段列表抄两遍
     #[allow(clippy::too_many_arguments)]
     /// See [`upsert_ephemeral_event`].
     async fn upsert_ephemeral_event(

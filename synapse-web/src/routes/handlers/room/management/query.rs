@@ -130,6 +130,7 @@ pub(crate) async fn get_user_rooms(
 ///   "next_batch_token": "optional_pagination_token"
 /// }
 /// ```
+// reason: `get_mutual_rooms` 是协议/存储字段的直传签名：参数逐个来自调用点，打包成结构体只会把同一份字段列表抄两遍
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn get_mutual_rooms(
     State(ctx): State<RoomContext>,

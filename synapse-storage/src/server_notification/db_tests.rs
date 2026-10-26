@@ -3,6 +3,7 @@
 //! users(user_id) 与 server_notifications(id)（ON DELETE CASCADE），故 mark_* 类
 //! 测试需先 ensure_test_user。
 
+// reason: `db_tests` 模块：夹具与断言失败应当直接 panic，不是生产错误路径
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use super::*;

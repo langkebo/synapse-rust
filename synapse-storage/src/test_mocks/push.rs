@@ -48,8 +48,10 @@ struct PusherEntry {
 /// (the same reason the C33 readers stopped being `unimplemented!()`).
 #[derive(Clone, Debug, Default)]
 pub struct InMemoryPushStore {
+    // reason: 内存 fake 的状态容器：`Arc<RwLock<…>>` 的嵌套（复合键 HashMap / Vec 队列）就是该状态本身的形状，没有再抽类型别名的价值
     #[allow(clippy::type_complexity)]
     pushers: Arc<RwLock<HashMap<(String, String, String), PusherEntry>>>,
+    // reason: 内存 fake 的状态容器：`Arc<RwLock<…>>` 的嵌套（复合键 HashMap / Vec 队列）就是该状态本身的形状，没有再抽类型别名的价值
     #[allow(clippy::type_complexity)]
     push_rules: Arc<RwLock<HashMap<(String, String, String, String), PushRuleEntry>>>,
     notifications: Arc<RwLock<Vec<NotificationRow>>>,
@@ -93,6 +95,7 @@ impl PushStoreApi for InMemoryPushStore {
         Ok(rows)
     }
 
+    // reason: `upsert_pusher` 是测试夹具：逐列构造数据行/对齐 trait 方法签名，打包只会增加无谓间接
     #[allow(clippy::too_many_arguments)]
     async fn upsert_pusher(
         &self,
@@ -139,6 +142,7 @@ impl PushStoreApi for InMemoryPushStore {
         Ok((before - pushers.len()) as u64)
     }
 
+    // reason: `upsert_push_rule` 是测试夹具：逐列构造数据行/对齐 trait 方法签名，打包只会增加无谓间接
     #[allow(clippy::too_many_arguments)]
     async fn upsert_push_rule(
         &self,

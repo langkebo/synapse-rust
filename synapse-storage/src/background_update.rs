@@ -1014,6 +1014,7 @@ mod tests {
         BU_TEST_COUNTER.fetch_add(1, Ordering::SeqCst)
     }
 
+    // reason: `insert_update_row` 是协议/存储字段的直传签名：参数逐个来自调用点，打包成结构体只会把同一份字段列表抄两遍
     #[allow(clippy::too_many_arguments)]
     async fn insert_update_row(
         pool: &PgPool,

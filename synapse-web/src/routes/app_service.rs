@@ -802,6 +802,7 @@ pub fn create_app_service_router(state: &AppState) -> Router<AppState> {
     public_routes.merge(admin_routes)
 }
 
+// reason: axum handler 必须保持 `async fn` 才能满足 `Handler`/路由约束，函数体无 `await` 不代表可以去掉 `async`
 #[allow(clippy::unused_async)]
 async fn get_user_appservice(
     State(_ctx): State<AdminContext>,

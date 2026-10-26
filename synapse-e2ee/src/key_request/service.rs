@@ -49,6 +49,7 @@ impl KeyRequestService {
         Self { storage }
     }
 
+    // reason: `create_request` 是协议/存储字段的直传签名：参数逐个来自调用点，打包成结构体只会把同一份字段列表抄两遍
     #[allow(clippy::too_many_arguments)]
     /// See [`create_request`].
     pub async fn create_request(
@@ -82,6 +83,7 @@ impl KeyRequestService {
         Ok(request_info)
     }
 
+    // reason: `create_share_request` 是协议/存储字段的直传签名：参数逐个来自调用点，打包成结构体只会把同一份字段列表抄两遍
     #[allow(clippy::too_many_arguments)]
     /// See [`create_share_request`].
     pub async fn create_share_request(

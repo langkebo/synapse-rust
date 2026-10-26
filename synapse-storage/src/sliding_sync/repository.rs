@@ -117,6 +117,7 @@ impl SlidingSyncStorage {
     }
 
     /// See [`save_list`].
+    // reason: `save_list` 是协议/存储字段的直传签名：参数逐个来自调用点，打包成结构体只会把同一份字段列表抄两遍
     #[allow(clippy::too_many_arguments)]
     pub async fn save_list(
         &self,
@@ -210,6 +211,7 @@ impl SlidingSyncStorage {
     }
 
     /// See [`upsert_room`].
+    // reason: `upsert_room` 是协议/存储字段的直传签名：参数逐个来自调用点，打包成结构体只会把同一份字段列表抄两遍
     #[allow(clippy::too_many_arguments)]
     pub async fn upsert_room(
         &self,

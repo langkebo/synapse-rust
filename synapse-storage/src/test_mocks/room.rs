@@ -27,6 +27,7 @@ fn mock_matches_room_types(types: &crate::room::RoomTypeFilter) -> bool {
 /// A test that needs a deviation-free store must use the database-backed
 /// implementation. The guard `tests/unit/mock_fidelity_tests.rs` enumerates the
 /// modules carrying deviation markers so a newly added one cannot go unnoticed.
+// reason: 内存 fake 的状态容器：`Arc<RwLock<…>>` 的嵌套（复合键 HashMap / Vec 队列）就是该状态本身的形状，没有再抽类型别名的价值
 #[allow(clippy::type_complexity)]
 #[derive(Clone, Default)]
 pub struct InMemoryRoomStore {

@@ -525,6 +525,7 @@ impl EventWriter for GraphMetadataWriter {
         self.inner.create_outlier_event(params, prev_events, auth_events, depth, tx).await
     }
 
+    // reason: `save_event_signature` 是协议/存储字段的直传签名：参数逐个来自调用点，打包成结构体只会把同一份字段列表抄两遍
     #[allow(clippy::too_many_arguments)]
     async fn save_event_signature(
         &self,
@@ -561,6 +562,7 @@ impl EventWriter for GraphMetadataWriter {
         self.inner.add_ephemeral_event(room_id, user_id, event_type, content, stream_id).await
     }
 
+    // reason: `upsert_ephemeral_event` 是协议/存储字段的直传签名：参数逐个来自调用点，打包成结构体只会把同一份字段列表抄两遍
     #[allow(clippy::too_many_arguments)]
     async fn upsert_ephemeral_event(
         &self,

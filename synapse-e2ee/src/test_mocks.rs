@@ -118,6 +118,7 @@ impl KeyRotationStorageApi for InMemoryKeyRotationStorage {
 #[derive(Clone, Default)]
 pub struct InMemoryDeviceKeyStore {
     /// `(user_id, device_id, key_id)` → `DeviceKey`
+    // reason: 内存 fake 的状态容器：`Arc<RwLock<…>>` 的嵌套（复合键 HashMap / Vec 队列）就是该状态本身的形状，没有再抽类型别名的价值
     #[allow(clippy::type_complexity)]
     keys: Arc<RwLock<HashMap<(String, String, String), DeviceKey>>>,
     /// Tracks which `key_id`s are fallback keys (`DeviceKey` has no `is_fallback` field)
@@ -127,6 +128,7 @@ pub struct InMemoryDeviceKeyStore {
     /// device_lists_stream entries (for `get_key_changes_with_left`)
     device_list_stream: Arc<RwLock<Vec<DeviceListStreamEntry>>>,
     /// `(target_user_id, target_key_id, signing_user_id, signing_key_id)` → signature
+    // reason: 内存 fake 的状态容器：`Arc<RwLock<…>>` 的嵌套（复合键 HashMap / Vec 队列）就是该状态本身的形状，没有再抽类型别名的价值
     #[allow(clippy::type_complexity)]
     signatures: Arc<RwLock<HashMap<(String, String, String, String), String>>>,
 }

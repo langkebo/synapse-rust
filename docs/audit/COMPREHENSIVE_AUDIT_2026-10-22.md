@@ -14,7 +14,7 @@
 | 维度 | P0 | P1 | P2 | P3 | 合计 |
 |---|---|---|---|---|---|
 | 架构设计 | 0 | 0 | 1 | 0 | 1 |
-| 代码质量 | 0 | 0 | 1 | 1 | 2 |
+| 代码质量 | 0 | 0 | 1 | 0 | 1 |
 | 功能完整性 | 0 | 0 | 0 | 0 | 0 |
 | 性能（含数据层） | 0 | 0 | 0 | 2 | 2 |
 | 安全性 | 0 | 0 | 0 | 0 | 0 |
@@ -22,10 +22,10 @@
 | 测试覆盖 | 0 | 0 | 0 | 0 | 0 |
 | 文档完整性 | 0 | 0 | 0 | 0 | 0 |
 | 专项：冗余与过度开发 | 0 | 0 | 0 | 0 | 0 |
-| **合计** | **0** | **0** | **3** | **3** | **6** |
+| **合计** | **0** | **0** | **3** | **2** | **5** |
 
-> 计数口径（2026-10-26 逐条重算，**按表格行**计，合并行只算一行）：**P0 = 0，P1 = 0，P2 = 3，P3 = 3，合计 6**。
-> 来源 = §0.2.2 的 2 条 + §0.2.3 的 4 条（§0.1 已于 2026-10-26 清空）。
+> 计数口径（2026-10-26 逐条重算，**按表格行**计，合并行只算一行）：**P0 = 0，P1 = 0，P2 = 3，P3 = 2，合计 5**。
+> 来源 = §0.2.2 的 2 条 + §0.2.3 的 3 条（§0.1 已于 2026-10-26 清空）。
 > ⚠️ **本版更正一处旧账**：上一版写 `P3 = 13`，但把 §0.1 / §0.2.2 / §0.2.3 三处表格按行数出来是
 > **14 行**（正则 `^\| \*\*ID\*\* \| P[0-9] \|` 扫一遍即可复核）—— 13 是漏计，不是有 1 条被关掉。
 > 本版关闭 **NEW-19**（P2/功能完整性，`2e33c45a8`）、**NEW-10**（P3/测试覆盖，`d9fa05d26`）、
@@ -63,6 +63,9 @@
 > —— 67 个文件涨过各自上限、另有 2 个新增 >600 行文件未入册（`--update` 会一次性批准全部
 > 无关增长，故本笔只收紧自拆的 7 条，闸门仍红）⇒ P2 `2 → 3`、合计 `5 → 6`。
 > **净结果：合计 6 → 6，但构成变了** —— ARCH-05 关闭、NEW-20 打开。
+> 同轮再收口 **CODE-11**（`#[allow(...)]` 的 157 处无理由 / 94 文件全部补上 `// reason:`，棘轮基线
+> 由 `157/94` 收紧到 **0/0**；同时修掉棘轮自身「空基线 = 失败」的自相矛盾 —— 零无理由正是它的目标态，
+> 只有**缺文件**才 fail-closed）⇒ P3 `3 → 2`、合计 `6 → 5`。判据与变异见附录 D。
 > ✅ NEW-19：`/send` 的线程回复现在同时进 `thread_relations` 与 `thread_replies`
 > （时间戳回查刚落库的事件，不用本地时钟；重试同一 txn 不重复计数）。
 > ✅ NEW-10：4 处手写轮询折成 `tests/common/mod.rs::wait_until`，测试域 `sleep` 计数
@@ -75,21 +78,21 @@
 > ✅ **NEW-14 已收口**：C3 审计面 15 → 95 个文件（零误伤），14 个 `NONE` 族已逐族重跑 ⇒
 > 4 族误判（改登记）、3 族幽灵、7 族真缺口（见 §0.1.1）。
 > `NEW-08` 已于 2026-10-25 关闭（`device_sync.rs` 整模块删除，判据与变异证据见附录 D），不再计入。
-> 其中 **5 条是"登记项"**（明确不做或只等外部条件）；§0.1 已于 2026-10-26 清空
+> 其中 **4 条是"登记项"**（明确不做或只等外部条件）；§0.1 已于 2026-10-26 清空
 > （最后两条 `NEW-15` / `NEW-16` 已裁决并落地），没有"我们已经知道怎么改但还没动手"的条目了。
 
 **结论摘要**：**P0 = 0，P1 = 0**（原 9 条 P1 全部有实现 + 能失败的门禁，逐条见附录 D）。
 ⚠️ 第八轮曾把一条误报成 P1（NEW-06「设备吊销通知静默丢失」），**已撤回**：真实广播路径在
 `routes/device.rs::broadcast_device_list_update`（签名事务），死的是 `device_sync` 里那条
 零调用者的重复实现，已删除；更正过程记在[附录 D](#附录-d已关闭条目索引)。
-剩下的 6 条里，**没有一条会造成数据丢失或越权**；3 条 P2 分别是 `events` 未分区（ARCH-04）、
+剩下的 5 条里，**没有一条会造成数据丢失或越权**；3 条 P2 分别是 `events` 未分区（ARCH-04）、
 837 处静默忽略（CODE-10）、文件行数棘轮在 HEAD 上已红（NEW-20）
 —— 全是**长期结构债**：
-不修也不会立刻出错，但每加一个功能都在加利息。3 条 P3 **全部是 §0.2.3 的登记项**
+不修也不会立刻出错，但每加一个功能都在加利息。2 条 P3 **全部是 §0.2.3 的登记项**
 （规范漂移/文档失真/死代码），没有待裁决项。
 
-**下一批该做什么**：**没有"我们知道怎么改但还没动手"的条目了**。剩下的 6 条分两类 ——
-① 4 条**登记项**（§0.2.3，明确不做或只等外部条件）；
+**下一批该做什么**：**没有"我们知道怎么改但还没动手"的条目了**。剩下的 5 条分两类 ——
+① 3 条**登记项**（§0.2.3，明确不做或只等外部条件）；
 ② ARCH-04（真实数据量）与 NEW-20（67 条无关增长要不要一次性批准）这两条**卡在决策上**。
 
 ## 0.1 第七轮新发现（2026-10-24，只列仍开着的）
@@ -141,21 +144,20 @@
 ### 0.2.1 可先红后绿
 
 > 2026-10-24 已清空：最后一条 `TEST-05` 已按「逐处分类 + 注解门禁」收口（见附录 D）。
-> 剩下的 6 条全部落在 §0.2.2（需要决策/等价断言）与 §0.2.3（登记项）。
+> 剩下的 5 条全部落在 §0.2.2（需要决策/等价断言）与 §0.2.3（登记项）。
 
 ### 0.2.2 需要决策或外部条件
 
 | 编号 | 级别 | 一句话 | 卡在哪 |
 |---|---|---|---|
 | **ARCH-04** | P2 | `events` 未分区、`room_memberships` 无归档 | 需要真实数据量判断分区收益；本机无生产级数据，属**等外部条件** |
-| **NEW-20** | P2 | `check_file_size_ratchet.py` **在 HEAD 上就是红的**：67 个文件涨过各自上限，另有 2 个新增 >600 行文件未入册 | 只有两条路：① 逐条回溯是谁涨的、为什么（67 条，几十次提交）；② 整表 `--update`（= 一次性批准全部无关增长）。两条都要人拍板，本笔只收紧自己拆的 7 条，**闸门仍红** |
+| **NEW-20** | P2 | `check_file_size_ratchet.py` **在 HEAD 上就是红的**：67 个文件涨过各自上限，另有 2 个新增 >600 行文件未入册 | 只有两条路：① 逐条回溯是谁涨的、为什么（67 条，几十次提交）；② 整表 `--update`（= 一次性批准全部无关增长）。两条都要人拍板，本笔只收紧自己拆的 7 条，**闸门仍红**。W12 补 `// reason:` 时给 94 个文件各加了 1–3 行，其中 **18 个恰好越过各自 ceiling**，已按「只上调自己被注释顶破的那几条」逐条 +1…+3（不是整表 `--update`），`grown` 计数**仍是 67**、`new_offenders` 仍是那 2 个 ⇒ 本笔没有把这条债做大 |
 
 ### 0.2.3 登记项（已知、明确不做或只等时机）
 
 | 编号 | 级别 | 一句话 | 为什么不做 |
 |---|---|---|---|
 | **CODE-10** | P2 | 生产 **837 处** `let _ =` / `unwrap_or_default()`（238 文件） | 大部分是合法用法；设下降配额会诱导写 `unwrap()` 来"减少计数"（§10.10） |
-| **CODE-11** | P3 | `#[allow(...)]`：棘轮口径（`python3 scripts/ci/check_clippy_allow_ratchet.py --print`，2026-10-26 W9 现算）**159 site / 157 处无 `// reason:`（94 文件）**，基线 157/94；原记「271 处 / 117 文件」是裸 `#[allow` grep 的宽口径，与棘轮不可比 | 棘轮已在工作（只许下降）；剩"补理由"是纯体力活，随触达文件顺手补 —— 本文件里的两处数字已由 `doc_credibility_guard_tests::clippy_allow_counts_in_the_audit_match_the_ratchet_baseline` 与基线文件绑死，不会再漂 |
 | **PERF-11** | P3 | N+1 查询 3 处（风险可控） | 当前数据量下无实测劣化，缺 benchmark 支撑 |
 | **PERF-12 / MAINT-07** | P3 | `INDEXES.md` 人工表无法从 DDL 反推 | 重生成会让"索引治理"退化成"索引清单"；计数已由 `check_doc_metrics.py` 现算 |
 
@@ -344,12 +346,19 @@
 - **下一轮可做的**：按"错误被吞后有没有用户可见后果"分类，只处理前两类；不要动 `unwrap_or_default()`
   在 `Option` 语义下的合法用法。
 
-### CODE-11（P3）棘轮口径 **159 site / 157 处无 `// reason:`（94 文件）**（原记 271 处 / 117 文件是裸 `#[allow` 的宽口径）
+### CODE-11（P3）棘轮口径 **159 site / 0 处无 `// reason:`（0 文件）**，基线 **0/0** —— ✅ 已关闭（W12，见附录 D）
 
 - **现状**：`check_clippy_allow_ratchet.py` + `clippy_allow_baseline` 已在工作（只许下降，
   新条目必须带理由），所以**"无理由 allow 增长"已经不可能**。
-- **仍开着的部分**：存量 **157 处**没理由。**修法**：随触达文件顺手补 `reason`，不要为一个纯体力活单开批次。
-- **数字不再手抄**：`doc_credibility_guard_tests::clippy_allow_counts_in_the_audit_match_the_ratchet_baseline`
+- **存量**：存量 **0 处** 无理由（0 文件）—— 关闭前是 **157 处 / 94 文件**（129 个属性位，其中 28 个
+  同时抑制 2–3 个 lint）。本笔按 lint 类逐个补 `// reason:`，不是模板字面量：`too_many_arguments`
+  写明"参数与 SQL 列序 / 依赖集一一对应"，`unwrap_used` 写明"测试夹具失败即应 panic"，
+  `unused_async` 写明"axum handler 的签名约束"，`type_complexity` 写明"`Arc<RwLock<…>>`
+  就是 fake 状态本身的形状"等。
+- **顺带修掉棘轮的自相矛盾**：`main()` 原先把**空基线**判成 `exit 2`，而"零无理由"正是棘轮的
+  目标态 —— 等于禁止自己成功。改为只有**基线文件缺失**才 fail-closed（扫描器为空的保护仍在：
+  `files == 0 or not sites`）；`doc_credibility_guard_tests` 的 `assert!(files > 0)` 同步换成说明注释。
+- **数字仍不手抄**：`doc_credibility_guard_tests::clippy_allow_counts_in_the_audit_match_the_ratchet_baseline`
   从 `scripts/ci/clippy_allow_baseline` 现算「无理由处数 / 文件数」，与本标题及 §0.2.3 那行逐字比对；
   基线降了而这里没跟 ⇒ 红。
 
@@ -716,14 +725,15 @@ TEST_FILE 47 = 107**；测试域合计 81。
 | W6 | P3 冗余与文档（RD-01…26） | ✅ 四批 + RD-14 接入 |
 | W7 | 门禁可达性（TEST-04）+ 三处文档失真（MAINT-05/CODE-09/FUNC-04） | ✅ 见提交 `01345e38f` |
 | W8 | 测试面（TEST-05/NEW-05/NEW-09/NEW-14）+ 能力台账（MAINT-04/FUNC-05/ARCH-03/CODE-01b/CODE-08）+ 文档漂移（DOC-04） | ✅ 逐条判据见附录 D |
-| W9 | 测试基建特性隔离（MAINT-01）+ `#[allow]` 计数纠偏（CODE-11 数字绑基线） | ✅ 本笔（MAINT-01 见附录 D；CODE-11 仍为登记项） |
+| W9 | 测试基建特性隔离（MAINT-01）+ `#[allow]` 计数纠偏（CODE-11 数字绑基线） | ✅ 本笔（MAINT-01 见附录 D；CODE-11 的"补理由"已由 W12 收口） |
 | W10 | P2 数据层保留期：`to_device_messages` 按龄清理（PERF-01） | ✅ 本笔（见附录 D） |
 | W11 | P2 文件规模：9 个内联测试模块外移，7 个 >2000 行生产文件全部 ≤1557（ARCH-05） | ✅ 本笔（见附录 D；连带登记 NEW-20） |
+| W12 | P3 `#[allow]` 无理由存量清零（CODE-11）：157 处 / 94 文件逐个补 `// reason:`，基线 157/94 → 0/0；顺带把 fmt 棘轮从 9 清到 0 | ✅ 本笔（见附录 D；含"空基线 = 失败"的自相矛盾修正） |
 
 ### 10.2 下一批建议
 
 W8 计划的三项（`TEST-05` → `NEW-05` → `FUNC-05`）已全部收口，清单里已无 P0/P1、也无 P3 待裁决项。
-剩下 6 条里能动的只有 2 条 P2 结构债，而每条都**卡在一个前提上**，不是排期问题：
+剩下 5 条里能动的只有 2 条 P2 结构债，而每条都**卡在一个前提上**，不是排期问题：
 
 | 待办 | 前提 |
 |---|---|
@@ -731,9 +741,10 @@ W8 计划的三项（`TEST-05` → `NEW-05` → `FUNC-05`）已全部收口，�
 | CODE-10（837 处静默忽略） | 只按"错误被吞有无用户可见后果"分类处理，且**不设配额** |
 | NEW-20（文件行数棘轮在 HEAD 上已红） | 要么逐条回溯 67 条增长（几十次提交），要么整表 `--update` 一次性批准；需人拍板 |
 
-其余（`CODE-11`、`PERF-11/12`）都是随触达顺手做或等外部条件的登记项。
+其余（`PERF-11/12`、`MAINT-07`）都是随触达顺手做或等外部条件的登记项。
 PERF-01 已于 W10 收口（`to_device_messages` 按龄清理 + 零天关闭开关，判据与变异见附录 D）；
-ARCH-05 已于 W11 收口（生产段全部 ≤1557 行，行数棘轮 7 条逐条收紧，变异自证见附录 D）。
+ARCH-05 已于 W11 收口（生产段全部 ≤1557 行，行数棘轮 7 条逐条收紧，变异自证见附录 D）；
+CODE-11 已于 W12 收口（`#[allow]` 无理由存量 157 → 0，基线 0/0，变异自证见附录 D）。
 
 ### 10.3 明确不做（防止过度开发）
 
@@ -869,4 +880,5 @@ ARCH-05 已于 W11 收口（生产段全部 ≤1557 行，行数棘轮 7 条逐�
 | SEC-12 | legacy r0/v1/r1 媒体下载端点匿名可读 | **裁决：不是漏洞，是 Matrix legacy 语义**（r0/v1 匿名可读；原描述把 **r1 也算进去了，实际 r1 早已挂 `auth_middleware`**——VULN-01/02，`api_security_vuln_fix_tests` 三条 401 用例是证据）。做法按审计原修法：**登记为设计决策 + 部署文档说明**，不改 `auth`。`docker/deploy/README.md` 新增「媒体下载的匿名读语义」小节，表格列全六类路径（r0/v1 匿名 · v3 匿名 · v3 `download_signed` HMAC · r1 必须 token · `/_matrix/client/v1/media` 必须 token）并写明"要关闭匿名读就得给 legacy router 挂 `auth_middleware`，且先按客户端版本分布裁决"。**判据**：`doc_credibility_guard_tests::legacy_media_anonymous_read_is_registered_and_matches_the_router` 四方绑定（部署文档小节存在且点名 r0/v1 + `auth_middleware` / r1 必须挂 / r0·v1 不得挂且必须 merge legacy router / `download_media_v1` 仍 `OptionalAuthenticatedUser`），用新 helper `fn_body` 按**函数体**切片，防止同文件里 r1 的 `auth_middleware` 让 r0 断言假通过；`doc_credibility_guard_tests` **16 passed**。**变异**：删 README 小节标题 ⇒ 红；给 `create_media_r0_router` 挂 `auth_middleware` ⇒ 红；去掉 r1 的 `auth_middleware` ⇒ 红（三条均实测，还原后 16 passed） |
 | PERF-01 | `to_device_messages` 对普通设备无按龄清理（只有脱水设备路径有 `DELETE`），长期不活跃设备的积压永久累积 | **已修（W10）**。**语义裁决**：`claim_messages` 是 `WITH deleted AS (DELETE … RETURNING)`、`delete_messages_up_to` 按 `stream_id <= $3` 删 ⇒ **取走即删**，所以存活超窗的行只能是"设备从未回来取"的积压，不需要投递确认；代价显式接受——离线超窗设备丢积压（与 `DEVICE_LIST_STREAM_RETENTION_DAYS` 同等取舍），回来从 `/sync` 重拉。**落地**：`synapse-storage/src/pruning.rs` 的 `TO_DEVICE_MESSAGES_RETENTION_DAYS = 30` + `prune_old_to_device_messages`（复用 `PERF-06` 的 `ctid` 分批；`retention_days == 0` ⇒ `Ok(0)` 关闭，不是"删光"）、`RetentionConfig::to_device_retention_days`（默认 30）、`src/server/mod.rs` prune 循环第 11 步、`docker/config/homeserver.yaml` 显式写 30 并注明 0 为关闭；**不建 `created_ts` 索引**（选择性差，`ctid … LIMIT` 顺序扫描更划算）。**判据**：`prune_to_device_messages_respects_window_and_the_zero_day_off_switch`（真库；40 天前 2 条 + 1 天前 1 条 ⇒ 删 2 留 1 且留下 1 天前那条；`0` 天删 0 行且 3 行全在），`--lib pruning::` **17 passed**、`config::retention` 1 passed。**变异**：删零天 guard ⇒ 红（`left: 3, right: 0`）；`<` 改 `>` ⇒ 红（`left: 1, right: 2`），两次还原后均绿。`check_sqlx_dynamic_ratio.sh` 动态生产 +1（运行时 `sqlx::query()`，`SQLX_CACHE_ENTRIES` 不变），基线已同步并写明来源 |
 | ARCH-05 | 7 个生产文件 >2000 行（`room/mod.rs` 2531、`membership/mod.rs` 2502、`refresh_token/mod.rs` 2478、`error.rs` 2442、`device/mod.rs` 2382、`config/mod.rs` 2324、`client.rs` 2086） | **已修（W11）**。**原判定错在"要证明拆分后行为不变"**：这 7 个文件超 2000 行的主因是**内联测试模块**（`error.rs` 生产段只到 1229 行，测试块 1251 行；`config/mod.rs` 1374 + 916；`room/mod.rs` 1532 + 967），把测试块外移**本身就是零行为变更**，模块路径仍是 `<父模块>::<name>`、`use super::*` 语义不变。**落地**：9 个内联测试模块外移到同级文件（`room/db_tests.rs`、`membership/{tests,db_tests}.rs`、`refresh_token/tests.rs`、`error/tests.rs`、`device/{tests,db_tests}.rs`、`config/tests.rs`、`client/tests.rs`），父文件只留 `#[cfg(test)] mod X;`（`#[allow(...)]` 留在声明上，lint 属性对模块内容同样生效）；拆后 7 个文件分别为 1557 / 1187 / 1258 / 1230 / 1373 / 1408 / 1448，**生产 `>2000` 行数 7 → 0**。**判据（可失败）**：`scripts/ci/file_size_baseline` 的 7 条逐条收紧（不是整表 `--update`）；给 `room/mod.rs` 追加 20 行 ⇒ 闸门报 `room/mod.rs: 1557 -> 1577`，删掉后该条目消失（两次实测）。编译：`cargo check` 覆盖 `synapse-common`/`synapse-federation`/`synapse-storage` 的 `--all-targets` 全绿零警告；测试：`error::tests` **78 passed**、`config::tests` **67 passed**、`room::db_tests` **44 passed**（真库）、`client::tests` **34 passed**、`membership::` **39**、`refresh_token::` **41**、`device::` **54**（后三条含真库 db 用例）。**连带**：外移出的 9 个测试文件里 7 个 >600 行按现状入册；并发现 `check_file_size_ratchet.py` 先前就在 HEAD 上红（67 条无关增长 + 2 个新增超限文件），登记为 **NEW-20**，未整表 `--update` |
+| **CODE-11** | `#[allow(...)]` 存量 **157 处无 `// reason:`（94 文件）**，棘轮当时只防"新增无理由"，存量理由一直是空白 | **已修（W12，2026-10-26）**：棘轮现算 **159 site / 0 处无 `// reason:`（0 文件）**，基线 0/0（关闭前 157 处 / 94 文件）。**落地**：94 个文件插入 **129 条** `// reason:`（其中 28 个属性同时抑制 2–3 个 lint，故 129 个属性位覆盖 157 个 lint 计数），理由按 lint 类给出而不是模板字面量 —— `too_many_arguments` 分三种（依赖注入构造器 / 与 SQL bind 列序一一对应的存储方法 / 测试夹具逐列造行）、`unwrap_used+expect_used+panic` 全部落在 `#[cfg(test)]` 模块或 test-mocks（"夹具/断言失败即应 panic"）、`unused_async` 落在 axum handler（"签名约束，body 无 await 不等于能去 async"）、`type_complexity` 落在 `Arc<RwLock<…>>` 的 fake 状态（复合键 HashMap / Vec 队列）与多字段元组返回、`module_inception` 落在既有 `search/mod.rs` 与 `config/tests.rs` 布局。**顺带修掉棘轮的自相矛盾**：`main()` 原把**空基线**判 `exit 2`，而 0 处无理由正是它的目标态（禁止自己成功），改为只有**基线文件缺失**才 fail-closed，扫描器为空的保护（`files == 0 or not sites`）保留；`doc_credibility_guard_tests::clippy_allow_counts_in_the_audit_match_the_ratchet_baseline` 的 `assert!(files > 0)` 同步换成说明注释（0 文件是合法终态）。**判据（三条实测）**：① `--update` 后门禁输出 `159 site(s) in 828 file(s); 0 unjustified in 0 file(s) (baseline 0 in 0 file(s))` / `OK` / `exit 0`；② **变异 1**：删掉 `synapse-common/src/regex_cache.rs` 的一条 `// reason:` ⇒ `FAIL: 1 file(s) have unjustified clippy allow(s) not in the baseline` / `exit 1`，还原 ⇒ 绿；③ **变异 2**：临时移走 `scripts/ci/clippy_allow_baseline` ⇒ `FAIL: baseline … missing — regenerate with --update (fail-closed)` / `exit 2`，还原 ⇒ 绿。**零编译影响**：改动只有注释行（`git diff --numstat` = 94 files / +129 / −0），不触碰任何 `#[allow]` 的属性内容与代码；**行数棘轮**：其中 18 个文件恰好被这 1–3 行顶过各自 ceiling，已逐条上调到新值（其余 67 条既有超限与 2 个未入册文件一概不动，`grown` 计数保持 67 ⇒ 未把 NEW-20 做大）；**格式化棘轮**：HEAD 上本就是红的 9 处（ARCH-05 外移出的 `config/tests.rs` 与 `client/tests.rs` 首行空行、`test_mocks/event.rs` 的对齐组），本笔一并清到 0 —— `check_fmt_ratchet.sh` 报 `current=0 baseline=0`、`cargo fmt --all -- --check` 0 退出 |
 | MAINT-01 | `synapse-common` 的 4 个测试基建模块（`test_database_guard` / `test_isolation` / `test_schema_guard` / `test_schema_orphans`）无条件编译，随每个生产二进制进入依赖图 | **已修（本提交）**：4 个模块改为 `#[cfg(any(test, feature = "test-utils"))]`。**为什么只能在测试侧打开**：依赖方的 `#[cfg(test)]` 对被依赖 crate 不可见，所以 `synapse-storage` / `synapse-e2ee` / `synapse-federation` / `synapse-services` / `synapse-web` 的**库内测试代码**看不到被关掉的模块 —— 只有把 `synapse-common/test-utils` 写进各自的 `[dev-dependencies]` 才成立；而 dev-dependency 的 feature 不并入非测试构建（resolver v2），生产依赖图因此保持干净。`synapse-test-utils` 是测试基建 crate 本身，走普通 `[dependencies]`。**判据**：`doc_credibility_guard_tests::test_infrastructure_is_feature_gated_and_never_ships_in_production` 四段断言（每个 `pub mod test_*;` 的紧邻上一行必须恰为 gate / 6 份消费者 manifest 的 `[dev-dependencies]` 必须含 `test-utils` 且 `[dependencies]` 必须不含 / `synapse-test-utils` 必须含 / 根 manifest 的 `synapse-test-utils` 必须 `optional` 且 `test-utils` feature 必须 `dep:synapse-test-utils`）；`cargo check --workspace --lib`（生产形态）与 `cargo check --workspace --all-targets --features test-utils`（规范测试形态）均 0 退出。**变异**：删掉 `test_isolation` 前的 gate ⇒ 红；去掉 `synapse-storage` dev 段的 `features = ["test-utils"]` ⇒ 红（两条均实测，还原后全绿） |

@@ -171,6 +171,7 @@ impl AdminMediaStorage {
     /// columns instead of overwriting with the incoming `NULL`: re-upserting a
     /// row must not erase a hash or silently lift a quarantine ruling that was
     /// recorded elsewhere.
+    // reason: `upsert_media_metadata` 是协议/存储字段的直传签名：参数逐个来自调用点，打包成结构体只会把同一份字段列表抄两遍
     #[allow(clippy::too_many_arguments)]
     pub async fn upsert_media_metadata(
         &self,
@@ -1035,6 +1036,7 @@ mod db_tests {
 
 #[cfg(test)]
 mod admin_read_paths_db_tests {
+    // reason: `admin_read_paths_db_tests` 模块：夹具与断言失败应当直接 panic，不是生产错误路径
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::*;

@@ -593,6 +593,7 @@ async fn room_tag_empty_for_unknown_user() {
 /// The `InMemoryBurnAfterReadStore` struct.
 #[cfg(feature = "burn-after-read")]
 #[derive(Clone, Default)]
+// reason: 内存 fake 的状态容器：`Arc<RwLock<…>>` 的嵌套（复合键 HashMap / Vec 队列）就是该状态本身的形状，没有再抽类型别名的价值
 #[allow(clippy::type_complexity)]
 pub struct InMemoryBurnAfterReadStore {
     settings: std::sync::Arc<

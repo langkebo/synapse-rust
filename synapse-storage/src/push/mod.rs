@@ -192,6 +192,7 @@ pub trait PushStoreApi: Send + Sync {
     /// See [`get_pushers`].
     async fn get_pushers(&self, user_id: &str, device_id: Option<&str>) -> Result<Vec<PusherRow>, sqlx::Error>;
 
+    // reason: `upsert_pusher` 是协议/存储字段的直传签名：参数逐个来自调用点，打包成结构体只会把同一份字段列表抄两遍
     #[allow(clippy::too_many_arguments)]
     /// See [`upsert_pusher`].
     async fn upsert_pusher(
@@ -223,6 +224,7 @@ pub trait PushStoreApi: Send + Sync {
     /// pushers").
     async fn delete_all_pushers_for_user(&self, user_id: &str) -> Result<u64, sqlx::Error>;
 
+    // reason: `upsert_push_rule` 是协议/存储字段的直传签名：参数逐个来自调用点，打包成结构体只会把同一份字段列表抄两遍
     #[allow(clippy::too_many_arguments)]
     /// See [`upsert_push_rule`].
     async fn upsert_push_rule(
@@ -354,6 +356,7 @@ impl PushStorage {
     }
 
     /// See [`upsert_pusher`].
+    // reason: `upsert_pusher` 是协议/存储字段的直传签名：参数逐个来自调用点，打包成结构体只会把同一份字段列表抄两遍
     #[allow(clippy::too_many_arguments)]
     pub async fn upsert_pusher(
         &self,
@@ -455,6 +458,7 @@ impl PushStorage {
     /// group's rows, so two concurrent writers to the same kind serialise instead of
     /// computing positions from the same stale list. A still-empty group has nothing
     /// to lock; its writers both land at index 0 and `rule_id` breaks the tie.
+    // reason: `upsert_push_rule` 是协议/存储字段的直传签名：参数逐个来自调用点，打包成结构体只会把同一份字段列表抄两遍
     #[allow(clippy::too_many_arguments)]
     pub async fn upsert_push_rule(
         &self,
@@ -1012,6 +1016,7 @@ mod db_tests {
         let _ = sqlx::query("DELETE FROM notifications WHERE user_id = $1").bind(user_id).execute(pool).await;
     }
 
+    // reason: `insert_notification` 是协议/存储字段的直传签名：参数逐个来自调用点，打包成结构体只会把同一份字段列表抄两遍
     #[allow(clippy::too_many_arguments)]
     async fn insert_notification(
         pool: &sqlx::PgPool,

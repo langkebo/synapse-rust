@@ -113,6 +113,7 @@ pub(crate) async fn jwks_fallback(State(_ctx): State<SsoContext>) -> Result<Json
 }
 
 /// OpenID Connect Server Discovery
+// reason: axum handler 必须保持 `async fn` 才能满足 `Handler`/路由约束，函数体无 `await` 不代表可以去掉 `async`
 #[allow(clippy::unused_async)]
 pub(crate) async fn openid_discovery(State(ctx): State<SsoContext>) -> Result<Json<OpenIdDiscovery>, ApiError> {
     // If built-in OIDC Provider is enabled, use its discovery document

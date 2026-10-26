@@ -1015,9 +1015,9 @@ fn test_infrastructure_is_feature_gated_and_never_ships_in_production() {
 
 // ── CODE-11：审计文档里的 allow 数字必须等于棘轮基线现算值 ─────────────────────
 
-/// `#[allow]` 存量在两个地方各写一遍（正文标题与 §0.2.3 登记行），而两处都是"手抄的现算值"。
-/// 基线文件 `scripts/ci/clippy_allow_baseline`（`<count> <path>`，只许下降）是唯一权威，
-/// 因此这里把两者钉死：基线降了而文档没跟、或文档写了个凭空的数字，都会红。
+/// `#[allow]` 存量在两处各写一遍（正文标题与附录 D 的 CODE-11 行；该行原在 §0.2.3，随本次关闭移入附录），
+/// 而两处都是"手抄的现算值"。基线文件 `scripts/ci/clippy_allow_baseline`（`<count> <path>`，只许下降）
+/// 是唯一权威，因此这里把两者钉死：基线降了而文档没跟、或文档写了个凭空的数字，都会红。
 ///
 /// 不校验 `--print` 的 `N site(s)` 总数：它 = 无理由 + 有理由，而基线只记无理由，
 /// 从文件里算不出来 —— 硬编码它只会制造第二处会漂的数字。
@@ -1036,7 +1036,8 @@ fn clippy_allow_counts_in_the_audit_match_the_ratchet_baseline() {
         unjustified += count.parse::<u64>().unwrap_or_else(|_| panic!("`{BASELINE}` 的行首不是计数：{line}"));
         files += 1;
     }
-    assert!(files > 0, "`{BASELINE}` 里没有任何条目 —— 守卫前提失效");
+    // 空基线是棘轮的目标态（0 处无理由），不是守卫前提失效：2026-10-26 存量已全部补
+    // `// reason:`，文件只剩头部注释。缺文件由 `read()` 直接失败，仍保持 fail-closed。
 
     let audit = read(AUDIT);
     let claims = [

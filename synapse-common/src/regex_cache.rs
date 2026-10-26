@@ -121,6 +121,7 @@ mod tests {
         assert_eq!(cache.len(), 0);
     }
 
+    // reason: 该测试本身就在验证 `Clone` 出来的缓存，克隆不可省略
     #[allow(clippy::redundant_clone)]
     #[test]
     fn test_regex_cache_clone() {

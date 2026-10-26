@@ -4,6 +4,7 @@ use synapse_common::current_timestamp_millis;
 /// In-memory member store mirroring [`crate::membership::RoomMemberStorage`].
 #[derive(Clone, Default)]
 pub struct InMemoryMemberStore {
+    // reason: 内存 fake 的状态容器：`Arc<RwLock<…>>` 的嵌套（复合键 HashMap / Vec 队列）就是该状态本身的形状，没有再抽类型别名的价值
     #[allow(clippy::type_complexity)]
     members: Arc<RwLock<HashMap<(String, String), crate::membership::RoomMember>>>, // (room_id, user_id) → member
 }
@@ -305,6 +306,7 @@ impl crate::membership::api::MemberStoreApi for InMemoryMemberStore {
         Ok(self.members.read().await.get(&(room_id.to_string(), user_id.to_string())).cloned())
     }
 
+    // reason: `add_member` 是测试夹具：逐列构造数据行/对齐 trait 方法签名，打包只会增加无谓间接
     #[allow(clippy::too_many_arguments)]
     async fn add_member(
         &self,

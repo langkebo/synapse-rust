@@ -22,6 +22,7 @@ pub fn extract_token(headers: &HeaderMap, uri: &str) -> Option<String> {
 ///
 /// `role` and `device_id` describe the *authenticated* admin path; for the
 /// *denied* path callers override them via the returned mutable reference.
+// reason: `build_admin_audit_event` 是协议/存储字段的直传签名：参数逐个来自调用点，打包成结构体只会把同一份字段列表抄两遍
 #[allow(clippy::too_many_arguments)]
 fn build_admin_audit_event(
     actor_id: String,

@@ -786,6 +786,7 @@ impl MembershipService {
     /// # Response
     /// - `joined`: Array of room IDs both users are joined to
     /// - `next_batch_token`: pagination token (room_id of last room) for `after` param
+    // reason: `get_mutual_rooms_between` 是协议/存储字段的直传签名：参数逐个来自调用点，打包成结构体只会把同一份字段列表抄两遍
     #[allow(clippy::too_many_arguments)]
     pub async fn get_mutual_rooms_between(
         &self,
@@ -823,6 +824,7 @@ impl MembershipService {
     ///
     /// The `next_batch` value is the `user_id` of the last member in
     /// the current page; pass it as `from` in the next request.
+    // reason: `get_room_members_paginated` 是协议/存储字段的直传签名：参数逐个来自调用点，打包成结构体只会把同一份字段列表抄两遍
     #[allow(clippy::too_many_arguments)]
     pub async fn get_room_members_paginated(
         &self,

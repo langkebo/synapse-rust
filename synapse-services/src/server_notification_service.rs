@@ -145,6 +145,7 @@ impl ServerNotificationService {
 
     /// See [`get_server_notices_paginated`].
     #[instrument(skip(self))]
+    // reason: 返回 `(items, next_ts, next_id)` 的分页契约，与存储层方法原样透传
     #[allow(clippy::type_complexity)]
     pub async fn get_server_notices_paginated(
         &self,
@@ -400,6 +401,7 @@ mod tests {
         notifications: Mutex<std::collections::HashMap<i64, ServerNotification>>,
         templates: Mutex<std::collections::HashMap<String, NotificationTemplate>>,
         pending_scheduled: Mutex<Vec<ScheduledNotification>>,
+        // reason: 测试替身：投递日志行用元组保存，列序与 SQL SELECT 一致
         #[allow(clippy::type_complexity)]
         delivery_logs: Mutex<Vec<(i64, Option<String>, String, String, Option<String>)>>,
     }

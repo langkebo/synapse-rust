@@ -94,6 +94,7 @@ impl RoomMemberStorage {
     }
 
     /// See [`add_member`].
+    // reason: `add_member` 是协议/存储字段的直传签名：参数逐个来自调用点，打包成结构体只会把同一份字段列表抄两遍
     #[allow(clippy::too_many_arguments)]
     pub async fn add_member(
         &self,
@@ -1182,6 +1183,7 @@ impl RoomMemberStorage {
 mod tests;
 
 #[cfg(test)]
+// reason: `db_tests` 子模块声明上的属性：测试断言应当直接 panic，不是生产错误路径
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #[cfg(test)]
 mod db_tests;

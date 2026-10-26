@@ -708,6 +708,7 @@ mod tests {
     //! `get_notifications` / `ack_notification` are exercised against a real
     //! database by the storage-level `db_tests` and the integration suite.
 
+    // reason: `tests` 模块：内存替身 + 断言，失败应当直接 panic/unwrap，不是生产错误路径
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use super::*;

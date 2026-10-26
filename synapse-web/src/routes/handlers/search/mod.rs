@@ -3,6 +3,7 @@ pub(crate) mod context;
 /// The `hierarchy` module.
 pub(crate) mod hierarchy;
 /// The `search` module.
+// reason: `search` 子模块与父文件同名是既有布局（`search/mod.rs` 内聚搜索路由），重命名会破坏 `use` 路径
 #[allow(clippy::module_inception)]
 pub(crate) mod search;
 

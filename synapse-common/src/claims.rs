@@ -69,6 +69,7 @@ impl ClaimsBuilder {
         }
     }
 
+    // reason: `sub` 是链式构建器（消费 self、无返回值语义），不是 `Sub` trait 实现
     #[allow(clippy::should_implement_trait)]
     /// Subtracts the given delta.
     pub fn sub(mut self, sub: impl Into<String>) -> Self {

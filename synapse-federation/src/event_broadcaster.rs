@@ -967,6 +967,7 @@ mod db_tests {
     }
 
     /// 读回一行 `federation_queue`（**测试区**夹具，R9/D-13：宏不进 `cargo sqlx prepare`）。
+    // reason: 测试夹具读回 `federation_queue` 一行：元组顺序与 SELECT 列序一一对应
     #[allow(clippy::type_complexity)]
     async fn queue_row(
         pool: &sqlx::PgPool,

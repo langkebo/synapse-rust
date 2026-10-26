@@ -109,6 +109,7 @@ impl SyncService {
     }
 
     /// See [`new`].
+    // reason: `new` 是依赖注入构造器：参数就是该类型的全部依赖，改 builder 只是把同一份列表挪到另一处
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         presence_storage: Arc<synapse_storage::presence::PresenceStorage>,
@@ -159,6 +160,7 @@ impl SyncService {
     }
 
     /// See [`sync`].
+    // reason: `sync` 是协议/存储字段的直传签名：参数逐个来自调用点，打包成结构体只会把同一份字段列表抄两遍
     #[allow(clippy::too_many_arguments)]
     pub async fn sync(
         &self,

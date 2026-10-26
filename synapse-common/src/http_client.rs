@@ -21,6 +21,7 @@ const MAX_CACHED_CLIENTS: usize = 128;
 
 static DEFAULT_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 /// 按 (timeout_ms, no_redirect, no_proxy) 缓存的自定义超时 client，保证连接池复用。
+// reason: 静态驱动缓存：键是 `(timeout_ms, no_redirect, no_proxy)`，嵌套泛型就是该缓存的必要形状
 #[allow(clippy::type_complexity)]
 static TIMEOUT_CLIENTS: OnceLock<Mutex<HashMap<(u64, bool, bool), reqwest::Client>>> = OnceLock::new();
 

@@ -318,6 +318,7 @@ impl SamlConfig {
 
 #[cfg(test)]
 mod tests {
+    // reason: 测试里先 `default()` 再逐字段改是构造配置的最短写法（结构体没有 builder）
     #![allow(clippy::field_reassign_with_default)]
     use super::*;
 

@@ -37,6 +37,7 @@ pub struct VoipConfigResponse {
 }
 
 /// See [`get_turn_server`].
+// reason: axum handler 必须保持 `async fn` 才能满足 `Handler`/路由约束，函数体无 `await` 不代表可以去掉 `async`
 #[allow(clippy::unused_async)]
 pub async fn get_turn_server(
     State(ctx): State<RoomContext>,
@@ -68,6 +69,7 @@ pub async fn get_turn_server(
 }
 
 /// See [`get_voip_config`].
+// reason: axum handler 必须保持 `async fn` 才能满足 `Handler`/路由约束，函数体无 `await` 不代表可以去掉 `async`
 #[allow(clippy::unused_async)]
 pub async fn get_voip_config(
     State(ctx): State<RoomContext>,
@@ -108,6 +110,7 @@ pub async fn get_voip_config(
 }
 
 /// See [`get_turn_credentials_guest`].
+// reason: axum handler 必须保持 `async fn` 才能满足 `Handler`/路由约束，函数体无 `await` 不代表可以去掉 `async`
 #[allow(clippy::unused_async)]
 pub async fn get_turn_credentials_guest(
     State(ctx): State<RoomContext>,

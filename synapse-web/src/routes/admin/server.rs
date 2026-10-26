@@ -77,6 +77,7 @@ pub async fn get_admin_info_compat(admin: AdminUser, State(ctx): State<AdminCont
 }
 
 /// See [`get_admin_info`].
+// reason: axum handler 必须保持 `async fn` 才能满足 `Handler`/路由约束，函数体无 `await` 不代表可以去掉 `async`
 #[allow(clippy::unused_async)]
 pub async fn get_admin_info(admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
     // Only super_admin can access server info
@@ -92,6 +93,7 @@ pub async fn get_admin_info(admin: AdminUser, State(ctx): State<AdminContext>) -
 }
 
 /// See [`get_admin_whoami`].
+// reason: axum handler 必须保持 `async fn` 才能满足 `Handler`/路由约束，函数体无 `await` 不代表可以去掉 `async`
 #[allow(clippy::unused_async)]
 pub async fn get_admin_whoami(admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
     Ok(Json(json!({
@@ -103,6 +105,7 @@ pub async fn get_admin_whoami(admin: AdminUser, State(ctx): State<AdminContext>)
 }
 
 /// See [`get_server_version`].
+// reason: axum handler 必须保持 `async fn` 才能满足 `Handler`/路由约束，函数体无 `await` 不代表可以去掉 `async`
 #[allow(clippy::unused_async)]
 pub async fn get_server_version(_admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
     Ok(Json(json!({
@@ -368,6 +371,7 @@ pub async fn get_rate_limit_status(
 }
 
 /// See [`get_config`].
+// reason: axum handler 必须保持 `async fn` 才能满足 `Handler`/路由约束，函数体无 `await` 不代表可以去掉 `async`
 #[allow(clippy::unused_async)]
 pub async fn get_config(_admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
     Ok(Json(json!({
@@ -411,6 +415,7 @@ pub async fn get_experimental_features(
 }
 
 /// See [`get_jitsi_config`].
+// reason: axum handler 必须保持 `async fn` 才能满足 `Handler`/路由约束，函数体无 `await` 不代表可以去掉 `async`
 #[allow(clippy::unused_async)]
 pub async fn get_jitsi_config(_admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
     // Jitsi domain is not hardcoded to a third-party service.  Deployments

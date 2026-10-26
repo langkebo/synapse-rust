@@ -967,6 +967,7 @@ impl SamlService {
             .map_err(|e| ApiError::bad_request(format!("Invalid SAML response encoding: {}", e)))
     }
 
+    // reason: SAML 断言解析出 4 个字段，调用点一次性解构；命名结构体没有第二个使用者
     #[allow(clippy::type_complexity)]
     fn parse_saml_assertion(
         xml: &str,

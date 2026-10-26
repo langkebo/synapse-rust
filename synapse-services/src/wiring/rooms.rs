@@ -53,6 +53,7 @@ pub struct RoomSyncServices {
 
 impl RoomSyncServices {
     /// See [`new`].
+    // reason: `new` 是依赖注入构造器：参数就是该类型的全部依赖，改 builder 只是把同一份列表挪到另一处
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
         infra: &SharedInfra,

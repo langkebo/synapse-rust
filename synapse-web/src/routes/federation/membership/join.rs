@@ -22,6 +22,7 @@ use crate::routes::MatrixJson;
 /// `depth`) are the resident server's own DAG position and are signed verbatim
 /// by the joining server, so they must match what the resident server will
 /// persist via `create_event`.
+// reason: `build_join_event_template` 是协议/存储字段的直传签名：参数逐个来自调用点，打包成结构体只会把同一份字段列表抄两遍
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn build_join_event_template(
     user_id: &str,

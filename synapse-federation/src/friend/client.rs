@@ -162,6 +162,7 @@ impl FriendFederationClient {
 
 #[cfg(test)]
 mod tests {
+    // reason: 测试用 `env_lock` 串行化进程环境变量，跨 await 持锁是刻意的（进程内唯一互斥点）
     #![allow(clippy::await_holding_lock)]
     use super::*;
 
@@ -329,6 +330,7 @@ mod tests {
     /// so `get_current_key()` returns `Ok(None)` without touching the DB.
     /// This lets us exercise the `key_rotation_manager` branch of `sign_request`
     /// without a real database.
+    // reason: 测试夹具：用 lazy pool 构造 `KeyRotationManager`，连构造都失败说明测试环境坏了
     #[allow(clippy::unwrap_used, clippy::expect_used)]
     fn make_key_rotation_manager(server_name: &str) -> std::sync::Arc<crate::KeyRotationManager> {
         let pool = std::sync::Arc::new(sqlx::PgPool::connect_lazy("postgres://localhost/test").unwrap());

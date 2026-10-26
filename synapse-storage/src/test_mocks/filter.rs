@@ -10,6 +10,7 @@ use crate::filter::{CreateFilterRequest, Filter, FilterStoreApi};
 /// the Postgres serial column.
 #[derive(Clone, Debug, Default)]
 pub struct InMemoryFilterStore {
+    // reason: 内存 fake 的状态容器：`Arc<RwLock<…>>` 的嵌套（复合键 HashMap / Vec 队列）就是该状态本身的形状，没有再抽类型别名的价值
     #[allow(clippy::type_complexity)]
     filters: Arc<RwLock<HashMap<(String, String), Filter>>>,
     next_id: Arc<AtomicI64>,

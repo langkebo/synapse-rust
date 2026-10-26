@@ -52,6 +52,7 @@ impl EventStorage {
     /// D-99：原先还接一个 `algorithm` 形参并写入同名列。该列**从来没有读者**
     /// （两份 `EventSignature` 结构体都不含它），而且它的语义与 `key_id` 的前缀重复
     /// （路由的默认值就是 `key_id.split(':').next()`）⇒ 列与形参一并删除。
+    // reason: `save_event_signature` 是协议/存储字段的直传签名：参数逐个来自调用点，打包成结构体只会把同一份字段列表抄两遍
     #[allow(clippy::too_many_arguments)]
     pub async fn save_event_signature(
         &self,

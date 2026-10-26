@@ -543,6 +543,7 @@ mod tests {
     //! See also: `tests/integration/space_children_service_tests.rs` for the
     //! Postgres-backed service-layer tests.
 
+    // reason: `tests` 模块：内存替身 + 断言，失败应当直接 panic，不是生产错误路径
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use std::sync::Arc;

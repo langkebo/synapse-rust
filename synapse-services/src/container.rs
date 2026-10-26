@@ -726,6 +726,7 @@ impl ServiceContainer {
             let db_url = std::env::var("TEST_DATABASE_URL")
                 .or_else(|_| std::env::var("DATABASE_URL"))
                 .unwrap_or_else(|_| crate::test_config::test_database_url());
+            // reason: 测试构造器：拿不到测试 pool 即环境错误，应直接 panic（生产路径 `new` 返回 `Result`）
             #[allow(clippy::expect_used)]
             Arc::new(
                 sqlx::postgres::PgPoolOptions::new()
@@ -743,6 +744,7 @@ impl ServiceContainer {
 
     /// See [`new_test_with_pool`].
     #[cfg(any(test, feature = "test-utils"))]
+    // reason: 测试构造器：夹具配置本不该失败，失败即测试 bug（生产路径 `new` 返回 `Result`）
     #[allow(clippy::expect_used)]
     pub async fn new_test_with_pool(pool: Arc<sqlx::PgPool>) -> Self {
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
@@ -754,6 +756,7 @@ impl ServiceContainer {
 
     /// See [`new_test_with_pool_and_cache`].
     #[cfg(any(test, feature = "test-utils"))]
+    // reason: 测试构造器：夹具配置本不该失败，失败即测试 bug（生产路径 `new` 返回 `Result`）
     #[allow(clippy::expect_used)]
     pub async fn new_test_with_pool_and_cache(pool: Arc<sqlx::PgPool>, cache: Arc<CacheManager>) -> Self {
         let config = crate::test_config::build_test_config();
