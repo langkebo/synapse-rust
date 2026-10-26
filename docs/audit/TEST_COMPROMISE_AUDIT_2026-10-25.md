@@ -130,6 +130,81 @@ Summary: 7 tests run: 7 passed
 | **P1 🟡 3/9 已做** | 变异自证 ① voice 体上限 ② worker surface gate ③ 全局上限 vs Content-Type 大小写。覆盖了三种不同机制（业务判据 / 路由门禁 / 全局 layer）。**其余 6 条待补**（多为同机制重复：media 2 MiB 与 ①同层、`without_the_switch` 与 ②互补） | 见 §2.4 |
 | **P2** | 全仓 `with_config` 的 12 处 helper 内 `return None` 一并改 fail-closed | `grep -c "else {" tests/integration/*.rs` 复查 |
 
+### 2.5 顺带发现：「检测到重用即撤销全族」这条安全能力，在真实路径上几乎不可达
+
+本来要给「重放检测」补测试（它是 S-9 / A+ W1 的 fail-closed 改造点，全文件零测试）。
+读完整调用链后，结论比"没有防护"更精确：**有三层判断，前两层让第三层到不了，第三层又会把重放判成良性。**
+
+调用链：`refresh_access_token`（110）→ `validate_token`（117）→ 前置重放检查（130–179）
+→ `rotate_token_atomic` CAS（186）→ CAS-miss 重放处理（206–254）。
+
+#### 第 0 层 `validate_token`：把重放挡在最前面，也把族撤销的可能挡掉了
+
+```rust
+// validate_token:94
+if token_record.is_revoked {
+    return Err(ApiError::unauthorized("Token has been revoked"));
+}
+```
+
+一次正常轮换会把旧 token 置为 revoked（`rotate_token_atomic` 的 CAS 目标就是 `is_revoked = false`）。
+于是**串行重放**（先正常 refresh，再用同一个旧 token）在第 117 行就返回
+`401 "Token has been revoked"` —— **根本到不了后面两段重放处理**。
+
+#### 第 1 层 前置检查（130–179）：参数传错，恒空转
+
+```rust
+let family_id = match self.storage.get_rotations(&old_token.user_id).await { … }   // ← 传 user_id
+let rotations = self.storage.get_rotations(&family_id).await?;                     // ← 刚新建的 family
+if let Some(last_rotation) = rotations.first() { /* 重放处理 */ }                  // ← 恒 None
+```
+
+`get_rotations(family_id)` 的 SQL 是 `FROM refresh_token_rotations WHERE family_id = $1`；而第 130 行传的是
+`@alice:example.com`，family_id 由 `generate_token(16)` 生成 ⇒ 恒 0 行 ⇒ 恒走 `_` 分支**新建一个 family**
+⇒ 第 155 行查这个刚建的族（还没有任何 rotation）⇒ `first()` 恒 `None` ⇒ 这段重放处理从未执行。
+**副作用**：每次 refresh 都新建一族，`refresh_token_families` 单调增长。
+
+#### 第 2 层 CAS-miss（206–254）：只在并发竞态下可达，且会把重放判成「良性」
+
+`rotate_token_atomic` 返回 `None` 表示 CAS 失败（token 已被撤销）。此时按 `revoked_reason` 分流：
+
+| `revoked_reason` | 处理 | 语义 |
+|---|---|---|
+| `Some("Rotated")` | 401 `"has already been used"`，**不撤销族** | 判为并发 refresh / 网络重试 |
+| 其它 / `None` | `mark_family_compromised` + `revoke_all_user_tokens` + 401 `"All tokens revoked"` | 判为真重放 |
+
+而**正常轮换写的 reason 正是 `"Rotated"`**（第 202 行）。所以能走到这一层的重放（只可能是并发竞态），
+也会命中"良性"那一行 ⇒ 不撤族。
+
+#### 净效果
+
+- **能挡住**：任何重放的 refresh token 都换不到新 token（第 0 层就 401）——这一点是好的；
+- **挡不住**：**泄露族不被撤销、用户不被强制登出、没有告警**。若攻击者抢在受害者之前用窃取的 token
+  换到过新 token，受害者的下一次 refresh 只会得到"已被撤销"，双方都不被告警，泄露无法止损。
+  这违反 OAuth 2.0 Security BCP / RFC 6819 对 refresh token rotation 的要求（检测到重用即撤销整族）；
+- **附带**：families 表随 refresh 次数单调增长，且每族只有一条 rotation。
+
+#### 为什么一直没被发现
+
+`refresh_access_token` **没有任何测试调用**（全仓 grep 只命中定义处）；`replay` 在文件里只出现在注释。
+这正是 R1 的形态：**安全能力缺失不是因为难写测试，是因为没人确认它在跑**。
+
+#### 修法与代价（未实施）
+
+给 `RefreshTokenStoreApi` 加按 `(user_id, device_id)` 查 family（族本来就按 `(family_id, user_id, device_id)` 建），
+用它替代第 130 行的调用。此后 `old_token_hash != latest.new_token_hash` 能在**第 1 层**被识别并走全族撤销分支；
+第 2 层就只剩并发竞态，语义也更干净。改动面：trait +1、真实实现 +1 SQL（`.sqlx` 需重新生成）、mock +1、service 1 处。
+`RefreshToken` 记录没有 `family_id` 字段，所以不能一行修好。
+
+#### 状态与验证方式
+
+**静态确认，未运行验证。** 一条 integration 测试即可证伪我：同一 refresh token 连用两次，
+第 2 次目前预期返回 `401 "Token has been revoked"`（而非 `"All tokens revoked"`）——
+这就证明"族撤销"没有发生。修复后该断言应改为 `"All tokens revoked"`。
+
+**所以我不能先"补一条重放测试"再修代码**：要断言"族被封禁"，得先让这条路径可达。
+先把第 1 层的参数修对，那条测试才有意义。
+
 ## 3 R2：制度性降标
 
 ### 3.1 覆盖率门禁的三个缺口
