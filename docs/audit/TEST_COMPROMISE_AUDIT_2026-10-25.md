@@ -760,7 +760,7 @@ ARCH-02 等价用例**一直红着**，当次只跑了 `api_sliding_sync_routes_
 | **9** | refresh token 重放「撤销全族」（审计外发现，§2.5）：`get_family_id` + 抽 `load_token_inner` + 5 s 并发窗口（第 1、2 层都要加）+ mock 有状态化 | 中（含 `.sqlx` 重生成） | **双向变异**：窗口 `0` ⇒ 「窗口内」红；窗口 `i64::MAX` ⇒ 「窗口外」红；还原 5 000 ⇒ 双绿 |
 | ~~10~~ | ~~全仓 `with_config` 族 helper 内的 `return None`~~ **✅ 已达成**（§2.3 P2） | — | 守卫扫 74 个夹具报 OK |
 
-## 7 一页索引：这轮到底改了什么（26 笔提交，按用途分组）
+## 7 一页索引：这轮到底改了什么（27 笔提交，按用途分组）
 
 前六节回答"问题是什么"；本节只回答"**现在仓库里多了/少了什么**"，便于复核与接手。
 
@@ -783,6 +783,7 @@ ARCH-02 等价用例**一直红着**，当次只跑了 `api_sliding_sync_routes_
 | 覆盖率基线被一次不完整 lcov 清零 | `4134ab1bc` | 608 条 → **1 条**，棘轮报废且**零警告** |
 | refresh 重放在真实路径不可达 | `3f9145a43` + `f35d7dd1f` | "检测到重用即撤销全族"**一次都没生效过**；每次 refresh 还新建 token 族 |
 | `InMemoryRoomStore::get_user_rooms` 死代码 | `4e07c5052` | 无调用者（trait 未声明），只在守卫计数里制造噪声 |
+| `build_template` 的标记行刷新非原子（零行窗口） | 本轮 | 模板就绪时 `DELETE` 与 `INSERT` 各自独立提交，INSERT 失败即留下**零行**标记表；而 pruner 把零行当"遗留物"豁免、`prune_backfills…` 又断言"至少一行" |
 
 ### 7.3 可测性改进（生产 API 改动，行为不变）
 
@@ -888,24 +889,34 @@ git checkout -- scripts/ci/coverage_baseline.json
 
 ⇒ 所以"59 个 0%"这件事，正确做法仍是**让 CI 跑一次 main push**，本地不要重跑。
 
-#### 那个 flake 值得单独盯（假设，未坐实）
+#### 那个 flake：机制已坐实、已修（2026-10-26 本轮）
 
-`synapse-common/src/test_isolation.rs::build_template`（第 786–802 行）在"模板已就绪"分支是：
+上一版这里写的是"假设"：`build_template` 在"模板已就绪"分支是 `DELETE` + `INSERT` 两条独立语句，
+各自 best-effort（失败只 `warn!`），INSERT 一失败就把标记表留成**零行**；而
+`prune_isolation_templates` 把零行解释为"遗留模板、可能正在被克隆"予以豁免，
+`prune_backfills_legacy_zero_row_marker_and_spares_it` 又断言"刚建好的模板至少一行"——
+两条语义在零行这一点上直接冲突。
 
-```rust
-DELETE FROM "<template>"."<ready table>";     // best-effort，失败只 warn
-INSERT INTO "<template>"."<ready table>" DEFAULT VALUES;   // best-effort，失败只 warn
-return Ok(());
-```
+**本轮把它从假设做成了可复现的判据**：加一条测试，用 `BEFORE INSERT` 触发器让标记写入**必然失败**：
 
-**DELETE 与 INSERT 之间不是原子的**，两步失败都只 `warn!` 不返回错误。而失败的那个测试断言
-`has_rows > 0`（"a freshly built template must have at least one marker row"）—— 只要 INSERT 那步
-在重载下失败一次，标记表就留下**零行**，该测试必红。
-`--workspace` 并发（storage 的 1800 条 DB 用例同时克隆 220 表模板）正是"重载"的来源。
+| 版本 | 断言 | 结果 |
+|---|---|---|
+| 事务化（当前） | 失败后行数必须等于原值 | **PASS**（行数保持 1，删除被回滚） |
+| 退回两条独立语句（变异） | 同上 | **FAIL** `left: 0 / right: 1` —— 零行窗口真的存在 |
 
-**这是假设，不是结论**：我没拿到那次失败的断言原文，也没能复现。
-若要坐实，最小实验是手工把某模板标记表清空后**让 INSERT 失败**（例如临时改名该表）再跑测试。
-真要修，方向是把两步合成一条 `INSERT ... ON CONFLICT` 或"先插后删"，让标记表**不可能**出现零行。
+修法：新增 `refresh_template_marker_row`，把 `DELETE` + `INSERT` 放进**同一个事务**，
+失败整体回滚 ⇒ 标记表不可能出现零行。语义从"尽量刷新"变成"要么恰好一行且是 now()，要么保持原样"。
+
+新测试：`a_failing_marker_refresh_never_leaves_the_template_with_zero_marker_rows`。
+`cargo test -p synapse-common --lib --all-features` ⇒ **999 passed**（998 + 本条），clippy `-D warnings` 干净。
+
+**与那次 `--workspace` 失败的因果关系仍未证明**：我没拿到当时的断言原文。
+能确定的是：**零行窗口真实存在、能让上述断言红**，这条修复消除了一条确定的致红路径。
+
+测试本身也踩了一个坑（写下来）：第一版没有开跑前清场，变异那次跑完 `assert` 先 panic、
+清理没执行，留下一个**带 boom 触发器且零行**的模板；恢复修复版后复跑，`ready` 路径复用它、
+`rows_before > 0` 的前提直接不成立 → 测试红。**清理必须放在开头**（`DROP SCHEMA IF EXISTS`），
+不能只放在结尾。
 
 ### 7.6 途中被证伪的五个判断（留着，防止后来者重走）
 

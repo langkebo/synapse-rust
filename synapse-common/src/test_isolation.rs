@@ -776,6 +776,18 @@ async fn prune_isolation_templates(conn: &mut sqlx::PgConnection, keep: &str) ->
 /// / panic — is dropped and rebuilt from scratch. Cloning from an incomplete
 /// template would silently fall back to the shared `public` schema through
 /// `search_path`.
+/// 原子刷新模板的就绪标记行：要么"恰好一行且 `built_at = now()`"，要么保持原样。
+///
+/// 存在的理由见 [`build_template`] ready 分支的注释：分两条语句写会留下零行中间态，
+/// 而零行在 prune 语义里等于"遗留模板"。
+async fn refresh_template_marker_row(conn: &mut sqlx::PgConnection, marker: &str) -> Result<(), sqlx::Error> {
+    let mut tx = sqlx::Connection::begin(conn).await?;
+    sqlx::query(&format!("DELETE FROM {marker}")).execute(&mut *tx).await?;
+    sqlx::query(&format!("INSERT INTO {marker} DEFAULT VALUES")).execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
 async fn build_template(conn: &mut sqlx::PgConnection, template: &str, baseline_sql: &str) -> Result<(), String> {
     let ready: bool = sqlx::query_scalar("SELECT to_regclass(format('%I.%I', $1, $2)) IS NOT NULL")
         .bind(template)
@@ -793,11 +805,20 @@ async fn build_template(conn: &mut sqlx::PgConnection, template: &str, baseline_
         // a failed refresh only matters once the multi-hour grace window has
         // passed, and must never fail an otherwise healthy template.
         let marker = format!("\"{template}\".\"{TEMPLATE_READY_TABLE}\"");
-        if let Err(error) = sqlx::query(&format!("DELETE FROM {marker}")).execute(&mut *conn).await {
-            tracing::warn!(%error, template = %template, "failed to delete rows from the template readiness marker table");
-        }
-        if let Err(error) = sqlx::query(&format!("INSERT INTO {marker} DEFAULT VALUES")).execute(&mut *conn).await {
-            tracing::warn!(%error, template = %template, "failed to insert a row into the template readiness marker table");
+        // 两步必须在**同一个事务**里：分开写各自 best-effort，一旦 INSERT 失败，
+        // DELETE 已经提交 ⇒ 标记表被留在**零行**状态。而零行是有语义的 ——
+        // `prune_isolation_templates` 把零行当"遗留模板、可能正在被克隆"予以豁免，
+        // `prune_backfills_legacy_zero_row_marker_and_spares_it` 又断言"新建的模板至少一行"，
+        // 两条语义在零行这一点上正好冲突（2026-10-26：`--workspace --lib --all-features`
+        // 下见过该断言失败，单跑与单 crate 全量均通过）。
+        // 事务化后语义变成"要么恰好一行且是 now()，要么保持原样"，零行不可达。
+        match refresh_template_marker_row(conn, &marker).await {
+            Ok(()) => {}
+            Err(error) => tracing::warn!(
+                %error,
+                template = %template,
+                "failed to refresh the template readiness marker; previous rows are preserved"
+            ),
         }
         return Ok(());
     }
@@ -3259,6 +3280,73 @@ CREATE TABLE IF NOT EXISTS unify_short_b (id bigint PRIMARY KEY);
 
         // Cleanup
         let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{legacy}" CASCADE"#)).execute(&admin).await;
+        let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{template}" CASCADE"#)).execute(&admin).await;
+    }
+
+    /// 标记行刷新失败时，模板**不得**退化成"零行"状态。
+    ///
+    /// 为什么这条值得单独钉：`prune_isolation_templates` 把"标记表存在但零行"解释为
+    /// **遗留模板、可能正在被克隆**，于是豁免它；而
+    /// `prune_backfills_legacy_zero_row_marker_and_spares_it` 断言"刚建好的模板至少一行"。
+    /// 一旦 ready 路径的刷新能把表刷成零行，这两条语义就会互相打架 —— 前者继续豁免、
+    /// 后者红，而真实的 pruner 会把一个**刚被请求过**的模板当成遗留物。
+    ///
+    /// 实测背景（2026-10-26）：`cargo llvm-cov --workspace --lib --all-features` 下
+    /// `prune_backfills_legacy_zero_row_marker_and_spares_it` 失败过一次
+    /// （997 passed / 1 failed），而它单跑、单 crate 全量（998 passed / 7.16 s）都通过。
+    /// 当时的实现是 `DELETE` 与 `INSERT` 两条独立语句、各自 best-effort（失败只 warn），
+    /// INSERT 一失败就留下零行。
+    ///
+    /// 本条用触发器让 INSERT **必然**失败，从而把"零行窗口"变成可复现的判据：
+    /// 事务化之后行数必须不变（删除被回滚）；退回两条独立语句则行数变 0，此断言红。
+    #[tokio::test]
+    async fn a_failing_marker_refresh_never_leaves_the_template_with_zero_marker_rows() {
+        let Some(url) = test_database_url() else {
+            return;
+        };
+        let baseline = "CREATE TABLE IF NOT EXISTS marker_refresh_probe (id bigint PRIMARY KEY);";
+        let template = template_schema_name(baseline);
+        let admin = PgPoolOptions::new().max_connections(1).connect(&url).await.expect("admin pool");
+
+        // 先清场：上一次运行若在 assert 处 panic，会留下一个**带 boom 触发器且零行**的模板，
+        // 而 ready 路径会复用它 —— 那样 `rows_before > 0` 的前提就不成立了。
+        // （首次实现没这步，恢复修复版后复跑直接红在这里。）
+        sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{template}" CASCADE"#))
+            .execute(&admin)
+            .await
+            .expect("cleanup previous run");
+
+        let _ = ensure_template_schema(&url, baseline).await.expect("build template");
+        let count_sql = format!("SELECT count(*) FROM \"{template}\".\"{TEMPLATE_READY_TABLE}\"");
+        let rows_before: i64 = sqlx::query_scalar(&count_sql).fetch_one(&admin).await.expect("count before");
+        assert!(rows_before > 0, "前提：模板建好后必须至少有一行标记，实得 {rows_before}");
+
+        // 让标记表的 INSERT 必然失败（trigger 在 BEFORE INSERT 上抛异常）。
+        sqlx::query(&format!(
+            r#"CREATE OR REPLACE FUNCTION "{template}"._marker_boom() RETURNS trigger
+               LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'probe: marker insert must fail'; END $$"#
+        ))
+        .execute(&admin)
+        .await
+        .expect("create trigger function");
+        sqlx::query(&format!(
+            r#"CREATE TRIGGER _marker_boom BEFORE INSERT ON "{template}"."{TEMPLATE_READY_TABLE}"
+               FOR EACH ROW EXECUTE FUNCTION "{template}"._marker_boom()"#
+        ))
+        .execute(&admin)
+        .await
+        .expect("create trigger");
+
+        // ready 路径会尝试刷新标记行 —— 它**必须**仍然返回 Ok（best-effort，不能因此判模板损坏）。
+        ensure_template_schema(&url, baseline).await.expect("a failed refresh must not fail the whole call");
+
+        let rows_after: i64 = sqlx::query_scalar(&count_sql).fetch_one(&admin).await.expect("count after");
+        assert_eq!(
+            rows_after, rows_before,
+            "刷新失败必须整体回滚：行数应保持 {rows_before}，实得 {rows_after}（0 表示 DELETE 已提交、\
+             模板退化成了 pruner 眼中的'遗留物'）"
+        );
+
         let _ = sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{template}" CASCADE"#)).execute(&admin).await;
     }
 
