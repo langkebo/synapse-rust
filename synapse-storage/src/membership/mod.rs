@@ -1182,7 +1182,6 @@ impl RoomMemberStorage {
 #[cfg(test)]
 mod tests;
 
-#[cfg(test)]
 // reason: `db_tests` 子模块声明上的属性：测试断言应当直接 panic，不是生产错误路径
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #[cfg(test)]
