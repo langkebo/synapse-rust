@@ -3,11 +3,7 @@ use serde::Deserialize;
 use std::path::PathBuf;
 
 mod loader;
-mod manager;
 mod validation;
-
-/// Re-exported item.
-pub use manager::ConfigManager;
 
 // ============================================================================
 // Sub-module declarations

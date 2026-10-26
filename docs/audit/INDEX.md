@@ -61,7 +61,7 @@
 
 | 文档 | 描述 | 状态 |
 |------|------|------|
-| **[TEST_COMPROMISE_AUDIT_2026-10-25.md](TEST_COMPROMISE_AUDIT_2026-10-25.md)** | 测试降标审计：测试基础设施 fail-open 导致 9 条安全边界用例静默假绿；覆盖率门禁三缺口（含**基线可被一次不完整 lcov 清零**）；性能验收只有报告没有断言；mock 语义漂移。**§7 是"改了什么"的一页索引**（门禁 / 缺陷 / 可测性 / 复核命令 / 0% 分流（分母订正为 32） / 途中被证伪的八个判断） | ✅ Active（2026-10-26 第 7 轮） |
+| **[TEST_COMPROMISE_AUDIT_2026-10-25.md](TEST_COMPROMISE_AUDIT_2026-10-25.md)** | 测试降标审计：测试基础设施 fail-open 导致 9 条安全边界用例静默假绿；覆盖率门禁三缺口（含**基线可被一次不完整 lcov 清零**）；性能验收只有报告没有断言；mock 语义漂移。**§7 是"改了什么"的一页索引**（门禁 / 缺陷 / 可测性 / 复核命令 / 0% 分流（分母订正为 32，其中 8 个已消除） / 途中被证伪的十个判断） | ✅ Active（2026-10-26 第 8 轮） |
 
 ### 其他规划文档
 
@@ -185,7 +185,7 @@
 
 ### 2026-10-26
 
-- ✅ **[TEST_COMPROMISE_AUDIT_2026-10-25.md](TEST_COMPROMISE_AUDIT_2026-10-25.md)** 收敛（36 笔提交）。要点：
+- ✅ **[TEST_COMPROMISE_AUDIT_2026-10-25.md](TEST_COMPROMISE_AUDIT_2026-10-25.md)** 收敛（38 笔提交）。要点：
   - **修掉一个活缺陷**：`setup_fresh_test_app_with_config` fail-open ⇒ 9 条安全边界用例在 DB 不可达时
     **静默假绿**（且比真跑更慢，30 s vs 6 s）。入口改 fail-closed + 7 处夹具改 panic + 守卫
     `check_test_setup_fail_closed.py`（preflight，扫 74 个夹具）
@@ -196,17 +196,19 @@
   - **审计外发现并接通一条安全能力**：refresh token 重放"撤销全族"曾因三层判断互相阻断而**从未生效**
     （`validate_token` 入口即拒已撤销 token；第 1 层参数传错恒空转；第 2 层把重放判成良性并发）
     ⇒ 抽 `load_token_inner` + 5 s 并发窗口（两层都加）+ mock 有状态化，双向变异验证
-  - **七条曾被写进报告的判断被自己证伪**（"6 处 mock 高危"→0 假绿、静默期测试→假测试、
+  - **九条曾被写进报告的判断被自己证伪**（"6 处 mock 高危"→0 假绿、静默期测试→假测试、
     "看板会误读台账"→台账没有生产读者、"修第 1 层即可"→第 0 层才是阻断点、
     `deny_unknown_fields` 会让 `ts` 用例先红→不会、3 个 feature 关文件"陈旧"→根本没编译、
-    22 个 storage mock"陈旧"→先是两腿报告口径、最终查明**门禁的 `TEST_ONLY_MARKERS` 压根不看它们**），
+    22 个 storage mock"陈旧"→先是两腿报告口径、最终查明**门禁的 `TEST_ONLY_MARKERS` 压根不看它们**、
+    `config/manager.rs`"最实的真缺口"→`ConfigManager` **整类零构造点**、`common/error.rs` 两个 helper 是死代码），
     全部记在报告 §7.6 —— 这类"看起来像 X"的结论，必须先 `grep` 消费者或做变异自证
   - **0% 文件的"59 个"是错的分母**（报告 §7.5 三次订正）：22 个 `test_mocks/` 与 5 个 `src/bin/*`+`main.rs`
     本就在门禁的两张排除清单里（`TEST_ONLY_MARKERS` / `non_unit_coverable_prefixes.txt`）⇒
-    **真正落在棘轮里的是 32 个**：2 陈旧 / 4 真 0（已实测）/ 3 `feature` 关（永不刷新）/ 8 无实质可测行 /
-    2 结构盲区（trait impl 只被外部 crate 动态分发）/ 5 真缺口（可补测）/ 8 等 CI；
-    **能靠"再跑一次覆盖率"变好的只有 2 个**；另一个可执行发现：`run_coverage.sh` 第 2 腿用了
-    `--exclude`（连报告一起排除），改成 `--exclude-from-test` 才能给 storage 记账
+    **真正落在棘轮里的是 32 个**：2 陈旧 / 4 真 0（已实测）/ 3 `feature` 关（永不刷新）/ 7 无实质可测行 /
+    **8 已消除**（2 个 trait impl + `event/models.rs` + 3 个领域错误转换补测；`ConfigManager`
+    整类与 2 个死 helper 删除）/ 8 等 CI；**能靠"再跑一次覆盖率"变好的只有 2 个**；
+    另一个可执行发现：`run_coverage.sh` 第 2 腿用了 `--exclude`（连报告一起排除），
+    想给 storage 记账只能用 `--exclude-from-test`（本轮改用"补 `&dyn` 转发层测试"达成同一目的）
 
 ### 2026-10-06
 

@@ -79,3 +79,8 @@ mod db_tests;
 
 #[cfg(test)]
 mod search_index_tests;
+
+// `EventReader`/`EventWriter` 的 `&dyn` 转发层契约测试（审计 §7.5 ⑤）：
+// 本 crate 的单测都走固有方法，转发层只有别的 crate 才用，所以单独钉一遍。
+#[cfg(test)]
+mod trait_object_dispatch_tests;

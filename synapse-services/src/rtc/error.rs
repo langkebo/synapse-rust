@@ -46,3 +46,34 @@ impl From<RtcError> for ApiError {
         }
     }
 }
+
+/// 这条 `From` impl 原来没有测试（覆盖率 0%）。RTC 的错误码是客户端
+/// "要不要重试 / 要不要重新建通话"的唯一依据，逐变体钉住。
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::StatusCode;
+
+    fn status_and_code(e: RtcError) -> (StatusCode, &'static str) {
+        let api: ApiError = e.into();
+        (api.http_status(), api.code.as_str())
+    }
+
+    #[test]
+    fn every_variant_maps_to_its_documented_http_semantics() {
+        assert_eq!(status_and_code(RtcError::SessionNotFound("call-1".into())), (StatusCode::NOT_FOUND, "M_NOT_FOUND"));
+        assert_eq!(status_and_code(RtcError::SessionAlreadyExists), (StatusCode::CONFLICT, "M_UNKNOWN"));
+        assert_eq!(status_and_code(RtcError::NotAuthorized), (StatusCode::FORBIDDEN, "M_FORBIDDEN"));
+        assert_eq!(
+            status_and_code(RtcError::Internal("boom".into())),
+            (StatusCode::INTERNAL_SERVER_ERROR, "M_UNKNOWN")
+        );
+    }
+
+    #[test]
+    fn database_error_keeps_its_cause_and_is_5xx() {
+        let api: ApiError = RtcError::Database(sqlx::Error::RowNotFound).into();
+        assert_eq!(api.http_status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(api.cause.is_some(), "数据库错误必须保留 source");
+    }
+}

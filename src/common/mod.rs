@@ -35,8 +35,9 @@ pub mod health;
 // no explicit re-export here — their items are covered by `pub use
 // synapse_common::*` above, and the local modules just re-export from
 // synapse_common internally.
-// (`rate_limit` facade removed 2026-08-09 together with the dead legacy
-// in-memory RateLimiter; the authoritative limiter is web/middleware/rate_limit.rs.)
 //
-pub use error::{crypto_error_to_api_error, ed25519_error_to_api_error};
+// 2026-08-09：`rate_limit` facade 已随死掉的 in-memory RateLimiter 一起删除；
+// 权威限流器在 web/middleware/rate_limit.rs。
+// 2026-10-26：`error` facade 里两个零调用点的转换 helper 已删除（见 error.rs 头注释）。
+//
 pub use health::CacheHealthCheck;

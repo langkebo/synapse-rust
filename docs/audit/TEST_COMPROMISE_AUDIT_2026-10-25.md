@@ -20,7 +20,7 @@
 |---|---|---|---|
 | **R1** | `setup_fresh_test_app_with_config` fail-open ⇒ 9 条安全边界用例可静默假绿 | 语音上传体积上限（含 CVE-2026-102592 缓解）、媒体 2 MiB 边界、worker surface gate 窄化授权 | **✅ 已修复**（入口改 fail-closed + 9 处换 `skip_or_fail_without_db`；**9/9 变异自证**，双向验证见 §2.4） |
 | **R1** | refresh token 重放「撤销全族」不可达：`validate_token` 在入口就拒已撤销 token，第 1 层参数传错恒空转，第 2 层把重放判成良性并发 | 会话安全（RFC 6819 / OAuth Security BCP） | **✅ 已接通**：抽 `load_token_inner` + 5 s 并发窗口（两层都加）+ mock 有状态化；双向变异（窗口 0 / MAX）各自红（§2.5） |
-| **R2** | 覆盖率门禁不在 PR 车道；新文件达标线 30%；已入库文件无绝对下限 | 全仓覆盖率回归（事后才发现） | **🟡 已收紧**：达标线 30 → **50**（§3.1.1 双向验证）；**基线自毁缺陷已修**（一次不完整 lcov 曾把 608 条砍成 1 条，§3.1.1）；0% 条目**分母已订正为 32**（§7.5）—— 另 22 个 `test_mocks/` + 5 个二进制入口**本就在门禁的两张排除清单里**，不计入：**2 个陈旧 / 4 个真 0（已实测）/ 3 个 `feature` 关（永不刷新）/ 8 个无实质可测行 / 2 个结构盲区 / 5 个真缺口（可补测）/ 8 个等 CI**；**能靠"再跑一次覆盖率"变好的只有 2 个**（`router.rs` 已实测 82.9%、`room/membership/federation.rs`），其余 0.0 刷新多少次都不会变 |
+| **R2** | 覆盖率门禁不在 PR 车道；新文件达标线 30%；已入库文件无绝对下限 | 全仓覆盖率回归（事后才发现） | **🟡 已收紧**：达标线 30 → **50**（§3.1.1 双向验证）；**基线自毁缺陷已修**（一次不完整 lcov 曾把 608 条砍成 1 条，§3.1.1）；0% 条目**分母已订正为 32**（§7.5）—— 另 22 个 `test_mocks/` + 5 个二进制入口**本就在门禁的两张排除清单里**，不计入：**2 个陈旧 / 4 个真 0（已实测）/ 3 个 `feature` 关（永不刷新）/ 7 个无实质可测行 / 8 个本轮已消除（补测试 6 + 删死代码 2）/ 8 个等 CI**；**能靠"再跑一次覆盖率"变好的只有 2 个**（`router.rs` 已实测 82.9%、`room/membership/federation.rs`），其余 0.0 刷新多少次都不会变 |
 | **R2** | 性能验收只打印不断言（`appservice_scheduler_perf_tests` 全 `#[ignore]`） | appservice 调度器吞吐 | **🟡 已补 1 条**：`get_statistics` 每行成本折算往返次数，进 CI（§3.2.1）；其余仍 ignore |
 | **R2** | `cargo test --doc` 是编译门禁，不是执行覆盖（4 个 doc test 全 `#[ignore]`） | 文档示例 | 已知并登记 |
 | **R3** | 572 处 `else { return; }` 静默跳过**残留模式**（当前恒 `Some`，但 R1 已证明该模式会复活） | 全 integration 面 | **✅ 已止损**：7 处 fail-open 夹具改 panic + 守卫禁新增（§4.1.1）；调用点本身保留为死代码 |
@@ -760,7 +760,7 @@ ARCH-02 等价用例**一直红着**，当次只跑了 `api_sliding_sync_routes_
 | ~~9~~ | ~~refresh token 重放「撤销全族」~~ **✅ 已完成**：`get_family_id` + 抽 `load_token_inner(token, reject_revoked)` + 5 s 并发窗口（第 1、2 层都加）+ mock 有状态化（`families`/`rotations`/`age_rotations`），提交 `3f9145a43` / `92afc93af` / `f35d7dd1f`。**状态从"无测试"变为"两条用例各钉住一侧"**：`replay_within_window_is_refused_but_family_survives` / `replay_outside_window_revokes_the_whole_family`（§2.5） | 中（含 `.sqlx` 重生成） | **双向变异已实跑**：窗口改 `0` ⇒ 「窗口内」那条红；改 `i64::MAX` ⇒ 「窗口外」那条红；还原 `5_000` ⇒ 双绿 |
 | ~~10~~ | ~~全仓 `with_config` 族 helper 内的 `return None`~~ **✅ 已达成**（§2.3 P2） | — | 守卫扫 74 个夹具报 OK |
 
-## 7 一页索引：这轮到底改了什么（36 笔提交，按用途分组）
+## 7 一页索引：这轮到底改了什么（38 笔提交，按用途分组）
 
 计数口径（可复现，含本报告自身的提交）：`git log 0666941d6..HEAD --oneline --no-merges -- docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md scripts/ci/check_test_setup_fail_closed.py scripts/ci/check_mock_stub_drift.py scripts/ci/mock_stub_drift_baseline scripts/ci/test_impact_map scripts/ci/check_test_impact.py scripts/check_file_coverage.py scripts/ci/run_coverage.sh tests/performance/appservice_scheduler_perf_tests.rs src/tasks/mod.rs synapse-services/src/refresh_token_service.rs synapse-storage/src/refresh_token/mod.rs synapse-storage/src/test_mocks synapse-common/src/test_isolation.rs scripts/ci/non_unit_coverable_prefixes.txt .github/workflows/ci.yml docs/audit/INDEX.md | wc -l`
 
@@ -788,6 +788,8 @@ ARCH-02 等价用例**一直红着**，当次只跑了 `api_sliding_sync_routes_
 | 覆盖率基线被一次不完整 lcov 清零 | `4134ab1bc` | 608 条 → **1 条**，棘轮报废且**零警告** |
 | refresh 重放在真实路径不可达 | `3f9145a43` + `f35d7dd1f` | "检测到重用即撤销全族"**一次都没生效过**；每次 refresh 还新建 token 族 |
 | `InMemoryRoomStore::get_user_rooms` 死代码 | `4e07c5052` | 无调用者（trait 未声明），只在守卫计数里制造噪声 |
+| `ConfigManager` 整类从未接线（81 行） | 本轮 | 全仓 **0 个构造点**；`read_config/write_config` 的路径参数被忽略、无任何文件 IO。**危险点不是"白占 0%"，而是它长得像热重载入口**：谁接上它都会以为"改配置即生效"，而服务器读的仍是启动时那份 `Config` |
+| `src/common/error.rs` 两个转换 helper（零调用点） | 本轮 | 让人以为根 crate 有一层"统一错误转换"约定；实际无人使用 |
 | `build_template` 的标记行刷新非原子（零行窗口） | 本轮 | 模板就绪时 `DELETE` 与 `INSERT` 各自独立提交，INSERT 失败即留下**零行**标记表；而 pruner 把零行当"遗留物"豁免、`prune_backfills…` 又断言"至少一行" |
 
 ### 7.3 可测性改进（生产 API 改动，行为不变）
@@ -797,6 +799,7 @@ ARCH-02 等价用例**一直红着**，当次只跑了 `api_sliding_sync_routes_
 | `ScheduledTasks::start_all` → `Vec<JoinHandle<()>>` | `7b149393b` | 原来丢弃句柄 ⇒ "关闭后是否真退出"**不可观测**；`CancellationToken` 只能发信号、无法等待 |
 | `RefreshTokenService::validate_token` 抽出 `load_token_inner(token, reject_revoked)` | `f35d7dd1f` | refresh 必须"看到已撤销"才能判重放；公开 API 语义与 7 条既有测试**一字未动** |
 | mock 有状态化（`create_family` / `record_rotation` / `rotate_token_atomic` / `get_rotations` / `age_rotations`） | `3f9145a43` / `f35d7dd1f` | 原 mock 全空转 ⇒ 重放检测连素材都构造不出来 |
+| 新增 `event/trait_object_dispatch_tests.rs`（纯测试文件，不改生产代码） | 本轮 | 它存在的理由就是生产侧只用 `Arc<dyn EventReader>` 调用：本 crate 的 `--lib` 腿此前**一次都走不到那层转发** |
 
 ### 7.4 复核命令（复现本报告的每个关键数字）
 
@@ -813,6 +816,19 @@ cargo nextest run --test performance_manual --features "performance-tests,test-u
 # 重放窗口双向语义
 cargo test -p synapse-services --lib --features test-utils replay_
 
+# §7.5 ⑤⑥ 的 6 组新用例 + 它们真把 0% 顶起来了吗（需本地测试库）
+cargo test -p synapse-storage --lib -- --test-threads=1 trait_object
+cargo test -p synapse-storage --lib -- --test-threads=1 since_filter
+cargo test -p synapse-services --lib --all-features -- --test-threads=1 "error::tests"
+# 定向插桩读数（只看这两个文件的 LH/LF；正常应 reader 9/95、writer 5/37）
+cargo llvm-cov -p synapse-storage --lib --features "test-utils,friends,widgets,burn-after-read" \
+  --lcov --output-path /tmp/storage_dyn.info -- --test-threads=1 trait_object
+grep -A2 'event/reader.rs$' /tmp/storage_dyn.info | grep -E 'LH|LF'
+
+# 死代码核实（两处删除的判据；正常输出为空）
+grep -rn "ConfigManager::new" --include=*.rs . | grep -v RateLimitConfigManager
+grep -rn "crypto_error_to_api_error\|ed25519_error_to_api_error" --include=*.rs .
+
 # 覆盖率基线是否又会自毁（108 行保护）
 cp scripts/ci/coverage_baseline.json /tmp/bak.json
 printf 'SF:synapse-common/src/probe.rs\nLF:10\nLH:5\nend_of_record\n' > /tmp/p.info
@@ -823,7 +839,8 @@ python3 -c "import json;print(len(json.load(open('scripts/ci/coverage_baseline.j
 git checkout -- scripts/ci/coverage_baseline.json
 ```
 
-§7 的提交计数（口径写死在这里，避免再手写漂移）：
+§7 的提交计数（口径写死在这里，避免再手写漂移；**只统计下列路径**，纯功能提交若不在清单内不会计入
+—— 每次动本节都重跑这条，不要靠"上一版 + 1"）：
 
 ```bash
 git log 0666941d6..HEAD --no-merges --format='%h %s' -- \
@@ -837,7 +854,7 @@ git log 0666941d6..HEAD --no-merges --format='%h %s' -- \
   synapse-storage/src/test_mocks synapse-common/src/test_isolation.rs | wc -l
 ```
 
-### 7.5 0% 文件的分流：**分母是 32，不是 59**（2026-10-26 三次订正）
+### 7.5 0% 文件的分流：**分母是 32，不是 59**（2026-10-26，累计四次订正；本轮消除 8 个）
 
 先说结论：**这条审计里最基础的一个数字是错的** —— "59 个 0% 文件"不是棘轮要管的文件数，而是
 `coverage_baseline.json` 里所有 `line_pct == 0.0` 的条目数。**其中 27 个门禁自己就跳过**：
@@ -874,12 +891,16 @@ PY
 | ① 已实测：陈旧 | **2** | `router.rs`（82.9%）、`room/membership/federation.rs` | 实测 / 日期 |
 | ② 已实测：真 0 | **4** | `services.rs`、`telemetry.rs`、`tasks/mod.rs`、`common/logging.rs` | 实测（含定向插桩） |
 | ③ `feature` 关 ⇒ 永久不进报告 | **3** | `burn_after_read.rs`、`widget.rs`、`friend_room/repository.rs` | 编译实验 + 27 条 DB 测试实跑 |
-| ④ 无实质可测行 | **8** | 5 个纯 trait 声明 `api.rs` + 2 个 5 行默认实现 + `event/models.rs`（81 个字段） | 机械统计 |
-| ⑤ 结构盲区：trait impl 只被外部 crate 动态分发 | **2** | `event/reader.rs`、`event/writer.rs`（见下，**与 22 个 mock 同一机制**） | 源码 + trait object 统计 |
-| ⑥ 真缺口（小，可补测） | **5** | `common/error.rs`、`config/manager.rs`、`{friend_room_service,room/state,rtc}/error.rs` | 行构成分析 |
+| ④ 无实质可测行 | **7** | 5 个纯 trait 声明 `api.rs` + 2 个 5 行默认实现 | 机械统计 |
+| ⑤ 结构盲区 → **已补测试并实测** | ~~2~~ | `event/reader.rs` 0 → **9/95 = 9.5%**、`event/writer.rs` 0 → **5/37 = 13.5%**（`&dyn` 转发层契约测试，见下） | 定向插桩实测 |
+| ⑥ 真缺口 → **已全部处置** | ~~5~~ | 删 2（`config/manager.rs` 整类零构造点、`common/error.rs` 2 个零调用点 helper）＋ 补 3（`{friend_room_service,room/state,rtc}/error.rs` 共 8 条断言） | 全仓 `grep` + 11 条测试实跑 |
 | ⑦ 待 CI 的 integration 腿 | **8** | `synapse-web/routes/**` | 无（工具口径不允许局部回答） |
+| ⑧ 本轮已消除（原 ④⑤⑥ 中的 8 个） | **8** | 4 类来源：2 个 trait impl（补测）+ `event/models.rs`（补测）+ 3 个领域错误转换（补测）+ 1 个死类型 + 1 个死 helper（删除） | 插桩实测 / 编译验证 |
 
-合计 **2+4+3+8+2+5+8 = 32** ✓
+合计：**2 + 4 + 3 + 7 + 8（待 CI）+ 8（已消除）= 32** ✓
+
+> 也就是说棘轮里**还剩 8 个 0%** 是真的拿不到读数（只能等 CI 的 integration 腿），
+> 另外 8 个本轮已经有了确定处置，16 个是口径/结构问题。**没有一个 0% 是"待办但没人管"的了。**
 
 #### A. 5 个二进制入口：门禁**本来**就豁免它们（不是我分流出来的）
 
@@ -1033,7 +1054,7 @@ PY
 ⇒ 结论：**光有 `--workspace` 不够**，还得让目标 crate 留在报告里（`--exclude-from-test`）。
 这是 §7.5 的 C 类之后"必须等 CI"的真正原因 —— 不是懒，是当前脚本的 flag 选择让局部回答不可能。
 
-#### ⑤ 2 个 trait impl 文件：与那 22 个 mock **同一机制**（本轮定级，从"不可判"改判）
+#### ⑤ 2 个 trait impl 文件：与那 22 个 mock **同一机制**（从"不可判"改判为"结构盲区"，再补测试消掉）
 
 `event/reader.rs`（`impl EventReader for EventStorage`）、`event/writer.rs`（`impl EventWriter`）。
 
@@ -1056,19 +1077,48 @@ storage 自己的 `--lib` 测试永远走固有方法（`event/basic.rs:14`、`e
   直接把 `reader.rs`/`writer.rs` 顶到非零，同时守住这层转发的契约；这是**唯一能在现有腿口径内解决**的路。
 - 或改 `--exclude-from-test`（见 B 末），让第 2 腿把 storage 记进报告。
 
-#### ⑥ 5 个真缺口 + 1 个"无实质可测行"（本轮首次定级）
+**✅ 已选第一条并实测（2026-10-26）**：新增
+`synapse-storage/src/event/trait_object_dispatch_tests.rs`（`#[cfg(test)] mod`，2 条用例），
+真的用 `&dyn EventReader` / `&dyn EventWriter` 走一遍转发层：
 
-| 文件 | 结构 | 判定 | 最小补法 |
-|---|---|---|---|
-| `synapse-common/config/manager.rs` | 81 行 / `ConfigManager` 11 个方法 / 11 处语句体 | **真缺口（最实的一个）**：读/写配置文件管理器完全无测试 | 1 条 `tempdir` 测试跑 `new → read_config → write_config → get_*` |
-| `src/common/error.rs` | 20 行 / 2 个转换 fn（`crypto_error_to_api_error`、`ed25519_error_to_api_error`） | 真缺口（小，且疑似无调用者 → 需先确认是否死代码） | 先 `grep` 调用者；有则 1 条转换断言，无则删 |
-| `synapse-services/friend_room_service/error.rs` | 65 行 / 2 个 `From` impl | 真缺口（小）：`ApiError ⇄ FriendRoomError` 双向转换从未被测 | 2 条 `assert_eq!(code)` |
-| `synapse-services/room/state/error.rs` | 57 行 / 2 个 `From` impl | 同上 | 同上 |
-| `synapse-services/rtc/error.rs` | 49 行 / 1 个 `From` impl | 同上 | 1 条 |
-| `synapse-storage/event/models.rs` | 303 行 = **13 个 struct + 81 个字段 + 1 个 `impl SinceFilter`（2 个 fn）** | **无实质可测行**（同 E 类）：行数被字段声明撑大，可执行行只有那 2 个 fn | 若要消掉这个 0%，给 `SinceFilter::column/value` 加 1 条断言即可 |
+| 断言 | 钉住什么 |
+|---|---|
+| `writer.create_event(...)` → `reader.get_event(...)` 与固有方法同一行、同一 content | 转发层不丢字段、不换语义 |
+| `get_room_events` / `get_room_events_paginated(.., "b")` 都能看到刚写的一行 | 批量与分页的**方向参数真的传下去** |
+| `Arc::ptr_eq(reader.pool(), &pool)`（两个 trait 各一次） | trait 对象没有偷偷换连接池 |
+| 缺失 event / 未知 room ⇒ `Ok(None)` / `Ok(空)` 而非 `Err` | 消费者靠这个区分 404 与 500 |
 
-⚠️ 这 6 个的价值判断要分开看：`config/manager.rs` 是**真没人测的业务代码**（配置读写错会静默起不来），
-值得补；其余 5 个是"错误映射/2 行工具 fn"，补测试的收益主要是**消掉 0% 噪音**，不是发现缺陷。
+定向插桩读数（`cargo llvm-cov -p synapse-storage --lib … --lcov -o /tmp/storage_dyn.info -- trait_object`）：
+
+| 文件 | 修前 | 修后 |
+|---|---|---|
+| `event/reader.rs` | 0.0（`LH=0`） | **`LH=9 / LF=95`（9.5%）** |
+| `event/writer.rs` | 0.0（`LH=0`） | **`LH=5 / LF=37`（13.5%）** |
+
+⇒ 这两个不再是"结构盲区"，也不需要用 `--exclude-from-test` 动 CI 口径。剩下的 82–86% 是
+**本 crate 内没有消费者**的其它 trait 方法（同样的转发行），要再往上抬只能靠"每个方法配一条用例"，
+收益递减 —— 关键是**它们已经不是 0% 了，棘轮不会再把它俩当缺口扣分**。
+
+#### ⑥ 5 个真缺口：全部处置完（2 删 / 3 补测）
+
+原判定是"5 个真缺口，最小补法是加测试"。逐条核实后**只有 3 个该补测试，另外 2 个是死代码**：
+
+| 文件 | 核实结果 | 处置 |
+|---|---|---|
+| `synapse-common/config/manager.rs` | ⚠️ **整类死代码**：全仓 `ConfigManager::new` **0 个构造点**（唯一命中全是 `RateLimitConfigManager`）；`read_config(_location)` / `write_config(_location)` 的**路径参数被忽略**，根本没有文件 IO —— 它不是"配置读写器"，是一个没人接线的 `Arc<RwLock<Config>>` 壳 | **删除**（81 行 + 3 处 re-export：`config/mod.rs` / `synapse-common/src/lib.rs` / `src/common/config/mod.rs`）。留着才是风险：它长得像"热重载入口"，真被人接上会以为改配置生效了，而服务器实际读的是启动时那份 `Config` |
+| `src/common/error.rs` | 2 个转换 fn（`crypto_error_to_api_error`、`ed25519_error_to_api_error`）**零调用点**（`synapse-e2ee` 里那几个同名测试测的是它自己 crate 的函数） | **删除 2 个 fn + 其 re-export**；模块本身保留为 facade（`tests/integration/*` 有 `synapse_rust::common::error::MatrixErrorCode` 这种路径），但已无实质可测行 ⇒ 归入 ④ |
+| `friend_room_service/error.rs` | 2 个 `From` impl，原来 0 条测试 | **补 3 条**：6 个变体逐一对 `(status, errcode)`、`Database` 保留 `cause`、反方向压成 `Internal` 且保留原文 |
+| `room/state/error.rs` | 同上 | **补 3 条**（同上形态，5 个变体） |
+| `rtc/error.rs` | 1 个 `From` impl，原来 0 条测试 | **补 2 条**（4 个变体 + `Database` cause） |
+| `synapse-storage/event/models.rs` | 303 行里只有 `SinceFilter::column/value` 是活的 | **补 2 条**：列名必须是**裸小写标识符**（它会被 `format!` 拼进 SQL）＋ 两个变体必须映到**不同**列（映到同一列会让 `since` 过滤静默按错列裁剪） |
+
+实跑：`cargo test -p synapse-services --lib --all-features -- error::tests` ⇒ **11 passed**
+（我新补的 8 条 + 该 crate 原有的 3 条）；`… -p synapse-storage --lib -- since_filter` ⇒ **2 passed**。
+删除后 `cargo check -p synapse-common --lib`（16 s）与 `cargo check -p synapse-rust --lib --all-features`（4 m18 s）**均干净**。
+
+⚠️ 价值判断：这 5 个里真正有价值的只有 **"错误映射决定了客户端看到的 status/errcode"** 这一层
+（错一处就是"该 404 的报 500"），其余是消噪音。但它们便宜，且断言对象明确（返回值语义），没有重蹈
+"断言没人读"的覆辙。
 
 #### G. 只剩 8 个：`synapse-web/routes/**`
 
@@ -1119,7 +1169,7 @@ storage 自己的 `--lib` 测试永远走固有方法（`event/basic.rs:14`、`e
 `rows_before > 0` 的前提直接不成立 → 测试红。**清理必须放在开头**（`DROP SCHEMA IF EXISTS`），
 不能只放在结尾。
 
-### 7.6 途中被证伪的八个判断（留着，防止后来者重走）
+### 7.6 途中被证伪的十个判断（留着，防止后来者重走）
 
 | 我说过 | 实测/核实结果 | 靠什么推翻 |
 |---|---|---|
@@ -1131,8 +1181,12 @@ storage 自己的 `--lib` 测试永远走固有方法（`event/basic.rs:14`、`e
 | "看板读到台账非空会误判正常" | 四个台账**没有任何生产读者**，是只写不读的死字段 | `grep` 全仓消费者 |
 | "修第 1 层的参数就能接通族撤销" | 修完仍 `"Token has been revoked"` —— 第 0 层 `validate_token` 才是阻断点 | 改完直接跑那条测试 |
 | "给 `PreviewUrlParams` 加 `deny_unknown_fields` 会让那条 `ts` 用例先红"（写在**测试注释**里） | **不会红**——`ts` 是已声明字段，不属于 unknown field；有效变异是 `ts` 改必填 | 变异自证实跑：`deny_unknown_fields` ⇒ PASS，`ts: i64` ⇒ `left: 400 / right: 200` |
+| "`synapse-common/config/manager.rs` 是**最实的一个真缺口**，`ConfigManager` 是没人测的配置读写器，值得补 `tempdir` 测试" | **它不是"没人测"，是"没人用"**：全仓 `ConfigManager::new` **0 个构造点**（命中的全是 `RateLimitConfigManager`），`read_config/write_config` 的 `_location` 参数被**完全忽略**、没有任何文件 IO —— 一个从未接线的 `Arc<RwLock<Config>>` 壳。补测试等于给死代码刷覆盖率 | `grep -rn "ConfigManager::new"` 逐条看命中 + 读 81 行源码（无 `std::fs`/`Path`）+ 删除后 `cargo check` 两次全绿 |
+| "`src/common/error.rs` 的 2 个转换 fn 是真缺口（小）" | **是死代码**：除了自身定义与 `common/mod.rs` 的 re-export，**零调用点**；`synapse-e2ee` 里那几个 `test_crypto_error_to_api_error_*` 测的是该 crate 自己的同名函数（跨 crate 不可见） | 全仓分别 `grep` 这两个函数名，命中只有定义 + re-export（详见 §7.4 的两条 grep） |
 
-共同根因有两条：①**把"代码看起来像 X"当成"X 成立"** —— 写"高危 / 看板会 / 这条测试覆盖了"之前，
+共同根因有三条：①**把"代码看起来像 X"当成"X 成立"** —— 写"高危 / 看板会 / 这条测试覆盖了"之前，
 必须先 `grep` 消费者或做变异自证；②**自建口径而不复用门禁的判据** —— 统计"覆盖率缺口"时应当
 直接调用门禁自己的 `is_test_only()` / `_matches_prefix()`，否则算出来的分母包含一堆门禁压根不看的文件
-（本轮 59 vs 32 就是这么来的，白花了两轮判定）。
+（本轮 59 vs 32 就是这么来的，白花了两轮判定）；③**把"0% 覆盖率"默认读成"缺测试"** ——
+它也可能是"没有消费者"（`config/manager.rs` 零构造点）、"只有别的 crate 会调"（reader/writer 的转发层）、
+或者"被 feature 关掉"。**先问"谁该跑它"，再决定"补测试还是删代码"**，否则就是给死代码刷覆盖率。

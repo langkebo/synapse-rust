@@ -300,3 +300,36 @@ pub struct EventReport {
     /// The `resolved_by` field.
     pub resolved_by: Option<String>,
 }
+
+/// `SinceFilter::column()` 的返回值会被 `format!` 拼进 SQL（见 `reader.rs`/`search.rs`
+/// 的 `since` 过滤），所以它不是普通 getter：写错或写进引号就会变成注入面/语法错。
+/// 本文件其余 300 行都是 `struct` 字段声明，可执行行只有这 2 个 `fn`，因此这两个
+/// 断言就是它全部的语义契约。
+#[cfg(test)]
+mod since_filter_tests {
+    use super::SinceFilter;
+
+    #[test]
+    fn column_is_a_plain_identifier_and_value_survives_the_round_trip() {
+        let cases = [
+            (SinceFilter::OriginServerTs(1_700_000_000_000), "origin_server_ts", 1_700_000_000_000),
+            (SinceFilter::StreamOrdering(42), "stream_ordering", 42),
+        ];
+        for (filter, expected_column, expected_value) in cases {
+            let column = filter.column();
+            assert_eq!(column, expected_column);
+            assert!(
+                column.chars().all(|c| c.is_ascii_lowercase() || c == '_'),
+                "列名会被直接拼进 SQL，必须是小写裸标识符：{column}"
+            );
+            assert_eq!(filter.value(), expected_value, "构造时给的游标值必须原样返回");
+        }
+    }
+
+    /// 两个变体必须映射到**不同**列：若都映到同一列，`since` 过滤会静默按错列裁剪，
+    /// 客户端拿到的是"部分历史"，而不是报错。
+    #[test]
+    fn the_two_variants_target_distinct_columns() {
+        assert_ne!(SinceFilter::OriginServerTs(1).column(), SinceFilter::StreamOrdering(1).column());
+    }
+}
