@@ -818,7 +818,7 @@ python3 -c "import json;print(len(json.load(open('scripts/ci/coverage_baseline.j
 git checkout -- scripts/ci/coverage_baseline.json
 ```
 
-### 7.5 59 个 0% 文件的分流：已定 51 个，只剩 8 个等 CI（2026-10-26）
+### 7.5 59 个 0% 文件的分流：已定 49 / 不可判 2 / 等 CI 8（2026-10-26）
 
 先说结论：**不是 59 个都"待定"**。按证据强度可以分成四类，只有最后一类真的需要等 CI 的 diff。
 
@@ -828,7 +828,7 @@ git checkout -- scripts/ci/coverage_baseline.json
 | B. `synapse-storage/test_mocks/*` | **22** | **基线陈旧**（在**不含 `test-utils`** 的 feature 集下测得） | 强（见下） |
 | C. 已双腿实测 | **4** | `router.rs` = 陈旧（82.9%）；`tasks/mod.rs` / `telemetry.rs` / `logging.rs` = **真 0** | 实测 |
 | E. `synapse-storage/**/api.rs` | **7** | 5 个**无行可测**（纯 trait 声明）＋2 个各只有 5 行默认实现 | 机械统计（见下） |
-| F. 13 个杂项 | **13** | 5 个**陈旧** / 1 个**无实质可测行** / 2 个**未被实例化的泛型路径** / 5 个**真 0（各 1–7 行）** | 强（含一次编译实验） |
+| F. 13 个杂项 | **13** | 4 个**陈旧** / 1 个**无实质可测行** / 2 个**不可判**（依赖 crate 未插桩）/ 6 个**真 0**（5 个各 1–7 行 + 1 个启动路径） | 强（含编译实验与定向插桩实测） |
 | G. `synapse-web` 路由 | **8** | **待 CI 确认**（只能 integration 腿覆盖） | 无 |
 
 #### A. 二进制入口（5 个）：覆盖率对它们没有意义，应从棘轮里排除
@@ -867,6 +867,7 @@ git checkout -- scripts/ci/coverage_baseline.json
 | `src/tasks/mod.rs` | 0/203 | 0/203 | 真 0（见 §3.1.2 的"不必补"判断） |
 | `src/server/telemetry.rs` | 0/18 | 0/18 | 真 0（启动期一次性初始化） |
 | `synapse-common/logging.rs` | 0/49 | 该腿不编译 | 真 0（同上） |
+| `src/server/services.rs` | 0/37 | **0/37**（43 条 appservice 用例） | 真 0（启动路径；同报告 `server/mod.rs` 0/829 佐证测试不跑主循环） |
 
 #### E. 7 个 `**/api.rs`：5 个"无行可测"，2 个只剩 5 行
 
@@ -891,10 +892,10 @@ git checkout -- scripts/ci/coverage_baseline.json
 | 文件 | 可执行行 | 证据 | 判定 |
 |---|---|---|---|
 | `friend_room/repository.rs` | ~147 | `friend_room/db_tests.rs` 有 **27 条** `#[tokio::test]` 引用 `FriendRoomStorage` | **陈旧** |
-| `src/server/services.rs` | ~18 | `build_router`（`src/server/mod.rs:203`）调 `build_service_container`，而集成测试都走 `build_router` | **陈旧** |
+| `src/server/services.rs` | 37 | **定向插桩实测：43 条 appservice 集成测试下仍 0/37**。`build_service_container` 在 `src/server/mod.rs:203`，属 `Server::run` 路径；同一份报告里 `src/server/mod.rs` 也是 **0/829**（测试从不跑主循环），`router.rs` 才是 29/35 | **真 0（启动路径）** |
 | `burn_after_read.rs` / `widget.rs` / `room/membership/federation.rs` | 81/74/11 fn | 各自**内联 `#[cfg(test)]`** 模块会执行本文件 | **陈旧** |
-| `event/reader.rs` | 130 个方法 | 转发 impl **不能删**（摘掉即 `E0277: EventStorage: EventReader` 不满足，下游多处依赖）；但它一次也没被执行 | **未被实例化的泛型路径** |
-| `event/writer.rs` | 同上 | 同上（`EventWriter` 同样 E0277） | 同上 |
+| `event/reader.rs` | 130 个方法 | impl **不能删**（摘掉即 `E0277`，6+ 处下游依赖）；且确实**被当 trait object 用**（全仓 107 处，生产 wiring 把真实 `EventStorage` 转成 `Arc<dyn EventReader>`：`wiring/rooms.rs:89`、`wiring/admin.rs:242`） | **不可判**（依赖 crate 未插桩） |
+| `event/writer.rs` | 同上 | 同上（`Writer` 亦被 `Arc<dyn …>` 使用） | 同上 |
 | `event/models.rs` | ~2 | 基本是 `struct`/`enum` 声明 | 无实质可测行 |
 | `rtc/error.rs` / `room/state/error.rs` / `friend_room_service/error.rs` | 各 ~2 | 只有 `Display`/`IntoResponse` 之类，被本模块 2 个文件引用 | 真 0（小） |
 | `src/common/error.rs` | ~1 | 2 个转换 fn 只被 `common/mod.rs` re-export，无调用者 | 真 0（疑似死） |
@@ -902,24 +903,31 @@ git checkout -- scripts/ci/coverage_baseline.json
 
 两条值得单独说的结论：
 
-- **`event/reader.rs` + `event/writer.rs`：转发体 0% ≠ 死代码 —— 这是"未被实例化的泛型路径"。**
-  静态看很像死转发（130 个方法原样转发回 inherent 方法，全仓 `grep "dyn EventReader"` = **0**，
-  没有动态分发）。**但编译实验否决了"删掉"**：把两个 `impl … for EventStorage` 用 `#[cfg(any())]`
-  摘掉后，`cargo check -p synapse-storage --all-features --tests` **通过**，而
-  `cargo check -p synapse-services -p synapse-web -p synapse-rust --all-features --tests`
-  报 **10+ 处 `error[E0277]: the trait bound EventStorage: EventReader is not satisfied`**。
+- **`event/reader.rs` + `event/writer.rs`：两轮静态推断都被推翻，最终结论是"不可判"。**
 
-  ⇒ 正确结论：这些 impl 是**为了满足下游泛型 bound 而存在的**，bound 也确实在用；
-  但**没有任何泛型路径用 `EventStorage` 实例化并调用过**（0% 就是这么来的）——
-  泛型路径只在测试里用 `InMemoryEventStore` 实例化过。
+  | 我的判断 | 依据 | 被什么推翻 |
+  |---|---|---|
+  | "死转发层，处置是删" | `grep "dyn EventReader"` = 0 | `#[cfg(any())]` 摘掉 impl ⇒ 下游 **6+ 处 E0277** |
+  | "未被实例化的泛型路径" | 摘掉后 storage 内能编过、下游报错 | 真实代码是 **107 处 trait object**，生产 wiring 把真 `EventStorage` 转成 `Arc<dyn EventReader>`（`wiring/rooms.rs:89`、`admin.rs:242`、`search_service.rs:833/932`、`auth/mod.rs:171`、`wiring/admin.rs:242`） |
 
-  ⇒ 处置不是"删"，而是**给泛型路径补一条以真实 `EventStorage` 实例化的测试**（真缺口）；
-  若确认这些泛型只服务 mock，则把 bound 收到 mock 侧（`#[cfg]` 收窄）。
+  **第一次错在 grep**：`grep "dyn EventReader"` 匹配不到 `dyn synapse_storage::event::EventReader`
+  这种**路径限定**写法。当时看到的"0 处动态分发"是假象。
+  **第二次错在把"编译不过"读成"没有实例化"**：E0277 只说明 bound 存在，不说明运行时没人调。
 
-  ⚠️ 这一条是本节的自我纠正：上一版写的是"死转发层，处置是删"，那是**只做了静态 grep 的结论**；
-  一次 `cargo check` 就推翻了它。**"没人调用"和"可以删"是两件事** —— 后者必须让编译器回答。
-- **`config/manager.rs` 有 5 个从未被引用的 getter**，`src/common/error.rs` 的 2 个转换函数同理。
-  这属于死代码清理，与"覆盖率缺口"是两件事。
+  ⇒ 现在的诚实结论：这两个 impl **被生产 wiring 以 trait object 使用**，但**在本次所有实测腿里
+  都拿不到读数**（lib 腿的单元测试注入的是 `InMemoryEventStore as Arc<dyn EventReader>`；
+  `--test integration` 模式又不插桩依赖 crate，见下）。它们只能由 **workspace 腿**回答。
+
+#### 本轮学到的插桩口径（三个都会让"0%"骗人）
+
+1. **`cargo llvm-cov -p <crate>`**：报告只含本 crate（`-p synapse-services` ⇒ 196 条，`test_mocks/` 一条没有）。
+2. **`cargo llvm-cov --test <target>`**：**同样只插桩该 target 所属的包**。本轮 43 条 appservice 集成测试
+   的报告只有 **19 条**、全是根 crate 的 `src/**`；`synapse-storage`/`synapse-services`/`synapse-web`
+   的文件一条都没有 ⇒ 仓库里的 storage 文件**不可能**用 integration 子集回答。
+3. **测试失败即无报告**：`cargo llvm-cov` 在测试失败时不产出 lcov，也没有 `--ignore-run-fail`。
+
+⇒ 结论：**只有 `--workspace` 全量腿**能给依赖 crate 的文件读数。这也是为什么 §7.5 的 C 类之后
+必须停在这里等 CI —— 不是懒，是工具口径不允许局部回答。
 
 #### G. 只剩 8 个：`synapse-web/routes/**`
 
