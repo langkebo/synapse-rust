@@ -156,7 +156,7 @@ Summary: 7 tests run: 7 passed
 **缺陷**：`scripts/check_file_coverage.py` 的 `main()` 里
 
 ```python
-save_path = args.save_baseline or args.baseline     # 不传 --save-baseline 也写回基线
+save_path = args.save_baseline or args.baseline  # 不传 --save-baseline 也写回基线
 save_baseline(save_path, current, previous=baseline)
 ```
 
@@ -242,8 +242,23 @@ cargo llvm-cov --test integration --features "…" --lcov --output-path /tmp/rou
 1. **重测基线**（跑一次完整覆盖率腿 + `--save-baseline`）—— 只有这样才能把 `router.rs` 这类
    "陈旧 0%" 抬起来。59 个 0% 里有多少属于这一类，现在还不知道，只能靠重测分流。
 2. **补 `src/tasks/mod.rs` 的测试** —— 它是唯一经两条腿验证、确实是 0 执行的生产模块（203 行，
-   后台维护任务）。补法不是"一条冒烟"：需要可控时钟 + 库里造出待清理数据 + 断言"清理了什么、
-   留下了什么"，属独立一笔。
+   后台维护任务）。**已补第一批（2026-10-26，3 条，无需数据库）**：
+   - `from_config_treats_zero_intervals_as_defaults_not_disabled` —— 钉住 `0` 的语义是
+     「回落默认间隔」而**不是**「禁用」。`ServerConfig::default()` 里五个 interval 全是 `0`，
+     若把 0 当"关掉"，默认配置的部署会静默失去健康检查/池指标/性能/完整性巡检。
+     禁用走的是另一条路（`global_maintenance_tasks_enabled`）。
+   - `from_config_uses_each_configured_interval_verbatim` —— 五条独立分支逐字段生效。
+   - `new_scheduler_reports_no_results_yet` —— 台账初值必须是 `None`（"还没跑过"），
+     不能是 `Some(空报表)`（消费方会当成"跑过且一切正常"）。
+
+   实现上用 `PgPoolOptions::connect_lazy` + `Database::from_pool` 造一个**永不连接**的
+   `Database`，所以这几条不依赖数据库；`connect_lazy` 需要 Tokio 上下文，故用 `#[tokio::test]`。
+
+   变异自证：把 `health` 那段改成直接用 `interval_secs`（0 不再回落默认值）⇒ 第一条红、
+   另两条仍绿（`left: 0ns / right: 10s`），还原后 3 passed。
+
+   **仍未覆盖**：5 个 `start_*` 循环（约 170 行）—— 补它们需要可控时钟 + 库里造出待清理数据 +
+   断言"清了什么、留下什么"，属独立一笔。
 
 `logging.rs` / `telemetry.rs` 登记为已知缺口不排期（启动路径，收益低）。
 
@@ -407,5 +422,5 @@ ARCH-02 等价用例**一直红着**，当次只跑了 `api_sliding_sync_routes_
 | ~~4~~ | ~~`--new-file-floor 30 → 50`~~ **✅ 已完成** | 1 行 + 3 处文档同步 | 已验：40% 假 lcov ⇒ exit 1；50% ⇒ exit 0 |
 | ~~5~~ | ~~"改动面 → 必跑套件"映射 + preflight 提示~~ **✅ 已完成**（`test_impact_map` + `check_test_impact.py` + preflight `advise` 步骤） | ~1 h | 改 `rooms` 结构 ⇒ 提交前自动打印 `-E 'test(sync_path_equivalence_tests)'`（详见 §4.3.1） |
 | ~~6~~ | ~~性能断言改相对阈值~~ **✅ 已完成**：改成「每行成本折算数据库往返次数」（比 p95 比值更抗噪），注入 N+1 ⇒ 0.985/1.026 红；正常 0.061/0.031 绿（§3.2.1） | 中 | **已实测**：变异体 FAIL / 还原后 PASS，CI 同款命令 2.6s |
-| ~~7~~ | ~~覆盖率为 0% 的 3 个文件各补冒烟~~ → **❌ 前提部分不成立**：实测 `src/server/router.rs` **29/35 = 82.9%**，基线记 0.0% ⇒ **基线陈旧**（口径从 `--lib` 改成全 target 后没重测）。行动改为**重测基线**，再判断谁是真缺口（§3.1.2） | 中 | 跑一次完整覆盖率腿 + `--save-baseline`，看 59 个 0% 里有多少抬起来 |
+| ~~7~~ | ~~覆盖率为 0% 的 3 个文件各补冒烟~~ → 拆成两件：①**重测基线**（未执行，用户中断）②**补 `tasks/mod.rs`** —— **✅ 已补 3 条**（`from_config` 的 `0` 语义 + 逐字段生效 + 台账初值），无需数据库，变异自证通过；**5 个 `start_*` 循环（约 170 行）仍未覆盖**（§3.1.2） | 中 | 3 passed / 变异后第一条红（`left: 0ns / right: 10s`）；其余两条仍绿 |
 | 8 | `test_mocks/` 差异声明守卫 | 中 | 新增一个 `unimplemented!` 未登记 ⇒ 红 |

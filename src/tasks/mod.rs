@@ -392,3 +392,75 @@ impl ScheduledTasks {
         });
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sqlx::postgres::PgPoolOptions;
+    use synapse_common::config::ServerConfig;
+
+    /// 构造一个**永不连接**的 `Database`：`from_config` 只读配置、不碰连接池，
+    /// 所以这里用 `connect_lazy` 就够 —— 这两个用例不该因为"本机没库"而跳过。
+    fn offline_database() -> Arc<Database> {
+        let pool = PgPoolOptions::new()
+            .max_connections(1)
+            .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
+            .expect("connect_lazy 只解析 URL，不建立连接");
+        Arc::new(Database::from_pool(pool, None))
+    }
+
+    /// `0` 的语义是「用默认间隔」，**不是**「禁用任务」。
+    ///
+    /// 这个区分很要紧：禁用走的是另一条路（`server/mod.rs` 的
+    /// `global_maintenance_tasks_enabled` / `background_tasks_interval`），
+    /// 而 `ServerConfig::default()` 里所有 interval 都是 `0` —— 如果把 0 当成"关掉"，
+    /// 默认配置的部署会在无声无息中失去健康检查、池指标、性能与完整性巡检。
+    #[tokio::test]
+    async fn from_config_treats_zero_intervals_as_defaults_not_disabled() {
+        let tasks = ScheduledTasks::from_config(offline_database(), &ServerConfig::default(), None);
+
+        assert_eq!(
+            tasks.health_check_interval,
+            Duration::from_secs(DEFAULT_HEALTH_CHECK_INTERVAL_SECS),
+            "0 必须回落默认值，而不是被当成禁用"
+        );
+        assert_eq!(tasks.pool_metrics_update_interval, Duration::from_secs(DEFAULT_POOL_METRICS_UPDATE_INTERVAL_SECS));
+        assert_eq!(tasks.performance_check_interval, Duration::from_secs(DEFAULT_PERFORMANCE_CHECK_INTERVAL_SECS));
+        assert_eq!(tasks.integrity_check_interval, Duration::from_secs(DEFAULT_INTEGRITY_CHECK_INTERVAL_SECS));
+        assert_eq!(tasks.maintenance_interval, Duration::from_secs(DEFAULT_MAINTENANCE_INTERVAL_SECS));
+    }
+
+    /// 显式配置必须**逐字段**生效（五条独立分支，写错一个就会让某类巡检按错误的频率跑）。
+    #[tokio::test]
+    async fn from_config_uses_each_configured_interval_verbatim() {
+        let config = ServerConfig {
+            health_check_interval_secs: 7,
+            pool_metrics_update_interval_secs: 8,
+            performance_check_interval_secs: 9,
+            integrity_check_interval_secs: 10,
+            maintenance_interval_secs: 11,
+            ..ServerConfig::default()
+        };
+        let tasks = ScheduledTasks::from_config(offline_database(), &config, None);
+
+        assert_eq!(tasks.health_check_interval, Duration::from_secs(7));
+        assert_eq!(tasks.pool_metrics_update_interval, Duration::from_secs(8));
+        assert_eq!(tasks.performance_check_interval, Duration::from_secs(9));
+        assert_eq!(tasks.integrity_check_interval, Duration::from_secs(10));
+        assert_eq!(tasks.maintenance_interval, Duration::from_secs(11));
+    }
+
+    /// 台账初值必须是"还没有结果"，而不是"结果是空的/健康的"。
+    ///
+    /// `None` 与 `Some(默认零值报表)` 的差别会被消费方当成"跑过一次且一切正常"，
+    /// 那样一旦巡检真的从未运行，监控面板也不会露馅。
+    #[tokio::test]
+    async fn new_scheduler_reports_no_results_yet() {
+        let tasks = ScheduledTasks::from_config(offline_database(), &ServerConfig::default(), None);
+
+        assert!(tasks.last_health_status.try_read().expect("未被争用").is_none());
+        assert!(tasks.last_performance_metrics.try_read().expect("未被争用").is_none());
+        assert!(tasks.last_integrity_report.try_read().expect("未被争用").is_none());
+        assert!(tasks.last_maintenance_report.try_read().expect("未被争用").is_none());
+    }
+}
