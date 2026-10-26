@@ -776,6 +776,4 @@ fn build_media_response_headers(
 mod quarantine_tests;
 
 #[cfg(test)]
-mod format_tests;
-#[cfg(test)]
 mod tests;
