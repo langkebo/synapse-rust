@@ -318,6 +318,7 @@ entrypoints
 enum
 enums
 env
+epipe
 errcode
 errexit
 eslint
