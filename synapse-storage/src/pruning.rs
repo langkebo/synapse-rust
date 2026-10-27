@@ -332,11 +332,7 @@ pub async fn prune_old_to_device_transactions(pool: &PgPool) -> Result<u64, sqlx
 /// computing the cutoff: a zero-day window would otherwise make every queued
 /// message older than "now" — i.e. the whole table — eligible.
 ///
-/// Uses the runtime `sqlx::query` form rather than the `query!` macro on
-/// purpose: adding a macro site requires regenerating the offline cache with
-/// `scripts/ci/sqlx_prepare.sh` against a migrated database, whereas the runtime
-/// form only moves the SQLx census counters (see the dated note in
-/// `scripts/ci/sqlx_dynamic_ratio_baseline`).
+/// 编译期校验形式（R2：字面量实参一律走 `query!` 宏，`.sqlx` 离线缓存随源码提交）。
 ///
 /// Returns the number of rows deleted.
 pub async fn prune_old_to_device_messages(pool: &PgPool, retention_days: i64) -> Result<u64, sqlx::Error> {
@@ -347,11 +343,11 @@ pub async fn prune_old_to_device_messages(pool: &PgPool, retention_days: i64) ->
     let cutoff = current_timestamp_millis() - (retention_days * 86400 * 1000);
 
     prune_in_batches(PRUNE_BATCH_SIZE, |batch| async move {
-        let result = sqlx::query(
+        let result = sqlx::query!(
             "DELETE FROM to_device_messages WHERE ctid IN (SELECT ctid FROM to_device_messages WHERE created_ts < $1 LIMIT $2)",
+            cutoff,
+            batch as i64
         )
-        .bind(cutoff)
-        .bind(batch as i64)
         .execute(pool)
         .await?;
 
@@ -827,24 +823,9 @@ mod db_tests {
     /// `retention_days == 0` means "off" rather than "delete everything".
     #[tokio::test]
     async fn prune_to_device_messages_respects_window_and_the_zero_day_off_switch() {
-        let Some(pool) = test_pool().await else { return };
-        sqlx::query(
-            "CREATE TABLE to_device_messages (
-                 id BIGSERIAL PRIMARY KEY,
-                 sender_user_id TEXT NOT NULL,
-                 sender_device_id TEXT NOT NULL,
-                 recipient_user_id TEXT NOT NULL,
-                 recipient_device_id TEXT NOT NULL,
-                 event_type TEXT NOT NULL,
-                 content JSONB NOT NULL DEFAULT '{}',
-                 message_id TEXT,
-                 stream_id BIGINT NOT NULL,
-                 created_ts BIGINT NOT NULL
-             )",
-        )
-        .execute(&*pool)
-        .await
-        .expect("create to_device_messages");
+        // 真 baseline schema（R9）：`to_device_messages` 在迁移里已存在，
+        // 自建简化表会与迁移漂移（D-31/D-47）。
+        let Some((_isolated, pool)) = baseline_pool().await else { return };
 
         let day_ms = 86_400_000;
         let now = current_timestamp_millis();

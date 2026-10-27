@@ -2194,8 +2194,14 @@ BASELINE_DYNAMIC_PRODUCTION=106
 BASELINE_DYNAMIC_TEST_INFRA=831
 BASELINE_STATIC=1354
 BASELINE_QUERY_BUILDER=17
-SQLX_CACHE_ENTRIES=1318
+SQLX_CACHE_ENTRIES=1319
 <!-- sqlx-plan-numbers:end -->
+
+> **2026-10-27 更新（to_device 保留期清理改走 `query!`）**，数字块一项：
+> - `SQLX_CACHE_ENTRIES` **1318 → 1319**（+1）：`prune_old_to_device_messages` 的字面量
+>   `DELETE` 从运行期 `sqlx::query` 改为编译期 `query!`（R2），新增一条离线缓存条目。
+>   该处本就是纯字面量、无运行期拼装，改静态不改变任何行为；同批把它的 db 测试从自建
+>   简化表换成 `baseline_pool()` 的真迁移 schema（R9）。
 
 > **2026-10-26 更新（`fd5a978d1` 的 trait 转发层夹具跟手）**，数字块一项：
 > - `BASELINE_DYNAMIC_TEST_INFRA` **829 → 831**（+2）：`synapse-storage/src/event/

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM to_device_messages WHERE ctid IN (SELECT ctid FROM to_device_messages WHERE created_ts < $1 LIMIT $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "16512dbdf1494311cf828c61290f054a311e7661580b4566bd61b517e070b666"
+}
