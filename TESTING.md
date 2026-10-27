@@ -121,7 +121,7 @@ Summary [ 417.432s] 1641 tests run: 1635 passed, 6 failed, 0 skipped
 <!-- doc-metrics:start -->
 <!-- 本块由 scripts/ci/check_doc_metrics.py --print 生成；手改必红。 -->
 
-BASELINE_INDEXES=343
+BASELINE_INDEXES=344
 CLIPPY_ALLOW_FILES=0
 CLIPPY_ALLOW_SITES=0
 DERIVED_TABLE_ROWS=981

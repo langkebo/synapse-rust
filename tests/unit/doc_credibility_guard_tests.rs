@@ -564,12 +564,20 @@ fn the_stale_claim_checker_rejects_an_unretracted_claim() {
 /// 它们出现在"死引用"的负向样本里：`sqlx_ratio_gate_tests.rs` 断言某条错误信息曾指向一个
 /// 不存在的文件；本文件的 4 条伪造引用用于证明路径检查器真的在跑（而非空转）。把它们判为
 /// 违规，等于要求守卫删掉自己的红证明。
-const INTENTIONALLY_ABSENT_DOCS: [&str; 5] = [
+///
+/// ⚠️ 第五条 `docs/superpowers/plans/…` 是 **只在干净 checkout 上才"不存在"** 的那种：
+/// 该目录被 `.gitignore:113` 忽略，开发机上打过计划文件所以本地存在、CI 上永远不存在。
+/// 不登记它，`code_referenced_docs_exist` 就只在 CI 上红（2026-09-23 `24f123805` 起，
+/// `Test & Lint (--all-features)` 的 `Run unit test target` 一直挂在这条上）。
+/// 判据：`ls docs/superpowers/plans/2026-09-22-protocol-correctness-phase1.md` 本地有、
+/// `git ls-files docs/superpowers/plans/` 为空。
+const INTENTIONALLY_ABSENT_DOCS: [&str; 6] = [
     "docs/synapse-rust/M3_SQLX_MIGRATION_PLAN.md",
     "docs/synapse-rust/api-reference.md",
     "docs/synapse-rust/api-reference-v2.md",
     "docs/synapse-rust/route-contract-v9.md",
     "docs/…/不存在.md",
+    "docs/superpowers/plans/2026-09-22-protocol-correctness-phase1.md",
 ];
 
 /// 递归收集目录下的 `.rs` 文件（跳过 `target/`、`.git/`、`node_modules/`）。

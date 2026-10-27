@@ -61,6 +61,7 @@
 
 | 文档 | 描述 | 状态 |
 |------|------|------|
+| **[CI_LANE_BLINDNESS_2026-10-27.md](CI_LANE_BLINDNESS_2026-10-27.md)** | CI 车道盲区（两条长期没读数的车道）：①`Repo Sanity` 的第一条检查因**夹具假阳性**（`UPDATE t`）恒红，同 job 后面 **22 个门禁全部 `skipped`** ⇒ 它们的沉默不能当作"已合规"证据；②`OpenAPI Artifact` 的 `client.yaml` 步用 `--skip-export` 读 `.gitignore:44` 的路径 ⇒ **干净 checkout 上永远失败**（从未成功过）。两条均已修；本地 27 个门禁实测 **26 过 / 1 假红**（gitignored 的联邦测试证书，CI 上不存在） | ✅ Active（2026-10-27） |
 | **[TEST_COMPROMISE_AUDIT_2026-10-25.md](TEST_COMPROMISE_AUDIT_2026-10-25.md)** | 测试降标审计：测试基础设施 fail-open 导致 9 条安全边界用例静默假绿；覆盖率门禁三缺口（含**基线可被一次不完整 lcov 清零**）；性能验收只有报告没有断言；mock 语义漂移。**§7 是"改了什么"的一页索引**（门禁 / 缺陷 / 可测性 / 复核命令 / 0% 分流（分母订正为 32：**10 陈旧**（全部已实测非零）/ 4 真 0 / 3 `feature` 关（已补 feature 集）/ **5 无可测行** / **2 跨 crate 转发层**（已补 `&dyn` 契约测试）/ **8 已消除**） / 覆盖率车道解耦（H）/ 地板抬升 20 条（I） / 途中被证伪的十四个判断） | ✅ Active（2026-10-27 第 10 轮） |
 
 ### 其他规划文档
@@ -185,6 +186,28 @@
 
 ### 2026-10-27
 
+- ✅ **[CI_LANE_BLINDNESS_2026-10-27.md](CI_LANE_BLINDNESS_2026-10-27.md)** 新建：**两条 CI 车道长期没有效读数**。
+  - **①`Repo Sanity` 的 22 个门禁没跑**：`check_schema_table_coverage.py` 逐字扫文件原文，把
+    `tests/unit/sqlx_ratio_gate_tests.rs` 内嵌源码夹具里的 `sqlx::query!("UPDATE t …")` 当成真表 ⇒ `t`
+    报"未在迁移中定义"。引入点 `git log -S CONTINUATION_SOURCE` → `15efc8dc6`（"unit 车道转全绿"）
+    **修绿一条车道、弄红另一条的第一步**；而 GitHub 步骤是顺序短路 ⇒ 该 job 实测
+    `failure 1 / skipped 22 / success 8`，**22 个门禁的读数整体丢失**。
+    修法遵既有约定（`sqlx_dynamic_literal_guard_tests.rs:474-478` 早写明"夹具表名必须用真实表"）
+    ⇒ 三处 `t` → `events` + 把约定写进注释；变异自证：探针表 `definitely_missing_table_xyz` 仍被抓（exit 1），删除后 exit 0
+  - **①的第二个阻塞**：`file_size_baseline` 落后 `f2031f559`（`synapse-test-utils/src/lib.rs` 2974 → 2981）⇒
+    `--update` 后 diff 仅 2 行（另一行是 `b7ed3fc47` 把 `pruning.rs` 缩到 925 行后的**排序位移**，非删除），条目 222 → 222
+  - **②`client.yaml` 步从未可能成功**：`gen_client_yaml.py --skip-export` 读硬编码的
+    `scripts/api_test/reports/ledger_default.json`，而 `reports/` 在 `.gitignore:44` ⇒ 干净树里没有它。
+    修法：脚本新增 `--ledger PATH`（隐含跳过 export），CI 指向刚导出的 `$RUNNER_TEMP/ledger_default_ci.json`；
+    实跑三条路径（正常 / 负例 exit 1 / 旧 `--skip-export` 不变），产出与旧路径**逐字节相同**
+  - **③`Test & Lint (--all-features)` 的 unit 车道红在一个 gitignored 负向样本上**：`24f123805` 起
+    `code_referenced_docs_exist` 报 `docs/superpowers/plans/2026-09-22-protocol-correctness-phase1.md`
+    不存在 —— 该目录在 `.gitignore:113`，开发机上有文件、CI 干净树上没有 ⇒ **本地永远绿、CI 永远红**。
+    已按守卫自己给的处置方式把该路径补进 `INTENTIONALLY_ABSENT_DOCS`（5 → 6 条）
+  - **复核**：把 ci.yml `repo-sanity` 的 27 个 `run:` 块抽出来逐个实跑 ⇒ **26 OK / 1 假红**
+    （`No private keys (key files)` 只因本地存在 `.gitignore:153` 的联邦测试证书，CI 上是 `success`）
+  - **仍未做（独立决策）**：门禁拆 job / `if: always()` 汇总，避免"一红全盲"再发生；
+    `gen_client_yaml.py --check` 的 `--expected` 默认指向未入库的 `client.yaml`，该分支在任何机器上都会失败（不在 CI 路径上）
 - ✅ **[TEST_COMPROMISE_AUDIT_2026-10-25.md](TEST_COMPROMISE_AUDIT_2026-10-25.md)** 第 9 轮：**最后一个开口（原 ⑦ 类 8 个 0%）关掉**，代价 6 分钟。
   - **改判**：`synapse-web/routes/**` 那 8 个不是"只能等 CI 的 integration 腿"，而是**陈旧（地板冻结）**。
     8 个文件都在 `synapse-web` crate、模块**无条件**编译、**每个都自带内联 `#[cfg(test)] mod tests`**
