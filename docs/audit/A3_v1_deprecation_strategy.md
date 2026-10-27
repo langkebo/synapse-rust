@@ -85,7 +85,7 @@ Tjg 专有 v1 (60):
 
 ## 相关文档
 
-- [PROJECT_ACTUAL_ISSUES_2026-09-14.md](./PROJECT_ACTUAL_ISSUES_2026-09-14.md) §18.1
+- [PROJECT_ACTUAL_ISSUES_2026-09-14.md](./archive/PROJECT_ACTUAL_ISSUES_2026-09-14.md) §18.1
 - [SDK fork 审计](./sdk-encapsulation-audit.md) — SDK 已支持 v3
 
 ---

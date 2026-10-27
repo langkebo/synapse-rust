@@ -2,10 +2,10 @@
 
 > 项目：synapse-rust v6.2.0（Rust Matrix homeserver，Cargo workspace，~10 万行）
 > 报告日期：2026-10-06
-> 基准：Synapse v1.161.0 / Matrix Spec v1.15（v12 房间版本）
+> 基准：Synapse v1.163.0 / Matrix Spec v1.15（v12 房间版本）
 > 上一版全面报告：[`COMPREHENSIVE_LEGACY_ISSUES_REPORT_20261004.md`](archive/COMPREHENSIVE_LEGACY_ISSUES_REPORT_20261004.md)（已归档）
 > 排查手段：**静态代码审查 + 现有门禁/扫描**（clippy、cargo deny/audit、machete、ci 脚本、安全扫描）；**未**执行全量测试与性能基准
-> 结论摘要：**未发现未修复的 P0**；确认或新发现 **3 个 P1**（已于 2026-10-06 全部闭环，见 §8.1/§8.2）、**26 个 P2**（另列依赖卫生 `DEAD-01`，已于 2026-10-06 闭环，见 §8.3）、**27 个 P3**；复核推翻（证伪/已修复）**9 条**历史遗留结论。
+> 结论摘要：**未发现未修复的 P0**；确认或新发现 **3 个 P1**（已于 2026-10-06 全部闭环，见 §8.1/§8.2）、**26 个 P2**（另列依赖卫生 `DEAD-01`，已于 2026-10-06 闭环，见 §8.3）、**28 个 P3**（含 2026-10-27 补登记的 `DOC-24`，此前被正文引用却无条目，见 §8.14）；复核推翻（证伪/已修复）**9 条**历史遗留结论。
 
 ---
 
@@ -56,14 +56,14 @@
 | **P0** | 0 | 上一版登记的安全 P0（`login_as_user` 越权）本轮复核**已修复** |
 | **P1** | 3 | 联邦互操作 1 + 权威文档失实 2（**已于 2026-10-06 全部闭环**，见 §2.A 与 §8） |
 | **P2** | 26 | 安全 1、功能 1、性能 6（其中 `PERF-04`/`PERF-05` 已于 2026-10-06 闭环，见 §8.5）、兼容 6（其中 `COMPAT-06` 已于 2026-10-06 闭环，见 §8.4）、质量 5、冗余 4、文档 3；另列依赖卫生 `DEAD-01`（已于 2026-10-06 闭环，见 §8.3） |
-| **P3** | 27 | 加固项、by-design 桩、决策项、文档细节 |
+| **P3** | 28 | 加固项、by-design 桩、决策项、文档细节（含 2026-10-27 补登记的 `DOC-24`） |
 | **证伪/已修复** | 9 | 见第五节，须从权威清单移除 |
 
 ### 1.4 关键结论
 
 1. **安全态势良好**：上一版 `PERMISSION_RBAC_AUDIT_2026-10-05.md` 的 P0-1（admin 冒充超管）、P1-1（`/devices/delete` 匹配错位）、P1-2（审计结果恒 success）三项**均已修复**（详见 5.1）。未发现新的可利用越权/注入/SSRF/路径遍历。
 2. **最高优先级功能缺陷（已闭环）**：联邦 `/send_join` 响应缺规范必需的 `event` 字段——本项目权威清单早已登记为「已收窄但语义不合规」`[P0-1]`，已于 2026-10-06 补齐并加测试（`FED-01`，见 §8.1）。
-3. **文档可信度是最大系统性风险（P1 部分已闭环）**：`.trae/rules/project_rules.md`（agent 常驻指令源）与 `UNRESOLVED_ISSUES_SUMMARY.md`（权威问题清单）均含大量与代码不符的结论；相关 P1（`DOC-01`/`DOC-02`）已修复，但文档防漂移门禁仍覆盖过窄、无法自动拦截回归（`DOC-24`）。
+3. **文档可信度是最大系统性风险（P1 部分已闭环）**：`.trae/rules/project_rules.md`（agent 常驻指令源）与 `UNRESOLVED_ISSUES_SUMMARY.md`（权威问题清单）均含大量与代码不符的结论；相关 P1（`DOC-01`/`DOC-02`）已修复，但文档防漂移门禁仍覆盖过窄（`DOC-24`，**2026-10-27 已部分闭环**：`migrations/` 与 `docs/security/` 纳入守卫并有负向红证明，`docs/audit/` 尚余 110 处，见 §8.14）。
 4. **门禁盲区（持续收尾）**：`cargo machete` 未接入任何门禁（`DEAD-01`）**已于 2026-10-06 闭环**（清理 10 个未使用依赖 + 入 pre-push，见 §8.3）；`.sqlx` 缓存仅做 `--static` 存在性校验、不校验新鲜度（`COMPAT-06`）**已补「源码查询指纹 vs 缓存」断言**（2026-10-06 闭环，见 §8.4）；预算门禁只读文档不读运行配置（`PERF-04`/`PERF-05`）**已改为解析真实运行配置、断言文档==代码==运行，并令 `high` 风险阻断**（2026-10-06 闭环，见 §8.5）。
 
 ### 1.5 全量测试与性能门禁运行证据（2026-10-06）
@@ -112,7 +112,7 @@
 - **描述**：作为「当前仍存问题」的权威来源，其中多条标「仍存」的条目经复核实为**已修复**（详见 5.2），引用的代码路径也已不存在（`synapse-web/src/routes/room/messaging/messages.rs` 整个目录已不存在）。
 - **影响范围**：跟踪清单失真会让团队重复排查已解决项、遗漏真实残留，直接损害工程决策。
 - **证据**：[`UNRESOLVED_ISSUES_SUMMARY.md:25-37`](UNRESOLVED_ISSUES_SUMMARY.md#L25-L37)（事务去重「仍存」实为已修复）、[:126-139](UNRESOLVED_ISSUES_SUMMARY.md#L126-L139)（Profile「仍存」实为已注册）、[:143-155](UNRESOLVED_ISSUES_SUMMARY.md#L143-L155)、[:159-169](UNRESOLVED_ISSUES_SUMMARY.md#L159-L169)、[:190-201](UNRESOLVED_ISSUES_SUMMARY.md#L190-L201)。
-- **建议方案**：本报告已同步刷新该文件（见第四节）；后续将其纳入文档防漂移门禁（`DOC-24`），并在 CI 中断言引用的 `file:line` 可达。
+- **建议方案**：本报告已同步刷新该文件（见第四节）；后续将其纳入文档防漂移门禁（`DOC-24`），并在 CI 中断言引用的 `file:line` 可达。（`DOC-24` 现状：反引号路径与 markdown 链接两种形态均已解析，扫描面覆盖 `migrations/` 与 `docs/security/`，见 §8.14；`file:line` 行号可达性尚未校验。）
 
 ### 2.B P2 级问题（26）
 
@@ -184,7 +184,7 @@
 |------|------|----------|------|------|
 | ~~**DEAD-01**~~ | ✅ **已闭环（2026-10-06）**：原报 **10 个未使用依赖**：根 crate `bytes, infer, ipnetwork, opentelemetry, sha1, thiserror, tracing-opentelemetry, vodozemac`；`synapse-web` `reqwest, thiserror`。均已逐一读码复核为真无用并删除，`cargo machete` 复验 **0 未使用**；同时将 `cargo machete` 接入 `.githooks/pre-push`（阻断级）。详细记录见 §8.3 | 依赖膨胀、供应链面扩大、编译时间增加 | [根 Cargo.toml](../../Cargo.toml)、[synapse-web/Cargo.toml](../../synapse-web/Cargo.toml)、[.githooks/pre-push](../../.githooks/pre-push)；[CHECKLIST.md:55](../../CHECKLIST.md#L55) 的依赖部分已由此变为准确（迁移计数部分仍属 `DOC-05`） | ✅ 已完成（删除 + 门禁） |
 
-### 2.C P3 级问题（27）
+### 2.C P3 级问题（28）
 
 | 编号 | 问题 | 域 | 证据 | 终态 |
 |------|------|----|------|------|
@@ -216,6 +216,7 @@
 | DOC-09 | `docs/audit/` 重复报告（v12 系列 6 份、遗留问题 3 份、mutation 2 份） | 文档 | `docs/audit/` | ✅ 已闭环（2026-10-06，归档 5 份；v12 系列被生产代码引用故保留，见 §8.10） |
 | DOC-10 | `docs/superpowers/plans/`（~35 文件）被 gitignore 但 `INDEX.md` 未说明 | 文档 | [`.gitignore:109-110`](../../.gitignore#L109-L110) | ✅ 已闭环（2026-10-06，见 §8.10） |
 | DOC-11 | 文档防漂移门禁覆盖过窄：`doc_credibility_guard_tests.rs` 仅守 comparison.md，且只解析反引号、不解析 markdown 链接；`docs-quality-gate.yml` 不含 `migrations/`、`.trae/rules/` | 文档 | [doc_credibility_guard_tests.rs:26/88-108](../../tests/unit/doc_credibility_guard_tests.rs#L26)、[docs-quality-gate.yml:36-37](../../.github/workflows/docs-quality-gate.yml#L36-L37) | ✅ 已闭环（2026-10-06，见 §8.8） |
+| DOC-24 | 文档防漂移门禁**扫描面**仍过窄：`path_violations` 只喂「对比报告 + `.trae/rules/*.md`」，`migrations/*.md`、`docs/security/*.md`、`docs/audit/*.md` 中的死路径引用无任何门禁会红；且缺少「喂伪造路径必须判失败」的负向用例 | 文档 | [doc_credibility_guard_tests.rs:188-232](../../tests/unit/doc_credibility_guard_tests.rs#L188-L232)（`GUARDED_DOC_DIRS` 与遍历/汇总 helper）、[:481](../../tests/unit/doc_credibility_guard_tests.rs#L481)（正向守卫）、[:505](../../tests/unit/doc_credibility_guard_tests.rs#L505)（负向红证明） | 🟡 **部分闭环（2026-10-27）**：`migrations/` + `docs/security/` 已纳入并附负向红证明；`docs/audit/` 实测 45 文件 / 110 处死引用（9 处仅需补 `archive/`、101 处指向已不存在路径），本轮不纳入以避免门禁长期红，缺口登记于 §8.8 与 §8.14 |
 
 ---
 
@@ -294,6 +295,7 @@
 8. ~~建立「allow 白名单 + 理由」ratchet（`CQ-01`）~~ → ✅ **已闭环（2026-10-06）**：新建 `check_clippy_allow_ratchet.py` + allowlist（13 条带理由）+ 逐文件 grandfather 基线，见 §8.8；~~拆分超大文件（`CQ-04`）~~ → ✅ **已闭环（2026-10-06）**：改走 **CI 阈值门禁**（`scripts/ci/check_file_size_ratchet.py`，500 行 + 257 条 grandfather 基线），未拆分文件，见 §8.7。
 9. ~~收敛重复 INSERT（`RED-01`）~~ → ✅ **已闭环（2026-10-06）**：`create_event_with_pdu`/`create_outlier_event` 的逐字节重复 INSERT 抽为单一 helper（5 → 4 处），见 §8.8；~~清理幽灵覆盖率条目与 `.worktrees/`（`RED-02/03/04`、`DEAD-02/03`）~~ → ✅ **已闭环（2026-10-06）**：`RED-02`（lib.rs 注释 + 幽灵条目 + `trigram-audit.md` 失效结论）、`RED-03`（覆盖率基线 8 条幽灵条目清零）、`RED-04`（`.gitignore` 忽略 `.worktrees/` 并清理）、`DEAD-02`（删除 `load-test-results/` 与根 `load-test-run{1,2,3}.ndjson`）、`DEAD-03`（删除 `.worktrees/`），见 §8.7。
 10. ~~扩大文档防漂移门禁覆盖面至 `migrations/`、`.trae/rules/`、markdown 链接（`DOC-11`）~~ → ✅ **已闭环（2026-10-06）**：守卫新增 markdown 链接形态解析、`docs-quality-gate.yml` 纳入 `migrations/*.md`、`.trae/rules/` 改由本地守卫覆盖（CI 缺席优雅跳过，残余风险已在 yml 注释写明），见 §8.8。
+11. ~~继续扩大守卫扫描面至 `migrations/`、`docs/security/`、`docs/audit/`，并补「伪造路径必须判失败」的负向用例（`DOC-24`）~~ → 🟡 **部分闭环（2026-10-27）**：`migrations/` + `docs/security/` 已纳入 `guarded_doc_dirs_reference_paths_exist`（含扫描面塌缩下限断言），并以 `the_guarded_doc_scan_rejects_a_fabricated_reference` 证明「喂伪造路径会红、`archive/` 会被跳过」；`docs/audit/`（45 文件 / 110 处）本轮不纳入，见 §8.14。
 
 ---
 
@@ -350,7 +352,7 @@ python3 scripts/ci/run_cargo_geiger.py        # CI 门禁；本地全量运行�
 | **修复文件** | [`.trae/rules/project_rules.md`](../../.trae/rules/project_rules.md) |
 | **核心改动** | §1.3 按真实 workspace 布局重写（8 个成员 crate + 根薄装配层；`migrations/` 注明「1 个统一基线 SQL」）；§7.0 链接修正为 [`synapse-services/src/container.rs`](../../synapse-services/src/container.rs) |
 | **版本** | v2.4.0 → **v2.5.0**（2026-10-06），版本历史追加对应行 |
-| **关联** | `DOC-02`（`UNRESOLVED_ISSUES_SUMMARY.md` 刷新）同轮完成；防漂移门禁见 `DOC-11`/`DOC-24`（P2/P3，待做） |
+| **关联** | `DOC-02`（`UNRESOLVED_ISSUES_SUMMARY.md` 刷新）同轮完成；防漂移门禁：`DOC-11` 已于 2026-10-06 闭环（见 §8.8），`DOC-24` 于 2026-10-27 **部分闭环**（`migrations/` + `docs/security/` 纳入 `guarded_doc_dirs_reference_paths_exist` 并附负向红证明，见 §8.14） |
 
 ### 8.3 DEAD-01 清理未使用依赖 + `cargo machete` 入 pre-push
 
@@ -436,7 +438,7 @@ python3 scripts/ci/run_cargo_geiger.py        # CI 门禁；本地全量运行�
 | **验证（CQ-01）** | `python3 scripts/ci/check_clippy_allow_ratchet.py` → `clippy_allow: 161 site(s) in 775 file(s); 176 unjustified in 108 file(s) (baseline 176 in 108 file(s))` / `OK: clippy allow suppression at baseline` / `exit 0`。红证明（记录于 `ci.yml` 注释）：reasonless allow / unlisted lint kind / blanket group / allowlist entry without reason 均 `exit 1`，基线态 `exit 0`。 |
 | **验证（RED-01）** | `git diff --stat synapse-storage/src/event/create.rs` → `1 file changed, 58 insertions(+), 48 deletions(-)`；`INSERT INTO events` 字面量 5 → 4；既有不变式测试覆盖两条调用路径（`test_create_event_with_graph_with_prev_events`、`create_event_with_graph`/`create_state_event_with_dag`/`create_event_with_pdu` 三条 `*_rolls_back_event_when_edges_insert_fails`）。 |
 | **验证（DOC-11）** | `cargo test -p synapse-rust --features test-utils --test unit doc_credibility_guard` → **10 passed; 0 failed**。 |
-| **残余（有意不修）** | `migrations/README.md` 仍有反引号路径漂移（如 `docs/audit/PROJECT_ACTUAL_ISSUES_2026-09-14.md`、`docs/synapse-rust/COMPREHENSIVE_AUDIT_REPORT_2026-06-03.md`、`.scratch/db-schema-audit-2026-09-04.md`）；lychee 只查真正的 markdown 链接不查反引号路径，且本轮未把守卫 `path_violations` 扫到 `migrations/`，故不触发门禁。归属 `DOC-07/08` 范畴。 |
+| **残余（有意不修）** | 本轮（2026-10-06）未把守卫 `path_violations` 扫到 `migrations/`，当时 `migrations/README.md` 的反引号路径漂移不触发门禁；**该项已于 2026-10-27 收口**（`migrations/` 纳入 `DOC-24` 扫描面，见 §8.14）：该文件现仅余 3 处**有意历史指代**的已删除脚本路径（明确标注「已删除」，进 `HISTORICAL_NEGATIVE_MENTIONS` 白名单），实际死链 0 处。`docs/audit/` 仍余 45 文件 / 110 处（9 处仅需补 `archive/`、101 处指向已不存在路径），本轮不纳入扫描面，缺口见 §8.14。 |
 
 ### 8.9 P2 剩余批次（`SEC-01`、`FED-02`、`PERF-01`、`PERF-06`、`CQ-02`、`CQ-03`、`CQ-05`）
 
@@ -523,7 +525,7 @@ python3 scripts/ci/run_cargo_geiger.py        # CI 门禁；本地全量运行�
 
 > **门禁终验（§8.11，2026-10-06）**：`cargo check -p synapse-services -p synapse-e2ee -p synapse-web` → **exit 0**（`Finished dev profile`）；`cargo clippy -p synapse-web -p synapse-e2ee -p synapse-services --lib` → **无告警**；`bash scripts/ci/check_sqlx_cache_fresh.sh --static` → `OK: 源码 1357 处静态查询字面量全部命中 .sqlx/ 缓存（0 处非字面量实参跳过）`（缓存含 1324 条查询元数据）；`python3 scripts/ci/check_clippy_allow_ratchet.py` → **163 unjustified / 98 文件**、`OK`；`./scripts/check_fmt_ratchet.sh` → `current=0 baseline=0`、`OK`；`cargo test --test unit --features test-utils doc_credibility_guard` → **10 passed**；`cargo test -p synapse-e2ee --lib cross_signing` → **44 passed**（含新增 4 单测）。
 >
-> **至此 §2.C「P3 级问题（27）」与 §2.B 余项 `COMPAT-05` 全部处置完毕**：闭环 21 项（含本轮 `SEC-04/05`、`PERF-07/09`、`COMPAT-05/07/08` 复核），by-design 登记 6 项（`COMPAT-09`、`FN-05`~`FN-08`、`COMPAT-07`），代码实施 3 项（`CQ-07`、`FN-03`、`FN-04`）。报告 §2/§6 中所有编号均有终态。
+> **至此 §2.C「P3 级问题（28）」与 §2.B 余项 `COMPAT-05` 全部处置完毕**（编号总数 28 = 本节处置的 27 项 + 2026-10-27 补登记的 `DOC-24`）：闭环 21 项（含本轮 `SEC-04/05`、`PERF-07/09`、`COMPAT-05/07/08` 复核），by-design 登记 6 项（`COMPAT-09`、`FN-05`~`FN-08`、`COMPAT-07`），代码实施 3 项（`CQ-07`、`FN-03`、`FN-04`）。报告 §2/§6 中所有编号均有终态。
 
 ### 8.12 既有编译错误排查（`--all-targets` 缺 `test-utils`，**非缺陷**）
 
@@ -548,7 +550,23 @@ python3 scripts/ci/run_cargo_geiger.py        # CI 门禁；本地全量运行�
 | **修复文件** | [`tests/integration/api_auth_routes_tests.rs`](../../tests/integration/api_auth_routes_tests.rs#L194-L214)——断言改为 `available.len() == SUPPORTED_ROOM_VERSIONS.len()` 并逐版本核对 disposition，附根因注释。 |
 | **证据** | 修复后全量集成：**1534 passed; 0 failed; 0 ignored; finished in 4121.50s**（EXIT=0）。 |
 
+### 8.14 `DOC-24` 收口批次（死链清理 + 守卫扫描面扩展 + 报告自洽）
+
+> 本轮（2026-10-27）只处置 `DOC-24`：把「文档防漂移门禁扫描面过窄」从「登记」推进到「部分闭环」，并修掉报告自身的三处内部矛盾（`DOC-24` 无定义条目、§8.2 仍写「待做」、文末更新日期过期）。
+
+| 项 | 内容 |
+|----|------|
+| **死链清理（归档补前缀）** | 5 处指向已归档 `PROJECT_ACTUAL_ISSUES_2026-09-14.md` 的引用补齐 `archive/`：`migrations/README.md`、`docs/security/ci-security-grading.md`、`docs/audit/A3_v1_deprecation_strategy.md`（markdown 链接改 `./archive/…`）、`docs/audit/DB_REVIEW_2026-09-17.md`、`deny.toml` 注释。 |
+| **死链清理（改指现存权威文档）** | 4 处指向不存在的 `docs/synapse-rust/COMPREHENSIVE_AUDIT_REPORT_2026-06-03.md` 的引用改指现存权威报告：`scripts/ci/route_storage_exceptions.txt`、`.github/pull_request_template.md`（2 处）、`docs/security/ci-security-grading.md`（改指 `docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md`）。另顺手修掉 PR 模板中 3 处同类死引用（`SUPPORTED_MATRIX_SURFACE.md`、`WORKER_TOPOLOGY_BASELINE_2026-06-14.md`、已无任何引用的 `scripts/ci/check_release_doc_spotcheck.sh`）。 |
+| **守卫扫描面扩展（`DOC-24` 主体）** | [`doc_credibility_guard_tests.rs`](../../tests/unit/doc_credibility_guard_tests.rs) 新增 [`GUARDED_DOC_DIRS`](../../tests/unit/doc_credibility_guard_tests.rs#L188)（`migrations`、`docs/security`）与遍历/汇总 helper [`markdown_files_under`](../../tests/unit/doc_credibility_guard_tests.rs#L193) / [`guarded_doc_violations`](../../tests/unit/doc_credibility_guard_tests.rs#L219)：逐文件复用既有纯谓词 `path_violations`，**跳过 `archive/`**；正向守卫 [`guarded_doc_dirs_reference_paths_exist`](../../tests/unit/doc_credibility_guard_tests.rs#L481) 先断言扫描文件数 ≥ 3（扫描面塌缩即失败，防铁律 8 式假绿）。 |
+| **负向红证明** | [`the_guarded_doc_scan_rejects_a_fabricated_reference`](../../tests/unit/doc_credibility_guard_tests.rs#L505) 在临时目录构造 `docs/security/fabricated.md`（含死引用）与 `docs/security/archive/old.md`（同样含死引用），断言**恰好 1 条**违规且点名伪造路径——同时证明「会红」与「`archive/` 被跳过」。为免被 `code_referenced_docs_exist` 判为「源码引用了不存在的文档」，测试内的路径全部运行时拼接、不写字面量。 |
+| **白名单增量** | `HISTORICAL_NEGATIVE_MENTIONS` 5 → **9** 条，新增 4 条均为「明确标注已删除」的历史否定陈述：`scripts/build_sqlx_migration_source.py`、`scripts/generate_next_baseline.py`、`scripts/p0_constraints_indexes.sql`、`src/test_exit_hook.rs`。 |
+| **验证（单测）** | `cargo test --test unit --features test-utils doc_credibility_guard` → **20 passed; 0 failed**（原 18 + 新增 2）。 |
+| **红/绿双向实证** | 分两次临时移除白名单条目（先 `src/test_exit_hook.rs`，再 3 条 `scripts/*`）→ 守卫分别报出 `docs/security/ci-security-grading.md: src/test_exit_hook.rs` 与 `migrations/README.md: scripts/generate_next_baseline.py` / `scripts/p0_constraints_indexes.sql` 并 **FAILED**；从备份还原后复跑全绿。证明该门禁**具备真实牙齿**。 |
+| **残余（有意不纳入）** | `docs/audit/` 实测 **45 文件 / 110 处**死引用（9 处仅需补 `archive/`、101 处指向已不存在路径），一轮无法收口；若直接纳入会让门禁长期常红、进而被绕过，故本轮**不纳入**并在此登记，待 101 处清理后按 `GUARDED_DOC_DIRS` 追加一项即可，无需改测试逻辑。 |
+
 ---
 
 **生成时间**：2026-10-06
-**下次计划更新**：2026-10-13
+**最近更新**：2026-10-27（§8.14 `DOC-24` 收口批次）
+**下次计划更新**：2026-11-10

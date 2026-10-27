@@ -281,7 +281,7 @@ v11 基线相对 v8/v10 的主要变更：
 - **⚠️ 吸收缺口（曾存在 23 个对象未折入，已全部补齐）**：原来 72 个时间戳迁移文件
   （36 forward + 36 undo）已在 `a0f2819d` 删除，但**有 23 个对象并未真正折入本 baseline**
   ——用有序活集模拟被删迁移得到的最终对象集中，23 个在 baseline 中不存在。完整清单与
-  复现脚本见 `docs/audit/PROJECT_ACTUAL_ISSUES_2026-09-14.md` §1。
+  复现脚本见 `docs/audit/archive/PROJECT_ACTUAL_ISSUES_2026-09-14.md` §1。
   - **第一批（2026-09-14）**：`ux_burn_log_user_event`（burn 批量写入 `ON CONFLICT` 的仲裁索引
     ——缺失时每次 burn 清理都报 `42P10`）、`ck_rooms_room_version_valid` 正则化
     （硬编码 1..11 白名单会拒绝 v12/v13 联邦加入）、`trg_prevent_audit_delete`

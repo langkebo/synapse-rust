@@ -58,7 +58,7 @@ const CURRENT_SCOPE_MARKER: &str = "§18.5";
 /// 它们出现在"该文件不存在 / 已删除"这类**否定陈述**里，用于记录历史误引用本身；
 /// 若把它们也当违规，§13 的修正记录就会自相矛盾。新增条目必须写清用途 ——
 /// 这个清单是"允许文档提到不存在的路径"的**唯一**入口。
-const HISTORICAL_NEGATIVE_MENTIONS: [&str; 5] = [
+const HISTORICAL_NEGATIVE_MENTIONS: [&str; 9] = [
     // §13：记录"已删除的伪造引用"（v1.2 曾把它当证据）。
     "docs/synapse-rust/api-reference.md",
     // §11.2：记录"服务层不存在该文件"，用于纠正旧表述。
@@ -76,6 +76,19 @@ const HISTORICAL_NEGATIVE_MENTIONS: [&str; 5] = [
     // QR show/scan）整模块删除。历史更正表要保留"这些函数当时确实存在且被逐一核对过"，
     // 故按"否定陈述"豁免，而非删掉整行 —— 删了会丢掉"旧结论为何被推翻"的线索。
     "synapse-e2ee/src/verification/service.rs",
+    // migrations/README.md §"为何直接删对象"：说明"当时的测试路径只选 baseline + extension +
+    // `V*`，时间戳命名的 DROP 迁移根本不会执行"，该脚本 2026-09-20 随 `sqlx migrate run`
+    // 一并删除 —— 不点名它就无法解释"为什么留待 v12 等于永久不清"。
+    "scripts/build_sqlx_migration_source.py",
+    // migrations/README.md §"1353 行冗余的根因"：该生成器把 `current_path` 与输出路径指向
+    // 同一文件，不幂等，跑三次产生 3 份副本。记录的是"已删除的元凶"，删掉行会丢掉根因。
+    "scripts/generate_next_baseline.py",
+    // 同上，生成器的输入片段（已逐字节内联进 baseline 后删除）。
+    "scripts/p0_constraints_indexes.sql",
+    // docs/security/ci-security-grading.md §"B' 落点"：说明 cargo-geiger 的 unsafe 计数为何
+    // 在单源化前后不变 —— 原先每个 crate 各有一份该文件（四份逐字节相同），2026-10-23 起
+    // 收敛到 `synapse-common/tests-support/exit_hook_impl.rs`，故此处只保留**已删除**路径。
+    "src/test_exit_hook.rs",
 ];
 
 fn repo_root() -> PathBuf {
@@ -163,6 +176,59 @@ fn path_violations(doc: &str, root: &Path) -> Vec<String> {
         }
     }
     found
+}
+
+/// 除对比报告与工作区规则外，**额外**纳入 [`GUARDED_DOC_DIRS`] 扫描的文档目录。
+///
+/// 收录标准：目录内文档会被反复当作证据引用，且死引用规模**一轮能修完**。
+/// `docs/audit/` 有意**不在**其中 —— 2026-10-27 实测 45 个文件 / 110 处死引用
+/// （9 处只需补 `archive/` 前缀，101 处指向重构后已不存在的路径），量级远超单轮修复；
+/// 该缺口与实测数字登记在
+/// `docs/audit/COMPREHENSIVE_LEGACY_ISSUES_REPORT_20261006.md` §8.8，不靠"看不见"糊过去。
+const GUARDED_DOC_DIRS: [&str; 2] = ["migrations", "docs/security"];
+
+/// `base/<relative_dir>` 下全部 `.md`（递归，跳过任何 `archive/` 子目录）。
+///
+/// 顶层目录缺失时直接失败：那样扫描会静默空转，等于没有门禁（AGENTS.md 铁律 8）。
+fn markdown_files_under(base: &Path, relative_dir: &str) -> Vec<PathBuf> {
+    let start = base.join(relative_dir);
+    assert!(start.is_dir(), "守卫目录 {relative_dir} 不存在：扫描面塌缩，门禁会静默空转");
+    let mut found = Vec::new();
+    let mut stack = vec![start];
+    while let Some(dir) = stack.pop() {
+        for entry in fs::read_dir(&dir)
+            .unwrap_or_else(|error| std::panic::panic_any(format!("读取 {} 失败: {error}", dir.display())))
+        {
+            let path = entry
+                .unwrap_or_else(|error| std::panic::panic_any(format!("遍历 {} 失败: {error}", dir.display())))
+                .path();
+            if path.is_dir() {
+                if path.file_name().is_none_or(|name| name != "archive") {
+                    stack.push(path);
+                }
+            } else if path.extension().is_some_and(|ext| ext == "md") {
+                found.push(path);
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
+/// `dirs` 里所有文档的路径类问题，带「相对 `base` 的文件名」前缀。
+fn guarded_doc_violations(base: &Path, dirs: &[&str]) -> Vec<String> {
+    let mut violations = Vec::new();
+    for dir in dirs {
+        for path in markdown_files_under(base, dir) {
+            let content = fs::read_to_string(&path)
+                .unwrap_or_else(|error| std::panic::panic_any(format!("读取 {} 失败: {error}", path.display())));
+            let name = path.strip_prefix(base).unwrap_or(&path).display().to_string();
+            for violation in path_violations(&content, base) {
+                violations.push(format!("{name}: {violation}"));
+            }
+        }
+    }
+    violations
 }
 
 /// `ROUTE_CONTRACT.md` 总览里的 `(route 条目数, 含路由模块数)`。
@@ -404,6 +470,52 @@ fn workspace_rules_reference_paths_exist() {
          （本地守卫；该目录 gitignored，无 CI 覆盖）：\n{}",
         violations.join("\n")
     );
+}
+
+/// 迁移说明与安全文档里的仓库路径声明也必须存在（DOC-24 收口：此前只扫对比报告与
+/// `.trae/rules`，`migrations/*.md` 里那类反引号路径漂移没有任何门禁会红）。
+///
+/// `assert!(docs.len() >= 3)` 是扫描面的下限：文件被搬走/改名时宁可判失败，
+/// 也不要让本测试在"读到 0 个文件"时假装通过。
+#[test]
+fn guarded_doc_dirs_reference_paths_exist() {
+    let root = repo_root();
+    let scanned: Vec<PathBuf> = GUARDED_DOC_DIRS.iter().flat_map(|dir| markdown_files_under(&root, dir)).collect();
+    assert!(
+        scanned.len() >= 3,
+        "扫描面塌缩到 {} 个文件（预期至少 migrations/README.md、migrations/INDEXES.md、\
+         docs/security/ci-security-grading.md）：门禁等于没跑",
+        scanned.len()
+    );
+
+    let violations = guarded_doc_violations(&root, &GUARDED_DOC_DIRS);
+    assert!(violations.is_empty(), "{GUARDED_DOC_DIRS:?} 下的文档引用了不存在的路径：\n{}", violations.join("\n"));
+}
+
+/// **红证明**：同一条目录扫描路径喂进一份伪造文档必须变红，`archive/` 子目录必须跳过。
+///
+/// 只证明 [`path_violations`] 谓词本身会红不够 —— 谓词对了但目录收集器读到 0 个文件时，
+/// [`guarded_doc_dirs_reference_paths_exist`] 仍然是永不红的假门禁（铁律 8）。
+#[test]
+fn the_guarded_doc_scan_rejects_a_fabricated_reference() {
+    // 路径在运行时拼接：本文件自己也在 [`code_referenced_docs_exist`] 的扫描面内，
+    // 直接写出字面量形态的 `docs/…md` 会被那条判据当成"源码引用了不存在的文档"。
+    let dead = |name: &str| format!("{}/{}/{}", "docs", "audit", name);
+
+    let sandbox = std::env::temp_dir().join(format!("synapse-doc-guard-{}", std::process::id()));
+    let doc_dir = sandbox.join("docs/security");
+    fs::create_dir_all(doc_dir.join("archive"))
+        .unwrap_or_else(|error| std::panic::panic_any(format!("建临时目录失败: {error}")));
+    fs::write(doc_dir.join("fabricated.md"), format!("证据见 `{}`。\n", dead("does-not-exist-2026-10-27.md")))
+        .unwrap_or_else(|error| std::panic::panic_any(format!("写临时文档失败: {error}")));
+    fs::write(doc_dir.join("archive/old.md"), format!("历史快照：`{}`。\n", dead("gone-forever.md")))
+        .unwrap_or_else(|error| std::panic::panic_any(format!("写历史快照失败: {error}")));
+
+    let violations = guarded_doc_violations(&sandbox, &["docs/security"]);
+    fs::remove_dir_all(&sandbox).ok();
+
+    assert_eq!(violations.len(), 1, "目录扫描必须判出伪造引用、且跳过 archive/（实得 {violations:?}）");
+    assert!(violations[0].contains("does-not-exist-2026-10-27.md"), "违规必须点名该路径：{violations:?}");
 }
 
 #[test]

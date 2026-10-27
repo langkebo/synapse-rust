@@ -149,7 +149,7 @@
 **不再匹配任何依赖**的 ignore：`RUSTSEC-2024-0388`（derivative）、`RUSTSEC-2026-0173`
 （proc-macro-error2，现为 proc-macro-error3）、`RUSTSEC-2026-0097`（rand 0.8.7/0.9.5 已在
 advisory 的 `patched` 区间内）。这批失效条目在
-`docs/audit/PROJECT_ACTUAL_ISSUES_2026-09-14.md` M-6 里已被记录，但当时建议"三条全删"时没有
+`docs/audit/archive/PROJECT_ACTUAL_ISSUES_2026-09-14.md` M-6 里已被记录，但当时建议"三条全删"时没有
 核对 cargo-audit 侧（paste 仍会被它命中），所以一直没修。
 
 ---
@@ -172,5 +172,5 @@ advisory 的 `patched` 区间内）。这批失效条目在
 
 - `deny.toml` — cargo-deny 配置
 - `.cargo/audit.toml` — cargo-audit 配置
-- `docs/audit/07_security_audit.md` — 最新安全审计报告
+- `docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md` — 当前全面审计（§5 为安全项终态）
 - `.github/workflows/ci.yml` — CI 工作流定义
