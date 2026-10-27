@@ -1,12 +1,18 @@
 ARG RUST_VERSION=1.93.0  # [DEPRECATED] 已移除实际使用，保留仅用于文档引用。当前版本由 RUST_BUILDER_IMAGE pin 管理。
 ARG RUST_BUILDER_IMAGE=rust:1.93.0-slim-bookworm@sha256:776861219cd851131c1cec3bbd7cbeb16b99a794048097eb69ad9682a8ed0d57
-ARG RUNTIME_BASE_IMAGE=gcr.io/distroless/cc-debian12@sha256:e8e7ee4b8b106d4c5fde9e422a321b2b8a2d5cca546c97adcce927f3e1d36e36
+# 2026-10-27 升 digest，修 Trivy 的唯一一条 HIGH：旧 pin（2026-09-20 的 e8e7ee4b…）里
+# `libssl3` 是 3.0.20-1~deb12u2，而 CVE-2026-84782 的修复版 3.0.22-1~deb12u2 已在当前
+# 官方镜像内。⚠️ 这两个 digest 是 `docker-security-scan.yml` 的
+# `resolve-base-image-digests`（仅 workflow_dispatch）从 registry **读出**的，不是手抄 ——
+# 该 job 存在的理由就是"`Digest Pin Integrity` 只验 pin 有效、不验 pin 落后"。
+ARG RUNTIME_BASE_IMAGE=gcr.io/distroless/cc-debian12@sha256:e5d81ddde149641e2a9ba55be4545bc125c67de07508b03ba4c22e6eb0ded5aa
 # 2026-09-20 升 digest 清 Trivy 的 3 个 HIGH：旧 pin（2026-07-30 的 7b140f37…）里
 # libpcre2-8-0 是 10.42-1，而 DLA-4772-1 的修复版本 10.42-1+deb12u1 已在当前官方
 # 镜像内（同批还修了 liblzma5 5.4.1-1+deb12u1 → +deb12u2）。此 digest 为 index，
-# 与旧 pin 同类。⚠️ 三处引用必须同步：docker/complement/Dockerfile、
-# .github/workflows/docker-security-scan.yml 的 digest-pin-check。
-ARG DEBIAN_BASE_IMAGE=debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251
+# 与旧 pin 同类。⚠️ 引用点只有两处：本文件的 ARG（唯一真相源）+ `docker/complement/Dockerfile`
+# 的同一个 ARG；workflow 侧一律通过 `scripts/ci/read_base_image_pins.sh` 读，不得再抄 digest。
+# 2026-10-27 一并升到当前 index（旧 pin 里 libssl3 仍在 3.0.20，见上面 RUNTIME 那条注释）。
+ARG DEBIAN_BASE_IMAGE=debian:bookworm-slim@sha256:7ff6ba31527b9e336162fa061746c366c4b2032f4d2cff2078bea43f78efe3f8
 ARG MIRROR_URL=
 ARG CARGO_FEATURE_ARGS="--features core-private-chat,widgets,external-services,voice-extended,cas-sso,saml-sso,friends --no-default-features"
 
