@@ -267,11 +267,15 @@
     `history_boundary.rs` 均为 **0.0%** < 70%，另 `cascade.rs` 48.6%、`msc4512_proxy.rs` 24.8%、
     `worker_topology.rs` 45.1%）；②**134 条** 已有地板但下降，幅度异常（`tracing.rs` 74.6%→19.4%、
     `federation/client.rs` 59.5%→36.8%、`admin_media_service.rs` 100%→72.8%）
-  - **判定：性质未定，明确禁止 `--update`**。大幅负 delta 更像**测量口径变了**（本轮 `STORAGE_FEATURES`
-    新增 `friends,widgets,burn-after-read`，此前从不编译的代码现在进分母），但**只是候选解释、未证实**；
-    按当前测量重写基线＝把这些值永久固化成新地板，与 §7.5 的"32 个 0.0 是 bootstrap 冻结值"同一个坑
-  - **下一步**：同一 commit 取两次 lcov（加/不加这三个 feature）逐文件比对判定口径；6 条 core-path
-    按 §7.5 方法逐条定性；两者明确后才允许动 `coverage_baseline.json`
+  - **判定：性质未定，明确禁止 `--update`**。§7.7.1 补记给出第一条硬证据：`tracing.rs` 代码
+    **零变更**（101 行，`090742266..HEAD` 对它是 0 个提交）却 74.59%→19.4% ⇒ 这 55 个点只能来自
+    "跑的测试集变了"；且 per-file 棘轮此前**从未在 CI 跑过**（`c952ee2b0` 说明：最近 30 次
+    `Code Coverage` 恒 skipped）⇒ 134 条实为"**首次差异**"，不是"回归"
+  - 原候选"3 个 feature 改分母"**不足以解释主现象**：那三个只进 leg 1（storage `--lib`），
+    `tracing.rs` 属 leg 2；`merge_lcov.py` 是按行取 max 的**并集**，也不制造下降
+  - **新头号候选（未证）**：leg 2 的集成测试是否大面积**静默跳过**（`setup_fresh_test_app()`
+    返 `None` 即 return）—— 判据是 `Run coverage` 日志里 leg 2 的测试计数与耗时
+  - **下一步**：6 条 core-path 按 §7.5 方法逐条定性；口径判定明确后才允许动 `coverage_baseline.json`
 - ✅ **[TEST_COMPROMISE_AUDIT_2026-10-25.md](TEST_COMPROMISE_AUDIT_2026-10-25.md)** 第 9 轮：**最后一个开口（原 ⑦ 类 8 个 0%）关掉**，代价 6 分钟。
   - **改判**：`synapse-web/routes/**` 那 8 个不是"只能等 CI 的 integration 腿"，而是**陈旧（地板冻结）**。
     8 个文件都在 `synapse-web` crate、模块**无条件**编译、**每个都自带内联 `#[cfg(test)] mod tests`**

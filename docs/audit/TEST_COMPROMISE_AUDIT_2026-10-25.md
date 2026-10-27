@@ -1393,3 +1393,34 @@ G 说清了"0.0 是 bootstrap 冻结值"，但**只记录不改**等于棘轮对
 **下一步（未做）**：①取同一 commit 的两次 lcov 做逐文件对比，判定第 2 类是口径还是真实下降；
 ②对 6 条 core-path 按 §7.5 的方法逐条定性（缺测试 / 无消费者 / 跨 crate / feature 关）；
 ③只有①②结论明确后，才允许动 `scripts/ci/coverage_baseline.json`。
+
+#### 7.7.1 补记：第 2 类的性质有了第一条**不依赖 lcov** 的硬证据（2026-10-27 晚）
+
+上面把"3 个 feature 改分母"列为候选解释。补验后：它**不足以解释主现象**，而手上多了一条
+更硬的证据。
+
+1. **`synapse-common/src/tracing.rs` 在基线之后零变更**：今日仍是 101 行，`090742266..HEAD`
+   对该文件 **0 个提交**，与基线期逐字相同；而读数从 `74.59%`（基线里的原值）掉到 `19.4%`。
+   同一份代码掉 55 个点，**不可能是"测试变差"**，只能是"跑的测试集变了"。
+2. **per-file 棘轮此前从未在 CI 跑过**：`c952ee2b0` 的提交说明自己写着"最近 30 次运行里
+   `Code Coverage` 与 `Integration Tests` 的结论**全是 skipped**，per-file 棘轮从未跑过"。
+   而基线 608 条（含 49 条 bootstrap 冻结的 `0.0`）来自本地产出、**从未被 CI 复现过**
+   ⇒ 134 条严格说不该叫"回归"，该叫"**首次差异**"。
+3. 那 3 个 feature **只进 leg 1**（`cargo llvm-cov -p synapse-storage --features "$STORAGE_FEATURES" --lib`），
+   而 `tracing.rs` 属 leg 2（`--workspace --exclude synapse-storage --features "$REST_FEATURES"`）
+   ⇒ 它的读数**不受**那三个 feature 影响。即便"改分母"成立，也只解释 storage 那一段。
+4. 顺带排掉一个怀疑：`scripts/merge_lcov.py` 是按行取 max 的**并集**（`max(existing, hits)`，
+   再重算 `LF`/`LH`），不是"后者覆盖前者" ⇒ 合并本身不制造下降。
+
+⚠️ 另注意两类不能混：`synapse-federation/src/client.rs`（2035 → 1448 行）与
+`synapse-common/src/config/mod.rs`（2316 → 1404 行）在本区间被**大幅删改**，它们的 delta
+里混着真实代码变化；只有 `tracing.rs` 这种"代码不动而读数暴跌"才是口径的铁证。
+
+**新的头号候选（尚未证实）**：leg 2 的**集成测试有没有真跑**。本仓集成测试在
+`setup_fresh_test_app()` 返回 `None` 时是**静默 return**（§7.5 与本仓 env 笔记都记过），
+而"跑到了 / 跳过了"的唯一便宜判据是耗时（正常 ~15 s/条 vs 0.04 s）。若 leg 2 大面积跳过，
+所有**由集成测试覆盖**的文件会一起塌陷 —— `tracing.rs`、`credential_auth.rs`、`token_auth.rs`、
+`history_boundary.rs` 全在这个集合里，与 134 条的形状吻合。
+判据入口：`Run coverage` 日志里 leg 2 的测试计数（明显低于 `Integration Tests` 车道即异常）。
+
+**仍然禁止 `--update`**：上面 4 条只证明"这次测量与基线不可比"，一次也没有证明"地板该降"。
