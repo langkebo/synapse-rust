@@ -590,9 +590,16 @@ mod e2e_media_tests {
         let media_downloaded = true;
         assert!(media_downloaded);
 
-        println!("Step 3: Generate thumbnail");
-        let thumbnail_generated = true;
-        assert!(thumbnail_generated);
+        println!("Step 3: Build the thumbnail request for the uploaded media");
+        // 本文件是**无服务器的模拟流程**，只能校验请求形状；"生成后登记 thumbnails 索引"
+        // 的真实验证在 tests/integration/api_media_routes_tests.rs
+        // （test_thumbnail_request_records_index_row_and_delete_clears_it）。
+        let thumbnail_request_uri =
+            format!("/_matrix/client/v1/media/thumbnail/{}/{}?width=32&height=32&method=crop", server_name, media_id);
+        assert!(
+            thumbnail_request_uri.starts_with(&format!("/_matrix/client/v1/media/thumbnail/{server_name}/{media_id}?")),
+            "缩略图请求必须指向刚上传的 media: {thumbnail_request_uri}"
+        );
 
         println!("✅ Media upload/download flow completed successfully");
     }

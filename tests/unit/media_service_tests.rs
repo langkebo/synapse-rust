@@ -95,6 +95,23 @@ fn create_test_image_data() -> Vec<u8> {
     ]
 }
 
+/// A PNG the `image` decoder is guaranteed to accept.
+///
+/// `create_test_image_data()` above is a hand-rolled 1x1 blob that upload/download
+/// tests only compare byte-for-byte; it is not a reliable decode target. Thumbnail
+/// tests need a real image so generation actually runs instead of silently falling
+/// back to the original bytes.
+fn create_decodable_png(side: u32) -> Vec<u8> {
+    use image::{ImageBuffer, ImageFormat, Rgb};
+
+    let image = ImageBuffer::from_fn(side, side, |x, y| Rgb([(x % 256) as u8, (y % 256) as u8, 128_u8]));
+    let mut output = Vec::new();
+    image::DynamicImage::ImageRgb8(image)
+        .write_to(&mut std::io::Cursor::new(&mut output), ImageFormat::Png)
+        .expect("encode test png");
+    output
+}
+
 #[tokio::test]
 async fn test_media_service_creation() {
     let (_media_service, _temp_dir) = create_test_media_service().await;
@@ -255,7 +272,7 @@ fn test_get_thumbnail_success() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
         let (media_service, _temp_dir) = create_test_media_service().await;
-        let content = create_test_image_data();
+        let content = create_decodable_png(64);
 
         let upload_result =
             media_service.upload_media("@alice:example.com", &content, "image/png", None).await.unwrap();
@@ -266,7 +283,16 @@ fn test_get_thumbnail_success() {
 
         assert!(result.is_ok(), "Should get thumbnail");
 
-        assert_eq!(result.unwrap(), content);
+        let thumbnail = result.unwrap();
+        // 非回退：生成失败时 get_thumbnail 会原样返回源图，这里必须排除那条路径。
+        assert_ne!(thumbnail, content, "Thumbnail must be generated, not the original fallback bytes");
+
+        let decoded = image::load_from_memory(&thumbnail).expect("thumbnail should decode as an image");
+        assert_eq!(
+            (decoded.width(), decoded.height()),
+            (100, 100),
+            "scale to 100x100 from a square source must yield exactly 100x100"
+        );
     });
 }
 

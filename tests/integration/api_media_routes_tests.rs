@@ -1003,3 +1003,87 @@ async fn hash_level_quarantine_auto_quarantines_identical_reupload() {
         "different content must not inherit the quarantine ruling"
     );
 }
+
+/// The `thumbnails` table used to be read/written by nothing — the thumbnail
+/// cache was "the filesystem is the index". This pins the closed loop: a lazily
+/// generated thumbnail is recorded once per variant, and deleting the media
+/// removes the row again.
+#[tokio::test]
+async fn test_thumbnail_request_records_index_row_and_delete_clears_it() {
+    let Some((app, pool, _cache)) = super::setup_fresh_test_app_with_pool().await else {
+        super::skip_or_fail_without_db();
+        return;
+    };
+    let token = register_user(&app, &format!("media_thumb_index_{}", rand::random::<u32>())).await;
+
+    let thumbnail_uri = |server_name: &str, media_id: &str| {
+        format!("/_matrix/client/v1/media/thumbnail/{server_name}/{media_id}?width=32&height=32&method=scale")
+    };
+
+    let upload_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/media/v3/upload?filename=indexed-thumb.png")
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Content-Type", "image/png")
+        .body(Body::from(tiny_png()))
+        .unwrap();
+    let upload_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), upload_request).await.unwrap();
+    assert_eq!(upload_response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(upload_response.into_body(), 2048).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let (server_name, media_id) = parse_mxc_uri(json["content_uri"].as_str().unwrap());
+
+    let request_thumbnail = || {
+        Request::builder()
+            .method("GET")
+            .uri(thumbnail_uri(&server_name, &media_id))
+            .header("Authorization", format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap()
+    };
+
+    let thumbnail_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request_thumbnail()).await.unwrap();
+    assert_eq!(thumbnail_response.status(), StatusCode::OK);
+
+    // Dimensions are the requested values (the cache key / file name), not the
+    // clamped output size; `is_animated` mirrors the `_animated` file suffix.
+    let rows = sqlx::query_as::<_, (i32, i32, String, bool, String)>(
+        "SELECT width, height, method, is_animated, content_type FROM thumbnails WHERE media_id = $1",
+    )
+    .bind(&media_id)
+    .fetch_all(&*pool)
+    .await
+    .expect("thumbnails index read must succeed");
+    assert_eq!(
+        rows,
+        vec![(32, 32, "scale".to_string(), false, "image/jpeg".to_string())],
+        "one generated variant must record exactly one index row"
+    );
+
+    // The second request is served from cache and must not add a variant.
+    let cached_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request_thumbnail()).await.unwrap();
+    assert_eq!(cached_response.status(), StatusCode::OK);
+    let row_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM thumbnails WHERE media_id = $1")
+        .bind(&media_id)
+        .fetch_one(&*pool)
+        .await
+        .expect("thumbnails count must succeed");
+    assert_eq!(row_count, 1, "a cache hit must not duplicate the index row");
+
+    // Client-side delete (uploader only) must drop the index rows with the files.
+    let delete_request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/media/v3/delete/{server_name}/{media_id}"))
+        .header("Authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+    let delete_response = ServiceExt::<Request<Body>>::oneshot(app, delete_request).await.unwrap();
+    assert_eq!(delete_response.status(), StatusCode::OK);
+
+    let row_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM thumbnails WHERE media_id = $1")
+        .bind(&media_id)
+        .fetch_one(&*pool)
+        .await
+        .expect("thumbnails count must succeed");
+    assert_eq!(row_count, 0, "deleting the media must remove its thumbnail index rows");
+}

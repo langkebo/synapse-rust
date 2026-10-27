@@ -277,7 +277,12 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // 247657 字节 ⇒ FNV-1a 64 = `1694426daf4fb659`。自检：复算改动前的
 // `aeb48b283^:migrations/…v12.sql`（245636 字节）得 `90f2bf165cb2f005`，
 // 与改动前常量逐字节吻合，证明哈希实现未变后才取新值。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "1694426daf4fb659";
+// 2026-10-27（缩略图索引闭环：`thumbnails` 补 `is_animated` 列与 `uq_thumbnails_variant`
+// 唯一索引，并把该索引登记进 v11-10 `uq_%` 清理 DO 块的例外清单）：基线 247657 →
+// 248615 字节 ⇒ FNV-1a 64 = `5abd723ba9424fd6`。自检：复算改动前的
+// `1ab01c9a9^:migrations/…v12.sql`（247657 字节）得 `1694426daf4fb659`，
+// 与改动前常量逐字节吻合，证明哈希实现未变后才取新值。
+const EXPECTED_BASELINE_FINGERPRINT: &str = "5abd723ba9424fd6";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))
