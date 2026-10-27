@@ -236,6 +236,24 @@
     会被清掉"（基线实际保留它）。修法：**从基线解析例外列表**（`v11_10_kept_indexes()`）、
     只留两个结构 marker、加 `V11_10_REQUIRED_KEEP` 兜底解析失效、新增测试钉 `uq_thumbnails_variant`。
     实测 `14 passed`；变异自证（锚点改 `uq_%ZZZ_MUTANT`）⇒ **6 条同时红**，还原后 0 残留
+  - **"存量红"标签掩盖的两件不同的事**（§7）：
+    - **`DB Migration Gate` 的红是门禁天生红**：七个子 job 只 `Schema Blind Guards` 红；判据是告警预算，
+      `WARNING_BUDGET` 只登记 SBG-03 一条（`allowed: 1`）而实际 3 条 —— 另两条
+      `scripts/dev-test-setup.sh:61`（`ff56f36384`，10-18）与 `scripts/run_full_integration.sh:136`
+      （`94d9e78bb8`，10-22）都是**合法的测试库前置断言**，只是从未登记；门禁上线（10-19）时第一条已在树里
+      ⇒ **从第一次运行起就红，从没有过绿的状态**。顺带查出 `SAFE_FILES` 是**整文件**豁免：`ci.yml`
+      仅因一条 SBG-03 计数查询被豁免，连带对 `DROP SCHEMA public CASCADE`（SBG-01，本门禁唯一要拦的东西）也免疫。
+      修法：补登记 + 豁免收窄为**逐规则**（新增 `rules` 字段）+ `validate_exemptions()` 启动自检
+      （缺 `reason`/`rules`、规则编号写错 ⇒ 立即失败，否则"登记了但登记错"静默等于没做）。
+      读数：命中 20→20 条不变、`(规则,文件)` 集合逐条相同、`INFO 17→19` / `ERROR 2→0` / `EXIT 1→0`。
+      **A/B 自证**：同一份变异（往 `dev-test-setup.sh` 加真 `DROP SCHEMA public CASCADE`）下，
+      旧脚本降级为 `INFO`、新脚本报 `ERROR`
+    - **`Docker Security Scan` 的红是真供应链发现**：从 `trivy-base-sarif` artifact 解析出唯一一条 ——
+      `libssl3 3.0.20-1~deb12u2` / `CVE-2026-84782` / HIGH / 修复版 `3.0.22-1~deb12u2`，
+      即在 `docker/Dockerfile:3` 的 `distroless/cc-debian12@sha256:e8e7ee4b…` 里。
+      `Digest Pin Integrity` 只验"pin 在 registry 上仍有效"、**不验"pin 里有没有补丁"** ⇒ 两者不矛盾。
+      **未修（待决策）**：真修是换 digest，本地 `gcr.io` 不可达（`docker manifest inspect` → `Bad Gateway`），
+      新 digest 需在能连 registry 的环境解析；`--trivyignore` 属让渡性质（会让该镜像上任何新 CVE 一起沉默）
 - ✅ **[TEST_COMPROMISE_AUDIT_2026-10-25.md](TEST_COMPROMISE_AUDIT_2026-10-25.md)** 第 9 轮：**最后一个开口（原 ⑦ 类 8 个 0%）关掉**，代价 6 分钟。
   - **改判**：`synapse-web/routes/**` 那 8 个不是"只能等 CI 的 integration 腿"，而是**陈旧（地板冻结）**。
     8 个文件都在 `synapse-web` crate、模块**无条件**编译、**每个都自带内联 `#[cfg(test)] mod tests`**

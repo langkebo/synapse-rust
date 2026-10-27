@@ -26,10 +26,16 @@
 | 10 | `gen_client_yaml.py --check` 的 `--expected` 默认指向 gitignored 文件（死分支），且**三处文档把它写成已接线的 CI 门禁** | ✅ 已修（去掉死默认 + 三处声明改实情，§6.1） |
 | 11 | 让渡后 `d297b2937` 上 `Repo Sanity` **31/31 步全绿**（0 failure / 0 skipped）—— 该 job 自 `15efc8dc6` 起第一次真正全绿 | ✅ 车道闭合 |
 | 12 | 同一批缩略图提交还让 **`baseline_tables` 的硬编码例外**过期 ⇒ `Test & Lint (×all-features)` 红在 `--workspace --lib`、`Code Coverage` 红在步骤 1/3（同一根因，错误信息却指向"DB 测试"） | ✅ 已修（模型改为**从基线解析**例外列表，§6.4） |
+| 13 | 被当作"存量"放过的 `DB Migration Gate` 红，实为**门禁上线那天就红**：`WARNING_BUDGET` 只登记 1 条 SBG-03，实际 3 条，另两条是合法的测试库前置断言且从未登记；且 `SAFE_FILES` 是**整文件**豁免，让"计数查询是有意的"顺带换来对 `DROP SCHEMA public CASCADE` 免疫 | ✅ 已修（补登记 + 豁免收窄到**逐规则** + 豁免清单自检，§7.1） |
+| 14 | 被当作"存量"放过的 `Docker Security Scan` 红**不是配置错**：`distroless/cc-debian12` pin 里 `libssl3 3.0.20` 带 `CVE-2026-84782`（HIGH，修复版 `3.0.22`） | ⏸ 待决策（换 digest 才是真修，需能连 gcr.io 的环境，§7.2） |
 
 一句话：**这些车道不是"没发现问题"，是"根本没运行/根本不可能运行"**。它们此前的沉默不能作为
 任何"已合规"的证据。四个缺陷里有三个同源（§1 / §3 / §4）：**判据依赖"我这台机器上有什么"，而不是
-"仓库里有什么"**；§2 只是漏跑 `--update`。排查时统一问一句：*这条判据在新克隆的树里还成立吗？*
+"仓库里有什么"**；§2 只是漏跑 `--update`。
+
+§7 补上一类更隐蔽的：**门禁红了很久、于是被习惯性归为"存量"**。这类红有两种完全不同的成因 ——
+一是门禁自己的清单没配齐（§7.1，天生红，从没有过绿的状态），二是被守的对象真的坏了（§7.2，
+真 CVE）。**"存量红"这个标签本身会掩盖两者的区别**，所以判断前必须先看是哪一种。排查时统一问一句：*这条判据在新克隆的树里还成立吗？*
 
 ## 1 缺陷一：夹具里的 `UPDATE t` 被当成真表
 
@@ -353,7 +359,83 @@ the v11-10 dynamic `DROP INDEX` cleanup (markers ["DROP INDEX IF EXISTS %I.%I",
 **6 条测试同时 FAILED**（新测试 + `:234` 的 required-keep 兜底 + 4 条间接依赖 reference 集的），
 还原后 `grep ZZZ_MUTANT` = 0。
 
-## 7 复核命令（一键）
+## 7 两个被当成"存量"放过的红：一个门禁天生红，一个是真实供应链发现
+
+`DB Migration Gate` 与 `Docker Security Scan` 从 `eb8f40b7a`（2026-10-19）起**每轮都红**，
+长期以"存量、与代码无关"绕过。逐条查清后两者性质完全不同。
+
+### 7.1 `Schema Blind Guards`：门禁上线那天就已经是红的（已修）
+
+`DB Migration Gate` 的七个子 job 里，`db_migrate.sh Migrate Run` / `Unified Schema Apply` /
+`Baseline Consolidation Check` / `Schema Contract Coverage` / `Schema Table Coverage` 全绿，
+红的只有 `Schema Blind Guards`。
+
+判据是**告警预算**：`WARNING_BUDGET` 只登记 `SBG-03` 一条（`allowed: 1`），实际有 3 条：
+
+| 命中 | 引入 | 真实语义 | 修复前 |
+| --- | --- | --- | --- |
+| `scripts/ci/converge_public_schema.sh:245` | — | 收敛脚本清点 public 剩余表数，必须写死 public | `WARNING`（预算内） |
+| `scripts/dev-test-setup.sh:61` | `ff56f36384`（10-18） | 断言 dev 容器里 `synapse_test.public` 真的收到了迁移 | `ERROR`（未登记） |
+| `scripts/run_full_integration.sh:136` | `94d9e78bb8`（10-22） | 集成测试前置：目标库 public 至少 100 张基线表 | `ERROR`（未登记） |
+
+后两条是**合法的前置断言**，而且改成 `current_schema()` 恰恰会让它们失去意义 —— 它们要证明的就是
+"迁移打进了**那个固定库**"。问题只是**没登记**；而门禁上线（10-19）时 `dev-test-setup.sh` 那条
+已经在树里 ⇒ **这个门禁从第一次运行起就是红的，从来没有过绿的状态**。
+
+顺着查出第二个问题：`SAFE_FILES` 是**整文件**豁免，对所有规则生效。于是
+`.github/workflows/ci.yml` 仅因一条 `table_schema='public'` 计数查询被豁免，
+连带对 `SBG-01`（`DROP SCHEMA public CASCADE`，本门禁唯一要拦的破坏性 DDL）也免疫 ——
+守卫存在的理由被它自己的白名单吃掉了。
+
+修法：
+
+1. 两条合法命中登记为 `SAFE_FILES` 条目，但**豁免收窄到逐规则**（新增 `rules` 字段）：
+   只降级它真实命中的 `SBG-03`，其余规则照原 severity 计。
+2. 新增 `validate_exemptions()`：条目缺 `reason`/`rules`，或 `rules` 写了不存在的规则编号
+   ⇒ **启动即失败**。否则"登记了但登记错"会静默变成"什么都没做"。
+3. 顺带修 `WARNING_BUDGET` 里 `converge_public_schema.sh:242` → `:245` 的行号漂移。
+
+读数（同一份代码，修前 / 修后）：命中 **20 → 20 条不变**（`(规则, 文件)` 集合逐条相同）、
+`INFO 17 → 19`、`WARNING 1 → 1`、`ERROR 2 → 0`、`EXIT 1 → 0`。
+
+**A/B 自证（同一份变异、两个脚本）**：往 `scripts/dev-test-setup.sh` 尾部加一条真的
+`DROP SCHEMA public CASCADE`：
+
+* 旧脚本（整文件豁免）⇒ `[INFO ] SBG-01 scripts/dev-test-setup.sh:89` —— **降级、不可见**
+* 新脚本（逐规则豁免）⇒ `[ERROR] SBG-01 scripts/dev-test-setup.sh:89` —— 拦住
+
+`validate_exemptions()` 五个分支逐个实测：正常清单无问题；规则编号写错 / 漏 `rules` /
+`rules` 为空集 / 漏 `reason` 各自给出对应报错。
+
+### 7.2 `Base Image Scan`：不是配置错，是 distroless 基础镜像真带 HIGH CVE（未修，待决策）
+
+从 `trivy-base-sarif` artifact（22 MB 日志里只有摘要，明细在 SARIF 内）解析出的**唯一一条**：
+
+```
+Package: libssl3
+Installed Version: 3.0.20-1~deb12u2
+Vulnerability: CVE-2026-84782   Severity: HIGH
+Fixed Version:  3.0.22-1~deb12u2
+Target: distroless/cc-debian12
+```
+
+即 `docker/Dockerfile:3` 的
+`ARG RUNTIME_BASE_IMAGE=gcr.io/distroless/cc-debian12@sha256:e8e7ee4b…` 落后于 Debian 12 的
+安全更新。`Digest Pin Integrity` 只验"pin 在 registry 上仍有效"，**不验"pin 里有没有补丁"**
+⇒ 两个 job 同时绿/红并不矛盾。
+
+两条路：
+
+1. **真修**：把 digest 换到当前 `cc-debian12`（其上层已含 `libssl3 3.0.22-1~deb12u2`）。
+   代价是要动生产镜像内容，且验证必须跑一轮完整 CI（本地 `gcr.io` 不可达：
+   `docker manifest inspect` 返回 `Bad Gateway`，新 digest 只能在能访问 registry 的环境里解析）。
+2. **登记**：加 `.trivyignore` 并写理由 + 到期日。但这会让 `Base Image Scan` 从此对
+   同一镜像上的**任何**新 CVE 保持沉默，除非每次重写理由 —— 属"让渡"性质。
+
+**未实施** —— 动基础镜像是独立决策，且 ② 的代价明显高于 ①。① 需要一个能连 gcr.io 的环境
+解析新 digest。
+
+## 8 复核命令（一键）
 
 ```bash
 # ① 门禁本身

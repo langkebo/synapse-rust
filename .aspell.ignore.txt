@@ -373,6 +373,7 @@ fts
 func
 gc
 gcm
+gcr
 gdpr
 geiger
 geolocation
@@ -865,6 +866,7 @@ sanitization
 sargable
 sarif
 sas
+sbg
 scheduledtasks
 schema
 schemas
