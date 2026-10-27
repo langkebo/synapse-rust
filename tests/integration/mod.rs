@@ -45,6 +45,7 @@ mod api_media_routes_tests;
 mod api_megolm_rotation_tests;
 mod api_module_admin_routes_tests;
 mod api_msc3912_redaction_cascade_tests;
+mod api_msc4512_proxy_tests;
 mod api_one_time_invite_routes_tests;
 mod api_placeholder_contract_p0_tests;
 mod api_placeholder_contract_p1p2_tests;
@@ -87,6 +88,7 @@ mod api_widget_tests;
 mod api_worker_heartbeat_stats_tests;
 mod api_worker_replication_auth_tests;
 mod api_worker_surface_gate_tests;
+mod api_worker_topology_tests;
 mod cache_tests;
 mod cleanup_tests;
 #[path = "../common/mod.rs"]

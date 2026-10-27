@@ -3355,6 +3355,244 @@ async fn test_find_related_events_and_cascade_targets() {
     assert_eq!(depth1, vec![root.clone()], "max_depth=1 时只有根节点");
 }
 
+/// C57-0 补覆盖（续）：`find_related_events_single_layer` 的三条过滤规则
+/// —— `rel_type` 白名单、`"*"` 通配只匹配 `m.relates_to`（MSC3912）、
+/// 已撤回事件与跨房事件必须排除。此前该方法只有 admin 路由级间接覆盖，
+/// storage 层没有用例。
+#[tokio::test]
+async fn test_find_related_events_single_layer_filters_by_rel_type_wildcard_and_redaction() {
+    let (_isolated, pool) = test_pool().await;
+    let storage = EventStorage::new(&pool, test_server_name());
+
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
+    let room_id = format!("!casc1_{suffix}:example.com");
+    let other_room = format!("!casc1_other_{suffix}:example.com");
+    let sender = format!("@casc1_{suffix}:example.com");
+    let root = format!("$casc1_root_{suffix}:example.com");
+    let annotation = format!("$casc1_annot_{suffix}:example.com");
+    let replace = format!("$casc1_replace_{suffix}:example.com");
+    let no_rel_type = format!("$casc1_norelt_{suffix}:example.com");
+    let legacy_reply = format!("$casc1_legacy_{suffix}:example.com");
+    let redacted_related = format!("$casc1_redacted_{suffix}:example.com");
+    let foreign_related = format!("$casc1_foreign_{suffix}:example.com");
+    let base = 1_100_000_i64;
+
+    ensure_test_room(&pool, &room_id).await;
+    ensure_test_room(&pool, &other_room).await;
+    ensure_test_user(&pool, &sender).await;
+
+    insert_soft_fail_event_row(
+        &pool,
+        &room_id,
+        &root,
+        &sender,
+        serde_json::json!({ "body": "root" }),
+        base,
+        960_001,
+        false,
+    )
+    .await;
+    insert_soft_fail_event_row(
+        &pool,
+        &room_id,
+        &annotation,
+        &sender,
+        serde_json::json!({ "m.relates_to": { "event_id": root, "rel_type": "m.annotation" } }),
+        base + 1,
+        960_002,
+        false,
+    )
+    .await;
+    insert_soft_fail_event_row(
+        &pool,
+        &room_id,
+        &replace,
+        &sender,
+        serde_json::json!({ "m.relates_to": { "event_id": root, "rel_type": "m.replace" } }),
+        base + 2,
+        960_003,
+        false,
+    )
+    .await;
+    // 有 `m.relates_to` 但没有 `rel_type`：通配必须命中，白名单必须跳过
+    insert_soft_fail_event_row(
+        &pool,
+        &room_id,
+        &no_rel_type,
+        &sender,
+        serde_json::json!({ "m.relates_to": { "event_id": root } }),
+        base + 3,
+        960_004,
+        false,
+    )
+    .await;
+    // 传统 `m.in_reply_to`：MSC3912 的通配**只**认 `m.relates_to`，这条不得出现
+    insert_soft_fail_event_row(
+        &pool,
+        &room_id,
+        &legacy_reply,
+        &sender,
+        serde_json::json!({ "m.in_reply_to": { "event_id": root } }),
+        base + 4,
+        960_005,
+        false,
+    )
+    .await;
+    // 已撤回的关系事件：不得进任何一档结果
+    sqlx::query(
+        r"
+        INSERT INTO events (event_id, room_id, sender, user_id, event_type, content,
+                            origin_server_ts, stream_ordering, is_redacted, soft_failed)
+        VALUES ($1, $2, $3, $3, 'm.room.message', $4, $5, $6, true, false)
+        ",
+    )
+    .bind(&redacted_related)
+    .bind(&room_id)
+    .bind(&sender)
+    .bind(serde_json::json!({ "m.relates_to": { "event_id": root, "rel_type": "m.annotation" } }))
+    .bind(base + 5)
+    .bind(960_006_i64)
+    .execute(&*pool)
+    .await
+    .expect("insert already-redacted relation fixture");
+    // 指向同一个 event_id 但落在别的房间：不得被拖进本房的级联
+    insert_soft_fail_event_row(
+        &pool,
+        &other_room,
+        &foreign_related,
+        &sender,
+        serde_json::json!({ "m.relates_to": { "event_id": root, "rel_type": "m.annotation" } }),
+        base + 6,
+        960_007,
+        false,
+    )
+    .await;
+
+    let annotations = storage
+        .find_related_events_single_layer(&room_id, &root, &["m.annotation".to_string()])
+        .await
+        .expect("single layer by rel_type");
+    assert_eq!(annotations, vec![annotation.clone()], "白名单必须滤掉 m.replace 与无 rel_type 的关系");
+
+    let two_types = storage
+        .find_related_events_single_layer(&room_id, &root, &["m.replace".to_string(), "m.annotation".to_string()])
+        .await
+        .expect("single layer by two rel_types");
+    assert_eq!(two_types, vec![annotation.clone(), replace.clone()], "多条 rel_type 按 origin_server_ts ASC 排序");
+
+    let wildcard = storage
+        .find_related_events_single_layer(&room_id, &root, &["*".to_string()])
+        .await
+        .expect("single layer wildcard");
+    assert_eq!(
+        wildcard,
+        vec![annotation.clone(), replace.clone(), no_rel_type.clone()],
+        "通配只认 m.relates_to（含无 rel_type 者），且排除已撤回、跨房与传统 m.in_reply_to"
+    );
+
+    let legacy_only = storage
+        .find_related_events_single_layer(&room_id, &root, &["m.in_reply_to".to_string()])
+        .await
+        .expect("single layer by legacy rel_type");
+    assert!(legacy_only.is_empty(), "传统回复没有 m.relates_to，显式按 m.in_reply_to 过滤应得空集");
+
+    let unmatched = storage
+        .find_related_events_single_layer(&room_id, &root, &["m.thread".to_string()])
+        .await
+        .expect("single layer unmatched rel_type");
+    assert!(unmatched.is_empty(), "无匹配 rel_type 时必须为空");
+}
+
+/// C57-0 补覆盖（续）：`cascade_redact_event` —— BFS 目标真的被逐条撤回、
+/// 返回计数与目标数一致、`max_depth=0` 时不碰任何行（含根）。
+#[tokio::test]
+async fn test_cascade_redact_event_redacts_targets_and_respects_max_depth() {
+    let (_isolated, pool) = test_pool().await;
+    let storage = EventStorage::new(&pool, test_server_name());
+
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
+    let room_id = format!("!cascrx_{suffix}:example.com");
+    let sender = format!("@cascrx_{suffix}:example.com");
+    let root = format!("$cascrx_root_{suffix}:example.com");
+    let reply = format!("$cascrx_reply_{suffix}:example.com");
+    let reaction = format!("$cascrx_react_{suffix}:example.com");
+    let unrelated = format!("$cascrx_unrel_{suffix}:example.com");
+    let base = 1_200_000_i64;
+
+    ensure_test_room(&pool, &room_id).await;
+    ensure_test_user(&pool, &sender).await;
+
+    insert_soft_fail_event_row(
+        &pool,
+        &room_id,
+        &root,
+        &sender,
+        serde_json::json!({ "body": "root" }),
+        base,
+        970_001,
+        false,
+    )
+    .await;
+    insert_soft_fail_event_row(
+        &pool,
+        &room_id,
+        &reply,
+        &sender,
+        serde_json::json!({ "m.in_reply_to": { "event_id": root } }),
+        base + 1,
+        970_002,
+        false,
+    )
+    .await;
+    insert_soft_fail_event_row(
+        &pool,
+        &room_id,
+        &reaction,
+        &sender,
+        serde_json::json!({ "m.relates_to": { "event_id": root, "rel_type": "m.annotation" } }),
+        base + 2,
+        970_003,
+        false,
+    )
+    .await;
+    insert_soft_fail_event_row(
+        &pool,
+        &room_id,
+        &unrelated,
+        &sender,
+        serde_json::json!({ "body": "unrelated" }),
+        base + 3,
+        970_004,
+        false,
+    )
+    .await;
+
+    async fn is_redacted(pool: &Pool<Postgres>, event_id: &str) -> bool {
+        sqlx::query_scalar::<_, bool>("SELECT is_redacted FROM events WHERE event_id = $1")
+            .bind(event_id)
+            .fetch_one(pool)
+            .await
+            .expect("read is_redacted")
+    }
+
+    // max_depth=0 ⇒ 连根都不进目标，返回 0 且一行都不改
+    let zero =
+        storage.cascade_redact_event(&room_id, &root, None, 0).await.expect("cascade_redact_event with max_depth=0");
+    assert_eq!(zero, 0, "max_depth=0 时没有目标");
+    assert!(!is_redacted(&pool, &root).await, "max_depth=0 不得改任何行");
+
+    let redacted = storage.cascade_redact_event(&room_id, &root, None, 3).await.expect("cascade_redact_event");
+    assert_eq!(redacted, 3, "根 + reply + reaction 共三条");
+    assert!(is_redacted(&pool, &root).await, "根必须被撤回");
+    assert!(is_redacted(&pool, &reply).await, "m.in_reply_to 指向根的事件必须被撤回");
+    assert!(is_redacted(&pool, &reaction).await, "m.relates_to 指向根的事件必须被撤回");
+    assert!(!is_redacted(&pool, &unrelated).await, "无关事件不得被波及");
+
+    // 再次级联：目标都已是 is_redacted 且内容被清空 ⇒ 应只剩根（幂等，不重复计数）
+    let again = storage.cascade_redact_event(&room_id, &root, None, 3).await.expect("cascade_redact_event idempotent");
+    assert_eq!(again, 1, "第二次只剩根自身，不得重复计已撤回的关系事件");
+}
+
 /// MSC4222 / 上游 Synapse #20081：增量 `/sync` 的 `state_after` 不得丢掉
 /// **离开者本人**的 `m.room.member` leave 事件 —— 边界情形是离开者为该房
 /// **最后一个本地用户**（上游 2026-10 的修复正是针对它）。

@@ -112,6 +112,105 @@ async fn trait_object_write_then_read_matches_inherent_methods() {
     let _ = storage.delete_room_events(&room_id).await;
 }
 
+/// 写一条 `m.room.member` 并返回它的 `stream_ordering`（由序列自动分配）。
+async fn insert_member(
+    writer: &dyn EventWriter,
+    room_id: &str,
+    user_id: &str,
+    membership: &str,
+    origin_server_ts: i64,
+) -> i64 {
+    let created = writer
+        .create_event(
+            CreateEventParams {
+                event_id: format!("$dyn_member_{}:example.com", uuid::Uuid::new_v4()),
+                room_id: room_id.to_string(),
+                user_id: user_id.to_string(),
+                event_type: "m.room.member".to_string(),
+                content: serde_json::json!({ "membership": membership }),
+                state_key: Some(user_id.to_string()),
+                origin_server_ts,
+                redacts: None,
+            },
+            None,
+        )
+        .await
+        .expect("member event should be written");
+    created.stream_ordering.expect("member event must carry stream_ordering")
+}
+
+/// `history_boundary.rs` 此前零 storage 级用例（CI 0.0%）：生产路径其实被
+/// `tests/integration/api_history_visibility_tests.rs` 跑到过，但那一腿用
+/// `--exclude synapse-storage` 连报告一起排除，本 crate 腿只跑 `--lib`。
+/// 这里补一条，钉住三件事：`include_invites` 两档取到的边界、边界必须是
+/// **最早**的那条合格成员事件、以及"从未被邀请/加入"返回 `None`（调用方据此
+/// 判定"什么都看不到"，不得当成"什么都能看"）。
+#[tokio::test]
+async fn dyn_reader_membership_boundary_takes_the_earliest_qualifying_member_event() {
+    let (_isolated, pool) = test_pool().await;
+    let storage = EventStorage::new(&pool, "example.com".to_string());
+    let reader: &dyn EventReader = &storage;
+    let writer: &dyn EventWriter = &storage;
+
+    let room_id = format!("!dyn_boundary_{}:example.com", uuid::Uuid::new_v4());
+    let invitee = format!("@dyn_invitee_{}:example.com", uuid::Uuid::new_v4());
+    let joiner = format!("@dyn_joiner_{}:example.com", uuid::Uuid::new_v4());
+    let outsider = format!("@dyn_outsider_{}:example.com", uuid::Uuid::new_v4());
+    let other_room = format!("!dyn_boundary_other_{}:example.com", uuid::Uuid::new_v4());
+
+    ensure_test_room(&pool, &room_id).await;
+    ensure_test_room(&pool, &other_room).await;
+    for user_id in [&invitee, &joiner, &outsider] {
+        ensure_test_user(&pool, user_id).await;
+    }
+
+    let base = current_timestamp_millis();
+    // invitee：先被邀请、后加入 ⇒ 两档边界必须落在不同行
+    let invite_s = insert_member(writer, &room_id, &invitee, "invite", base).await;
+    let invitee_join_s = insert_member(writer, &room_id, &invitee, "join", base + 10).await;
+    // joiner：没有 invite，只有 join
+    let joiner_join_s = insert_member(writer, &room_id, &joiner, "join", base + 20).await;
+    // outsider：只有一条不合格的 leave ⇒ 不得因此获得任何边界
+    insert_member(writer, &room_id, &outsider, "leave", base + 30).await;
+
+    let invited = reader
+        .get_membership_boundary(&room_id, &invitee, true)
+        .await
+        .expect("dyn get_membership_boundary")
+        .expect("invited 档必须解出边界");
+    assert_eq!(invited.origin_server_ts, base, "invited 档取最早的 invite");
+    assert_eq!(invited.stream_ordering, invite_s, "边界行必须是那条 invite 自己");
+
+    let joined_only = reader
+        .get_membership_boundary(&room_id, &invitee, false)
+        .await
+        .expect("dyn get_membership_boundary")
+        .expect("joined 档必须解出边界");
+    assert_eq!(joined_only.origin_server_ts, base + 10, "joined 档跳过 invite，取 join");
+    assert_eq!(joined_only.stream_ordering, invitee_join_s);
+
+    let plain = reader
+        .get_membership_boundary(&room_id, &joiner, true)
+        .await
+        .expect("dyn get_membership_boundary")
+        .expect("只有 join 的用户同样有边界");
+    assert_eq!(plain.stream_ordering, joiner_join_s);
+
+    let outsider_boundary =
+        reader.get_membership_boundary(&room_id, &outsider, true).await.expect("dyn get_membership_boundary");
+    assert!(outsider_boundary.is_none(), "只有 leave 的用户必须得到 None，不得被当成无限制");
+
+    let cross_room = reader
+        .get_membership_boundary(&other_room, &joiner, true)
+        .await
+        .expect("dyn get_membership_boundary in another room");
+    assert!(cross_room.is_none(), "边界查询必须按 room_id 隔离");
+
+    // 转发层与固有方法必须给同一答案
+    let inherent = storage.get_membership_boundary(&room_id, &invitee, true).await.expect("inherent");
+    assert_eq!(inherent, Some(invited));
+}
+
 /// 读不到时两条路径都必须返回 `Ok(None)`（而不是 `Err`）—— 消费者靠这个区分
 /// "房间/事件不存在"（404）和"库挂了"（500）。
 #[tokio::test]
