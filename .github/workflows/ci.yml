@@ -1394,7 +1394,15 @@ jobs:
   coverage:
     name: Code Coverage
     runs-on: ubuntu-latest
-    needs: [integration-test, changes]
+    # ⚠️ 不要再给这里加 `integration-test`（2026-10-27 移除）。
+    # `integration-test` 自己 `needs: [test]`（ci.yml:908），而本仓 `test` 长期有独立红灯
+    # ⇒ integration-test 恒 `skipped` ⇒ 挂在它下游的 coverage 也恒 `skipped`：
+    # 实测最近 30 次运行中 `Code Coverage` 与 `Integration Tests` 的结论**全是 skipped**，
+    # 于是 per-file 棘轮（本 job 的核心产出）从未真正跑过一次。
+    # 而 `scripts/ci/run_coverage.sh` **自己**就跑两条腿（storage 单跑 + 其余 workspace），
+    # 不消费 integration-test 的任何产物/artifact ⇒ 这条依赖只带来"永不发车"，不带来任何保证。
+    # 触发条件（schedule / 慢档 dispatch / main push 且含非文档改动）保持不变，成本口径不变。
+    needs: [changes]
     if: >-
       github.event_name == 'schedule' ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.run_slow_tier == 'true') ||

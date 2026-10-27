@@ -39,9 +39,16 @@ OUTPUT_DIR="${OUTPUT_DIR:-coverage}"
 # 大于 4 需要先调高锁表上限（见 scripts/tune_test_db.sh），否则会 `53200 out of shared memory`。
 TEST_THREADS="${TEST_THREADS:-4}"
 
-# storage 步**刻意**多带两个 feature（external-services / builtin-oidc）：它们门控
-# synapse-storage / synapse-common 的代码，且已提交的 per-file 基线就是在这一口径下产出的。
-STORAGE_FEATURES="test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications,cas-sso,saml-sso,external-services,builtin-oidc"
+# storage 步**刻意**多带几个 feature：它们门控 synapse-storage / synapse-common 的代码，
+# 且已提交的 per-file 基线就是在这一口径下产出的。
+#
+# 2026-10-27 补 `friends,widgets,burn-after-read`：这三个 feature 门控着
+# `friend_room/repository.rs`(1390 行) / `widget.rs`(1332) / `burn_after_read.rs`(1066)
+# —— 不含它们时**文件根本不编译、永远不进报告**，棘轮对近 3800 行代码零压力
+# （基线里那三条 0.0 就是这么冻住的，见 TEST_COMPROMISE_AUDIT_2026-10-25 §7.5）。
+# 实测（本机、单线程）：这三个模块的测试 **27 + 19 + 25 = 71 条全过**，storage 腿的耗时
+# 边际增量 ~2 min（它本来就是单线程跑全量，见步骤 1 注释）。
+STORAGE_FEATURES="test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications,cas-sso,saml-sso,external-services,builtin-oidc,friends,widgets,burn-after-read"
 # 其余 crate + 集成测试的 feature 集必须与 route_ledger 快照一致（见文件头注释）。
 REST_FEATURES="test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications,cas-sso,saml-sso"
 

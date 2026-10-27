@@ -1554,7 +1554,7 @@
     },
     {
       "path": "synapse-storage/room/api.rs",
-      "line_pct": 0.0
+      "line_pct": 28.71
     },
     {
       "path": "synapse-storage/room/mod.rs",
@@ -1610,7 +1610,7 @@
     },
     {
       "path": "synapse-storage/sliding_sync/api.rs",
-      "line_pct": 0.0
+      "line_pct": 14.58
     },
     {
       "path": "synapse-storage/sliding_sync/models.rs",
@@ -1906,7 +1906,7 @@
     },
     {
       "path": "synapse-web/routes/admin/report.rs",
-      "line_pct": 7.46
+      "line_pct": 35.09
     },
     {
       "path": "synapse-web/routes/admin/retention.rs",
@@ -1922,7 +1922,7 @@
     },
     {
       "path": "synapse-web/routes/admin/room/spaces.rs",
-      "line_pct": 0.0
+      "line_pct": 20.35
     },
     {
       "path": "synapse-web/routes/admin/security.rs",
@@ -1970,7 +1970,7 @@
     },
     {
       "path": "synapse-web/routes/cas.rs",
-      "line_pct": 22.27
+      "line_pct": 29.41
     },
     {
       "path": "synapse-web/routes/context.rs",
@@ -2030,7 +2030,7 @@
     },
     {
       "path": "synapse-web/routes/external_service.rs",
-      "line_pct": 23.36
+      "line_pct": 29.18
     },
     {
       "path": "synapse-web/routes/extractors/auth.rs",
@@ -2046,7 +2046,7 @@
     },
     {
       "path": "synapse-web/routes/extractors/mod.rs",
-      "line_pct": 0.0
+      "line_pct": 100.0
     },
     {
       "path": "synapse-web/routes/feature_flags.rs",
@@ -2062,11 +2062,11 @@
     },
     {
       "path": "synapse-web/routes/federation/media.rs",
-      "line_pct": 0.0
+      "line_pct": 70.99
     },
     {
       "path": "synapse-web/routes/federation/membership/invite.rs",
-      "line_pct": 26.35
+      "line_pct": 35.58
     },
     {
       "path": "synapse-web/routes/federation/membership/join.rs",
@@ -2086,7 +2086,7 @@
     },
     {
       "path": "synapse-web/routes/federation/membership/query.rs",
-      "line_pct": 0.0
+      "line_pct": 44.07
     },
     {
       "path": "synapse-web/routes/federation/mod.rs",
@@ -2098,7 +2098,7 @@
     },
     {
       "path": "synapse-web/routes/federation/transaction/edus.rs",
-      "line_pct": 0.0
+      "line_pct": 15.18
     },
     {
       "path": "synapse-web/routes/formatting.rs",
@@ -2122,7 +2122,7 @@
     },
     {
       "path": "synapse-web/routes/handlers/dehydrated_device.rs",
-      "line_pct": 29.49
+      "line_pct": 30.67
     },
     {
       "path": "synapse-web/routes/handlers/extended_profile.rs",
@@ -2162,11 +2162,11 @@
     },
     {
       "path": "synapse-web/routes/handlers/room/management/upgrade.rs",
-      "line_pct": 0.0
+      "line_pct": 32.05
     },
     {
       "path": "synapse-web/routes/handlers/room/management/visibility.rs",
-      "line_pct": 0.0
+      "line_pct": 43.75
     },
     {
       "path": "synapse-web/routes/handlers/room/members.rs",
@@ -2278,11 +2278,11 @@
     },
     {
       "path": "synapse-web/routes/oidc/provider.rs",
-      "line_pct": 5.59
+      "line_pct": 18.7
     },
     {
       "path": "synapse-web/routes/oidc/sso.rs",
-      "line_pct": 33.78
+      "line_pct": 34.9
     },
     {
       "path": "synapse-web/routes/pinned.rs",
@@ -2298,7 +2298,7 @@
     },
     {
       "path": "synapse-web/routes/push_notification.rs",
-      "line_pct": 24.6
+      "line_pct": 50.99
     },
     {
       "path": "synapse-web/routes/push_rules.rs",
@@ -2378,7 +2378,7 @@
     },
     {
       "path": "synapse-web/routes/sticky_event.rs",
-      "line_pct": 0.0
+      "line_pct": 53.46
     },
     {
       "path": "synapse-web/routes/sync.rs",
@@ -2402,7 +2402,7 @@
     },
     {
       "path": "synapse-web/routes/validators.rs",
-      "line_pct": 98.65
+      "line_pct": 99.17
     },
     {
       "path": "synapse-web/routes/voice.rs",
@@ -2422,7 +2422,7 @@
     },
     {
       "path": "synapse-web/utils/admin_auth.rs",
-      "line_pct": 63.03
+      "line_pct": 66.67
     },
     {
       "path": "synapse-web/utils/auth.rs",
