@@ -6,7 +6,7 @@
 
 3754 synapse-storage/src/event/db_tests.rs
 3403 synapse-common/src/test_isolation.rs
-2981 synapse-test-utils/src/lib.rs
+2995 synapse-test-utils/src/lib.rs
 2510 synapse-services/src/sync_service/tests.rs
 1905 src/server/mod.rs
 1850 synapse-storage/src/push/mod.rs

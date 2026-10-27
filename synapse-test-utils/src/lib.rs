@@ -2669,9 +2669,7 @@ mod db_schema_pool_tests {
     };
     use sqlx::PgPool;
     use std::time::Duration;
-    use synapse_common::test_schema_orphans::{
-        reclaim_orphan_test_schemas, stamped_schema_created_nanos, ORPHAN_SCHEMA_MIN_AGE,
-    };
+    use synapse_common::test_schema_orphans::{reclaim_orphan_test_schemas, stamped_schema_created_nanos};
 
     /// Unique schema/template names, so a concurrent test (or a row left behind by
     /// a killed run) can never collide with this one.
@@ -2780,15 +2778,21 @@ mod db_schema_pool_tests {
 
     /// Entries parked past the TTL are reaped together with their schemas, so a
     /// crashed run cannot hold 255 tables per abandoned schema forever.
+    ///
+    /// The TTL is minutes, not milliseconds, because the reaper is unscoped by
+    /// design (`DELETE ... WHERE parked_ts < cutoff` over the whole shared
+    /// table): a one-second window reaped whatever another test had parked a
+    /// moment earlier and dropped its schema under it. Five minutes reclaims
+    /// exactly the back-dated row below and cannot touch a row parked now.
     #[tokio::test]
     async fn entries_parked_past_the_ttl_are_reaped_and_their_schema_dropped() {
         let Some(pool) = admin_pool().await else { return };
         let (schema_name, template_name) = scratch_names("reap");
         create_scratch_schema(&pool, &schema_name).await;
-        let stale_ts = current_timestamp_millis() - 10_000;
+        let stale_ts = current_timestamp_millis() - 600_000;
         park_schema_in_db_pool(&pool, &schema_name, &template_name, stale_ts).await.expect("park the scratch schema");
 
-        reap_expired_db_pool_entries(&pool, current_timestamp_millis(), Duration::from_millis(1_000))
+        reap_expired_db_pool_entries(&pool, current_timestamp_millis(), Duration::from_secs(300))
             .await
             .expect("reap expired entries");
 
@@ -2813,19 +2817,30 @@ mod db_schema_pool_tests {
     /// be merely *deferred* (and the test would pass even with the guard bug),
     /// while the leftovers an unbounded sweep drops are exactly what the guard
     /// drops in every test process anyway — aged, unleased per-test schemas.
+    ///
+    /// The *age window*, in contrast, is narrowed to a single candidate: the
+    /// fixture is dated a month back, far past anything a previous run can
+    /// leave behind, so an unbounded budget still sweeps exactly one schema.
+    /// Against the production threshold the coverage lane's database held ~100
+    /// leftovers from an hour earlier: one second per `DROP SCHEMA ... CASCADE`
+    /// made this test run 139 s, the drops collided with other tests' clones
+    /// (`out of shared memory`), and the parked row was reaped by a concurrent
+    /// short-TTL reaper long before the surviving-schema probe ran.
     #[tokio::test]
     async fn the_orphan_guard_skips_schemas_parked_for_reuse() {
         let Some(pool) = admin_pool().await else { return };
+        let min_age = Duration::from_secs(30 * 24 * 60 * 60);
         let now_nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|elapsed| elapsed.as_nanos())
             .unwrap_or_default();
-        // Stamped shape (`test_<pid>_<n>_<nanos>`), created an hour ago: exactly
+        // Stamped shape (`test_<pid>_<n>_<nanos>`), created a month ago: exactly
         // what a recycled schema looks like in the second half of a gate run.
-        let schema_name = format!("test_{}_{}_{}", std::process::id(), 97, now_nanos - 3_600_000_000_000);
+        let created_nanos = now_nanos.saturating_sub(min_age.as_nanos()).saturating_sub(3_600_000_000_000);
+        let schema_name = format!("test_{}_{}_{}", std::process::id(), 97, created_nanos);
         assert!(
             stamped_schema_created_nanos(&schema_name)
-                .is_some_and(|created| now_nanos.saturating_sub(created) >= ORPHAN_SCHEMA_MIN_AGE.as_nanos()),
+                .is_some_and(|created| now_nanos.saturating_sub(created) >= min_age.as_nanos()),
             "precondition: the fixture name must look old enough to be an orphan, got {schema_name}"
         );
         let (_, template_name) = scratch_names("orphan_guard");
@@ -2841,9 +2856,8 @@ mod db_schema_pool_tests {
             .expect("park the scratch schema");
         create_scratch_schema(&pool, &schema_name).await;
 
-        let report = reclaim_orphan_test_schemas(&pool, now_nanos, ORPHAN_SCHEMA_MIN_AGE, usize::MAX)
-            .await
-            .expect("sweep orphaned schemas");
+        let report =
+            reclaim_orphan_test_schemas(&pool, now_nanos, min_age, usize::MAX).await.expect("sweep orphaned schemas");
 
         assert!(!report.dropped.contains(&schema_name), "the guard must never drop a parked schema");
         assert!(report.parked >= 1, "the parked schema must be counted as parked, got {report:?}");
