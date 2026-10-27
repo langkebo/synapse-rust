@@ -208,6 +208,24 @@
     （`No private keys (key files)` 只因本地存在 `.gitignore:153` 的联邦测试证书，CI 上是 `success`）
   - **仍未做（独立决策）**：门禁拆 job / `if: always()` 汇总，避免"一红全盲"再发生；
     `gen_client_yaml.py --check` 的 `--expected` 默认指向未入库的 `client.yaml`，该分支在任何机器上都会失败（不在 CI 路径上）
+  - **推送后的真实复核（`ea9a57af1`）**：`Repo Sanity` 由 `failure 1 / skipped 22 / success 8` 变成
+    **`success 26 / failure 1 / skipped 4`** —— 22 个门禁**首次真跑**。唯一红是 `File-size ratchet`：
+    缩略图两笔（`1ab01c9a9`/`ea9a57af1`）让 `media_service.rs` 1462→1620、`admin_media.rs` 1300→1443，
+    **不是假红**；抽文件回不到上限内（`media_service.rs` 有 34 行散在既有函数体内，抽走可移动的 124 行
+    仍有 1496 > 1462）⇒ **经确认后 `--update` 让渡**，基线 222→222 条、按内容 `sort` 后差异仅这 2 个数值、
+    实跑 `EXIT=0`。记录为**让渡而非修好**（两文件此后不得再涨）
+  - **同批复核作废一条登记**：`missing_docs` 棘轮实测 `EXIT=0`、`debt 0 = baseline 0` —— 它此前"红"
+    只是排在 `Run unit test target` 之后被 `skipped`（一红全盲的又一个受害者），并非真红
+  - **`gen_client_yaml.py --check` 的死默认 + 三处"CI 有这个门禁"的失实**：`--expected` 默认指向
+    gitignored 的 `docs/openapi/client.yaml` ⇒ 该分支在任何机器上只能报 `reference artifact not found`；
+    且 `scan_handler_schemas.py:17`、`scripts/api_test/README.md:170`、`artifact_common.py:25`
+    都把 `--check` 写成已接线的 CI 门禁，而 CI 里带 `--check` 的只有 `gen_route_table.py`
+    （对账**入库**的 `route-table.json`，ci.yml:362）。修法：去掉死默认、`--check` 必须显式给
+    `--expected`（校验前移到 `parse_args` 之后，缺参 0.08 s 失败而不是先跑一遍 cargo export），
+    三处声明改实情。三条路径实测：缺参 exit 1 / 一致 exit 0 / 漂移 exit 1
+  - **覆盖率那次的真红因也在这里**：`Code Coverage` 首次真跑（103 min），红在
+    `doc_credibility_guard_tests::code_referenced_docs_exist` = §③ 那个 gitignored 负向样本，
+    已由本轮的 `INTENTIONALLY_ABSENT_DOCS` 修掉；干净树等价复现（移走该文件后 18 条守卫全绿）已做
 - ✅ **[TEST_COMPROMISE_AUDIT_2026-10-25.md](TEST_COMPROMISE_AUDIT_2026-10-25.md)** 第 9 轮：**最后一个开口（原 ⑦ 类 8 个 0%）关掉**，代价 6 分钟。
   - **改判**：`synapse-web/routes/**` 那 8 个不是"只能等 CI 的 integration 腿"，而是**陈旧（地板冻结）**。
     8 个文件都在 `synapse-web` crate、模块**无条件**编译、**每个都自带内联 `#[cfg(test)] mod tests`**

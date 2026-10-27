@@ -166,10 +166,12 @@ python3 scripts/api_test/scan_handler_schemas.py --archive-only
 ```
 
 > ⚠️ **Stage D 的目标文件已易主**：`docs/openapi/client.yaml` 现在由
-> `gen_client_yaml.py`（ledger → `generate_openapi.py`）生成，文件头写明「禁止手改」，
-> 且 CI `.github/workflows/ci.yml` 跑 `gen_client_yaml.py --skip-export --check` 守新鲜度。
-> Stage D 会用 `yaml.dump` 覆盖该文件（丢掉头部注释与既有序列化风格）并因此弄坏那个门禁，
-> 所以刷新档案**一律加 `--archive-only`**。
+> `gen_client_yaml.py`（ledger → `generate_openapi.py`）生成，文件头写明「禁止手改」。
+> 它**是生成物、不入库**（`.gitignore:118`）：CI 每次从当次导出的 ledger 重新生成并作 artifact 上传，
+> **没有 `--check` 对账门禁**（无入库参照物）；CI 里带 `--check` 的是入库的
+> `docs/openapi/route-table.json`（`gen_route_table.py --check`）。
+> Stage D 会用 `yaml.dump` 覆盖该生成物（丢掉头部注释与既有序列化风格），
+> 使本地 spec 与下一次生成不一致，所以刷新档案**一律加 `--archive-only`**。
 
 **原理 (4 阶段)**:
 1. **Stage A** — 解析 `synapse-web/src/routes/*.rs` 中所有 `.route("/path", METHOD(handler))` 注册 → 648 个路由,328 个 write routes

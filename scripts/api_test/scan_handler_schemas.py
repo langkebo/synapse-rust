@@ -13,9 +13,12 @@ Week 2 Task 4 — 补 OpenAPI request body schema (主脚本)
   Stage D: 用映射更新 docs/openapi/client.yaml 中的 requestBody
 
 ⚠️ Stage D 的目标文件 `docs/openapi/client.yaml` 现在由 `gen_client_yaml.py`
-（ledger → `generate_openapi.py`）生成，文件头写明「禁止手改」，且 CI
-`.github/workflows/ci.yml` 有 `gen_client_yaml.py --skip-export --check` 门禁。
-因此只刷新档案请用 `--archive-only`，否则 `yaml.dump` 会覆盖该文件并弄坏门禁。
+（ledger → `generate_openapi.py`）生成，文件头写明「禁止手改」。它**是生成物、不入库**
+（`.gitignore:118`）：CI 每次从当次导出的 ledger 重新生成并作为 artifact 上传，
+**没有任何 `--check` 对账门禁**（没有入库参照物可比）。CI 里真正带 `--check` 的是
+入库的 `docs/openapi/route-table.json`（`gen_route_table.py --check`）。
+因此只刷新档案请用 `--archive-only`，否则 `yaml.dump` 会覆盖该生成物（丢掉头部注释与
+既有序列化风格），本地看到的 spec 就与下一次生成的结果不一致。
 """
 
 from __future__ import annotations

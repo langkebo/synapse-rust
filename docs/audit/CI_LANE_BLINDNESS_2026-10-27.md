@@ -21,6 +21,9 @@
 | 5 | `Test & Lint (--all-features)` 的 `Run unit test target` 自 2026-09-23 起红，红因是**负向样本里的 gitignored 路径**没登记进 `INTENTIONALLY_ABSENT_DOCS` ⇒ 同样"本地绿、CI 红" | ✅ 已修（表 5 条 → 6 条，§4） |
 | 6 | 本地把 27 个门禁逐个实跑：**26 过 / 1 假红**（假红仅存在于本地工作区，CI 上该步一直是 `success`） | ✅ §5 |
 | 7 | 顺带证实上一轮的融合改动在真实 CI 上**生效**：`Code Coverage` 不再是 `skipped`，而是 `in_progress` | ✅（不在本文范围，见 `TEST_COMPROMISE_AUDIT_2026-10-25.md` §7.5 H） |
+| 8 | 修完 #1 后 **23 个门禁首次真正拿到读数**（`ea9a57af1` 的 `Repo Sanity`）：**18 绿 / 1 红 / 4 skipped**，红的是 `File-size ratchet` —— 缩略图那两笔把 `media_service.rs` 1462→1620、`admin_media.rs` 1300→1443，与本文无关，是**新暴露的真实增长** | ✅ 经确认后 `--update` 让渡（基线 222 条不变，仅这 2 个数值变化，§6.2） |
+| 9 | 同期把「`missing_docs` 独立红灯」这条登记复核掉了：本地 `check_missing_docs_ratchet.sh` ⇒ `EXIT=0`、`debt 0 = baseline 0` | ✅ 该红已是历史状态，登记作废（§6.3） |
+| 10 | `gen_client_yaml.py --check` 的 `--expected` 默认指向 gitignored 文件（死分支），且**三处文档把它写成已接线的 CI 门禁** | ✅ 已修（去掉死默认 + 三处声明改实情，§6.1） |
 
 一句话：**这些车道不是"没发现问题"，是"根本没运行/根本不可能运行"**。它们此前的沉默不能作为
 任何"已合规"的证据。四个缺陷里有三个同源（§1 / §3 / §4）：**判据依赖"我这台机器上有什么"，而不是
@@ -217,26 +220,93 @@ gh run view <run-id> --json jobs \
 # {"failure":1,"skipped":22,"success":8}
 ```
 
-## 6 仍未解决
+## 6 仍未解决（附本轮复核结项两条）
 
 * **结构性**：GitHub 的步骤是顺序短路语义 —— **前一步失败，后面全部 `skipped`，且不产生任何读数**。
   这意味着"一个门禁红"会顺带让 22 个门禁**失去观测**，而页面上只呈现一条失败。可选的改法：
   ①把门禁拆成多个 job（失败面独立可见）；②对非阻塞步骤加 `if: always()` 并在末尾汇总。
-  **未实施** —— 改 CI 语义属独立决策，且当前 26/27 已绿，"全盲"这个直接后果已经消失。
+  **未实施** —— 改 CI 语义属独立决策；且"全盲"这个直接后果已经消失：`ea9a57af1` 上该 job 实测
+  **`success 26 / failure 1 / skipped 4`**（唯一红是 §6.2 的 `File-size ratchet`，已让渡；
+  4 个 `skipped` 正是它后面的四步）。历史上那句 `failure 1 / skipped 22 / success 8` 不再成立。
+  **注意这只治好了"看不见"，没治好"一红全盲"** ——
+  下一次任何门禁红，后面仍会整片 `skipped`。
 * **约定靠人记**：`check_schema_table_coverage.py` 仍然逐字扫描夹具文本，所以"夹具里用真实表名"
   这条约定只能靠注释提醒。要不要让门禁自己识别"内嵌源码的字符串"是另一个决策 ——
   可用的精确判据是「该 `sqlx::query(` 的起始位置落在另一个字符串字面量区间内」，
   但这会改动全仓扫描语义，未做。
-* **`client.yaml` 只能等下一次 CI 判**：本地的三条路径（正常 / 负例 / 旧分支）都验过，
-  但"job 整体转绿"还需要一次真实运行确认（后续还有 `Generate route-table.json` 与两个上传步，
-  它们此前提都没被走到过）。
-* **`--check` 分支其实是死的**：`gen_client_yaml.py --check` 的 `--expected` 默认指向
-  `docs/openapi/client.yaml`，而该文件在 `.gitignore:118` ⇒ 从未入库 ⇒ 这个分支在任何机器上
-  都会报 "reference artifact not found"。它不在 CI 路径上（CI 只生成不上传对账），
-  所以不影响绿灯；要么删掉这个分支，要么改成对账某个已入库变体 —— 未做，留给决策。
-* `Test & Lint` 的两条独立红灯（unit target / `missing_docs`）与本文无关，仍在登记状态
-  （原先登记四条：schema coverage / client.yaml 已由 §1、§3 修掉，unit target 已由 §4 定性并修掉，
-  剩下的 `missing_docs` 未动）。
+* **`client.yaml` 整 job 转绿已在真实 CI 确认**：`40464882348` 的 `OpenAPI Artifact` = `success`
+  （`--ledger` 修法生效；此前 `Generate route-table.json` 与两个上传步都没被走到过）。
+* ~~**`--check` 分支其实是死的**~~ → **已修**（§6.1）。
+* `Test & Lint` 的 `unit target` 灯已由 §4 定性并修掉；与之并列登记的 `missing_docs` 经复核**已是绿的**
+  （见 §6.3），该登记作废。原先登记四条：schema coverage / client.yaml 已由 §1、§3 修掉。
+
+### 6.1 `gen_client_yaml.py --check`：死默认 + 三处「CI 有这个门禁」的失实声明（已修）
+
+原状：`--expected` 默认指向 `docs/openapi/client.yaml`，而该文件在 `.gitignore:118` ⇒ 干净
+checkout 上永远不存在 ⇒ `--check` 在任何机器上只能报 `reference artifact not found`。
+它也确实不在 CI 路径上（`grep -E 'gen_client_yaml' .github/` 只有 ci.yml:371 的**生成**步）。
+
+更要紧的是顺着这条线查出的**声明失实**：三个地方把 `--check` 描述成已接线的门禁 ——
+
+| 位置 | 原话（失实） |
+|---|---|
+| `scripts/api_test/scan_handler_schemas.py:17-18` | 「CI `ci.yml` 有 `gen_client_yaml.py --skip-export --check` 门禁」 |
+| `scripts/api_test/README.md:170` | 「CI 跑 `gen_client_yaml.py --skip-export --check` 守新鲜度」 |
+| `scripts/api_test/artifact_common.py:25-27` | 「Drift is still caught by the wired `--check` steps (`gen_client_yaml.py --check`, …)」 |
+
+**这三处都不能成立**：CI 里带 `--check` 的只有 `gen_route_table.py --check`（对账**入库**的
+`docs/openapi/route-table.json`，ci.yml:362）。`client.yaml` 不入库 ⇒ 没有参照物 ⇒ 不可能有对账门禁。
+连带的效果：原警告「Stage D 覆盖 client.yaml 会弄坏门禁」也是空的 —— 手改一个 gitignored 生成物
+对仓库没有任何后果，只影响本地那份。
+
+处置：
+
+* `--expected` 去掉默认值，`--check` 时必须显式给参照物；缺省时报错并说明「产出是生成物、
+  干净 checkout 上不存在」，同时点明 `docs/openapi/*.yaml` 里入库的都是**分变体** spec
+  （`client-all` / `client-oidc` / `client-saml` / `client-worker`），与 default profile 不可逐字节比对；
+* 三处声明改成实情（保留「Stage D 别覆盖它」这条**仍然成立**的建议，理由换成「生成物 + 禁止手改」）；
+* 报错里原先还建议「regenerate **and commit** it」—— 让用户去提交一个 gitignored 文件，一并改掉。
+
+### 6.2 `File-size ratchet`：22 个门禁解锁后暴露的真实增长（已让渡）
+
+§1 修掉 `Schema table coverage` 之后，同 job 的第 24 步 `File-size ratchet` 第一次真正执行，红了：
+
+```
+FAIL: 2 grandfathered file(s) grew past their ceiling:
+  synapse-services/src/media_service.rs: 1462 -> 1620
+  synapse-storage/src/admin_media.rs: 1300 -> 1443
+```
+
+归因：`6956f1315..HEAD` 的缩略图闭环两笔（`1ab01c9a9` / `ea9a57af1`）新增 301 行，
+`git diff --stat` 逐文件对得上（+158 / +143），与本文的四个缺陷无关 —— **不是假红，是真实增长**。
+
+处置（**经确认后按棘轮自己的 escape hatch 让渡**，并记录在此以便日后收紧）：
+
+* `python3 scripts/ci/check_file_size_ratchet.py --update`，基线 `222` 条 → `222` 条；
+* 按内容 `sort` 后比对，差异**只有这两条数值**（`1300→1443`、`1462→1620`），无增删、无排序位移以外的改动；
+* 复核 `EXIT=0`：`file_size: 827 files scanned, 222 over 600 (baseline 222)` / `OK: file sizes at baseline`。
+
+**为什么没选"抽文件"**：`media_service.rs` 的 +158 里有 34 行是**散在既有函数体内的补丁**
+（`git diff -U0` 的 `@@ -857,0 +945,9 @@` 等 5 处），无法整块搬走；把可移动的 124 行搬到同级模块后
+仍有 `1496 > 1462` 上限 ⇒ 单靠抽取回不到上限内，只能动既有代码做真重构。
+该文件正被另一会话改动，真重构留作独立事项。**这是让渡、不是修好**：两个文件此后仍不得再涨。
+
+### 6.3 `missing_docs` 棘轮：复核结论是绿的（登记作废）
+
+`CI_LANE_BLINDNESS` 早先把 `missing_docs` 与 unit target 并列为"两条独立红灯"，但那条红是
+`GATE_INTEGRITY_FOLLOWUP_2026-09-19_LOG.md:1058` 的历史读数（"debt decreased 3 < 6"）。实跑：
+
+```
+[1/2] scanning 0 new + 4 modified .rs files vs HEAD~1
+[2/2] counting clippy missing_docs warnings across workspace...
+  current missing_docs debt: 0
+  baseline: 0
+OK: missing_docs debt at baseline (0), no regression.        # EXIT=0
+```
+
+它在 CI 里一直拿不到读数的原因只是**步骤顺序**：`Check missing_docs ratchet` 排在
+`Run unit test target` 之后，前者一红它就被 `skipped`（正是 §0 #2 说的一红全盲）。
+它在 `--all-features` 车道、`SQLX_OFFLINE=true` 下跑，本地需 `HEAD~1` 可解析（`fetch-depth: 0` 已配）。
 
 ## 7 复核命令（一键）
 

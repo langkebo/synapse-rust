@@ -22,9 +22,12 @@ import difflib
 #:   * the committed artifacts it feeds — `docs/openapi/route-table.json`
 #:     (`generated_at`) and the exported ledger.
 #:
-#: Drift is still caught by the wired `--check` steps (`gen_client_yaml.py
-#: --check`, `gen_route_table.py --check`): change this value without
-#: regenerating the committed artifact and CI goes red.
+#: Drift is caught by the wired `--check` step for the **committed** artifact
+#: (`gen_route_table.py --check`, run by CI against `docs/openapi/route-table.json`):
+#: change this value without regenerating that file and CI goes red.
+#: `gen_client_yaml.py --check` exists too, but it has **no default reference** —
+#: its output is gitignored, so `--check` there requires an explicit `--expected`
+#: snapshot and nothing in CI wires it. Do not describe it as a gate.
 FIXED_TIMESTAMP = "2026-09-16T00:00:00Z"
 
 

@@ -140,10 +140,32 @@ def main() -> int:
     )
     ap.add_argument(
         "--expected",
-        default=str(OUTPUT_FILE),
-        help="Reference artifact for --check (default: committed docs/openapi/client.yaml)",
+        default=None,
+        help=(
+            "Reference artifact for --check. REQUIRED with --check — there is no default, "
+            "because the generated file itself (`docs/openapi/client.yaml`) is gitignored "
+            "(.gitignore:118) and therefore never exists on a clean checkout. Point this at a "
+            "snapshot you generated earlier, not at the generated path."
+        ),
     )
     args = ap.parse_args()
+
+    # Fail fast on the one argument error that would otherwise cost a full
+    # `synapse_ledger_export` run before being reported (phase 1 below).
+    if args.check and args.expected is None:
+        print(
+            "[gen_client_yaml] CHECK FAILED: --check 必须显式给 --expected。\n"
+            f"  本脚本的产出 `{OUTPUT_FILE}` 是**生成物**（`.gitignore:118` 排除），"
+            "干净 checkout 上永远不存在 ⇒ 不能当参照物。\n"
+            "  参照物应是你先前生成并留存的快照，例如：\n"
+            "    python3 scripts/api_test/gen_client_yaml.py --ledger <ledger> "
+            "--check --expected /tmp/client.prev.yaml\n"
+            "  注意 `docs/openapi/*.yaml` 里入库的都是**分变体** spec "
+            "（client-all / client-oidc / client-saml / client-worker），"
+            "与 default profile 的产出不可逐字节比对。",
+            file=sys.stderr,
+        )
+        return 1
 
     # Phase 1: Export ledger JSON (unless skipped)
     if args.ledger:
@@ -170,6 +192,7 @@ def main() -> int:
         ledger_path = run_cargo_export(args.commit, args.timestamp)
 
     if args.check:
+        # `--expected` already validated right after parse_args (fail fast).
         expected_path = Path(args.expected)
         if not expected_path.exists():
             print(
@@ -177,7 +200,7 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
-        # Generate to a temp path: --check must never touch the committed artifact.
+        # Generate to a temp path: --check must never overwrite the reference artifact.
         with tempfile.TemporaryDirectory(prefix="client-yaml-check-") as tmpdir:
             generated_path = Path(tmpdir) / "client.yaml"
             run_openapi_generator(ledger_path, generated_path)
@@ -196,8 +219,10 @@ def main() -> int:
         )
         print(describe_drift(expected, rendered), file=sys.stderr)
         print(
-            "    Regenerate and commit it with:\n"
-            "      python3 scripts/api_test/refresh_openapi_specs.py --profile default",
+            "    Regenerate the snapshot you are diffing against with:\n"
+            f"      python3 scripts/api_test/gen_client_yaml.py --ledger <ledger> "
+            f"--output <snapshot>\n"
+            f"    (不要“commit 它”：`{OUTPUT_FILE}` 是生成物，从不入库)",
             file=sys.stderr,
         )
         return 1
