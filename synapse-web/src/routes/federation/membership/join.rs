@@ -11,7 +11,7 @@ use synapse_common::*;
 
 use super::{
     dispatch_federation_member_event_to_appservice, federatable_room_version, project_and_sign_pdu_locally,
-    validate_federation_member_event, validate_federation_user_origin, verify_inbound_join_pdu_integrity,
+    validate_federation_member_event, validate_federation_user_origin, verify_inbound_membership_pdu_integrity,
 };
 use crate::routes::MatrixJson;
 
@@ -154,7 +154,7 @@ pub(crate) async fn send_join(
             }
         })?;
         let room_version = federatable_room_version(&ctx, &room_id).await?;
-        verify_inbound_join_pdu_integrity(&ctx, &room_version, event).await?;
+        verify_inbound_membership_pdu_integrity(&ctx, &room_version, event).await?;
         let content = event.get("content").cloned().unwrap_or(json!({}));
         let display_name = content.get("displayname").and_then(|v| v.as_str());
 
@@ -306,7 +306,7 @@ pub(crate) async fn send_join_v2(
             }
         })?;
         let room_version = federatable_room_version(&ctx, &room_id).await?;
-        verify_inbound_join_pdu_integrity(&ctx, &room_version, &body).await?;
+        verify_inbound_membership_pdu_integrity(&ctx, &room_version, &body).await?;
         let content = body.get("content").cloned().unwrap_or(json!({}));
         let display_name = content.get("displayname").and_then(|v| v.as_str());
 

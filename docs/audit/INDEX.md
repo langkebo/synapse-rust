@@ -385,7 +385,7 @@
   - **结果**：§6.3「中期（P3 / 决策）」第 8/9/10 项全部闭环
 - ✅ **P2 收尾批次闭环（2026-10-06，全面报告 §8.9）**：
   - `SEC-01`：联邦 `m.signing_key_update` EDU 落库前新增 32 字节 ed25519 公钥校验（`decode_base64_32`，失败 `dropped += 1` + `warn!`）
-  - `FED-02`：新增共享 `verify_inbound_join_pdu_integrity` 并接入 `/send_join` v1/v2；「有则校验/无则放行」兼容规范模板请求体
+  - `FED-02`：新增共享 `verify_inbound_membership_pdu_integrity` 并接入 `/send_join` v1/v2、`/send_leave` v1/v2 与 `/knock`（2026-10-27 扩展，见全面报告 §8.15）；「有则校验/无则放行」兼容规范模板请求体
   - `PERF-01`：`get_token` 双查询回退合并为单查询（`WHERE token_hash IN ($1,$2) … ORDER BY (token_hash=$1) DESC LIMIT 1`），`.sqlx` 已重生成
   - `PERF-06`：`PERFORMANCE_BASELINE.md` 升 v1.1，连接池由 `5/100` 更正为 `5/50 (10%)`（分母取 `DatabaseConfig::max_size`）
   - `CQ-02`：11 处 `expect_used` 补 `reason` 证明注释、删除 1 处冗余 allow；ratchet 基线 176/108 → **164/99**

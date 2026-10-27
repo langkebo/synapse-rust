@@ -128,7 +128,7 @@
 
 | 编号 | 问题 | 影响范围 | 证据 | 建议 |
 |------|------|----------|------|------|
-| **FED-02** | `/send_join` 家族仅做 `validate_federation_member_event`（域/形状），**未调用** `verify_event_content_hash` / `verify_pdu_sender_signature` 做 PDU 级哈希与签名校验 | ~~被请求级 X-Matrix 签名部分缓解；但事件内容哈希/发送者签名未校验，削弱端到端事件完整性保证~~ | [join.rs:140](../../synapse-web/src/routes/federation/membership/join.rs#L140)、[:283](../../synapse-web/src/routes/federation/membership/join.rs#L283) | ✅ **已闭环（2026-10-06）**：新增共享 `verify_inbound_join_pdu_integrity` 并接入 v1/v2；采「有则校验/无则放行」——仅当入站带 `hashes` 时校验内容哈希、仅当其 `signatures` 覆盖 sender 自身服务器时校验发送者签名，兼容规范的模板请求体（见 §8.9） |
+| **FED-02** | `/send_join` 家族仅做 `validate_federation_member_event`（域/形状），**未调用** `verify_event_content_hash` / `verify_pdu_sender_signature` 做 PDU 级哈希与签名校验 | ~~被请求级 X-Matrix 签名部分缓解；但事件内容哈希/发送者签名未校验，削弱端到端事件完整性保证~~ | [join.rs:157](../../synapse-web/src/routes/federation/membership/join.rs#L157)、[:309](../../synapse-web/src/routes/federation/membership/join.rs#L309) | ✅ **已闭环（2026-10-06；2026-10-27 扩展）**：新增共享 `verify_inbound_membership_pdu_integrity` 并接入 `/send_join`（v1/v2）、`/send_leave`（v1/v2）与 `/knock`；采「有则校验/无则放行」——仅当入站带 `hashes` 时校验内容哈希、仅当其 `signatures` 覆盖 sender 自身服务器时校验发送者签名，兼容规范的模板请求体（见 §8.9、§8.15） |
 
 #### 性能与稳定性（6）
 
@@ -447,14 +447,14 @@ python3 scripts/ci/run_cargo_geiger.py        # CI 门禁；本地全量运行�
 | 项 | 内容 |
 |----|------|
 | **SEC-01（EDU 密钥长度/格式校验）** | [`edu.rs:625`](../../synapse-web/src/federation/edu.rs#L625) 在 `validate_signing_key_type` 之后、`upsert_federation_cross_signing_key` 之前新增 `decode_base64_32(key_str).is_none()` 守卫：交叉签名密钥须是 base64 编码、且解码后恰为 **32 字节** 的 ed25519 公钥；失败即 `dropped += 1; continue;` + `warn!`，不再把畸形/超长载荷写入存储。 |
-| **FED-02（入站 join PDU 完整性校验）** | 新增共享守卫 [`verify_inbound_join_pdu_integrity`](../../synapse-web/src/routes/federation/membership/mod.rs#L157)，接入 [`join.rs:155`](../../synapse-web/src/routes/federation/membership/join.rs#L155)（v1）与 [`join.rs:307`](../../synapse-web/src/routes/federation/membership/join.rs#L307)（v2）；`verify_pdu_sender_signature` 由私有提升为 `pub(crate)`（[`transaction.rs:918`](../../synapse-web/src/routes/federation/transaction.rs#L918)）以复用。**语义（有则校验/无则放行）**：`send_join` 请求体按规范是**事件模板**（`origin`/`origin_server_ts`/`type`/`state_key`/`content`），规范合规对端不带 `hashes`/`signatures`，故仅当入站事件**自带** `hashes` 时校验内容哈希（`verify_event_content_hash`）、仅当其 `signatures` **覆盖 sender 自身服务器**时校验发送者签名；否则放行，避免逐出所有合规对端。 |
+| **FED-02（入站 membership PDU 完整性校验）** | 新增共享守卫 [`verify_inbound_membership_pdu_integrity`](../../synapse-web/src/routes/federation/membership/mod.rs#L163)（2026-10-06 原名 `verify_inbound_join_pdu_integrity`，2026-10-27 随覆盖范围扩大而改名），接入 [`join.rs:157`](../../synapse-web/src/routes/federation/membership/join.rs#L157)（v1）/[:309](../../synapse-web/src/routes/federation/membership/join.rs#L309)（v2）、[`leave.rs:75`](../../synapse-web/src/routes/federation/membership/leave.rs#L75)（v1）/[:151](../../synapse-web/src/routes/federation/membership/leave.rs#L151)（v2）、[`knock.rs:26`](../../synapse-web/src/routes/federation/membership/knock.rs#L26)；`verify_pdu_sender_signature` 由私有提升为 `pub(crate)`（[`transaction.rs:918`](../../synapse-web/src/routes/federation/transaction.rs#L918)）以复用。**语义（有则校验/无则放行）**：`send_join` 请求体按规范是**事件模板**（`origin`/`origin_server_ts`/`type`/`state_key`/`content`），规范合规对端不带 `hashes`/`signatures`，故仅当入站事件**自带** `hashes` 时校验内容哈希（`verify_event_content_hash`）、仅当其 `signatures` **覆盖 sender 自身服务器**时校验发送者签名；否则放行，避免逐出所有合规对端。 |
 | **PERF-01（`get_token` 单一查询）** | [`token.rs:141`](../../synapse-storage/src/token.rs#L141) 将「当前 HMAC 哈希命中 → 未命中再查 legacy 哈希」的双查询回退合并为一次 `WHERE token_hash IN ($1, $2) AND is_revoked = FALSE ORDER BY (token_hash = $1) DESC LIMIT 1`（当前哈希优先）；Token 校验热路径 DB 往返 **2 → 1**。`.sqlx` 缓存已按唯一入口重生成，新鲜度门禁通过。 |
 | **PERF-06（性能基线连接池读数更正）** | [`PERFORMANCE_BASELINE.md:58`](../../docs/PERFORMANCE_BASELINE.md#L58) 升 **v1.1**：`5/100 (5%)` → **`5/50 (10%)`**，分母取 [`DatabaseConfig::max_size`](../../synapse-common/src/config/database.rs) 默认 **50**（`pool_size` 已废弃、零引用），并加注更正依据与部署不变式（`50 × 进程 + 保留 ≤ max_connections`）。 |
 | **CQ-02（`expect_used` 理由注释）** | 11 处生产 `expect_used` 站点补 `#[allow(clippy::expect_used, reason = "…")]` 证明性注释（`crypto.rs` / `key_encryption.rs` / `media_link_signer.rs` / `validation.rs` / `loader.rs` / `claims.rs` / `login.rs` / `room/service.rs` / `friend_room_service/models.rs` / `voice.rs` / `sliding_sync/repository.rs`），并删除 `loader.rs` 一处冗余 allow；`check_clippy_allow_ratchet.py --update` 收紧基线 **176 → 164** unjustified、**108 → 99** 文件，门禁 `OK`。 |
 | **CQ-03（保留 error cause）** | [`membership/service.rs:781`](../../synapse-services/src/room/membership/service.rs#L781) `get_room_members_paginated` 两处 `map_err(\|_e\| …)` 改为保留 cause：`Failed to check room existence: {e}` / `Failed to check membership: {e}`。 |
 | **CQ-05（membership 解析显式化，最小方案）** | 全仓 `Membership::from_str` 经复核仅 4 个站点；本次显式化其中 2 处**静默**站点：① [`membership/service.rs:559`](../../synapse-services/src/room/membership/service.rs#L559) `resolve_membership_from` 遇不可解析值 → `ApiError::internal(...)`（fail-closed，暴露数据完整性错误，不再静默降级为 `None` 而削弱转换合法性检查）；② [`state_map_auth.rs:131`](../../synapse-federation/src/event_auth/state_map_auth.rs#L131) `membership_of` 遇不可解析值 → `tracing::warn!` 后返回 `None`（使降级可见、保持既有 fail-closed 语义）。另 2 站点经复核**本已显式**（`state_map_auth.rs` 的 `to` 解析 `let-else return false`；[`transaction.rs:290`](../../synapse-web/src/routes/federation/transaction.rs#L290) `warn!` + `None`）。按用户决策**保留 `String` 存储、不做枚举化**。 |
 | **验证** | `cargo check -p synapse-web -p synapse-services -p synapse-federation -p synapse-storage` → **exit 0**；`cargo clippy`（lib 目标）**无告警**；`bash scripts/ci/check_sqlx_cache_fresh.sh --static` → `OK: 源码 1357 处静态查询字面量全部命中 .sqlx/ 缓存`；`python3 scripts/ci/check_clippy_allow_ratchet.py` → `164 unjustified in 99 file(s) (baseline 164 in 99)` / `OK`。 |
-| **残余（有意不修）** | `--all-targets`（含 `#[cfg(test)]`）在 `synapse-services/src/test_mocks.rs` 等测试模块存在**既有**编译错误（E0282/E0432/E0433），与本批生产代码改动无关，未在本轮处理。`send_leave`/`send_knock` 亦调 `validate_federation_member_event`，但 §2.B `FED-02` 证据仅指向 `join.rs`，本轮未扩展。 |
+| **残余（有意不修）** | `--all-targets`（含 `#[cfg(test)]`）在 `synapse-services/src/test_mocks.rs` 等测试模块存在**既有**编译错误（E0282/E0432/E0433），与本批生产代码改动无关，未在本轮处理。`send_leave`（v1/v2）与 `knock` 当时未被 `FED-02` 守卫覆盖（§2.B 证据仅指向 `join.rs`）；**该项已于 2026-10-27 收口**，同一守卫现覆盖全部 5 个 membership 写入端点，见 §8.15。 |
 
 ### 8.10 P3 剩余批次（批 A 文档卫生 6 项 + 批 B 代码质量/低风险安全 5 项）
 
@@ -565,8 +565,24 @@ python3 scripts/ci/run_cargo_geiger.py        # CI 门禁；本地全量运行�
 | **红/绿双向实证** | 分两次临时移除白名单条目（先 `src/test_exit_hook.rs`，再 3 条 `scripts/*`）→ 守卫分别报出 `docs/security/ci-security-grading.md: src/test_exit_hook.rs` 与 `migrations/README.md: scripts/generate_next_baseline.py` / `scripts/p0_constraints_indexes.sql` 并 **FAILED**；从备份还原后复跑全绿。证明该门禁**具备真实牙齿**。 |
 | **残余（有意不纳入）** | `docs/audit/` 实测 **45 文件 / 110 处**死引用（9 处仅需补 `archive/`、101 处指向已不存在路径），一轮无法收口；若直接纳入会让门禁长期常红、进而被绕过，故本轮**不纳入**并在此登记，待 101 处清理后按 `GUARDED_DOC_DIRS` 追加一项即可，无需改测试逻辑。 |
 
+### 8.15 `FED-02` 扩展批次（membership PDU 完整性覆盖 leave/knock）
+
+> 本轮（2026-10-27）处置 §8.9 遗留的「`send_leave`/`knock` 未纳入 `FED-02` 守卫」缺口：把 `/send_join` 单点守卫推广为 membership 家族共享守卫，并补路由级红/绿测试。
+
+| 项 | 内容 |
+|----|------|
+| **守卫泛化** | [`verify_inbound_join_pdu_integrity`](../../synapse-web/src/routes/federation/membership/mod.rs#L163) 重命名为 `verify_inbound_membership_pdu_integrity`（名称与覆盖范围对齐，避免「名叫 join 却校验 leave」的误导）；doc 注释改为「联邦中所有持久化远端 `m.room.member` 事件的端点共享」。语义与错误文案同步泛化为 "Invalid inbound membership event …"（原为 "join event"）。 |
+| **新增接入点** | [`send_leave`](../../synapse-web/src/routes/federation/membership/leave.rs#L75)（v1，校验 `body["event"]` 信封内事件）与 [`send_leave_v2`](../../synapse-web/src/routes/federation/membership/leave.rs#L151)（v2，请求体即事件）、[`knock_room`](../../synapse-web/src/routes/federation/membership/knock.rs#L26)（请求体即事件）。三者均在 `validate_federation_origin_can_observe_room` + `federatable_room_version` 之后、任何持久化之前调用，保证「损坏事件不落库」。 |
+| **覆盖计数** | `FED-02` 守卫现覆盖 **5 个写入端点**：`/send_join` v1、`/send_join` v2、`/send_leave` v1、`/send_leave` v2、`/knock`。 |
+| **顺序不变式** | 与 `join` 一致，OPT-017 的访问检查（[`validate_federation_origin_can_observe_room`](../../synapse-web/src/routes/federation/membership/mod.rs)）先于完整性校验：非成员对私有房间先 404，避免通过 400/403 的差异泄露房间存在性；测试须先 seed 一条 origin 侧非 banned 成员行才能走到完整性校验分支。 |
+| **新增测试（正例）** | [`send_leave_v1_verifies_a_volunteered_content_hash`](../../tests/integration/federation_existence_leak_tests.rs#L1418)：按规范模板构造 leave 事件并**主动**填 `hashes.sha256`（`compute_event_content_hash`），断言 `200` 且响应 `event_id` 非空——同时证明守卫确实读取 v1 信封的 `body["event"]`，而非误读整个请求体。 |
+| **新增测试（反例 1）** | [`send_leave_v2_rejects_a_tampered_content_hash`](../../tests/integration/federation_existence_leak_tests.rs#L1466)：`hashes.sha256` 置为 `"A"×43`，断言 `400` 且 `error` 含 `content hash`，并回查 `events` 表该 `(room_id, m.room.member, state_key)` 计数为 **0**（证明拒绝发生在持久化之前）。 |
+| **新增测试（反例 2）** | [`knock_room_rejects_a_tampered_content_hash`](../../tests/integration/federation_existence_leak_tests.rs#L1524)：先 seed 一条 origin 侧 `invite` 成员行越过 OPT-017 的 404 门，再提交被篡改 `hashes` 的 knock 事件，断言 `400` 且 `error` 含 `content hash`。 |
+| **验证（集成）** | `cargo test --test integration --features "test-utils privacy-ext voice-extended voip-tracking beacons server-notifications" federation_existence_leak` → 见下方「验证结果」。 |
+| **兼容性** | 语义仍是「有则校验/无则放行」：规范合规对端不带 `hashes`/`signatures` 时一律放行，不新增逐出风险；仅当对端**主动**声明了内容哈希或 sender 签名时才校验。 |
+
 ---
 
 **生成时间**：2026-10-06
-**最近更新**：2026-10-27（§8.14 `DOC-24` 收口批次）
+**最近更新**：2026-10-27（§8.14 `DOC-24` 收口批次；§8.15 `FED-02` 扩展批次）
 **下次计划更新**：2026-11-10

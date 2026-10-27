@@ -7,6 +7,7 @@ use synapse_common::*;
 
 use super::{
     dispatch_federation_member_event_to_appservice, federatable_room_version, validate_federation_user_origin,
+    verify_inbound_membership_pdu_integrity,
 };
 use crate::routes::MatrixJson;
 
@@ -21,7 +22,8 @@ pub(crate) async fn knock_room(
     validate_federation_knock_event(&auth.origin, &room_id, &user_id, &body)?;
     // OPT-017: Check room access BEFORE room version to prevent existence leaking.
     super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
-    let _room_version = federatable_room_version(&ctx, &room_id).await?;
+    let room_version = federatable_room_version(&ctx, &room_id).await?;
+    verify_inbound_membership_pdu_integrity(&ctx, &room_version, &body).await?;
 
     // The write entry owns event identity (decision §4.1): the value generated
     // here is only the placeholder it replaces for v3+ rooms, and the ID the

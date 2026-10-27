@@ -1370,3 +1370,183 @@ async fn knock_room_returns_the_id_of_the_persisted_row() {
         "a v3+ knock event ID is a reference hash with no origin suffix: {event_id}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Tests: FED-02 — the inbound membership PDU guard covers leave/knock too
+// ---------------------------------------------------------------------------
+
+/// Seed a remote server's membership row so that
+/// `validate_federation_origin_can_observe_room` lets its requests reach the
+/// event write. There is no outbound federation transport in this sandbox, so a
+/// remote member cannot arrive the normal way.
+async fn seed_remote_member(pool: &sqlx::PgPool, room_id: &str, user_id: &str, membership: &str, sender: &str) {
+    sqlx::query(
+        "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING",
+    )
+    .bind(user_id)
+    .bind(format!("remote_shadow_{}", rand::random::<u32>()))
+    .bind(chrono::Utc::now().timestamp_millis())
+    .execute(pool)
+    .await
+    .expect("the remote member must be seedable as a local shadow row");
+    sqlx::query(
+        "INSERT INTO room_memberships (room_id, user_id, membership, sender, event_type, updated_ts) \
+         VALUES ($1, $2, $3, $4, 'm.room.member', $5)",
+    )
+    .bind(room_id)
+    .bind(user_id)
+    .bind(membership)
+    .bind(sender)
+    .bind(chrono::Utc::now().timestamp_millis())
+    .execute(pool)
+    .await
+    .expect("the remote membership must be seedable");
+}
+
+/// FED-02: `/send_leave` v1 must verify a content hash the sender volunteers.
+///
+/// The v1 body is a `{"origin": ..., "event": {...}}` envelope. Computing the
+/// hash over the whole envelope would never match, so a 200 here proves the
+/// guard is wired to `body["event"]` — the same bytes the handler persists.
+#[tokio::test]
+async fn send_leave_v1_verifies_a_volunteered_content_hash() {
+    let Some((app, pool, _local_key_id, _local_key_b64, _local_signing_key, cache)) = setup_federation_app().await
+    else {
+        return;
+    };
+
+    let remote_origin = "remote.example";
+    let remote_key_id = "ed25519:remote_leave_integrity";
+    let remote_signing_key = ed25519_dalek::SigningKey::from_bytes(&[66u8; 32]);
+    register_remote_verify_key(&cache, remote_origin, remote_key_id, &remote_signing_key).await;
+
+    let (token, creator_id) = register_user(&app, "leaveintegrity").await;
+    let room_id = create_private_room(&app, &token).await;
+
+    let leaver = "@leaver:remote.example";
+    seed_remote_member(&pool, &room_id, leaver, "join", &creator_id).await;
+
+    let event_id = format!("$leave_integrity_ok_{}:remote.example", rand::random::<u32>());
+    let mut event = build_leave_event_body(&room_id, &event_id, leaver, remote_origin);
+    let hash = compute_event_content_hash(&event).expect("the leave template must hash");
+    event["hashes"] = json!({ "sha256": hash });
+    let body = json!({ "origin": remote_origin, "event": event });
+
+    let uri = format!("/_matrix/federation/v1/send_leave/{room_id}/{event_id}");
+    let request =
+        signed_fed_request_as("PUT", &uri, remote_origin, "localhost", remote_key_id, &remote_signing_key, Some(&body));
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+    let json: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(status, StatusCode::OK, "a matching content hash must be accepted, got {status}: {json}");
+    assert!(
+        json["event_id"].as_str().is_some_and(|id| !id.is_empty()),
+        "the accepted leave must answer with the persisted event ID: {json}"
+    );
+}
+
+/// FED-02: `/send_leave` v2 must reject an event whose `hashes` do not match,
+/// and the rejection must land before the row is written.
+#[tokio::test]
+async fn send_leave_v2_rejects_a_tampered_content_hash() {
+    let Some((app, pool, _local_key_id, _local_key_b64, _local_signing_key, cache)) = setup_federation_app().await
+    else {
+        return;
+    };
+
+    let remote_origin = "remote.example";
+    let remote_key_id = "ed25519:remote_leave_tamper";
+    let remote_signing_key = ed25519_dalek::SigningKey::from_bytes(&[67u8; 32]);
+    register_remote_verify_key(&cache, remote_origin, remote_key_id, &remote_signing_key).await;
+
+    let (token, creator_id) = register_user(&app, "leavetamper").await;
+    let room_id = create_private_room(&app, &token).await;
+
+    let leaver = "@leaver:remote.example";
+    seed_remote_member(&pool, &room_id, leaver, "join", &creator_id).await;
+
+    let event_id = format!("$leave_integrity_bad_{}:remote.example", rand::random::<u32>());
+    let mut event = build_leave_event_body(&room_id, &event_id, leaver, remote_origin);
+    event["hashes"] = json!({ "sha256": "A".repeat(43) });
+
+    let uri = format!("/_matrix/federation/v2/send_leave/{room_id}/{event_id}");
+    let request = signed_fed_request_as(
+        "PUT",
+        &uri,
+        remote_origin,
+        "localhost",
+        remote_key_id,
+        &remote_signing_key,
+        Some(&event),
+    );
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+    let json: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(status, StatusCode::BAD_REQUEST, "a mismatched content hash must be rejected, got {status}: {json}");
+    assert!(
+        json["error"].as_str().is_some_and(|error| error.contains("content hash")),
+        "the rejection must name the content hash: {json}"
+    );
+
+    let persisted: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM events WHERE room_id = $1 AND event_type = 'm.room.member' AND state_key = $2",
+    )
+    .bind(&room_id)
+    .bind(leaver)
+    .fetch_one(&*pool)
+    .await
+    .expect("the events table must be queryable");
+    assert_eq!(persisted, 0, "the event must be rejected before the row is written");
+}
+
+/// FED-02: `/knock` must reject an event whose `hashes` do not match.
+///
+/// A remote invite is seeded first so the request gets past the OPT-017
+/// existence guard and actually reaches the integrity check.
+#[tokio::test]
+async fn knock_room_rejects_a_tampered_content_hash() {
+    let Some((app, pool, _local_key_id, _local_key_b64, _local_signing_key, cache)) = setup_federation_app().await
+    else {
+        return;
+    };
+
+    let remote_origin = "remote.example";
+    let remote_key_id = "ed25519:remote_knock_tamper";
+    let remote_signing_key = ed25519_dalek::SigningKey::from_bytes(&[68u8; 32]);
+    register_remote_verify_key(&cache, remote_origin, remote_key_id, &remote_signing_key).await;
+
+    let (token, creator_id) = register_user(&app, "knocktamper").await;
+    let room_id = create_private_room(&app, &token).await;
+
+    let invitee = "@invitee:remote.example";
+    seed_remote_member(&pool, &room_id, invitee, "invite", &creator_id).await;
+
+    let knocker = "@knocker:remote.example";
+    let mut body = build_knock_event_body(&room_id, knocker, remote_origin);
+    body["hashes"] = json!({ "sha256": "A".repeat(43) });
+
+    let uri = format!("/_matrix/federation/v1/knock/{room_id}/{knocker}");
+    let request = signed_fed_request_as(
+        "POST",
+        &uri,
+        remote_origin,
+        "localhost",
+        remote_key_id,
+        &remote_signing_key,
+        Some(&body),
+    );
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+    let json: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(status, StatusCode::BAD_REQUEST, "a mismatched content hash must be rejected, got {status}: {json}");
+    assert!(
+        json["error"].as_str().is_some_and(|error| error.contains("content hash")),
+        "the rejection must name the content hash: {json}"
+    );
+}

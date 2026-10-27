@@ -146,23 +146,28 @@ pub(crate) fn validate_federation_member_event<'a>(
     Ok(sender)
 }
 
-/// FED-02: verify an inbound `/send_join` event's PDU integrity **when it
-/// carries the evidence**. Per the spec the request body is an *event template*
-/// (`origin` / `origin_server_ts` / `type` / `state_key` / `content`) which the
-/// resident server completes itself, so a conformant template has no `hashes` /
-/// `signatures` — requiring them would reject every spec-compliant peer. When a
-/// sender does volunteer those fields (our own `make_join` template invites this,
-/// since it supplies `prev_events` / `auth_events` / `depth` to be signed), they
-/// must check out before we persist. This closes the gap where the event was
-/// previously shape-validated but never PDU-verified.
-pub(crate) async fn verify_inbound_join_pdu_integrity(
+/// FED-02: verify an inbound membership PDU's integrity **when it carries the
+/// evidence**. Shared by every federation endpoint that persists a remote
+/// `m.room.member` event — `/send_join`, `/send_leave` (v1/v2) and `/knock` —
+/// because all of them shape-validate the event and then write it, so all owe
+/// the same PDU-level checks.
+///
+/// Per the spec the `send_join` / `send_leave` request body is an *event
+/// template* (`origin` / `origin_server_ts` / `type` / `state_key` / `content`)
+/// which the resident server completes itself, so a conformant template has no
+/// `hashes` / `signatures` — requiring them would reject every spec-compliant
+/// peer. When a sender does volunteer those fields (our own `make_join` template
+/// invites this, since it supplies `prev_events` / `auth_events` / `depth` to be
+/// signed), they must check out before we persist. This closes the gap where the
+/// event was previously shape-validated but never PDU-verified.
+pub(crate) async fn verify_inbound_membership_pdu_integrity(
     ctx: &FederationContext,
     room_version: &str,
     event: &Value,
 ) -> Result<(), ApiError> {
     if event.get("hashes").is_some() {
         crate::federation::signing::verify_event_content_hash(event)
-            .map_err(|e| ApiError::bad_request(format!("Invalid join event content hash: {e}")))?;
+            .map_err(|e| ApiError::bad_request(format!("Invalid inbound membership event content hash: {e}")))?;
     }
 
     // Verify only a signature block that actually covers the sender's own
@@ -175,7 +180,7 @@ pub(crate) async fn verify_inbound_join_pdu_integrity(
     if has_sender_signature {
         crate::routes::federation::transaction::verify_pdu_sender_signature(ctx, room_version, event)
             .await
-            .map_err(|e| ApiError::forbidden(format!("Invalid join event signature: {e}")))?;
+            .map_err(|e| ApiError::forbidden(format!("Invalid inbound membership event signature: {e}")))?;
     }
 
     Ok(())

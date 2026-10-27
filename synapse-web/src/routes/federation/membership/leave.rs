@@ -11,7 +11,7 @@ use synapse_common::*;
 
 use super::{
     dispatch_federation_member_event_to_appservice, federatable_room_version, re_sign_pdu_locally,
-    validate_federation_member_event,
+    validate_federation_member_event, verify_inbound_membership_pdu_integrity,
 };
 use crate::routes::MatrixJson;
 
@@ -71,7 +71,8 @@ pub(crate) async fn send_leave(
     // OPT-017: Check room access BEFORE room version to prevent existence leaking.
     // Access denied and non-existent rooms both return 404.
     super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
-    let _room_version = federatable_room_version(&ctx, &room_id).await?;
+    let room_version = federatable_room_version(&ctx, &room_id).await?;
+    verify_inbound_membership_pdu_integrity(&ctx, &room_version, event).await?;
 
     let params = synapse_services::event::CreateEventParams {
         event_id: event_id.clone(),
@@ -146,7 +147,8 @@ pub(crate) async fn send_leave_v2(
     // OPT-017: Check room access BEFORE room version to prevent existence leaking.
     // Access denied and non-existent rooms both return 404.
     super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
-    let _room_version = federatable_room_version(&ctx, &room_id).await?;
+    let room_version = federatable_room_version(&ctx, &room_id).await?;
+    verify_inbound_membership_pdu_integrity(&ctx, &room_version, &body).await?;
     let membership_content = serde_json::json!({
         "membership": "leave"
     });
