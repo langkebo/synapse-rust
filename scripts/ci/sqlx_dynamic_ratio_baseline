@@ -3606,7 +3606,19 @@ BASELINE_DYNAMIC_PRODUCTION=106
 #   旧基线 831 留有 1 点余量），按"零余量"原则一并收回。
 #   **收紧方向**：若把"按变体读回缩略图行"抽成 `admin_read_paths_db_tests` 的公共夹具，
 #   本条可回落 1 点；届时必须同批下调并就地登记。
-BASELINE_DYNAMIC_TEST_INFRA=832
+# 2026-10-27: 832 → **834**（+2，`73917d19b` 的 storage 层 related/cascade 夹具）。
+#   来源：`synapse-storage/src/event/db_tests.rs` 两条新用例
+#   —— `test_find_related_events_single_layer_filters_by_rel_type_wildcard_and_redaction`
+#   与 `test_cascade_redact_event_redacts_targets_and_respects_max_depth`：
+#   ① 播种"已撤回的关系事件"：`insert_soft_fail_event_row` 无法把 `is_redacted`
+#      写成 true，只能另起一条 `INSERT INTO events (…, is_redacted, …)`；
+#   ② 断言读回 `SELECT is_redacted FROM events WHERE event_id = $1`
+#      —— 不读回就无法区分"级联真的改了行"与"返回了正确计数却没改任何行"。
+#   两处都是**测试夹具**；为什么不能改静态宏：`#[cfg(test)]` 内的 `query!`
+#   不进 `cargo sqlx prepare`（默认 target 集），`--all-targets` 会 E0432 —— 同上方各条。
+#   **收紧方向**：若把"播种一条已撤回事件"补进 `insert_soft_fail_event_row`
+#   的参数（加一个 `is_redacted` 形参），①可回收 1 点；届时必须同批下调并就地登记。
+BASELINE_DYNAMIC_TEST_INFRA=834
 # 2026-10-15: 1353 → 1354（+1，方案 B4.3）。新增
 #   `synapse-storage/src/schema_health_check.rs` 的 `check_invalid_indexes()` —— 它让
 #   **半建索引**（`pg_index.indisvalid = false`）可见；此前只查"缺表/缺列/缺索引名"，
@@ -3729,7 +3741,9 @@ BASELINE_STATIC=1360
 #   来源 `fd5a978d1` 的 trait 转发层测试夹具，见上方同批条目）。
 # 2026-10-27: 937 → **938**，随 `BASELINE_DYNAMIC_TEST_INFRA` 的 +1 同步
 #   （106 + 832 = 938；生产侧基线未动，实测 105 仍在门禁内）。
-BASELINE_DYNAMIC=938
+# 2026-10-27: 938 → **939**，随 `BASELINE_DYNAMIC_TEST_INFRA` 的 +2 同步
+#   （105 + 834 = 939；来源见上方同批条目）。
+BASELINE_DYNAMIC=939
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

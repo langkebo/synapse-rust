@@ -4,7 +4,7 @@
 # Regenerate: python3 scripts/ci/check_file_size_ratchet.py --update
 # Threshold: 600 lines.
 
-3516 synapse-storage/src/event/db_tests.rs
+3754 synapse-storage/src/event/db_tests.rs
 3403 synapse-common/src/test_isolation.rs
 2981 synapse-test-utils/src/lib.rs
 2510 synapse-services/src/sync_service/tests.rs

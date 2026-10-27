@@ -2191,11 +2191,21 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 <!-- sqlx-plan-numbers:start -->
 <!-- 以下数字由 `scripts/ci/check_plan_numbers_fresh.sh` 与基线/实测现算比对；改基线必须同步改这里。 -->
 BASELINE_DYNAMIC_PRODUCTION=106
-BASELINE_DYNAMIC_TEST_INFRA=832
+BASELINE_DYNAMIC_TEST_INFRA=834
 BASELINE_STATIC=1360
 BASELINE_QUERY_BUILDER=17
 SQLX_CACHE_ENTRIES=1322
 <!-- sqlx-plan-numbers:end -->
+
+> **2026-10-27 更新（`73917d19b` 的 related/cascade 存储用例跟手）**，数字块一项：
+> - `BASELINE_DYNAMIC_TEST_INFRA` **832 → 834**（+2）：`synapse-storage/src/event/db_tests.rs`
+>   两条新用例各需一条运行时 SQL —— ① 播种"已撤回的关系事件"（`insert_soft_fail_event_row`
+>   写不出 `is_redacted = true`，只能另起 `INSERT`）；② 读回 `SELECT is_redacted …`
+>   以区分"级联真改了行"与"只返回了正确计数"。`#[cfg(test)]` 内的宏不进
+>   `cargo sqlx prepare`，故保持运行时 `query`。
+> - `BASELINE_DYNAMIC` 同步 938 → **939**（105 + 834，本项不入棘轮、只保持一致）。
+> - 生产 106 / 静态 1360 / QueryBuilder 17 / `SQLX_CACHE_ENTRIES` 均不变。
+> - 逐点归因与收紧方向见 `scripts/ci/sqlx_dynamic_ratio_baseline` 的就地注记。
 
 > **2026-10-27 更新（缩略图索引闭环：`thumbnails` 从零读写变成可查询索引）**，三项数字：
 > - `BASELINE_STATIC` **1354 → 1360**（+6）：`synapse-storage/src/admin_media.rs` 新增
