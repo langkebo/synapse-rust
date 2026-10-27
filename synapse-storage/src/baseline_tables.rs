@@ -147,11 +147,45 @@ fn cached_baseline_effective_index_names() -> &'static Vec<&'static str> {
 /// off a single line. The model below encodes its rule instead, and this
 /// tripwire fails loudly if the SQL changes underneath it — a silently stale
 /// model is exactly the bug this function exists to fix.
-const V11_10_DYNAMIC_DROP_MARKERS: [&str; 3] =
-    ["DROP INDEX IF EXISTS %I.%I", "c.relname LIKE 'uq_%'", "NOT IN ('uq_to_device_txn_msgid')"];
+const V11_10_DYNAMIC_DROP_MARKERS: [&str; 2] = ["DROP INDEX IF EXISTS %I.%I", "c.relname LIKE 'uq_%'"];
 
-/// The one index the v11-10 cleanup deliberately keeps.
-const V11_10_KEPT_INDEXES: [&str; 1] = ["uq_to_device_txn_msgid"];
+/// Anchor for the v11-10 block's own exception list.
+const V11_10_KEEP_CLAUSE: &str = "NOT IN (";
+
+/// Exceptions the v11-10 cleanup **must** keep — the model is not allowed to
+/// silently lose these, whatever the baseline says.
+///
+/// `uq_to_device_txn_msgid` is the app-level to-device dedup key
+/// (`INSERT … ON CONFLICT (sender_user_id, sender_device_id, message_id)`).
+const V11_10_REQUIRED_KEEP: [&str; 1] = ["uq_to_device_txn_msgid"];
+
+/// The v11-10 cleanup's exception list, **read out of the baseline** rather than
+/// hard-coded here.
+///
+/// Why derived: the list lives in the baseline SQL (`NOT IN ('a', 'b')`) and is
+/// expected to grow as new arbitrating unique indexes appear (thumbnails'
+/// `uq_thumbnails_variant` is the second one). A hard-coded copy turns every
+/// such addition into a false red, and — worse — a model that keeps saying
+/// "dropped" about an index the baseline actually preserves is exactly the
+/// silent over-approximation this reference exists to prevent. Treating the
+/// baseline as the source of truth keeps the two in lock-step by construction.
+fn v11_10_kept_indexes() -> Vec<&'static str> {
+    let Some(anchor) = BASELINE_SQL.find("c.relname LIKE 'uq_%'") else {
+        return Vec::new();
+    };
+    let Some(open) = BASELINE_SQL[anchor..].find(V11_10_KEEP_CLAUSE) else {
+        return Vec::new();
+    };
+    let list_start = anchor + open + V11_10_KEEP_CLAUSE.len();
+    let Some(close) = BASELINE_SQL[list_start..].find(')') else {
+        return Vec::new();
+    };
+    BASELINE_SQL[list_start..list_start + close]
+        .split(',')
+        .map(|item| item.trim().trim_matches('\'').trim())
+        .filter(|name| !name.is_empty())
+        .collect()
+}
 
 /// Compute the index names a fresh database ends up with: every declared index
 /// **minus** the ones the baseline removes later.
@@ -186,9 +220,24 @@ fn compute_baseline_effective_index_names() -> Vec<&'static str> {
         dynamic_cleanup_is_present,
         "the v11-10 dynamic `DROP INDEX` cleanup (markers {V11_10_DYNAMIC_DROP_MARKERS:?}) is no longer \
          present in the baseline. Either it was removed — in which case delete the modelled rule and \
-         `V11_10_KEPT_INDEXES` below — or its SQL changed and this model is now stale (it would \
+         `V11_10_REQUIRED_KEEP` below — or its SQL changed and this model is now stale (it would \
          silently claim dropped indexes still exist, which is the exact defect this reference must \
          not have)."
+    );
+
+    // The exception list is *parsed*, so a parse failure would silently turn into
+    // "no exceptions" — i.e. the model would claim the kept indexes get dropped.
+    // Fail loudly instead.
+    let kept = v11_10_kept_indexes();
+    let missing_required: Vec<&str> =
+        V11_10_REQUIRED_KEEP.iter().copied().filter(|name| !kept.contains(name)).collect();
+    assert!(
+        missing_required.is_empty(),
+        "the v11-10 cleanup's `{}` list (parsed from the baseline) is missing {missing_required:?} — \
+         either the SQL lost an exception that dependencies rely on, or the parse anchor \
+         `{V11_10_KEEP_CLAUSE}` no longer matches and the model silently sees an empty list. \
+         Parsed: {kept:?}",
+        V11_10_KEEP_CLAUSE.trim()
     );
 
     declared
@@ -199,7 +248,7 @@ fn compute_baseline_effective_index_names() -> Vec<&'static str> {
             }
             // v11-10: plain `uq_*` indexes lose to their constraint-backed twins.
             let dropped_by_v11_10 =
-                name.starts_with("uq_") && !constraint_backed.contains(name) && !V11_10_KEPT_INDEXES.contains(name);
+                name.starts_with("uq_") && !constraint_backed.contains(name) && !kept.contains(name);
             !dropped_by_v11_10
         })
         .collect()
@@ -504,6 +553,30 @@ ALTER TABLE t DROP CONSTRAINT f_uq;
         assert!(
             names.contains(&"uq_to_device_txn_msgid"),
             "uq_to_device_txn_msgid is the modelled exception (to-device dedup ON CONFLICT depends on it)"
+        );
+    }
+
+    /// The v11-10 exception list is **parsed out of the baseline**, so any plain
+    /// `uq_*` index the SQL spares must survive the reference set without a code
+    /// change here. `uq_thumbnails_variant` is the live second exception
+    /// (thumbnail upsert's `ON CONFLICT (media_id, width, height, method,
+    /// is_animated)` arbitrates on it). Fails in three distinct ways, all
+    /// meaningful: the SQL stopped sparing it / the parse anchor moved /
+    /// someone reintroduced a hard-coded list.
+    #[test]
+    fn parsed_exception_list_keeps_plain_unique_indexes_the_baseline_spares() {
+        let kept = v11_10_kept_indexes();
+        assert!(
+            kept.contains(&"uq_thumbnails_variant"),
+            "the v11-10 `{}` list parsed from the baseline must include uq_thumbnails_variant. \
+             Parsed: {kept:?}",
+            V11_10_KEEP_CLAUSE.trim()
+        );
+        assert!(
+            baseline_index_names().contains(&"uq_thumbnails_variant"),
+            "uq_thumbnails_variant is a plain UNIQUE index that the v11-10 cleanup spares, so a fresh \
+             database keeps it and the reference set must contain it (dropping it from the model while \
+             the baseline keeps it is the silent over-approximation this file exists to prevent"
         );
     }
 }

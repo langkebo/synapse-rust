@@ -228,6 +228,14 @@
   - **覆盖率那次的真红因也在这里**：`Code Coverage` 首次真跑（103 min），红在
     `doc_credibility_guard_tests::code_referenced_docs_exist` = §③ 那个 gitignored 负向样本，
     已由本轮的 `INTENTIONALLY_ABSENT_DOCS` 修掉；干净树等价复现（移走该文件后 18 条守卫全绿）已做
+  - **再一轮：缩略图让 `baseline_tables` 的硬编码例外过期** ⇒ `Test & Lint (×2, all-features)` 红在
+    `Run library unit tests (--workspace --lib)`、`Code Coverage` 红在**步骤 1/3**
+    （`cargo llvm-cov -p synapse-storage --lib`），**同一根因**且都排在 §4 那条守卫之前。
+    `1ab01c9a9` 把基线 v11-10 的例外列表改成 `NOT IN ('uq_to_device_txn_msgid', 'uq_thumbnails_variant')`，
+    而模型把这句当 marker、把例外集合硬编码 1 条 ⇒ 基线每加一个例外就假红，且方向错成"`uq_thumbnails_variant`
+    会被清掉"（基线实际保留它）。修法：**从基线解析例外列表**（`v11_10_kept_indexes()`）、
+    只留两个结构 marker、加 `V11_10_REQUIRED_KEEP` 兜底解析失效、新增测试钉 `uq_thumbnails_variant`。
+    实测 `14 passed`；变异自证（锚点改 `uq_%ZZZ_MUTANT`）⇒ **6 条同时红**，还原后 0 残留
 - ✅ **[TEST_COMPROMISE_AUDIT_2026-10-25.md](TEST_COMPROMISE_AUDIT_2026-10-25.md)** 第 9 轮：**最后一个开口（原 ⑦ 类 8 个 0%）关掉**，代价 6 分钟。
   - **改判**：`synapse-web/routes/**` 那 8 个不是"只能等 CI 的 integration 腿"，而是**陈旧（地板冻结）**。
     8 个文件都在 `synapse-web` crate、模块**无条件**编译、**每个都自带内联 `#[cfg(test)] mod tests`**

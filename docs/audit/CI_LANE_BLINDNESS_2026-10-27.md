@@ -25,6 +25,7 @@
 | 9 | 同期把「`missing_docs` 独立红灯」这条登记复核掉了：本地 `check_missing_docs_ratchet.sh` ⇒ `EXIT=0`、`debt 0 = baseline 0` | ✅ 该红已是历史状态，登记作废（§6.3） |
 | 10 | `gen_client_yaml.py --check` 的 `--expected` 默认指向 gitignored 文件（死分支），且**三处文档把它写成已接线的 CI 门禁** | ✅ 已修（去掉死默认 + 三处声明改实情，§6.1） |
 | 11 | 让渡后 `d297b2937` 上 `Repo Sanity` **31/31 步全绿**（0 failure / 0 skipped）—— 该 job 自 `15efc8dc6` 起第一次真正全绿 | ✅ 车道闭合 |
+| 12 | 同一批缩略图提交还让 **`baseline_tables` 的硬编码例外**过期 ⇒ `Test & Lint (×all-features)` 红在 `--workspace --lib`、`Code Coverage` 红在步骤 1/3（同一根因，错误信息却指向"DB 测试"） | ✅ 已修（模型改为**从基线解析**例外列表，§6.4） |
 
 一句话：**这些车道不是"没发现问题"，是"根本没运行/根本不可能运行"**。它们此前的沉默不能作为
 任何"已合规"的证据。四个缺陷里有三个同源（§1 / §3 / §4）：**判据依赖"我这台机器上有什么"，而不是
@@ -221,7 +222,7 @@ gh run view <run-id> --json jobs \
 # {"failure":1,"skipped":22,"success":8}
 ```
 
-## 6 仍未解决（附本轮三条复核记录：§6.1 修好 / §6.2 让渡 / §6.3 作废）
+## 6 仍未解决（附本轮四条复核记录：§6.1 修好 / §6.2 让渡 / §6.3 作废 / §6.4 修好）
 
 * **结构性**：GitHub 的步骤是顺序短路语义 —— **前一步失败，后面全部 `skipped`，且不产生任何读数**。
   这意味着"一个门禁红"会顺带让 22 个门禁**失去观测**，而页面上只呈现一条失败。可选的改法：
@@ -311,6 +312,46 @@ OK: missing_docs debt at baseline (0), no regression.        # EXIT=0
 它在 CI 里一直拿不到读数的原因只是**步骤顺序**：`Check missing_docs ratchet` 排在
 `Run unit test target` 之后，前者一红它就被 `skipped`（正是 §0 #2 说的一红全盲）。
 它在 `--all-features` 车道、`SQLX_OFFLINE=true` 下跑，本地需 `HEAD~1` 可解析（`fetch-depth: 0` 已配）。
+
+### 6.4 缩略图提交让 `baseline_tables` 的硬编码例外过期（lib 车道 + Code Coverage 双红，已修）
+
+`ea9a57af1` 上两条车道同时红，**而且都在 §4 那条 doc 守卫之前就断了**：
+
+* `Test & Lint (stable, all-features)` 红在 `Run library unit tests (--workspace --lib)`
+  —— 排在 `Run unit test target` **之前**，所以 §4 修的那个守卫这次根本没轮到执行；
+* `Code Coverage` 红在 `Run coverage` 的**步骤 1/3**（`cargo llvm-cov -p synapse-storage --lib`）。
+
+同一根因，`baseline_tables.rs:185`：
+
+```
+the v11-10 dynamic `DROP INDEX` cleanup (markers ["DROP INDEX IF EXISTS %I.%I",
+"c.relname LIKE 'uq_%'", "NOT IN ('uq_to_device_txn_msgid')"]) is no longer present in the baseline
+```
+
+`1ab01c9a9`（缩略图）把基线的 v11-10 例外列表从 `NOT IN ('uq_to_device_txn_msgid')` 改成
+`NOT IN ('uq_to_device_txn_msgid', 'uq_thumbnails_variant')`，而模型把这行**整句**当 marker、
+把例外集合 `V11_10_KEPT_INDEXES` 硬编码成 1 条 ⇒ 基线**每加一个例外就假红一次**。
+更糟的是方向错了：模型会反过来说"`uq_thumbnails_variant` 会被 v11-10 清掉"，而基线实际保留它 ——
+这正是该文件存在的目的（让 reference 集与部署实际 schema 一致）所反对的"静默高估删除"。
+
+处置：**让模型从基线里解析例外列表**，不再复制一份。
+
+| 改动 | 内容 |
+|---|---|
+| `V11_10_DYNAMIC_DROP_MARKERS` | 3 → 2：去掉那句会被追加的 `NOT IN (...)`，只留两个结构 marker |
+| `v11_10_kept_indexes()`（新） | 锚 `c.relname LIKE 'uq_%'` → 找 `NOT IN (` → 取到 `)` → 按逗号拆、去引号 |
+| `V11_10_REQUIRED_KEEP`（新） | 仍钉 `uq_to_device_txn_msgid`；`:234` 断言解析结果必须含它 |
+| 新测试 | `parsed_exception_list_keeps_plain_unique_indexes_the_baseline_spares` —— 钉 `uq_thumbnails_variant` 既在解析结果、也在 reference 集里 |
+
+`V11_10_REQUIRED_KEEP` 那条断言是**解析失效的兜底**：锚点一旦漂移，`v11_10_kept_indexes()`
+会返回空表，若不兜底就会静默变成"没有例外"（比假红更坏的假绿）。
+
+实测：`cargo test -p synapse-storage --lib baseline_tables` ⇒ **14 passed**
+（含新测试）；`cargo clippy -p synapse-storage --lib --all-features -D warnings` 干净。
+
+**变异自证**：把解析锚点改成 `c.relname LIKE 'uq_%ZZZ_MUTANT'` ⇒
+**6 条测试同时 FAILED**（新测试 + `:234` 的 required-keep 兜底 + 4 条间接依赖 reference 集的），
+还原后 `grep ZZZ_MUTANT` = 0。
 
 ## 7 复核命令（一键）
 
