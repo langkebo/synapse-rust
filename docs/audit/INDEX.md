@@ -272,8 +272,10 @@
     补丁区间 `>=1.53.3`）⇒ 已升 `1.54.1`（全仓 `AsyncFd` 零引用，暴露面为零）；
     ②`xxhash-rust 0.8.19` 的 `BSL-1.0` 不在名单内（`022cbd67f` 把 redis 0.29 → 1.7 时的**传递依赖**）
     ⇒ 按 `webpki-roots` 同口径加 **crate 级例外**，刻意不塞全局 `allow`。
-    本地只能验 `cargo deny check licenses` ⇒ `licenses ok`；`advisories` 因 advisory-db **拉不下来**
-    （`error sending request ... rustsec/advisory-db`）**无法本地复验**，结论待下一轮 CI
+    本地 `cargo deny check licenses` ⇒ `licenses ok`；`advisories` 手动跑因
+    advisory-db **git 协议被拦**（`error sending request ... rustsec/advisory-db`）失败，但 pre-push
+    钩子用缓存副本报 `advisories ok`，且缓存 HEAD `99670cfc`（2026-10-27）里
+    `crates/tokio/RUSTSEC-2026-0386.md` 在册 ⇒ **该条已清**（最终仍以 CI 为准）
   - **两红不是代码问题**（§8.3）：`Benchmark` 的 `Run benchmarks` 是 runner 被回收
     （`shutdown signal` / `exit 143`，日志停在 `Compiling synapse-rust`，两次同型）；
     `Assert no leftover test databases` 是 `out of shared memory` 打断用例后的**次生**残留。

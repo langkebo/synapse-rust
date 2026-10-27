@@ -577,16 +577,19 @@ SGR 序列打断）、2026-09-30 是 `grep -q` + `pipefail` 的 SIGPIPE（日志
 `BSL-1.0` 是宽松许可（义务只有保留声明）。这里刻意**不**把它塞进全局 `allow` ——
 全局放行会让未来任意依赖的 `BSL-1.0` 静默通过，与"不留静默额度"的原则相反。
 
-本地复验的边界必须写清：`cargo deny check licenses` ⇒ `licenses ok`（可离线跑）；
-`cargo deny check advisories` **本机跑不了**（
+本地复验的边界必须写清：`cargo deny check licenses` ⇒ `licenses ok`（可离线跑）。
+`cargo deny check advisories` 手动跑会失败：
 
 ```text
 [ERROR] failed to fetch advisory database https://github.com/rustsec/advisory-db:
 failed to prepare fetch: ... error sending request for url (.../info/refs?service=git-upload-pack)
 ```
 
-），所以"1.54.1 已清掉该公告"这句话的证据是 CI 里 advisory 自己给的 `Solution` 区间，
-不是我本地跑出来的 —— 结论要等下一轮 CI 的 `Security Audit` 才能确认。
+（本机到 `github.com` 的 git 协议被拦，而 cargo-deny 只在缓存副本"该更新"时才去 fetch。）
+但 **pre-push 钩子里的同一条 `cargo deny check advisories` 用的是缓存副本，它报 `advisories ok`**，
+而那份缓存的 HEAD 是 `99670cfc`（2026-10-27，比该公告新），
+`crates/tokio/RUSTSEC-2026-0386.md` 就在册 ⇒ **`1.54.1` 确实清掉了这条**。
+最终仍以 CI 为准（CI 每次新拉 db），但它已经不是"只有 CI 能确认"的状态了。
 
 ⚠️ 另注：`Security Audit` 是**路径过滤**触发的，多数提交上它是 `skipped`（近 12 次
 `ci.yml` 里 5 次 `skipped`、5 次 `failure`、1 次 `in_progress`）。**`skipped` 不是绿**，
