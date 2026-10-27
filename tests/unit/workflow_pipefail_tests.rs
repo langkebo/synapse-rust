@@ -517,8 +517,8 @@ fn every_workflow_docker_build_names_its_dockerfile() {
 
 /// 基础镜像的 digest **只能写一处**：`docker/Dockerfile` 的 ARG。
 ///
-/// 2026-09-22 之前，`docker-security-scan.yml` 的 `Digest Pin Integrity` job 把三个
-/// digest 抄了一份写死在 workflow 里。后果与"门禁不会红"同型：Dockerfile 升级 pin
+/// 2026-09-22 之前，`docker-security-scan.yml` 的 `Digest Pin Integrity` job 把 digest
+/// 列表抄了一份写死在 workflow 里。后果与"门禁不会红"同型：Dockerfile 升级 pin
 /// 之后，那个 job 仍在验证**旧** digest，于是它既不能说"当前 pin 有效"，也不会因为
 /// pin 被换掉而失败。修法是唯一真相源 + `scripts/ci/read_base_image_pins.sh`（两个 job
 /// 共用同一份读取逻辑）。
@@ -549,8 +549,8 @@ fn base_image_digests_are_read_from_the_dockerfile_not_copied_into_workflows() {
         "`base-image-scan` 与 `digest-pin-check` 都必须调用 read_base_image_pins.sh（实际 {helper_calls} 处）"
     );
 
-    // ③ Dockerfile 必须真的定义这三个 ARG 且带 digest —— 否则上面的断言全是空转。
-    for arg in ["RUNTIME_BASE_IMAGE", "DEBIAN_BASE_IMAGE", "RUST_BUILDER_IMAGE"] {
+    // ③ Dockerfile 必须真的定义这两个 ARG 且带 digest —— 否则上面的断言全是空转。
+    for arg in ["DEBIAN_BASE_IMAGE", "RUST_BUILDER_IMAGE"] {
         let line = dockerfile
             .lines()
             .find(|l| l.trim_start().starts_with(&format!("ARG {arg}=")))
@@ -570,15 +570,20 @@ fn base_image_digests_are_read_from_the_dockerfile_not_copied_into_workflows() {
     );
 }
 
-/// 三个 pinned 基础镜像都必须被 Trivy 扫到，且"报告不阻断"只能有一个（builder）。
+/// 每个 pinned 基础镜像都必须被 Trivy 扫到，且"报告不阻断"只能有一个（builder）。
 ///
-/// 缺口（P0-4）：`trivy-scan` 只扫 `--target tools` 的出货镜像，三个基础镜像本身从未扫过。
-/// 其中 distroless 是 `runtime-distroless` 的根、debian 的库经 `runtime-libs` 复制进出货
-/// 镜像 ⇒ 两者必须阻断；builder 只在构建期存在 ⇒ 允许 report-only，但必须**显式**且是唯一
-/// 一个（否则"scan 步骤存在"会掩盖"其实不阻断"）。
+/// 缺口（P0-4）：`trivy-scan` 只扫 `--target tools` 的出货镜像，基础镜像本身从未扫过。
+/// 而 `DEBIAN_BASE_IMAGE` 就是出货镜像 `tools` 的根（`FROM ${DEBIAN_BASE_IMAGE} AS tools`，
+/// 构建期再 `apt-get install libssl3`）⇒ 必须阻断；builder 只在构建期存在 ⇒ 允许
+/// report-only，但必须**显式**且是唯一一个（否则"scan 步骤存在"会掩盖"其实不阻断"）。
 ///
-/// **红证明**：把 distroless 扫描的 `exit-code` 改成 0 → FAILED；删掉 builder 扫描步骤 →
-/// FAILED；把三个 `image-ref` 都换成同一个 ARG → FAILED。
+/// 2026-10-27 删掉了第三条 `RUNTIME_BASE_IMAGE`（distroless）：它对应的
+/// `runtime-distroless` 目标全仓没有构建/部署入口，且 pin 实测已是上游 `latest`，
+/// 于是那条扫描只能永久红、无从修复（判决见
+/// `docs/audit/CI_LANE_BLINDNESS_2026-10-27.md` §7.2）。本测试随之从 3 条降为 2 条。
+///
+/// **红证明**：把 debian 扫描的 `exit-code` 改成 0 → FAILED；删掉 builder 扫描步骤 →
+/// FAILED；把两个 `image-ref` 都换成同一个 ARG → FAILED。
 #[test]
 fn every_pinned_base_image_is_scanned_and_report_only_is_an_explicit_exception() {
     let root = repo_root();
@@ -611,11 +616,11 @@ fn every_pinned_base_image_is_scanned_and_report_only_is_an_explicit_exception()
 
     assert_eq!(
         scanned.len(),
-        3,
-        "base-image-scan 必须恰好扫三个 pinned 基础镜像（distroless / debian / builder）；实际扫描：{scanned:?}"
+        2,
+        "base-image-scan 必须恰好扫两个 pinned 基础镜像（debian / builder）；实际扫描：{scanned:?}"
     );
 
-    for arg in ["RUNTIME_BASE_IMAGE", "DEBIAN_BASE_IMAGE", "RUST_BUILDER_IMAGE"] {
+    for arg in ["DEBIAN_BASE_IMAGE", "RUST_BUILDER_IMAGE"] {
         let hits = scanned.iter().filter(|(_, image_ref, _)| image_ref.contains(arg)).count();
         assert_eq!(
             hits, 1,
@@ -683,8 +688,9 @@ fn step_key(step: &str, key: &str) -> Option<String> {
 /// 默认（不给 `limit-severities-for-sarif`）⇒ `TRIVY_SEVERITY` 被 unset ⇒
 /// `severity: 'HIGH,CRITICAL'` 完全不生效，`exit-code: '1'` 对 **LOW/MEDIUM/UNKNOWN** 同样退出 1。
 /// 实测（2026-09-30，从 85bfd51ac 起）：出货镜像只剩 1 条 UNKNOWN 的 `tzdata/DLA-4792-1`、
-/// distroless 只剩 LOW/MEDIUM 的 `libssl3`（3.0.22 有修复），却让 `Docker Security Scan`
-/// 连续 8 天全红 —— 与 `check_fmt_ratchet.sh` 计数恒 0（R11）同型：**声明判据 ≠ 执行判据**。
+/// distroless 只剩 LOW/MEDIUM 的 `libssl3`（3.0.22 有修复；那条扫描 2026-10-27 已删），
+/// 却让 `Docker Security Scan` 连续 8 天全红 —— 与 `check_fmt_ratchet.sh` 计数恒 0（R11）
+/// 同型：**声明判据 ≠ 执行判据**。
 ///
 /// 规则：凡是**能判死 job**（`exit-code: '1'`）的 trivy 步骤，用 `format: sarif` 时**必须**
 /// 显式 `limit-severities-for-sarif: 'true'`；`exit-code: '0'` 的 report-only 步骤不在此列
@@ -707,11 +713,11 @@ fn blocking_trivy_steps_must_not_let_sarif_silently_drop_the_severity_filter() {
         })
         .collect();
 
-    // 下限 4 = 出货镜像 1 + 三个 pinned 基础镜像各 1；少于它说明匹配逻辑失效了，
+    // 下限 3 = 出货镜像 1 + 两个 pinned 基础镜像各 1；少于它说明匹配逻辑失效了，
     // 那时"没有违规"什么也证明不了（扫描器没在工作 ≠ 代码干净）。
     assert!(
-        steps.len() >= 4,
-        "expected the app image plus three base-image trivy steps, found {}: {:#?}",
+        steps.len() >= 3,
+        "expected the app image plus two base-image trivy steps, found {}: {:#?}",
         steps.len(),
         steps.iter().map(|(name, _)| name).collect::<Vec<_>>()
     );
@@ -736,7 +742,7 @@ fn blocking_trivy_steps_must_not_let_sarif_silently_drop_the_severity_filter() {
         }
     }
 
-    assert!(blocking >= 3, "至少三条阻断扫描（出货镜像 + distroless + debian），实际 {blocking}");
+    assert!(blocking >= 2, "至少两条阻断扫描（出货镜像 + debian），实际 {blocking}");
     assert!(
         offenders.is_empty(),
         "这些 trivy 步骤的阻断判据与声明的 severity 不一致（见本测试的文档注释）：\n  {}",

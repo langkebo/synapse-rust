@@ -146,7 +146,7 @@ docker/deploy/
 ├── ssl/                          # TLS 证书（deploy.sh 自动生成）
 │   ├── cert.pem
 │   └── key.pem
-├── synapse-data/                 # 应用数据 bind mount（distroless 无法自举，见其 README）
+├── synapse-data/                 # 应用数据 bind mount（首把密钥须宿主侧供给，见其 README）
 │   └── README.md
 ├── scripts/
 │   ├── container-migrate.sh      # 容器内迁移入口

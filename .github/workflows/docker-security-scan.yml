@@ -162,21 +162,29 @@ jobs:
           path: trivy-results.sarif
           retention-days: 14
 
-  # ── 2b) 基础镜像扫描（P0-4，2026-09-22 新增）────────────────────────
+  # ── 2b) 基础镜像扫描（P0-4，2026-09-22 新增；2026-10-27 收缩到两个）────────
   #
   # 缺口：上面的 trivy-scan 只扫 `synapse-rust:scan`（= `--target tools`，出货的
-  # 生产镜像），三个**基础镜像本身**从未被扫过。其中两个在出货路径上：
-  #   * `RUNTIME_BASE_IMAGE`（distroless）= `runtime-distroless` 的根；
-  #   * `DEBIAN_BASE_IMAGE` = `runtime-libs` 的来源，其库被 `COPY --from=runtime-libs`
-  #     塞进 distroless 镜像。
-  # `RUST_BUILDER_IMAGE` 只在构建期存在（产物是上面两个运行镜像），因此**报告不阻断**：
-  # 实测它有大量 fixable HIGH/CRITICAL，阻断等于永久红；收紧方向是 pin 一个已清理的
-  # builder digest（登记在 docs/audit/GATE_INTEGRITY_FOLLOWUP_2026-09-19.md §1 P0-4）。
+  # 生产镜像），**基础镜像本身**从未被扫过。其中 `DEBIAN_BASE_IMAGE` 是唯一一个
+  # 真在出货路径上的：`tools` 阶段直接 `FROM ${DEBIAN_BASE_IMAGE}` 并在构建期
+  # `apt-get install libssl3`。`RUST_BUILDER_IMAGE` 只在构建期存在（产物是 `tools`
+  # 镜像），因此**报告不阻断**：实测它有大量 fixable HIGH/CRITICAL，阻断等于永久红；
+  # 收紧方向是 pin 一个已清理的 builder digest
+  # （登记在 docs/audit/GATE_INTEGRITY_FOLLOWUP_2026-09-19.md §1 P0-4）。
+  #
+  # ⚠️ 2026-10-27 删掉了原来第三条 `RUNTIME_BASE_IMAGE`（distroless）扫描：它红了
+  # 8 天而**永远修不好**（pin 经实测就是 `cc-debian12:latest` 本身），因为被扫的那个
+  # 目标 `runtime-distroless` 全仓没有任何构建/部署入口（compose 与 deploy.sh 都是
+  # `--target tools`）。随之删除 Dockerfile 的 `runtime-libs` / `runtime-distroless`
+  # 两个 stage。判决与全部读数见 `docs/audit/CI_LANE_BLINDNESS_2026-10-27.md` §7.2。
   #
   # pin 的唯一真相源是 `docker/Dockerfile` 的 ARG，由
   # `scripts/ci/read_base_image_pins.sh` 读出（禁止在 workflow 里再抄一份 digest）。
-  # 守卫：`tests/unit/ci_test_scope_tests.rs::
-  # docker_security_scan_base_images_are_read_from_the_dockerfile`。
+  # 守卫：`tests/unit/workflow_pipefail_tests.rs::
+  # base_image_digests_are_read_from_the_dockerfile_not_copied_into_workflows` +
+  # `::every_pinned_base_image_is_scanned_and_report_only_is_an_explicit_exception`。
+  # （原文这里指的是 `ci_test_scope_tests.rs::docker_security_scan_base_images_are_read_
+  # from_the_dockerfile` —— **该测试不存在**，2026-10-27 顺手改正。）
   base-image-scan:
     name: Base Image Scan
     needs: hadolint
@@ -201,24 +209,10 @@ jobs:
             echo "${key} = ${ref}"
           done < <(bash scripts/ci/read_base_image_pins.sh)
 
-      # 实测（2026-09-22，trivy + `--ignore-unfixed`，宿主 arm64）：distroless 与
-      # debian 的当前 pin 都是 **0** HIGH/CRITICAL ⇒ 阻断是"现在能红、将来会红"的
-      # 真棘轮，而不是一条永久绿的装饰。
-      - name: Scan distroless runtime base — blocking
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          image-ref: ${{ steps.pins.outputs.RUNTIME_BASE_IMAGE }}
-          format: 'sarif'
-          output: 'trivy-base-runtime.sarif'
-          severity: 'HIGH,CRITICAL'
-          # 同 `trivy-scan`：`format: sarif` 下 action 默认 unset TRIVY_SEVERITY ⇒
-          # 必须显式收紧，否则 LOW/MEDIUM（如 distroless 里 libssl3 的 3.0.22 修复项）
-          # 也会让这个"HIGH/CRITICAL 阻断"步骤退出 1。
-          limit-severities-for-sarif: 'true'
-          exit-code: '1'
-          ignore-unfixed: true
-
-      - name: Scan debian base (feeds runtime-libs) — blocking
+      # 实测（2026-09-22，trivy + `--ignore-unfixed`，宿主 arm64）：debian 的当前 pin
+      # 是 **0** HIGH/CRITICAL ⇒ 阻断是"现在能红、将来会红"的真棘轮，而不是一条永久绿
+      # 的装饰。（同日 distroless pin 也是 0；那条扫描已于 2026-10-27 删除，理由见本节头。）
+      - name: Scan debian base (the shipped `tools` image's root) — blocking
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ steps.pins.outputs.DEBIAN_BASE_IMAGE }}
@@ -230,7 +224,7 @@ jobs:
           ignore-unfixed: true
 
       # ⚠️ 全 job 里**唯一** report-only 的扫描。它必须显式带注释，并被守卫钉住：
-      # builder 是构建期镜像，产物是两个运行镜像；它的 CVE 不出货。
+      # builder 是构建期镜像，唯一产物是 `tools`；它的 CVE 不出货。
       - name: Scan rust builder base — report-only (build-time only)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -240,13 +234,6 @@ jobs:
           severity: 'HIGH,CRITICAL'
           exit-code: '0'
           ignore-unfixed: true
-
-      - name: Upload SARIF (distroless runtime base)
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: 'trivy-base-runtime.sarif'
-          category: 'base-image-runtime-distroless'
 
       - name: Upload SARIF (debian base)
         if: always()
@@ -281,7 +268,7 @@ jobs:
 
       # (P0-2 相关：确认 digest 没有被过期/替换)
       #
-      # ⚠️ 2026-09-22：这里以前把三个 digest **抄了一份**写死。于是 Dockerfile 升级
+      # ⚠️ 2026-09-22：这里以前把 digest 列表 **抄了一份**写死。于是 Dockerfile 升级
       # pin 之后，本 job 会继续验证**旧** digest —— 它自证不了"当前使用的 pin 有效"。
       # 现在从 `docker/Dockerfile` 唯一真相源读（同一个脚本，与 base-image-scan 共用）。
       - name: Verify pinned base images
@@ -335,7 +322,7 @@ jobs:
             name="${ref%@*}"                     # repo[:tag]
             case "${name##*/}" in
               *:*) ;;                            # 已带 tag
-              *) name="${name}:latest" ;;        # 未带 tag ⇒ 显式 latest（distroless 即此类）
+              *) name="${name}:latest" ;;        # 未带 tag ⇒ 显式 latest（如 `gcr.io/distroless/*`）
             esac
 
             current="$(docker buildx imagetools inspect "${name}" \

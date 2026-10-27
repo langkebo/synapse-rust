@@ -1348,3 +1348,48 @@ G 说清了"0.0 是 bootstrap 冻结值"，但**只记录不改**等于棘轮对
 ④**把"以后会有人给我答案"当结论** —— 凡是要"等 CI / 等下游 / 等别人"才能闭合的判定，先证明那条通道
 **还在跑**（`gh run view <id> --json jobs` 看 job 结论，而不是看 yaml 里写着），否则记下的是**永远不会兑现的
 等待理由**：本轮 3 个 `feature` 关文件 + 8 个 web 路由全部踩在这上面，11 个 0% 的"理由"其实是同一条。
+
+### 7.7 覆盖率车道**终于跑完了**，然后棘轮红在 134 个文件（2026-10-27，`0a5310346` / run `40469375466`）
+
+§7.5 里那句"3 个 feature 关文件的真实读数只能由完整 storage 腿给出"这次有了读数：`Run coverage`
+（`scripts/ci/run_coverage.sh` 三条腿）**第一次成功**，耗时约 75 分钟，`Code Coverage` 的红从
+"跑不到"变成"跑到了但不达标"——失败步是 `Per-file coverage ratchet (B.3)`。
+
+现场读数（原文照抄门禁输出）：
+
+```
+=== Core-path coverage failures (6 files) ===
+  [CORE] synapse-services/auth/credential_auth.rs: 0.0% < 70% (was no baseline, delta=+0.0%)
+  [CORE] synapse-services/auth/token_auth.rs: 0.0% < 70% (was no baseline, delta=+0.0%)
+  [CORE] synapse-storage/event/cascade.rs: 48.6% < 70% (was no baseline, delta=+48.6%)
+  [CORE] synapse-storage/event/history_boundary.rs: 0.0% < 70% (was no baseline, delta=+0.0%)
+  [CORE] synapse-web/routes/msc4512_proxy.rs: 24.8% < 70% (was no baseline, delta=+24.8%)
+  [CORE] synapse-web/routes/worker/worker_topology.rs: 45.1% < 70% (was no baseline, delta=+45.1%)
+
+=== Coverage failures (134 files) ===
+  [TOUCHED] synapse-common/tracing.rs: 19.4% < 75% (was 74.6%, delta=-55.2%)
+  [TOUCHED] synapse-federation/client.rs: 36.8% < 59% (was 59.5%, delta=-22.7%)
+  [TOUCHED] synapse-services/admin_media_service.rs: 72.8% < 100% (was 100.0%, delta=-27.2%)
+  [TOUCHED] synapse-common/config/mod.rs: 88.2% < 99% (was 99.3%, delta=-11.1%)
+  [NEW]     synapse-common/content_scanner/mod.rs: 34.5% < 50% (was no baseline)
+  [NEW]     synapse-common/test_database_guard.rs: 21.8% < 50% (was no baseline)
+  …（共 134 条，全部见该 run 的 `Code Coverage` 日志）
+```
+
+**判定：性质未定，禁止用 `--update` 消化。** 两类信号必须分开处理：
+
+1. **`was no baseline` 的 6 条 core-path**：这是"从未进过基线"的**新分母**，0% 的三条要么缺测试、
+   要么与 §7.5 的"跨 crate 转发层 / 无消费者"同类 —— 按 §7.5 的方法逐条定性，不能一概补测试。
+2. **`was 74.6% → 19.4%` 这种大幅负 delta**：单文件掉 55 个点不像"代码变差了"，更像**测量口径变了**
+   —— 本轮 `run_coverage.sh` 的 `STORAGE_FEATURES` 增加了 `friends,widgets,burn-after-read`
+   （三个此前**从不编译**的 feature 现在被编进分母），而 lcov 的分母随编译单元变化。
+   **这条只是候选解释，尚未证实**；证实方式是对同一 commit 分两次取 lcov（加/不加这三个 feature）
+   逐文件比对，而不是看总数。
+
+⚠️ **为什么必须明确禁止 `--update`**：基线里 134 个值一旦按"当前这次测量"重写，等于把上面第 2 类
+（很可能是口径变化而非真实下降）永久固化成新的地板 —— 与 §7.5 记录的"32 个 0.0 是 bootstrap 冻结值"
+是同一个坑，只是方向反过来。**先证实口径，再谈抬/降。**
+
+**下一步（未做）**：①取同一 commit 的两次 lcov 做逐文件对比，判定第 2 类是口径还是真实下降；
+②对 6 条 core-path 按 §7.5 的方法逐条定性（缺测试 / 无消费者 / 跨 crate / feature 关）；
+③只有①②结论明确后，才允许动 `scripts/ci/coverage_baseline.json`。

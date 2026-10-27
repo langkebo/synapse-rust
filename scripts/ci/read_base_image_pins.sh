@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# 读出 `docker/Dockerfile` 里三个基础镜像 ARG 的**唯一真相源**值（已 digest-pin）。
+# 读出 `docker/Dockerfile` 里两个基础镜像 ARG 的**唯一真相源**值（已 digest-pin）。
 #
 # 为什么需要这个脚本
 # ------------------
-# `docker-security-scan.yml` 的 `Digest Pin Integrity` job 曾经把三个 digest
+# `docker-security-scan.yml` 的 `Digest Pin Integrity` job 曾经把 digest
 # **抄了一份**写死在 workflow 里。于是 Dockerfile 升级 pin 之后，那个 job 仍然在
 # 验证**旧** digest —— 它自证不了"当前使用的 pin 有效"，正是本仓反复踩到的
 # "门禁不会红"形态。digest 现在只写在 `docker/Dockerfile` 一处，两个 job 都从这里读。
 #
 # 用法
 # ----
-#   bash scripts/ci/read_base_image_pins.sh                     # 输出 KEY=REF，每行一条
-#   bash scripts/ci/read_base_image_pins.sh RUNTIME_BASE_IMAGE  # 只输出该 ARG 的 REF
+#   bash scripts/ci/read_base_image_pins.sh                      # 输出 KEY=REF，每行一条
+#   bash scripts/ci/read_base_image_pins.sh DEBIAN_BASE_IMAGE    # 只输出该 ARG 的 REF
 #
 # 退出码
 # ------
@@ -20,7 +20,7 @@
 set -euo pipefail
 
 DOCKERFILE="${DOCKERFILE:-docker/Dockerfile}"
-ARGS=(RUNTIME_BASE_IMAGE DEBIAN_BASE_IMAGE RUST_BUILDER_IMAGE)
+ARGS=(DEBIAN_BASE_IMAGE RUST_BUILDER_IMAGE)
 
 read_pin() {
     local arg="$1" ref
@@ -50,6 +50,6 @@ elif [ "$#" -eq 0 ]; then
         printf '%s=%s\n' "$arg" "$ref"
     done
 else
-    echo "usage: $0 [RUNTIME_BASE_IMAGE|DEBIAN_BASE_IMAGE|RUST_BUILDER_IMAGE]" >&2
+    echo "usage: $0 [DEBIAN_BASE_IMAGE|RUST_BUILDER_IMAGE]" >&2
     exit 2
 fi

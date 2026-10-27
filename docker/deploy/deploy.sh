@@ -773,9 +773,10 @@ ensure_ssl_certs() {
 # 它是服务端 megolm 会话的静态加密密钥。`resolve_at_rest_key` 是 fail-closed 的：
 # 路径被配置而文件缺失 / 非法 base64 / 解码后不是 32 字节，服务直接拒绝启动。
 #
-# 而 distroless 镜像里没有 shell，应用自己无从在空目录/空卷里落盘首把密钥 ——
-# 供给只能发生在部署脚本侧。2026-09-21 实测：干净命名卷首次部署时 synapse-app
-# 启动即 panic（`Failed to read key file /app/data/megolm.key`），崩溃循环 exit 133。
+# 而应用自身**不会**生成首把密钥（`resolve_at_rest_key` 是 fail-closed 的，路径配了
+# 但文件缺失就拒绝启动），供给只能发生在部署脚本侧。2026-09-21 实测：干净命名卷首次
+# 部署时 synapse-app 启动即 panic（`Failed to read key file /app/data/megolm.key`），
+# 崩溃循环 exit 133。
 #
 # 本步骤保证：
 #   1. 宿主机 $SYNAPSE_DATA_DIR/megolm.key 存在且可用（缺失则生成）；

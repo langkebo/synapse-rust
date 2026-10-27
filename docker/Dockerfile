@@ -1,17 +1,19 @@
 ARG RUST_VERSION=1.93.0  # [DEPRECATED] 已移除实际使用，保留仅用于文档引用。当前版本由 RUST_BUILDER_IMAGE pin 管理。
 ARG RUST_BUILDER_IMAGE=rust:1.93.0-slim-bookworm@sha256:776861219cd851131c1cec3bbd7cbeb16b99a794048097eb69ad9682a8ed0d57
-# 2026-10-27 升 digest，修 Trivy 的唯一一条 HIGH：旧 pin（2026-09-20 的 e8e7ee4b…）里
-# `libssl3` 是 3.0.20-1~deb12u2，而 CVE-2026-84782 的修复版 3.0.22-1~deb12u2 已在当前
-# 官方镜像内。⚠️ 这两个 digest 是 `docker-security-scan.yml` 的
-# `resolve-base-image-digests`（仅 workflow_dispatch）从 registry **读出**的，不是手抄 ——
-# 该 job 存在的理由就是"`Digest Pin Integrity` 只验 pin 有效、不验 pin 落后"。
-ARG RUNTIME_BASE_IMAGE=gcr.io/distroless/cc-debian12@sha256:e5d81ddde149641e2a9ba55be4545bc125c67de07508b03ba4c22e6eb0ded5aa
+# 2026-10-27：`RUNTIME_BASE_IMAGE`（`gcr.io/distroless/cc-debian12`）及其两个下游 stage
+# （`runtime-libs` / `runtime-distroless`）**已删除**。理由：全仓没有任何构建/部署入口会生成
+# `--target runtime-distroless`（`docker/docker-compose.yml` 与 `docker/deploy/deploy.sh` 都是
+# `--target tools`），而它让 `Base Image Scan` 永久红在 `libssl3` 的 CVE-2026-84782 上 ——
+# 实测该 pin **就是** `cc-debian12:latest` 本身（上游未重建），本仓无从修复。
+# 证据与裁决见 `docs/audit/CI_LANE_BLINDNESS_2026-10-27.md` §7.2；这条改动同时是
+# `docs/audit/archive/DOCKER_REVIEW_2026-09-19.md` P0-1/O1-1「B. 废弃」的落地。
 # 2026-09-20 升 digest 清 Trivy 的 3 个 HIGH：旧 pin（2026-07-30 的 7b140f37…）里
 # libpcre2-8-0 是 10.42-1，而 DLA-4772-1 的修复版本 10.42-1+deb12u1 已在当前官方
 # 镜像内（同批还修了 liblzma5 5.4.1-1+deb12u1 → +deb12u2）。此 digest 为 index，
 # 与旧 pin 同类。⚠️ 引用点只有两处：本文件的 ARG（唯一真相源）+ `docker/complement/Dockerfile`
 # 的同一个 ARG；workflow 侧一律通过 `scripts/ci/read_base_image_pins.sh` 读，不得再抄 digest。
-# 2026-10-27 一并升到当前 index（旧 pin 里 libssl3 仍在 3.0.20，见上面 RUNTIME 那条注释）。
+# 2026-10-27 一并升到当前 index（旧 pin 里 libssl3 仍在 3.0.20；`tools` 阶段在构建期
+# `apt-get install libssl3`，实测装到 3.0.22-1~deb12u2，故出货镜像无该 CVE）。
 ARG DEBIAN_BASE_IMAGE=debian:bookworm-slim@sha256:7ff6ba31527b9e336162fa061746c366c4b2032f4d2cff2078bea43f78efe3f8
 ARG MIRROR_URL=
 ARG CARGO_FEATURE_ARGS="--features core-private-chat,widgets,external-services,voice-extended,cas-sso,saml-sso,friends --no-default-features"
@@ -123,78 +125,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     cp -R migrations/. /out/app/migrations/
 
 # ============================================================================
-# Stage 2: runtime-libs — 从 debian-slim 抽取 distroless 缺失的动态库
-# 仅在 distroless `runtime` 目标使用. 默认 `tools` 目标不依赖此阶段.
-# ============================================================================
-FROM ${DEBIAN_BASE_IMAGE} AS runtime-libs
-
-# hadolint DL4006: this stage pipes `find` into `head`, and a POSIX `sh` reports
-# only the last command's status. With `pipefail` a failing `find` inside the
-# `$( … )` cannot silently yield an empty path that the following `dirname`
-# turns into a bogus destination. `debian:bookworm-slim` ships bash.
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-
-RUN if [ -n "${MIRROR_URL}" ]; then sed -i "s|deb.debian.org|${MIRROR_URL}|g" /etc/apt/sources.list.d/debian.sources; fi && \
-    apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    libssl3 \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN set -eux; \
-    lib_dir="$(dirname "$(find /lib /usr/lib -maxdepth 2 -type f -name 'libssl.so.3' | head -n 1)")"; \
-    loader_path="$(find /lib /usr/lib -maxdepth 2 -type f -name 'ld-linux-*.so.*' | head -n 1)"; \
-    loader_dir="$(dirname "${loader_path}")"; \
-    mkdir -p "/out${lib_dir}" "/out${loader_dir}" /out/etc/ssl/certs; \
-    cp -L "${lib_dir}/libssl.so.3"    "/out${lib_dir}/"; \
-    cp -L "${lib_dir}/libcrypto.so.3" "/out${lib_dir}/"; \
-    cp -L "${lib_dir}/libgcc_s.so.1"  "/out${lib_dir}/"; \
-    cp -L "${lib_dir}/libm.so.6"      "/out${lib_dir}/"; \
-    cp -L "${lib_dir}/libc.so.6"      "/out${lib_dir}/"; \
-    cp -L "${loader_path}"            "/out${loader_dir}/"; \
-    cp -L /etc/ssl/certs/ca-certificates.crt /out/etc/ssl/certs/
-
-# ============================================================================
-# Stage 3: runtime-distroless — 极简 distroless 镜像 (~30MB)
-# ⚠️ 注意：distroless 无 shell (无 /bin/bash, /bin/sh)，因此不能依赖任何 shell 脚本。
-# 迁移已由外部 Job/initContainer (如 deploy 栈的 migrator) 完成，
-# DB 等待由 compose `depends_on: condition: service_healthy` 或 Rust 二进制自身重试处理。
-# 选用方法: docker build --target runtime-distroless ...
-# ============================================================================
-FROM ${RUNTIME_BASE_IMAGE} AS runtime-distroless
-
-ARG VERSION=dev
-ARG BUILD_DATE=unknown
-ARG VCS_REF=unknown
-
-LABEL org.opencontainers.image.title="synapse-rust" \
-      org.opencontainers.image.description="Matrix homeserver implemented in Rust (distroless variant)" \
-      org.opencontainers.image.source="https://github.com/langkebo/synapse-rust" \
-      org.opencontainers.image.vendor="synapse-rust" \
-      org.opencontainers.image.version="${VERSION}" \
-      org.opencontainers.image.created="${BUILD_DATE}" \
-      org.opencontainers.image.revision="${VCS_REF}" \
-      org.opencontainers.image.licenses="AGPL-3.0-only"
-
-ENV RUST_LOG=info \
-    RUST_BACKTRACE=1 \
-    HOME=/app \
-    SYNAPSE_CONFIG_PATH=/app/config/homeserver.yaml \
-    SYNAPSE_HEALTHCHECK_HOST=127.0.0.1 \
-    SYNAPSE_HEALTHCHECK_PORT=8008
-
-COPY --from=runtime-libs /out/ /
-COPY --chown=1000:1000 --from=builder /out/app /app
-
-WORKDIR /app
-USER 1000:1000
-EXPOSE 8008 8448
-# distroless 无 tini，由 compose/runtime 的 --init 或 systemd 接管 PID 1
-HEALTHCHECK --interval=15s --timeout=10s --start-period=60s --retries=5 CMD ["/app/healthcheck"]
-# [O1-1] distroless 无 shell，直接 exec 二进制，不走 entrypoint.sh
-ENTRYPOINT ["/app/synapse-rust"]
-
-# ============================================================================
-# Stage 4 (DEFAULT): tools — 生产推荐目标
+# Stage 2 (DEFAULT): tools — 生产推荐目标
 # debian-slim + libssl3 + ca-certificates + postgresql-client + curl
 # 体积约 200MB, 但能在容器内自洽完成: 等待 DB → 执行迁移 → 校验 schema → 启动
 # ============================================================================
@@ -235,9 +166,8 @@ WORKDIR /app
 # hadolint DL3066: use the numeric uid/gid that `useradd -u 1000 -g synapse`
 # created (and that `COPY --chown=1000:1000` above already assumes) instead of
 # the name. A name is only resolvable through `/etc/passwd`, which is absent in
-# distroless-style runtimes and when the image is started with `--user`; the
-# numeric form works everywhere and matches `USER 1000:1000` used elsewhere in
-# this file.
+# stripped runtimes and when the image is started with `--user`; the numeric
+# form works in both cases.
 USER 1000:1000
 
 ENV RUST_LOG=info \

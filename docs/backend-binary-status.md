@@ -7,6 +7,8 @@
 **运行中镜像信息：**
 - 容器: `synapse-app`
 - 镜像: `synapse-rust:distroless` (`sha256:6f31191e7df0ccc1a2ab0fe44425c4e387464cf6d07f84428ee030e233c467a1`)
+  （历史记录：该 tag 来自当时的一次本地构建；Dockerfile 的 `distroless` 目标已于
+  2026-10-27 删除，现行出货目标是 `tools`）
 - 镜像创建时间：未知（需进一步核查）
 
 **实际观测到的指标格式：**
@@ -125,8 +127,8 @@ Prometheus Histogram 必须包含：
 
 4. **构建部署：**
    ```bash
-   # 在 docker/deploy/ 构建
-   docker build -t synapse-rust:distroless .
+   # 在仓库根执行（Dockerfile 在 docker/ 下，构建上下文是根）
+   docker build -f docker/Dockerfile --target tools -t synapse-rust:tools .
    docker-compose up -d synapse-app
    ```
 

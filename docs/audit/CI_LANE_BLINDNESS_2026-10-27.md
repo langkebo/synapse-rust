@@ -27,7 +27,7 @@
 | 11 | 让渡后 `d297b2937` 上 `Repo Sanity` **31/31 步全绿**（0 failure / 0 skipped）—— 该 job 自 `15efc8dc6` 起第一次真正全绿 | ✅ 车道闭合 |
 | 12 | 同一批缩略图提交还让 **`baseline_tables` 的硬编码例外**过期 ⇒ `Test & Lint (×all-features)` 红在 `--workspace --lib`、`Code Coverage` 红在步骤 1/3（同一根因，错误信息却指向"DB 测试"） | ✅ 已修（模型改为**从基线解析**例外列表，§6.4） |
 | 13 | 被当作"存量"放过的 `DB Migration Gate` 红，实为**门禁上线那天就红**：`WARNING_BUDGET` 只登记 1 条 SBG-03，实际 3 条，另两条是合法的测试库前置断言且从未登记；且 `SAFE_FILES` 是**整文件**豁免，让"计数查询是有意的"顺带换来对 `DROP SCHEMA public CASCADE` 免疫 | ✅ 已修（补登记 + 豁免收窄到**逐规则** + 豁免清单自检，§7.1） |
-| 14 | 被当作"存量"放过的 `Docker Security Scan` 红**不是配置错**：`distroless/cc-debian12` pin 里 `libssl3 3.0.20` 带 `CVE-2026-84782`（HIGH，修复版 `3.0.22`） | ⏸ 待决策（换 digest 才是真修，需能连 gcr.io 的环境，§7.2） |
+| 14 | 被当作"存量"放过的 `Docker Security Scan` 红**是真 CVE，但落在没人构建的目标上**：`distroless/cc-debian12` 里 `libssl3 3.0.20` 带 `CVE-2026-84782`（HIGH，修复版 `3.0.22`）；该 pin 经实测**就是上游 `latest`**（换 digest 无用），且 `runtime-distroless` 全仓无构建/部署入口 | ✅ 已裁决（删 `runtime-distroless` / `runtime-libs` 死路径，**不用** `.trivyignore` 压制，§7.2） |
 
 一句话：**这些车道不是"没发现问题"，是"根本没运行/根本不可能运行"**。它们此前的沉默不能作为
 任何"已合规"的证据。四个缺陷里有三个同源（§1 / §3 / §4）：**判据依赖"我这台机器上有什么"，而不是
@@ -359,10 +359,11 @@ the v11-10 dynamic `DROP INDEX` cleanup (markers ["DROP INDEX IF EXISTS %I.%I",
 **6 条测试同时 FAILED**（新测试 + `:234` 的 required-keep 兜底 + 4 条间接依赖 reference 集的），
 还原后 `grep ZZZ_MUTANT` = 0。
 
-## 7 两个被当成"存量"放过的红：一个门禁天生红，一个是真实供应链发现
+## 7 两个被当成"存量"放过的红：一个门禁天生红，一个红了 8 天却修不了
 
 `DB Migration Gate` 与 `Docker Security Scan` 从 `eb8f40b7a`（2026-10-19）起**每轮都红**，
-长期以"存量、与代码无关"绕过。逐条查清后两者性质完全不同。
+长期以"存量、与代码无关"绕过。逐条查清后两者性质完全不同：前者是**我们的**门禁从上线那天就红
+（可修），后者是**真 CVE 落在没人构建的目标上**（pin 已等于上游 latest，本仓修不了 ⇒ 删死路径）。
 
 ### 7.1 `Schema Blind Guards`：门禁上线那天就已经是红的（已修）
 
@@ -407,11 +408,13 @@ the v11-10 dynamic `DROP INDEX` cleanup (markers ["DROP INDEX IF EXISTS %I.%I",
 `validate_exemptions()` 五个分支逐个实测：正常清单无问题；规则编号写错 / 漏 `rules` /
 `rules` 为空集 / 漏 `reason` 各自给出对应报错。
 
-### 7.2 `Base Image Scan`：不是配置错，是 distroless 基础镜像真带 HIGH CVE（未修，待决策）
+### 7.2 `Base Image Scan`：真 CVE，但落在没人构建的目标上（已裁决：删死路径）
 
-从 `trivy-base-sarif` artifact（22 MB 日志里只有摘要，明细在 SARIF 内）解析出的**唯一一条**：
+**症状**：`Docker Security Scan` 每轮红，唯一失败步骤是
+`Scan distroless runtime base — blocking`。从 `trivy-base-sarif` artifact（22 MB 日志里只有
+摘要，明细在 SARIF 的 `runs[0].results[]`）解析出的**唯一一条**：
 
-```
+```text
 Package: libssl3
 Installed Version: 3.0.20-1~deb12u2
 Vulnerability: CVE-2026-84782   Severity: HIGH
@@ -419,28 +422,74 @@ Fixed Version:  3.0.22-1~deb12u2
 Target: distroless/cc-debian12
 ```
 
-即 `docker/Dockerfile:3` 的
-`ARG RUNTIME_BASE_IMAGE=gcr.io/distroless/cc-debian12@sha256:e8e7ee4b…` 落后于 Debian 12 的
-安全更新。`Digest Pin Integrity` 只验"pin 在 registry 上仍有效"，**不验"pin 里有没有补丁"**
-⇒ 两个 job 同时绿/红并不矛盾。
+**第一轮判断，一半作废**：当时定性为"`RUNTIME_BASE_IMAGE` 的 pin 落后于 Debian 12 安全更新"，
+修法是换 digest；障碍是本机 `gcr.io` / `registry-1.docker.io` 都被代理拦成
+`CONNECT tunnel failed, response 502`。于是先补了 `resolve-base-image-digests`
+（`workflow_dispatch` only）把"拿 digest"自动化，再用它读出的值升了两个 pin。
+**换完仍然红** —— 这才逼出下面这组读数。
 
-两条路：
+#### 读数（2026-10-27，全部实测）
 
-1. **真修**：把 digest 换到当前 `cc-debian12`（其上层已含 `libssl3 3.0.22-1~deb12u2`）。
-   障碍是**本机拿不到新 digest**：`gcr.io` 与 `registry-1.docker.io` 都被代理拦成
-   `CONNECT tunnel failed, response 502`（`docker manifest inspect` 同样 `Bad Gateway`）。
-2. **登记**：加 `.trivyignore` 并写理由 + 到期日。但这会让 `Base Image Scan` 从此对
-   同一镜像上的**任何**新 CVE 保持沉默，除非每次重写理由 —— 属"让渡"性质。
+| # | 问题 | 读数 | 取法 |
+| --- | --- | --- | --- |
+| 1 | 换上去的 `e5d81dd…` 落后吗 | **不落后**，它就是上游当前最新 | `docker pull …:latest` 后 `docker inspect .RepoDigests` 与 pin 逐字相同 |
+| 2 | 上游为什么不重建 | distroless 层内文件时间仍是 2026-06-07，`libssl3` 元数据写死 `3.0.20` | `docker export` 后读 `var/lib/dpkg/status.d/libssl3` |
+| 3 | 谁在出货 | `docker/docker-compose.yml` `target: tools`、`docker/deploy/deploy.sh` `--target tools`、`trivy-scan` 也是 `--target tools` | 三处逐一核对 |
+| 4 | 谁会用到被扫的镜像 | **没有任何入口**。全仓无 `--target runtime-distroless`（只有 Dockerfile 自身、守卫测试、归档审计提到） | `grep -rn runtime-distroless`（排除 `.worktrees/`） |
+| 5 | 出货镜像干净吗 | 干净：`Trivy Image Scan` **success**。`tools` 阶段在构建期 `apt-get install libssl3` | 同 run 的 job 结论 + 容器内 `apt-cache policy libssl3` = `3.0.22-1~deb12u2` |
+| 6 | 覆盖 `.so` 能不能把门禁救绿 | **不能**。两边路径同为 `/usr/lib/aarch64-linux-gnu/`（`runtime-libs` 确实会覆盖成 3.0.22），但 distroless 的 `var/lib/dpkg/status.d/libssl3` 仍写 `3.0.20`，而 Trivy 判版本只读**包元数据** ⇒ 扫"覆盖后的产物"照样红 | 本地 export 两个根文件系统逐项比对 |
 
-**已取路线 ①**，并把"拿 digest"这步补成自动化：`docker-security-scan.yml` 新增
-`resolve-base-image-digests` job（`if: github.event_name == 'workflow_dispatch'`，
-故不影响 push/PR 的既有行为）。它用**同一个** `scripts/ci/read_base_image_pins.sh`
-读 pin，把每个 ref 的 tag 解析成 registry 当前 digest，逐条标 `up-to-date` / `STALE`，
-并打印可直接替换的 `ARG ....=<name>@<digest>` 行 + 写进 step summary。
+**结论**：这条红是"**pin 里的层内容落后**"，不是"任何会被构建或运行的产物的暴露面"；
+而且**本仓无从修复**（pin 已等于上游 latest，第 1 条）。它此前被当成"存量红"放过，
+实质上是一条**永远绿不了的门禁** —— 与 §7.1 同型，只是成因在别人手里。
 
-这个 job 存在的理由正是本节的结论：`digest-pin-check` 只验"pin 有效"，
-**没有任何东西在验"pin 落后"** —— 于是"该换 digest"这件事此前只能靠人去 registry 手查，
-落到实践里就是**红着不动**。
+#### 处置：删死路径，而不是压制
+
+`docs/audit/archive/DOCKER_REVIEW_2026-09-19.md` 的 P0-1 / O1-1 早就给过两条路：
+「A. 让 `runtime-distroless` 真能跑」或「B. 明确废弃、删掉 Stage 2/3」。当时取了 A，
+但**随后没有任何构建/部署入口接上它**，于是它以"永久红门禁"的形式还了债。
+
+本次取 **B**：
+
+| 文件 | 改动 |
+| --- | --- |
+| `docker/Dockerfile` | 删 `RUNTIME_BASE_IMAGE` ARG 与 `runtime-libs` / `runtime-distroless` 两个 stage；原 `Stage 4` 重编号为 `Stage 2` |
+| `scripts/ci/read_base_image_pins.sh` | `ARGS` 3 → 2（`DEBIAN_BASE_IMAGE` / `RUST_BUILDER_IMAGE`）；对已删除的 ARG 仍 `exit 2`（实测） |
+| `.github/workflows/docker-security-scan.yml` | 删那条阻断扫描 + 它的 SARIF upload；job 注释改为实情 |
+| `tests/unit/workflow_pipefail_tests.rs` | 两处计数守卫 3 → 2；三处文档注释同步 |
+
+顺带修掉一条**指向不存在测试的注释**：`base-image-scan` job 头原写
+"守卫：`tests/unit/ci_test_scope_tests.rs::docker_security_scan_base_images_are_read_from_the_dockerfile`"
+—— 该文件里没有这个函数（真实守卫在 `workflow_pipefail_tests.rs`）。这与本仓反复出现的
+"声明判据 ≠ 执行判据"是同一个病：**守卫的名字写错了，读者会以为有守卫**。
+
+#### 自证
+
+* 改后三条守卫实跑 **`PASS` ×3**（`every_pinned_base_image_is_scanned_and_report_only_is_an_explicit_exception`、
+  `base_image_digests_are_read_from_the_dockerfile_not_copied_into_workflows`、
+  `blocking_trivy_steps_must_not_let_sarif_silently_drop_the_severity_filter`）。
+* 变异 ①：把 debian 那条扫描的 `exit-code` 从 `'1'` 改成 `'0'` ⇒ **2 条守卫 `FAIL`**
+  （`report-only` 变成 2 个 + 阻断数不足）。
+* 变异 ②：在 job 里再插一条 `image-ref: …RUNTIME_BASE_IMAGE` 的阻断扫描 ⇒
+  `base-image-scan 必须恰好扫两个 pinned 基础镜像（debian / builder）；实际扫描：[…] 3 条` ⇒ `FAIL`。
+  两次变异后均已还原（`git diff` 只剩本节所述的预期改动）。
+* 脚本面：`bash scripts/ci/read_base_image_pins.sh RUNTIME_BASE_IMAGE` 仍 `exit 2` 并打印
+  `does not define ARG RUNTIME_BASE_IMAGE` —— **删掉的 ARG 不会静默变成空值**。
+
+#### 两条别读错的推论
+
+1. 删的是"**我们的**死路径"，不是"distroless 有问题"。若要重做 distroless 变体，正确姿势是
+   **先 build 再扫产物**（`--target` 出真镜像），而不是扫裸基座 —— 后者会把"没人构建的层"
+   当成"我们的暴露面"，正是本节的病根。
+2. `Digest Pin Integrity` 与本节的关系没变：它只验"pin 在 registry 上仍有效"，
+   **不验"pin 里有没有补丁"**；"pin 是否落后"由 `resolve-base-image-digests` 负责（dispatch only）。
+   三个 job 的分工见 §7.2 上文的读数表。
+
+#### 仍未闭合
+
+`DB Migration Gate` 之外，`Docker Security Scan` 现在应全绿（`hadolint` / `trivy-scan` /
+`base-image-scan` / `digest-pin-check`）；`Resolve Base Image Digests` 按设计只在
+`workflow_dispatch` 上跑，push 时是 `skipped` —— **`skipped` 不是绿**，读结论时别混。
 
 ## 8 复核命令（一键）
 

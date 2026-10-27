@@ -555,7 +555,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 |------|-------------------|--------------|
 | **构建时间** | 秒级（无编译） | 分钟级（8 crate workspace + 编译时 SQL 验证 + LTO） |
 | **Profile** | 无 | dev (opt-level=1) / test (opt-level=0) / release (LTO) / bench |
-| **交叉编译** | 不需要 | ⚠️ **不成立**：`rust-toolchain.toml` 只声明 `x86_64-unknown-linux-gnu`，全仓无 `musl` 目标；`docker/Dockerfile` 使用 `distroless/cc-debian12` 并**显式抽取缺失的动态库**（`runtime-libs` 阶段），即产物是 glibc **动态链接**，不是静态链接 |
+| **交叉编译** | 不需要 | ⚠️ **不成立**：`rust-toolchain.toml` 只声明 `x86_64-unknown-linux-gnu`，全仓无 `musl` 目标；`docker/Dockerfile` 的运行镜像 `tools` 就是 `debian:bookworm-slim`（构建期 `apt-get install libssl3`），二进制是 glibc **动态链接**，不是静态链接 |
 | **增量编译** | 不需要 | 支持（incremental=true for dev/test） |
 
 ### 9.3 代码组织
@@ -604,7 +604,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 |------|-------------------|--------------|
 | **Docker 镜像** | ~400-600 MB | 预期 ~50-100 MB（⚠️ 本轮未实测：无可用镜像产物） |
 | **二进制大小** | N/A（解释执行） | 未实测（`release` 为 LTO + `strip=false` + `panic=abort`，保留行号表供 jeprof 符号化） |
-| **链接方式** | N/A | glibc **动态链接**（`distroless/cc-debian12` + 抽取 libssl3 等动态库），**非静态链接** |
+| **链接方式** | N/A | glibc **动态链接**（运行镜像 `tools` = `debian:bookworm-slim` + 构建期 apt 装的 `libssl3`），**非静态链接** |
 | **网络序列化** | Python json | serde_json + bytes（零拷贝） |
 | **HTTP 压缩** | 无 | tower-http compression-gzip |
 
@@ -781,7 +781,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | **业务定制需求** | synapse-rust | 好友/阅后即焚/信标等扩展功能 |
 | **社区贡献项目** | Synapse | 贡献门槛低，文档完善 |
 | **合规审计要求** | Synapse | 安全审计历史长，CVE 记录完整 |
-| **跨平台部署** | synapse-rust | 单二进制 + distroless 容器；⚠️ 依赖 glibc 动态库，**不是**静态链接，跨平台需按目标平台重新编译 |
+| **跨平台部署** | synapse-rust | 单二进制 + debian-slim 容器（`tools` 目标）；⚠️ 依赖 glibc 动态库，**不是**静态链接，跨平台需按目标平台重新编译 |
 
 ### 12.4 风险提示
 
@@ -888,7 +888,7 @@ burn-after-read = ["synapse-services/burn-after-read", "synapse-web/burn-after-r
 | 伪造引用 | 删除 `docs/synapse-rust/api-reference.md`（文件不存在）与 "656 端点 / 48 模块"；改挂 `ROUTE_CONTRACT.md`（1,166 条 / 66 模块） |
 | 计数 | .rs 1020 / 439,130 行；workspace members 8 + 根 = 9；common 72、federation 20、web 162（routes 144）、根 `src/` 38；tests 230（106/113/3/5）；benches 5；docs 221；docker 212；migrations 1 |
 | 版本 | tokio 实锁 1.53.1；vodozemac 实锁 0.11.0；insta 实锁 1.48.0；quickcheck 仅用于输入校验 |
-| 事实 | 删除"sqlx 编译时验证"（static 61 / dynamic 2147 ≈ 2.8%）；删除"静态链接 + musl"（gnu + distroless 动态库）；修正 `server` 特性（已删除）、`web/routes/e2ee/backup.rs` 路径 |
+| 事实 | 删除"sqlx 编译时验证"（static 61 / dynamic 2147 ≈ 2.8%）；删除"静态链接 + musl"（gnu + debian-slim 动态库）；修正 `server` 特性（已删除）、`web/routes/e2ee/backup.rs` 路径 |
 | §7.2/§11.1 | E2EE 由 "✅ 完整" 降为 PARTIAL（SAS 非 HKDF、QR 桩、泄漏检测未编译）；MSC4140 由 "✅ 已对齐" 降为 PARTIAL（无联邦/EDU）；MSC3912 行由"待验证"改为明确的 v11 撤回格式缺陷 |
 | §11.2/§11.3 | Content Scanner 由"缺存储层"改为"未装配孤儿模块"；SMS 补 `HttpSmsProvider`；privacy 路径纠正；Dehydrated `/events` 标注端点漂移；Search/Relations/Admin/App Service 降级为部分对齐 |
 | §11.1 v1.161 表 | 8 项"待核查"全部实测判定；其中 #20169 的旧 ✅ 属误判（机制不同）；#20036、#20180 确认缺失 |

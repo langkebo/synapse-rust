@@ -298,9 +298,9 @@ services:
       #     或不是合法的 32 字节 base64，服务就拒绝启动。
       #   - signing.key ← homeserver.yaml 的 server.signing_key_path，由服务写出。
       #
-      # 用命名卷时这个目录是**空白**的，部署脚本也无从落盘（distroless 镜像没有
-      # shell，无法在卷里生成文件）。实测（2026-09-21）：干净卷首次部署时
-      # synapse-app 启动即 panic —— `Failed to read key file /app/data/megolm.key`，
+      # 用命名卷时这个目录是**空白**的，而应用自身不会生成首把密钥（fail-closed，
+      # 见上），供给只能由部署脚本在宿主机侧完成。实测（2026-09-21）：干净卷首次
+      # 部署时 synapse-app 启动即 panic —— `Failed to read key file /app/data/megolm.key`，
       # 崩溃循环 exit 133。
       #
       # 改成宿主机目录后：deploy.sh 的 ensure_app_data_keys 可以先在宿主机把密钥

@@ -248,16 +248,30 @@
       读数：命中 20→20 条不变、`(规则,文件)` 集合逐条相同、`INFO 17→19` / `ERROR 2→0` / `EXIT 1→0`。
       **A/B 自证**：同一份变异（往 `dev-test-setup.sh` 加真 `DROP SCHEMA public CASCADE`）下，
       旧脚本降级为 `INFO`、新脚本报 `ERROR`
-    - **`Docker Security Scan` 的红是真供应链发现**：从 `trivy-base-sarif` artifact 解析出唯一一条 ——
-      `libssl3 3.0.20-1~deb12u2` / `CVE-2026-84782` / HIGH / 修复版 `3.0.22-1~deb12u2`，
-      即在 `docker/Dockerfile:3` 的 `distroless/cc-debian12@sha256:e8e7ee4b…` 里。
-      `Digest Pin Integrity` 只验"pin 在 registry 上仍有效"、**不验"pin 里有没有补丁"** ⇒ 两者不矛盾。
-      **处置**：本机两个 registry 都被代理拦成 `CONNECT tunnel 502`（`docker manifest inspect` →
-      `Bad Gateway`），故按决策在 `docker-security-scan.yml` 加了 `resolve-base-image-digests`
-      job（`if: workflow_dispatch`，不影响 push/PR）：用同一个 `read_base_image_pins.sh` 读 pin，
-      把每个 ref 的 tag 解析成 registry 当前 digest，标 `up-to-date`/`STALE`，并打印可直接替换的
-      `ARG …=repo@digest` 行 + step summary。理由是 `digest-pin-check` 只验"pin 有效"、
-      **没有任何东西验"pin 落后"**，于是"该换 digest"这件事此前只能靠人手查 ⇒ 落到实践里就是红着不动
+    - **`Docker Security Scan` 的红是真 CVE，但落在没人构建的目标上**：从 `trivy-base-sarif`
+      artifact 解析出唯一一条 —— `libssl3 3.0.20-1~deb12u2` / `CVE-2026-84782` / HIGH /
+      修复版 `3.0.22-1~deb12u2`，在 `distroless/cc-debian12` 里。
+      **换 pin 没用**：实测 `e5d81dd…` **就是** `cc-debian12:latest`（上游未重建，层内文件仍是
+      2026-06-07 的 `3.0.20`）。而这条扫描针对的 `runtime-distroless` 目标**全仓无构建/部署入口**
+      （compose 与 `deploy.sh` 都是 `--target tools`），真出货镜像的 `Trivy Image Scan` 一直是
+      success（`tools` 阶段构建期 apt 装到 `3.0.22-1~deb12u2`，实测）。
+      **裁决**：不用 `.trivyignore` 压制，删掉 `runtime-distroless` / `runtime-libs` 两个 stage
+      （= 归档审计 DOCKER_REVIEW_2026-09-19 的 P0-1/O1-1「B. 废弃」），`Base Image Scan` 只留
+      debian（真出货根，阻断）+ builder（report-only）。另补 `resolve-base-image-digests`
+      （`workflow_dispatch` only）让"pin 落后"可被自动读出，并修正一条指向**不存在测试**的
+      守卫注释（原文指 `ci_test_scope_tests.rs` 里没有的函名）。
+- ✅ **[TEST_COMPROMISE_AUDIT_2026-10-25.md](TEST_COMPROMISE_AUDIT_2026-10-25.md)** §7.7：**覆盖率车道第一次跑通，棘轮红在 134 个文件**（`0a5310346` / run `40469375466`）。
+  - `Run coverage`（三条腿）**success**，约 75 min；`Code Coverage` 的红从"跑不到"变成"跑到了不达标"，
+    失败步 `Per-file coverage ratchet (B.3)`
+  - 两类信号：①**6 条 core-path** `was no baseline`（`credential_auth.rs` / `token_auth.rs` /
+    `history_boundary.rs` 均为 **0.0%** < 70%，另 `cascade.rs` 48.6%、`msc4512_proxy.rs` 24.8%、
+    `worker_topology.rs` 45.1%）；②**134 条** 已有地板但下降，幅度异常（`tracing.rs` 74.6%→19.4%、
+    `federation/client.rs` 59.5%→36.8%、`admin_media_service.rs` 100%→72.8%）
+  - **判定：性质未定，明确禁止 `--update`**。大幅负 delta 更像**测量口径变了**（本轮 `STORAGE_FEATURES`
+    新增 `friends,widgets,burn-after-read`，此前从不编译的代码现在进分母），但**只是候选解释、未证实**；
+    按当前测量重写基线＝把这些值永久固化成新地板，与 §7.5 的"32 个 0.0 是 bootstrap 冻结值"同一个坑
+  - **下一步**：同一 commit 取两次 lcov（加/不加这三个 feature）逐文件比对判定口径；6 条 core-path
+    按 §7.5 方法逐条定性；两者明确后才允许动 `coverage_baseline.json`
 - ✅ **[TEST_COMPROMISE_AUDIT_2026-10-25.md](TEST_COMPROMISE_AUDIT_2026-10-25.md)** 第 9 轮：**最后一个开口（原 ⑦ 类 8 个 0%）关掉**，代价 6 分钟。
   - **改判**：`synapse-web/routes/**` 那 8 个不是"只能等 CI 的 integration 腿"，而是**陈旧（地板冻结）**。
     8 个文件都在 `synapse-web` crate、模块**无条件**编译、**每个都自带内联 `#[cfg(test)] mod tests`**
