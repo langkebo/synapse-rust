@@ -160,7 +160,7 @@ fn no_unallowlisted_self_built_schema_in_test_regions() {
 #[test]
 fn scanner_actually_sees_a_known_self_built_schema_site() {
     let hits = list_test_ddl(&scan_root());
-    let known = "synapse-storage/src/refresh_token/mod.rs::tests::setup_refresh_token_db";
+    let known = "synapse-storage/src/refresh_token/tests.rs::setup_refresh_token_db";
     assert!(
         hits.iter().any(|hit| hit_key(hit) == known),
         "扫描器必须能定位 {known}（一个自建 refresh_token 表的既有夹具）；实得 {hits:?}"

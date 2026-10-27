@@ -2829,10 +2829,17 @@ mod db_schema_pool_tests {
             "precondition: the fixture name must look old enough to be an orphan, got {schema_name}"
         );
         let (_, template_name) = scratch_names("orphan_guard");
-        create_scratch_schema(&pool, &schema_name).await;
+        // Park **before** creating: the orphan guard runs in every test process
+        // (once per pool prep) and lists `parked_schemas` *before* it lists the
+        // schemas to drop. Creating first leaves a window where a concurrent
+        // guard snapshots the (still unlisted, hour-old-looking) name and drops
+        // it — which is exactly how this fixture flaked in the full `--workspace
+        // --lib` lane. Parking first closes the window: any guard that can see
+        // the schema also sees it parked.
         park_schema_in_db_pool(&pool, &schema_name, &template_name, current_timestamp_millis())
             .await
             .expect("park the scratch schema");
+        create_scratch_schema(&pool, &schema_name).await;
 
         let report = reclaim_orphan_test_schemas(&pool, now_nanos, ORPHAN_SCHEMA_MIN_AGE, usize::MAX)
             .await

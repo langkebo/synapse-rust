@@ -1388,13 +1388,14 @@ fn integration_matrix_runs_both_isolation_modes() {
     {
         assert!(job.contains(required), "integration-test 缺少 `{required}`（双跑矩阵被削掉了？）");
     }
-    // 三条 nextest 步骤都必须把矩阵值传进环境，否则 database 腿其实还在跑 schema。
+    // 四条 nextest 步骤都必须把矩阵值传进环境，否则 database 腿其实还在跑 schema。
     // 第三条是 W8 / TEST-06 的整文件 feature 门控车道（`require_tests_ran.sh` 包着的
     // 显式 feature 列表），它同样必须双跑：否则 3 个门控文件只在 schema 腿被验证过。
+    // 第四条是 2026-10-25 新增的 appservice 统计成本门禁（§3.2.1），同样跑 DB，双跑。
     let isolation_env = job.matches("TEST_DB_ISOLATION: ${{ matrix.isolation }}").count();
     assert_eq!(
-        isolation_env, 3,
-        "`TEST_DB_ISOLATION: ${{{{ matrix.isolation }}}}` 必须出现在三条 nextest 步骤里（实际 {isolation_env} 处）"
+        isolation_env, 4,
+        "`TEST_DB_ISOLATION: ${{{{ matrix.isolation }}}}` 必须出现在四条 nextest 步骤里（实际 {isolation_env} 处）"
     );
     // 与隔离方式无关的车道只在 schema 腿跑，避免把 CI 时间翻倍。
     let schema_only = job.matches("if: matrix.isolation == 'schema'").count();

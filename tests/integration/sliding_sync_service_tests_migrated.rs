@@ -23,6 +23,21 @@ fn unique_id() -> u64 {
     TEST_COUNTER.fetch_add(1, Ordering::SeqCst)
 }
 
+/// MSC3575 / MSC4186（NEW-17）：`rooms` 是 `{join, invite, leave}` 三层对象，
+/// 而本文件的用例只关心 joined 房间 —— 统一从 `join` 层取。
+///
+/// 直接对顶层 `rooms` 做 `contains_key(room_id)` / `len()` 是 NEW-17 之前的旧口径，
+/// 会让断言永远失败（顶层键是 `join`/`invite`/`leave`，不是房间 id）。
+fn joined_rooms(
+    response: &synapse_storage::sliding_sync::SlidingSyncResponse,
+) -> &serde_json::Map<String, serde_json::Value> {
+    response
+        .rooms
+        .get("join")
+        .and_then(|value| value.as_object())
+        .expect("rooms 必须是 {join, invite, leave} 三层对象（NEW-17）")
+}
+
 fn create_service(pool: &Arc<sqlx::PgPool>) -> SlidingSyncService {
     create_service_with_cache(pool, Arc::new(CacheManager::new(&CacheConfig::default())))
 }
@@ -478,7 +493,7 @@ async fn test_sync_with_room_subscriptions() {
     };
 
     let response = service.sync(&user_id, "DEV1", request).await.unwrap();
-    let rooms = response.rooms.as_object().unwrap();
+    let rooms = joined_rooms(&response);
     assert!(rooms.contains_key(&room_id));
 }
 
@@ -593,8 +608,13 @@ async fn test_sync_with_filters() {
     };
 
     let response = service.sync(&user_id, "DEV1", request).await.unwrap();
-    let rooms = response.rooms.as_object().unwrap();
-    assert_eq!(rooms.len(), 1);
+    let rooms = joined_rooms(&response);
+    assert_eq!(
+        rooms.len(),
+        1,
+        "is_dm=true 的过滤列表只应返回 DM 房间，实际返回：{:?}",
+        rooms.keys().collect::<Vec<_>>()
+    );
     assert!(rooms.contains_key(&format!("!dm_{suffix}:localhost")));
 }
 
@@ -1007,7 +1027,7 @@ async fn test_p1_5_room_subscription_change_reflected_immediately() {
         None,
     );
     let response1 = service.sync(&user_id, "DEV1", request1).await.unwrap();
-    let rooms1 = response1.rooms.as_object().unwrap();
+    let rooms1 = joined_rooms(&response1);
     assert!(rooms1.contains_key(&room_a), "first sync should include room_A in response (subscribed)");
 
     // 第二次 sync：订阅 room_B（不再订阅 room_A）
@@ -1020,7 +1040,7 @@ async fn test_p1_5_room_subscription_change_reflected_immediately() {
         Some(response1.pos.clone()),
     );
     let response2 = service.sync(&user_id, "DEV1", request2).await.unwrap();
-    let rooms2 = response2.rooms.as_object().unwrap();
+    let rooms2 = joined_rooms(&response2);
     assert!(rooms2.contains_key(&room_b), "second sync should immediately include room_B (new subscription)");
     // room_A 仍然可能在响应中（因为它在 main list 范围内），但 room_B 必须立即出现
     // 关键点：room_B 的订阅变更在第二次请求中立即生效，无需等待
@@ -1057,7 +1077,7 @@ async fn test_p1_5_unsubscribe_rooms_takes_effect_immediately() {
         None,
     );
     let response1 = service.sync(&user_id, "DEV1", request1).await.unwrap();
-    let rooms1 = response1.rooms.as_object().unwrap();
+    let rooms1 = joined_rooms(&response1);
     assert!(rooms1.contains_key(&room_a), "first sync should include room_A");
 
     // 第二次 sync：unsubscribe room_A
@@ -1121,7 +1141,7 @@ async fn test_p1_5_required_state_change_reflected_immediately() {
         None,
     );
     let response1 = service.sync(&user_id, "DEV1", request1).await.unwrap();
-    let rooms1 = response1.rooms.as_object().unwrap();
+    let rooms1 = joined_rooms(&response1);
     let room_a_resp1 = rooms1.get(&room_a).expect("room_A should be in response");
     let required_state1 = room_a_resp1.get("required_state").and_then(|v| v.as_array());
     assert!(
@@ -1143,7 +1163,7 @@ async fn test_p1_5_required_state_change_reflected_immediately() {
         Some(response1.pos.clone()),
     );
     let response2 = service.sync(&user_id, "DEV1", request2).await.unwrap();
-    let rooms2 = response2.rooms.as_object().unwrap();
+    let rooms2 = joined_rooms(&response2);
     let room_a_resp2 = rooms2.get(&room_a).expect("room_A should be in second response");
     let required_state2 = room_a_resp2
         .get("required_state")
@@ -1213,7 +1233,7 @@ async fn test_p1_5_timeline_limit_change_reflected_immediately() {
         None,
     );
     let response1 = service.sync(&user_id, "DEV1", request1).await.unwrap();
-    let rooms1 = response1.rooms.as_object().unwrap();
+    let rooms1 = joined_rooms(&response1);
     let room_a_resp1 = rooms1.get(&room_a).expect("room_A should be in first response");
     let timeline1 =
         room_a_resp1.get("timeline").and_then(|v| v.as_array()).expect("timeline should be an array in first response");
@@ -1237,7 +1257,7 @@ async fn test_p1_5_timeline_limit_change_reflected_immediately() {
         Some(response1.pos.clone()),
     );
     let response2 = service.sync(&user_id, "DEV1", request2).await.unwrap();
-    let rooms2 = response2.rooms.as_object().unwrap();
+    let rooms2 = joined_rooms(&response2);
     let room_a_resp2 = rooms2.get(&room_a).expect("room_A should be in second response");
     let timeline2 = room_a_resp2
         .get("timeline")
@@ -1402,8 +1422,7 @@ fn make_wm_request(room_id: &str, pos: Option<String>) -> SlidingSyncRequest {
 }
 
 fn wm_timeline_event_ids(response: &synapse_storage::sliding_sync::SlidingSyncResponse, room_id: &str) -> Vec<String> {
-    response
-        .rooms
+    joined_rooms(response)
         .get(room_id)
         .and_then(|room| room.get("timeline"))
         .and_then(|timeline| timeline.as_array())

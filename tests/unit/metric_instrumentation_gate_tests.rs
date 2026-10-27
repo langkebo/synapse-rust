@@ -207,7 +207,7 @@ fn coverage_ratchet_step_declares_the_documented_flags() {
     for needle in [
         "--report coverage/lcov.info",
         "--baseline scripts/ci/coverage_baseline.json",
-        "--new-file-floor 30",
+        "--new-file-floor 50",
         "--core-files scripts/ci/core_file_coverage_prefixes.txt",
         "--core-threshold 70",
         "--non-unit-coverable scripts/ci/non_unit_coverable_prefixes.txt",

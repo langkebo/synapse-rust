@@ -307,8 +307,12 @@ fn scan_mode_reports_a_non_empty_production_surface() {
     // 改为**哨兵文件**判据：这三处是 R7 / 结构性例外（测试基建与分页游标/排序方向），
     // 在战役里**不可能**降到 0；它们同时充当"某个子树被整体排除"的探针 ——
     // 只要扫描面漏掉任何一个，对应哨兵就会消失。
+    // 2026-10-27：`synapse-common/src/test_isolation.rs` 不再是哨兵 —— 提交 `aba957945`
+    // 把测试基建整体挪到 `test-utils` 特性之后，它已**正确地**退出生产扫描面（DDL 守卫
+    // 仍把该文件当 test 区看）。换用 `event/basic.rs`：普通生产文件里的 3 处运行期拼装
+    // （动态列/排序方向），子树被整体排除时同样会消失。
     for sentinel in [
-        "synapse-common/src/test_isolation.rs",
+        "synapse-storage/src/event/basic.rs",
         "synapse-test-utils/src/lib.rs",
         "synapse-storage/src/event/pagination.rs",
     ] {

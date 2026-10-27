@@ -50,12 +50,19 @@ sticky_event.rs:192
 sticky_event.rs:210
 
 # Room tag routes (state mutation ACK)
-tags.rs:106
-tags.rs:120
+#
+# 2026-10-27：P2 tags 收口重写了 `tags.rs`（`get_global_tags` 改为以 `m.tag` 账户数据
+# 为准 + 历史数据回填），两处站点整体漂移：`set_tag` 106 → 183（+77）、`delete_tag`
+# 120 → 201（+81）。两条都是规范 ACK —— `PUT`/`DELETE /user/{userId}/rooms/{roomId}/
+# tags/{tag}` 的响应体按 spec 就是 `{}`，属 spec-allowed 而非占位债务。
+tags.rs:183
+tags.rs:201
 
 # VoIP routes (signalling ACK)
-voip.rs:248
-voip.rs:309
+#
+# 2026-10-27：两处站点整体 +3（248 → 251、309 → 312），此前提交插入代码后未跟改。
+voip.rs:251
+voip.rs:312
 
 # E2EE routes (real ACK after persisted send-to-device, cross-signing, or
 # key-request cancellation)

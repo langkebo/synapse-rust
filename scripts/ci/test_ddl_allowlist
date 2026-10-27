@@ -21,7 +21,14 @@ synapse-federation/src/key_rotation.rs::db_tests::load_or_create_key_recreates_a
 synapse-federation/src/key_rotation.rs::db_tests::load_rotation_config_recreates_a_dropped_config_table
 
 # —— 隔离机制自身的测试：这些用例测的就是"建 schema / 克隆 schema / 删 schema"，
-#    自建 DDL 是它们的被测对象，不是绕过迁移 schema 的夹具。
+#    自建 DDL 是它们的被测对象，不是绕过迁移 schema 的夹具。同一理由覆盖隔离机制
+#    的实现函数（模板构建 / 克隆语句 / 清理），它们本身就是 DDL 的生产者。
+synapse-common/src/test_isolation.rs::build_template
+synapse-common/src/test_isolation.rs::clone_phase2_statement
+synapse-common/src/test_isolation.rs::clone_table_chunk_statement
+synapse-common/src/test_isolation.rs::new
+synapse-common/src/test_isolation.rs::prune_isolation_templates
+synapse-common/src/test_isolation.rs::tests::a_failing_marker_refresh_never_leaves_the_template_with_zero_marker_rows
 synapse-common/src/test_isolation.rs::tests::allowlist_clone_can_insert_into_a_table_it_emptied
 synapse-common/src/test_isolation.rs::tests::allowlist_clone_copies_only_the_allowlisted_rows
 synapse-common/src/test_isolation.rs::tests::clone_copies_seeded_rows
@@ -43,8 +50,11 @@ synapse-common/src/test_isolation.rs::tests::template_is_built_complete_and_reus
 synapse-common/src/test_isolation.rs::tests::template_lock_wait_is_bounded_and_reports_the_key
 synapse-common/src/test_isolation.rs::tests::template_name_embeds_the_fingerprint
 synapse-common/src/test_isolation.rs::tests::validate_clone_rejects_an_incomplete_clone
+synapse-common/src/test_schema_guard.rs::drop_schema_blocking
+synapse-common/src/test_schema_guard.rs::drop_schema_if_unleased_blocking
 synapse-common/src/test_schema_guard.rs::tests::janitor_does_not_drop_a_schema_held_through_an_inner_pool_clone
 synapse-common/src/test_schema_guard.rs::tests::the_lease_allows_several_connections_and_still_blocks_the_janitor
+synapse-common/src/test_schema_orphans.rs::<file>
 synapse-services/src/test_utils.rs::clone_schema_from_template
 synapse-services/src/test_utils.rs::drop_stale_sibling_templates
 synapse-services/src/test_utils.rs::init_template_schema
@@ -90,7 +100,7 @@ synapse-e2ee/src/key_rotation/service/tests.rs::key_rotation_log_stays_user_devi
 synapse-services/src/test_utils.rs::ensure_test_schema_contract
 synapse-services/src/room/membership/federation.rs::join_persistence_failure_tests::join_fails_closed_without_claiming_membership_when_event_persistence_fails
 synapse-services/src/room/messaging/messages.rs::txn_dedup_compensation_tests::dedup_marker_failure_soft_fails_the_created_event
-synapse-storage/src/device/mod.rs::tests::test_lazy_loaded_members_are_cleaned_up_with_device_lifecycle
+synapse-storage/src/device/tests.rs::test_lazy_loaded_members_are_cleaned_up_with_device_lifecycle
 synapse-storage/src/feature_flags.rs::tests::ensure_feature_flag_tables
 synapse-storage/src/oauth_client_storage.rs::tests::setup_oauth_client_db
 synapse-storage/src/oidc_session_storage.rs::tests::setup_oidc_session_db
@@ -102,7 +112,7 @@ synapse-storage/src/pruning.rs::db_tests::prune_quarantined_media_changes_respec
 synapse-storage/src/pruning.rs::db_tests::prune_to_device_transactions_old_only
 synapse-storage/src/pruning.rs::db_tests::prune_token_blacklist_keeps_permanent
 synapse-storage/src/pruning.rs::db_tests::seed_changes
-synapse-storage/src/refresh_token/mod.rs::tests::setup_refresh_token_db
+synapse-storage/src/refresh_token/tests.rs::setup_refresh_token_db
 
 # —— D-95 的"构造违规"用例：`ALTER TABLE … DROP CONSTRAINT` / `ADD CONSTRAINT … NOT VALID`
 #    就是**被测对象**（完整性巡检必须能对"约束被删掉/未验证"报警，否则又回到"恒 0 违规"的
