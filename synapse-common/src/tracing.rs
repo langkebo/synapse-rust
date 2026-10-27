@@ -92,10 +92,80 @@ impl tracing::field::Visit for RequestIdFieldVisitor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Arc, Mutex};
+    use tracing::info_span;
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::registry::LookupSpan;
+
+    /// Records, for every newly created span, the `RequestId` that
+    /// `RequestIdPropagationLayer` left in its extensions. Registered *after*
+    /// the layer under test so it observes the result of `on_new_span`.
+    #[derive(Clone, Default)]
+    struct CapturingLayer {
+        seen: Arc<Mutex<Vec<Option<String>>>>,
+    }
+
+    impl<S> Layer<S> for CapturingLayer
+    where
+        S: Subscriber + for<'lookup> LookupSpan<'lookup>,
+    {
+        fn on_new_span(&self, _attrs: &Attributes<'_>, id: &Id, ctx: LayerContext<'_, S>) {
+            let rid = ctx.span(id).and_then(|span| span.extensions().get::<RequestId>().map(|r| r.0.clone()));
+            self.seen.lock().expect("test mutex").push(rid);
+        }
+    }
+
+    fn subscriber_with_capture() -> (CapturingLayer, impl Subscriber) {
+        let capture = CapturingLayer::default();
+        let subscriber = tracing_subscriber::registry().with(RequestIdPropagationLayer).with(capture.clone());
+        (capture, subscriber)
+    }
 
     #[test]
     fn test_request_id_display() {
         let rid = RequestId("req-abc123".to_string());
         assert_eq!(rid.to_string(), "req-abc123");
+    }
+
+    #[test]
+    fn on_new_span_stores_request_id_field_then_child_spans_inherit_it() {
+        let (capture, subscriber) = subscriber_with_capture();
+
+        tracing::subscriber::with_default(subscriber, || {
+            // Case 1: the root span carries the `request_id` field itself.
+            let root = info_span!("http_request", request_id = "req-root");
+            {
+                let _root = root.enter();
+                // Case 2: no field, so walk up to the entered parent.
+                let child = info_span!("handler");
+                let _child = child.enter();
+                let grandchild = info_span!("storage.query");
+                drop(grandchild);
+            }
+            // A span with neither the field nor a tagged ancestor stays untagged.
+            let unrelated = info_span!("unrelated");
+            let _unrelated = unrelated.enter();
+            let unrelated_child = info_span!("unrelated.child");
+            drop(unrelated_child);
+        });
+
+        let seen = capture.seen.lock().expect("test mutex").clone();
+        assert_eq!(
+            seen,
+            vec![Some("req-root".to_string()), Some("req-root".to_string()), Some("req-root".to_string()), None, None,]
+        );
+    }
+
+    #[test]
+    fn on_new_span_falls_back_to_debug_formatting_for_non_str_values() {
+        let (capture, subscriber) = subscriber_with_capture();
+
+        tracing::subscriber::with_default(subscriber, || {
+            let span = info_span!("http_request", request_id = 42);
+            drop(span);
+        });
+
+        let seen = capture.seen.lock().expect("test mutex").clone();
+        assert_eq!(seen, vec![Some("42".to_string())]);
     }
 }

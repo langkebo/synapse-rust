@@ -953,7 +953,8 @@ PY
 ##### 处置：门禁不用改，但要改的是**同类机制的文件**（⑤ `event/reader.rs` / `writer.rs`、⑦ web 路由）
 
 这 22 个不用管。真正被这条机制卡住的是不含 `test_mocks/` 字样、却同样只能由**别的 crate 动态分发**
-才执行的文件 —— 它们的 0% 同样永远不变。一条 flag 级处置（**未验证，留给 CI 判**）：
+才执行的文件 —— 它们的 0% 同样永远不变。一条 flag 级处置（**未验证，留给 CI 判**；
+**2026-10-27 结论：本轮不采纳，理由与重开条件见 §7.7.3**）：
 
 ```diff
 - cargo llvm-cov --workspace --exclude synapse-storage \
@@ -1424,3 +1425,68 @@ G 说清了"0.0 是 bootstrap 冻结值"，但**只记录不改**等于棘轮对
 判据入口：`Run coverage` 日志里 leg 2 的测试计数（明显低于 `Integration Tests` 车道即异常）。
 
 **仍然禁止 `--update`**：上面 4 条只证明"这次测量与基线不可比"，一次也没有证明"地板该降"。
+
+#### 7.7.2 结论：`tracing.rs` 的 55 个点是**基线跨文件重写**，不是测试集变化（2026-10-27 收口）
+
+§7.7.1 的"头号候选（集成测试静默跳过）"**被证伪**；真因是基线值与当前文件**不是同一份代码**。
+
+证据链（全部可复现）：
+
+1. **基线首现提交**：`git log -- scripts/ci/coverage_baseline.json` 首条为 `4565cecd5`（2026-09-19
+   bootstrap）。逐提交取该条目：`4565cecd5` / `88001b4a9` / `8df3be4c1` / `090742266` / `c952ee2b0` /
+   `HEAD` **六处全为 `74.59`**，即基线自诞生从未被重算过。
+2. **基线期的文件是 248 行**：`git show 4565cecd5:synapse-common/src/tracing.rs | wc -l` = 248，
+   内含 `DistributedTracer`（`new` / `init_tracer` / `create_span` / `with_span` / `get_trace_id` /
+   `get_span_id` / `Default`）、`trace_span!` / `trace_async!` 两个宏，以及 **10 个**内联测试
+   （`test_distributed_tracer_*` ×4、`test_trace_span_macro`、`test_trace_async_macro`、
+   `test_init_tracer`、`test_get_trace_id_without_active_span`、`test_get_span_id_without_active_span`、
+   `test_request_id_display`）。74.59% 是**这些测试覆盖那 248 行**的读数。
+3. **重写发生在 `090742266`**（"冗余与过度开发专项审查 —— 死模块清理"）：该文件
+   `2 insertions(+), 149 deletions(-)`，`DistributedTracer` 与两个宏整段删除（生产调用图为空），
+   文件缩到 101 行，内联测试只剩 `test_request_id_display` —— 而它只覆盖 `Display`。
+   `RequestIdPropagationLayer::on_new_span` 的两条路径**一个新测试都没有**。
+4. **棘轮语义决定了它无法自愈**：`check_file_coverage.py` 的 `save_baseline()` 取
+   `max(prev, cur)`（只上不下），而唯一能刷新基线的 CI auto-ratchet 步从未成功过（本报告
+   2026-10-27 条已证伪"等 CI"）。⇒ 一次**合法**的"删除 149 行自测死代码"必然把这 55 个点
+   永久冻成红，且没有任何机械通道可以修。
+5. **读数复算**：重写后的文件本地 `cargo llvm-cov -p synapse-common --lib` = `LH 7 / LF 36`
+   = **19.4%**，与 CI 读数逐位相同 ⇒ 该次 CI 里 `tracing.rs` 的记账**完全由 synapse-common
+   lib 单测解释**，集成测试贡献 0 行。而"贡献 0 行"本就有结构性原因，不需要"静默跳过"来解释：
+   `RequestIdPropagationLayer` 全仓唯一注册点是 `synapse-common/src/logging.rs:51` 的
+   `init_logging`（仅被 `src/server/telemetry.rs:39` 在服务启动路径调用），而集成测试的
+   `init_tracing()`（`tests/integration/mod.rs`）只装 `tracing_subscriber::fmt()`；
+   `grep -rn "init_logging|RequestIdPropagationLayer" --include=*.rs` 在测试代码里**零命中**。
+
+**处置（不需要动基线）**：按 §⑤/⑦ 已确立的"补测试"路线，给 `tracing.rs` 补 2 个内联测试
+（[tracing.rs:135](../../synapse-common/src/tracing.rs#L135) 覆盖 case 1 字段抽取 + case 2
+父链继承 + 无标记祖先；[tracing.rs:170](../../synapse-common/src/tracing.rs#L170) 覆盖
+`record_debug` 的非 `&str` 兜底），用一个测试专用 `CapturingLayer` 注册在待测 layer **之后**，
+从 span extensions 读回结果。实测（`cargo llvm-cov -p synapse-common --lib`）：
+
+```
+synapse-common/src/tracing.rs: LH=84/LF=85 = 98.82%
+```
+
+`98.82% > 74.59%` ⇒ 棘轮**自然转绿**，无需 `--update`/`--save-baseline`（二者仍被禁止）。
+余下 1 行是 `ctx.span(id) == None` 的防御性早退，正常 registry 下不可达。
+
+**本项目"per-file 棘轮"的一个已知盲区（登记，不改代码）**：单文件被合法重写（删除被自测覆盖的
+死代码）时，因为 `save_baseline()` 只取 `max`，基线会永久高于现实值，红不是"回归"而是
+"基线过期"。判据 = 该文件在基线提交与当前**行数/结构不同**；处置 = 补测试抬真实覆盖率
+（首选，本轮采用）或按 §7.7 的纪律另行评审后手工改基线（需明确批准，本轮未做）。
+
+#### 7.7.3 `--exclude` → `--exclude-from-test`：**本轮不采纳**
+
+§B 末尾提出的 flag 级改造（让 storage 进 leg 2 的报告，从而给"测试在别的 crate、实现在 storage"
+的文件记账）本轮**不实施**，理由三条：
+
+1. **它不解释也不修复本轮的红**：`tracing.rs` 属 `synapse-common`，leg 2 本来就把它包含在报告里，
+   换 flag 对这一条零影响（§7.7.2）。
+2. §⑤（`event/reader.rs` / `writer.rs`）与 ⑦（`synapse-web/routes/**`）两条同类红已按"补测试"路线
+   关掉（§⑤ 原文即写明"**不需要**用 `--exclude-from-test` 动 CI 口径"）。
+3. 该改动**本地无法验证**（需一次 ~75 min 全量覆盖率），且审计原文已列出两个未验证风险
+   （`cfg` 差异导致文件出现/消失、报告条目数显著增加）。在"没有一条已证实的红由报告排除引起"
+   之前动它，属于用未验证的口径变化替换已解释的现象。
+
+**重开条件**：出现"实现所在包被 `--exclude`、其测试却只存在于其它包、补测试后仍无法记账"的文件时，
+再按 §B 的双向闭式验证法实测该 flag。

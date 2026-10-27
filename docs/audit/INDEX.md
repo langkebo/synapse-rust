@@ -273,8 +273,15 @@
     `Code Coverage` 恒 skipped）⇒ 134 条实为"**首次差异**"，不是"回归"
   - 原候选"3 个 feature 改分母"**不足以解释主现象**：那三个只进 leg 1（storage `--lib`），
     `tracing.rs` 属 leg 2；`merge_lcov.py` 是按行取 max 的**并集**，也不制造下降
-  - **新头号候选（未证）**：leg 2 的集成测试是否大面积**静默跳过**（`setup_fresh_test_app()`
-    返 `None` 即 return）—— 判据是 `Run coverage` 日志里 leg 2 的测试计数与耗时
+  - **§7.7.2 收口（2026-10-27）**：`tracing.rs` 的 55 个点是**基线跨文件重写**，非测试集变化。
+    基线首现 `4565cecd5` 时该文件 248 行（含 `DistributedTracer` + 10 个内联测试）；
+    `090742266` 删 149 行死代码后缩到 101 行、只剩 1 个只覆盖 `Display` 的测试 ⇒ 19.4% 与
+    `cargo llvm-cov -p synapse-common --lib` 本地读数**逐位相同**。`save_baseline()` 取 `max`
+    且 CI auto-ratchet 从未成功 ⇒ 合法重写被永久冻红。原"集成测试静默跳过"候选**已证伪**
+    （layer 唯一注册点 `logging.rs:51`，测试代码零命中）。处置 = 补 2 个内联测试（`tracing.rs:135`
+    / `:170`），实测 **84/85 = 98.82% > 74.59%**，棘轮自然转绿，基线未动
+  - **§7.7.3**：`--exclude` → `--exclude-from-test` **本轮不采纳**（不解释本轮的红；§⑤/⑦ 已用
+    补测试路线关掉；本地无法验证 + 两个未验证风险），重开条件见原文
   - **下一步**：6 条 core-path 按 §7.5 方法逐条定性；口径判定明确后才允许动 `coverage_baseline.json`
 - ✅ **[TEST_COMPROMISE_AUDIT_2026-10-25.md](TEST_COMPROMISE_AUDIT_2026-10-25.md)** 第 9 轮：**最后一个开口（原 ⑦ 类 8 个 0%）关掉**，代价 6 分钟。
   - **改判**：`synapse-web/routes/**` 那 8 个不是"只能等 CI 的 integration 腿"，而是**陈旧（地板冻结）**。
