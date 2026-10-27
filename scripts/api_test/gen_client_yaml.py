@@ -13,6 +13,9 @@ gen_client_yaml.py — 生成 docs/openapi/client.yaml（CI artifact）
 
   # 跳过 export (假定 ledger.json 已就绪)
   python3 scripts/api_test/gen_client_yaml.py --skip-export
+
+  # 跳过 export，但用**指定**的 ledger（CI 用它指向刚导出的 $RUNNER_TEMP/…）
+  python3 scripts/api_test/gen_client_yaml.py --ledger /tmp/ledger_default_ci.json
 """
 
 from __future__ import annotations
@@ -121,6 +124,16 @@ def main() -> int:
         help="Skip cargo export, reuse reports/ledger_default.json (from export_ledger.sh)",
     )
     ap.add_argument(
+        "--ledger",
+        default=None,
+        help=(
+            "Path to an existing ledger JSON; implies --skip-export. "
+            "Needed by CI: reports/ is gitignored, so on a clean checkout "
+            "--skip-export alone can only fail — the fresh export lives in "
+            "$RUNNER_TEMP instead."
+        ),
+    )
+    ap.add_argument(
         "--check",
         action="store_true",
         help="Do not write: generate into a temp path and diff against --expected; exit 1 on drift",
@@ -133,7 +146,16 @@ def main() -> int:
     args = ap.parse_args()
 
     # Phase 1: Export ledger JSON (unless skipped)
-    if args.skip_export:
+    if args.ledger:
+        ledger_path = Path(args.ledger)
+        if not ledger_path.exists():
+            print(
+                f"[gen_client_yaml] --ledger 指定的清单不存在：{ledger_path}",
+                file=sys.stderr,
+            )
+            return 1
+        print(f"[gen_client_yaml] --ledger: using {ledger_path}")
+    elif args.skip_export:
         ledger_path = LEDGER_DEFAULT
         if not ledger_path.exists():
             print(

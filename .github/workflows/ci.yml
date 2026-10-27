@@ -364,7 +364,11 @@ jobs:
       - name: Generate client.yaml (OpenAPI 3.0.3)
         run: |
           mkdir -p docs/openapi
-          python3 scripts/api_test/gen_client_yaml.py --skip-export
+          # `--skip-export` alone can never work here: it reads
+          # scripts/api_test/reports/ledger_default.json, and `reports/` is
+          # gitignored (.gitignore:44) so it does not exist on a clean checkout.
+          # Point it at the fresh export from the step above instead.
+          python3 scripts/api_test/gen_client_yaml.py --ledger "$RUNNER_TEMP/ledger_default_ci.json"
 
       # Same fresh default-feature export as the check above, so the uploaded
       # artifact matches the committed one byte-for-byte.
