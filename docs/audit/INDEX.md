@@ -252,8 +252,12 @@
       `libssl3 3.0.20-1~deb12u2` / `CVE-2026-84782` / HIGH / 修复版 `3.0.22-1~deb12u2`，
       即在 `docker/Dockerfile:3` 的 `distroless/cc-debian12@sha256:e8e7ee4b…` 里。
       `Digest Pin Integrity` 只验"pin 在 registry 上仍有效"、**不验"pin 里有没有补丁"** ⇒ 两者不矛盾。
-      **未修（待决策）**：真修是换 digest，本地 `gcr.io` 不可达（`docker manifest inspect` → `Bad Gateway`），
-      新 digest 需在能连 registry 的环境解析；`--trivyignore` 属让渡性质（会让该镜像上任何新 CVE 一起沉默）
+      **处置**：本机两个 registry 都被代理拦成 `CONNECT tunnel 502`（`docker manifest inspect` →
+      `Bad Gateway`），故按决策在 `docker-security-scan.yml` 加了 `resolve-base-image-digests`
+      job（`if: workflow_dispatch`，不影响 push/PR）：用同一个 `read_base_image_pins.sh` 读 pin，
+      把每个 ref 的 tag 解析成 registry 当前 digest，标 `up-to-date`/`STALE`，并打印可直接替换的
+      `ARG …=repo@digest` 行 + step summary。理由是 `digest-pin-check` 只验"pin 有效"、
+      **没有任何东西验"pin 落后"**，于是"该换 digest"这件事此前只能靠人手查 ⇒ 落到实践里就是红着不动
 - ✅ **[TEST_COMPROMISE_AUDIT_2026-10-25.md](TEST_COMPROMISE_AUDIT_2026-10-25.md)** 第 9 轮：**最后一个开口（原 ⑦ 类 8 个 0%）关掉**，代价 6 分钟。
   - **改判**：`synapse-web/routes/**` 那 8 个不是"只能等 CI 的 integration 腿"，而是**陈旧（地板冻结）**。
     8 个文件都在 `synapse-web` crate、模块**无条件**编译、**每个都自带内联 `#[cfg(test)] mod tests`**

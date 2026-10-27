@@ -292,3 +292,81 @@ jobs:
             docker pull "${ref}" || { echo "::error::FAILED: pin broken for ${arg} (${ref})"; exit 1; }
           done < <(bash scripts/ci/read_base_image_pins.sh)
           echo "All pinned base images verified successfully."
+
+  # ── 4) 解析 tag → 当前 digest（仅 workflow_dispatch）────────────────────
+  # 为什么需要这个 job：`base-image-scan` 会在 pin **落后**时红（CVE 修在更新的基础镜像里，
+  # 如 2026-10-27 的 `libssl3` / CVE-2026-84782），而 `digest-pin-check` 只验
+  # "pin 在 registry 上仍有效"、**不验 pin 里有没有补丁** ⇒ 两者同时成立并不矛盾，
+  # 但"该换 digest 了"这件事就**没有任何自动化出口**，只能人去 registry 手查。
+  # 本 job 把它变成一条可读的输出（含可直接替换的 ARG 行）。
+  #
+  # ⚠️ 只在 `workflow_dispatch` 下跑：它报告的是"pin 是否落后"，不是判据本身。
+  # 挂到 push/PR 会让每个 PR 都多跑一个"上游一重建就显示落后"的 job，噪音大于信息。
+  resolve-base-image-digests:
+    name: Resolve Base Image Digests
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Resolve each pinned ref's tag to the registry's current digest
+        run: |
+          set -euo pipefail
+          # `buildx imagetools inspect` 只查 registry，不拉镜像层，几秒内返回。
+          # 不可用就**响亮失败** —— 静默跳过等于又一次"拿不到读数"。
+          if ! docker buildx version >/dev/null 2>&1; then
+            echo "::error::docker buildx 不可用：本步骤拒绝静默跳过（那就又变成一条没有读数的门禁）"
+            exit 1
+          fi
+
+          {
+            echo "## 基础镜像 digest 报告"
+            echo
+            echo "| ARG | ref（去 digest） | registry 当前 digest | 已 pin | 状态 |"
+            echo "|---|---|---|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          stale=0
+          while IFS='=' read -r arg ref; do
+            [ -n "${arg}" ] || continue
+            pinned="${ref##*@}"
+            name="${ref%@*}"                     # repo[:tag]
+            case "${name##*/}" in
+              *:*) ;;                            # 已带 tag
+              *) name="${name}:latest" ;;        # 未带 tag ⇒ 显式 latest（distroless 即此类）
+            esac
+
+            current="$(docker buildx imagetools inspect "${name}" \
+                         --format '{{json .Manifest.Digest}}' | tr -d '"')" \
+              || { echo "::error::解析失败：${name}"; exit 1; }
+            [ -n "${current}" ] || { echo "::error::${name} 解析出空 digest"; exit 1; }
+
+            if [ "${current}" = "${pinned}" ]; then
+              state="up-to-date"
+              echo "OK    ${arg}  ${name}  ${current}"
+            else
+              state="**STALE**"
+              stale=$((stale + 1))
+              echo "STALE ${arg}  ${name}"
+              echo "      pinned  = ${pinned}"
+              echo "      current = ${current}"
+              echo "      替换为  : ARG ${arg}=${name}@${current}"
+              echo "::warning title=${arg} pin 已落后::${name} 的当前 digest 是 ${current}（已 pin ${pinned}）"
+            fi
+            printf '| `%s` | `%s` | `%s` | `%s` | %s |\n' \
+              "${arg}" "${name}" "${current}" "${pinned}" "${state}" >> "$GITHUB_STEP_SUMMARY"
+          done < <(bash scripts/ci/read_base_image_pins.sh)
+
+          {
+            echo
+            if [ "${stale}" -gt 0 ]; then
+              echo "**${stale} 个 pin 落后于 registry。**上表「替换为」那几行可以直接贴进"
+              echo "\`docker/Dockerfile\`（pin 的唯一真相源），然后让"
+              echo "\`Base Image Scan\` 复扫确认 CVE 已消除。"
+            else
+              echo "**全部 pin 与 registry 当前 digest 一致。**若 \`Base Image Scan\` 仍报 CVE，"
+              echo "说明漏洞在**当前镜像本身**（上游尚未修），此时才该考虑 \`.trivyignore\` 登记让渡。"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

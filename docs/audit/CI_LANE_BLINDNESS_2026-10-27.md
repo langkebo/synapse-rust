@@ -427,13 +427,20 @@ Target: distroless/cc-debian12
 两条路：
 
 1. **真修**：把 digest 换到当前 `cc-debian12`（其上层已含 `libssl3 3.0.22-1~deb12u2`）。
-   代价是要动生产镜像内容，且验证必须跑一轮完整 CI（本地 `gcr.io` 不可达：
-   `docker manifest inspect` 返回 `Bad Gateway`，新 digest 只能在能访问 registry 的环境里解析）。
+   障碍是**本机拿不到新 digest**：`gcr.io` 与 `registry-1.docker.io` 都被代理拦成
+   `CONNECT tunnel failed, response 502`（`docker manifest inspect` 同样 `Bad Gateway`）。
 2. **登记**：加 `.trivyignore` 并写理由 + 到期日。但这会让 `Base Image Scan` 从此对
    同一镜像上的**任何**新 CVE 保持沉默，除非每次重写理由 —— 属"让渡"性质。
 
-**未实施** —— 动基础镜像是独立决策，且 ② 的代价明显高于 ①。① 需要一个能连 gcr.io 的环境
-解析新 digest。
+**已取路线 ①**，并把"拿 digest"这步补成自动化：`docker-security-scan.yml` 新增
+`resolve-base-image-digests` job（`if: github.event_name == 'workflow_dispatch'`，
+故不影响 push/PR 的既有行为）。它用**同一个** `scripts/ci/read_base_image_pins.sh`
+读 pin，把每个 ref 的 tag 解析成 registry 当前 digest，逐条标 `up-to-date` / `STALE`，
+并打印可直接替换的 `ARG ....=<name>@<digest>` 行 + 写进 step summary。
+
+这个 job 存在的理由正是本节的结论：`digest-pin-check` 只验"pin 有效"，
+**没有任何东西在验"pin 落后"** —— 于是"该换 digest"这件事此前只能靠人去 registry 手查，
+落到实践里就是**红着不动**。
 
 ## 8 复核命令（一键）
 
