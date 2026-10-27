@@ -56,10 +56,20 @@ strip_ansi() { sed -E "s/${ANSI_ESC}\\[[0-9;]*[A-Za-z]//g"; }
 # 落到变量后 `grep` 读的是 here-string（没有上游写者）⇒ 不可能再 EPIPE。
 stripped="$(strip_ansi <"$log")"
 
+# ⚠️ nextest 的计数行是**单复数变化**的：`Starting 3 tests across 1 binary`，
+# 但只选中一条用例时是 `Starting 1 test across 1 binary (22 tests skipped)`。
+# 旧正则只写了复数形式 `Starting [1-9][0-9]* tests`，于是"恰好跑 1 条"的步骤
+# 100% 被判空转。CI 实测 2026-10-27（run 40513351117）：`Integration Tests (schema)`
+# 与 `Integration Tests (database)` 的 `Appservice statistics cost gate` 都用
+# `-E 'test(statistics_per_service_cost)'` 只选一条，日志里明明是
+# `PASS [3.331s] (1/1) … statistics_per_service_cost_does_not_grow_with_service_count`
+# 加 `Summary 1 test run: 1 passed`，两条车道却都红在
+# `this step ran ZERO tests` —— 该步骤自 `ea8276d8e` 引入起就**没有绿过**。
+# 故这里用 `tests?`：单数、复数都要认。
 ran_zero=0
 if grep -qE '^[[:space:]]*test result: (ok|FAILED)\. 0 passed' <<<"$stripped"; then
     ran_zero=1
-elif ! grep -qE '(^[[:space:]]*test result: (ok|FAILED)\. [1-9][0-9]* passed|Starting [1-9][0-9]* tests)' <<<"$stripped"; then
+elif ! grep -qE '(^[[:space:]]*test result: (ok|FAILED)\. [1-9][0-9]* passed|Starting [1-9][0-9]* tests?)' <<<"$stripped"; then
     # 既看不到"0 passed"也看不到任何正数 —— 说明命令根本没跑测试框架
     # （例如目标名写错、被 feature 门控掉、或输出格式变了）。
     ran_zero=1

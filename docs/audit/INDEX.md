@@ -61,7 +61,7 @@
 
 | 文档 | 描述 | 状态 |
 |------|------|------|
-| **[CI_LANE_BLINDNESS_2026-10-27.md](CI_LANE_BLINDNESS_2026-10-27.md)** | CI 车道盲区（两条长期没读数的车道）：①`Repo Sanity` 的第一条检查因**夹具假阳性**（`UPDATE t`）恒红，同 job 后面 **22 个门禁全部 `skipped`** ⇒ 它们的沉默不能当作"已合规"证据；②`OpenAPI Artifact` 的 `client.yaml` 步用 `--skip-export` 读 `.gitignore:44` 的路径 ⇒ **干净 checkout 上永远失败**（从未成功过）。两条均已修；本地 27 个门禁实测 **26 过 / 1 假红**（gitignored 的联邦测试证书，CI 上不存在） | ✅ Active（2026-10-27） |
+| **[CI_LANE_BLINDNESS_2026-10-27.md](CI_LANE_BLINDNESS_2026-10-27.md)** | CI 车道盲区（两条长期没读数的车道）：①`Repo Sanity` 的第一条检查因**夹具假阳性**（`UPDATE t`）恒红，同 job 后面 **22 个门禁全部 `skipped`** ⇒ 它们的沉默不能当作"已合规"证据；②`OpenAPI Artifact` 的 `client.yaml` 步用 `--skip-export` 读 `.gitignore:44` 的路径 ⇒ **干净 checkout 上永远失败**（从未成功过）。两条均已修；本地 27 个门禁实测 **26 过 / 1 假红**（gitignored 的联邦测试证书，CI 上不存在）。§7–§8 继续把"存量红"拆成四类成因：门禁清单没配齐（天生红）/ 被守对象真坏 / **门禁把绿判成红**（`require_tests_ran.sh` 只认复数）/ **基础设施抖动**（`exit 143` + `shutdown signal`） | ✅ Active（2026-10-28） |
 | **[TEST_COMPROMISE_AUDIT_2026-10-25.md](TEST_COMPROMISE_AUDIT_2026-10-25.md)** | 测试降标审计：测试基础设施 fail-open 导致 9 条安全边界用例静默假绿；覆盖率门禁三缺口（含**基线可被一次不完整 lcov 清零**）；性能验收只有报告没有断言；mock 语义漂移。**§7 是"改了什么"的一页索引**（门禁 / 缺陷 / 可测性 / 复核命令 / 0% 分流（分母订正为 32：**10 陈旧**（全部已实测非零）/ 4 真 0 / 3 `feature` 关（已补 feature 集）/ **5 无可测行** / **2 跨 crate 转发层**（已补 `&dyn` 契约测试）/ **8 已消除**） / 覆盖率车道解耦（H）/ 地板抬升 20 条（I） / 途中被证伪的十四个判断） | ✅ Active（2026-10-27 第 10 轮） |
 
 ### 其他规划文档
@@ -260,6 +260,24 @@
       debian（真出货根，阻断）+ builder（report-only）。另补 `resolve-base-image-digests`
       （`workflow_dispatch` only）让"pin 落后"可被自动读出，并修正一条指向**不存在测试**的
       守卫注释（原文指 `ci_test_scope_tests.rs` 里没有的函名）。
+  - **门禁把"绿"判成红**（§8.1）：`Appservice statistics cost gate` 自 `ea8276d8e` 引入起**从未绿过**。
+    该步骤用 `-E 'test(statistics_per_service_cost)'` 只选中 **1** 条用例，而 nextest 的计数行是
+    **单复数变化**的（`Starting 1 test` vs `Starting 3 tests`），`require_tests_ran.sh` 的正则只写复数
+    ⇒ 两条 isolation 车道的日志里明明是 `PASS [3.331s] (1/1)` + `Summary 1 test run: 1 passed`，
+    却都报 `this step ran ZERO tests`。这是同一脚本第三次"判据写死单一输出形态"
+    （09-20 ANSI 颜色、09-30 `grep -q` + `pipefail` 的 SIGPIPE、10-27 单复数）。
+    修法：正则改 `tests?` + 补单数正控与 `Starting 0 tests` 反控；A/B 实测旧脚本 `exit 1`、新脚本 `exit 0`
+  - **两条真实供应链条目被 `skipped` 掩盖**（§8.2，`Security Audit` 是路径过滤触发，近 12 次 `ci.yml`
+    里 5 次 `skipped`）：①`tokio 1.53.1` / `RUSTSEC-2026-0386`（`AsyncFd` I/O safety，`unsound`，
+    补丁区间 `>=1.53.3`）⇒ 已升 `1.54.1`（全仓 `AsyncFd` 零引用，暴露面为零）；
+    ②`xxhash-rust 0.8.19` 的 `BSL-1.0` 不在名单内（`022cbd67f` 把 redis 0.29 → 1.7 时的**传递依赖**）
+    ⇒ 按 `webpki-roots` 同口径加 **crate 级例外**，刻意不塞全局 `allow`。
+    本地只能验 `cargo deny check licenses` ⇒ `licenses ok`；`advisories` 因 advisory-db **拉不下来**
+    （`error sending request ... rustsec/advisory-db`）**无法本地复验**，结论待下一轮 CI
+  - **两红不是代码问题**（§8.3）：`Benchmark` 的 `Run benchmarks` 是 runner 被回收
+    （`shutdown signal` / `exit 143`，日志停在 `Compiling synapse-rust`，两次同型）；
+    `Assert no leftover test databases` 是 `out of shared memory` 打断用例后的**次生**残留。
+    大盘事实：近 12 次 `ci.yml` **没有一次 `success`** ⇒ "某个 job 红了"在本仓已失去信息量
 - ✅ **[TEST_COMPROMISE_AUDIT_2026-10-25.md](TEST_COMPROMISE_AUDIT_2026-10-25.md)** §7.7：**覆盖率车道第一次跑通，棘轮红在 134 个文件**（`0a5310346` / run `40469375466`）。
   - `Run coverage`（三条腿）**success**，约 75 min；`Code Coverage` 的红从"跑不到"变成"跑到了不达标"，
     失败步 `Per-file coverage ratchet (B.3)`

@@ -118,8 +118,18 @@ allow = [
 # （社区数据许可-宽松版），仅用于 TLS 根证书分发，业界惯例按 crate 例外放行。
 # 2026-08-11 修复：此前该许可未在任何 allow/exception 中，导致
 # `cargo deny check licenses`（CI supply_chain_gate）失败。
+#
+# xxhash-rust 是 **redis 1.7.x 的传递依赖**（`022cbd67f` 把 redis 0.29 → 1.7 时引入），
+# 采用 BSL-1.0（Boost Software License 1.0）——OSI 认证且 FSF 判定为自由许可的宽松
+# 许可，义务仅为"保留版权与许可声明"，无 copyleft 传染。它只在哈希实现里被调用，
+# 不参与本仓任何分发决策。按与 webpki-roots 相同的口径做 **crate 级例外**，而不是
+# 塞进全局 allow：全局 allow 会连带放行未来任意依赖的 BSL-1.0，例外则把范围钉在
+# 这一个 crate 上（本仓"不留静默额度"的原则）。
+# 2026-10-28 修复：`Security Audit` 的 `licenses FAILED: 1 errors` 就是这一条
+# （`xxhash-rust-0.8.19/Cargo.toml:42 license = "BSL-1.0"`）。
 exceptions = [
     { allow = ["CDLA-Permissive-2.0"], crate = "webpki-roots" },
+    { allow = ["BSL-1.0"], crate = "xxhash-rust" },
 ]
 confidence-threshold = 0.8
 unused-allowed-license = "allow"

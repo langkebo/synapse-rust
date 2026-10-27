@@ -906,6 +906,7 @@ shm
 sid
 sigil
 sigkill
+sigpipe
 sigterm
 simd
 sincefilter

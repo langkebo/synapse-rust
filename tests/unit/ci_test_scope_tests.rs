@@ -386,6 +386,25 @@ fn require_tests_ran_sees_through_ansi_color() {
         "大日志（超过一个管道缓冲）且命中在最前面时必须判绿（否则 sed 的 SIGPIPE 会被 pipefail 当成\"没跑测试\"）：\n{}",
         combined(&big_ok)
     );
+
+    // ⚠️ 单数形态。nextest 只选中 1 条用例时打印的是
+    // `Starting 1 test across 1 binary (22 tests skipped)`，不是 `tests`。
+    // CI 实测 2026-10-27（run 40513351117）：两条 isolation 车道的
+    // `Appservice statistics cost gate`（`-E 'test(statistics_per_service_cost)'`）
+    // 日志里明明是 `PASS [3.331s] (1/1) …` + `Summary 1 test run: 1 passed`，
+    // 却都红在 `this step ran ZERO tests` —— 该步骤自 `ea8276d8e` 引入起从未绿过。
+    let single_ok = run(
+        r#"printf '    Starting 1 test across 1 binary (22 tests skipped)\n        PASS [   3.331s] (1/1) synapse-rust::performance_manual appservice_scheduler_perf_tests::tests::statistics_per_service_cost_does_not_grow_with_service_count\n────────────\n     Summary [   3.331s] 1 test run: 1 passed, 22 skipped\n'"#,
+    );
+    assert!(
+        single_ok.status.success(),
+        "nextest 只跑 1 条时的单数形态 `Starting 1 test` 必须判绿（复数正则会把\"真跑了 1 条\"误判成空转）：\n{}",
+        combined(&single_ok)
+    );
+
+    // 反控：单数正则不能把**真的 0 条**也放过（`started 0 tests` 不该匹配）。
+    let single_zero = run(r#"printf '    Starting 0 tests across 1 binary\n'"#);
+    assert!(!single_zero.status.success(), "放宽到单数后，`Starting 0 tests` 仍必须判红：\n{}", combined(&single_zero));
 }
 
 /// Build Check 的 matrix 里有一个 **feature 列表为空**的车道（`core-matrix-min`，

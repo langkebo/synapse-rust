@@ -28,6 +28,10 @@
 | 12 | 同一批缩略图提交还让 **`baseline_tables` 的硬编码例外**过期 ⇒ `Test & Lint (×all-features)` 红在 `--workspace --lib`、`Code Coverage` 红在步骤 1/3（同一根因，错误信息却指向"DB 测试"） | ✅ 已修（模型改为**从基线解析**例外列表，§6.4） |
 | 13 | 被当作"存量"放过的 `DB Migration Gate` 红，实为**门禁上线那天就红**：`WARNING_BUDGET` 只登记 1 条 SBG-03，实际 3 条，另两条是合法的测试库前置断言且从未登记；且 `SAFE_FILES` 是**整文件**豁免，让"计数查询是有意的"顺带换来对 `DROP SCHEMA public CASCADE` 免疫 | ✅ 已修（补登记 + 豁免收窄到**逐规则** + 豁免清单自检，§7.1） |
 | 14 | 被当作"存量"放过的 `Docker Security Scan` 红**是真 CVE，但落在没人构建的目标上**：`distroless/cc-debian12` 里 `libssl3 3.0.20` 带 `CVE-2026-84782`（HIGH，修复版 `3.0.22`）；该 pin 经实测**就是上游 `latest`**（换 digest 无用），且 `runtime-distroless` 全仓无构建/部署入口 | ✅ 已裁决（删 `runtime-distroless` / `runtime-libs` 死路径，**不用** `.trivyignore` 压制，§7.2） |
+| 15 | `Appservice statistics cost gate` 自 `ea8276d8e` 引入起**没有绿过**：`require_tests_ran.sh` 只匹配复数 `Starting N tests`，而该步骤的过滤器恰好只选中 **1** 条 ⇒ nextest 打的 `Starting 1 test` 被判"空转"，日志里却是 `PASS [3.331s] (1/1)` | ✅ 已修（正则加 `tests?`，补单数正控与 `Starting 0 tests` 反控，§8.1） |
+| 16 | `Security Audit` 的 `advisories FAILED` 是**真公告**：`tokio 1.53.1` / `RUSTSEC-2026-0386`（`AsyncFd` I/O safety，`unsound`），补丁区间 `>=1.53.3` | ✅ 已升 `1.54.1`（全仓 `AsyncFd` 零引用 ⇒ 实际暴露面为零）；CI 复验待下一轮 `Security Audit` 真跑（§8.2） |
+| 17 | 同 job 的 `licenses FAILED` 是 `xxhash-rust 0.8.19` 的 `BSL-1.0` 不在名单内 —— 它由 `022cbd67f`（redis 0.29 → 1.7）作为**传递依赖**带入；该 job 是路径过滤触发的，多数提交上 `skipped`，所以从 10-22 起一直没被读到 | ✅ 已按 `webpki-roots` 同口径加 **crate 级例外**（不塞全局 `allow`，§8.2） |
+| 18 | 同一运行里另外两红不是代码问题：`Benchmark` 的 `Run benchmarks` 是 runner 被回收（`shutdown signal` / `exit 143`，日志停在 `Compiling synapse-rust`）；`Assert no leftover test databases` 是 `out of shared memory` 打断用例后的**次生**残留 | ⏸ 分别归"基础设施"与"次生"，§8.3 |
 
 一句话：**这些车道不是"没发现问题"，是"根本没运行/根本不可能运行"**。它们此前的沉默不能作为
 任何"已合规"的证据。四个缺陷里有三个同源（§1 / §3 / §4）：**判据依赖"我这台机器上有什么"，而不是
@@ -36,6 +40,12 @@
 §7 补上一类更隐蔽的：**门禁红了很久、于是被习惯性归为"存量"**。这类红有两种完全不同的成因 ——
 一是门禁自己的清单没配齐（§7.1，天生红，从没有过绿的状态），二是被守的对象真的坏了（§7.2，
 真 CVE）。**"存量红"这个标签本身会掩盖两者的区别**，所以判断前必须先看是哪一种。排查时统一问一句：*这条判据在新克隆的树里还成立吗？*
+
+§8 把同一个问法用到剩下的红上，又分出第三、第四种成因：**门禁把绿判成红**（§8.1，
+`require_tests_ran.sh` 只认复数，恰跑 1 条就恒红 —— 与它 2026-09-20 / 09-30 两次假红同源：
+判据写死了某一种合法输出形态），以及**把基础设施抖动读成代码回归**（§8.3，`exit 143` +
+`shutdown signal`）。另外 §8.2 的两条供应链条目说明：一个 job 长期 `skipped` 和它长期
+`failure` 一样，都会让真实的公告躺在树里没人处理。
 
 ## 1 缺陷一：夹具里的 `UPDATE t` 被当成真表
 
@@ -491,7 +501,112 @@ Target: distroless/cc-debian12
 `base-image-scan` / `digest-pin-check`）；`Resolve Base Image Digests` 按设计只在
 `workflow_dispatch` 上跑，push 时是 `skipped` —— **`skipped` 不是绿**，读结论时别混。
 
-## 8 复核命令（一键）
+## 8 复查"存量红"时又抓到三类：门禁把绿判成红、真实供应链条目、把基础设施抖动当成代码回归
+
+§7 的结论是"存量红这个标签会掩盖成因差别"。按它去复查 `e1379be27`（2026-10-27 13:35 的
+`CI` 运行 `40513351117`）剩下的四红，又分出三类完全不同的东西 —— 其中一类是**门禁自己
+把一次真跑过的测试判成空转**，它从上线那天起就没绿过。
+
+### 8.1 `Appservice statistics cost gate`：`require_tests_ran.sh` 只认复数，恰跑 1 条就恒红
+
+`CI` 的失败清单（`40513351117`）：`Code Coverage`、`Integration Tests (database)`、
+`Integration Tests (schema)`、`Security Audit`。其中两条集成车道的失败步骤**完全相同**，
+都是第 14 步 `Appservice statistics cost gate (relative to a DB round-trip)`。
+
+该步骤的命令（`.github/workflows/ci.yml:1131`）是
+
+```bash
+bash scripts/ci/require_tests_ran.sh cargo nextest run --test performance_manual \
+  --features "performance-tests,test-utils" --locked --test-threads 1 \
+  -E 'test(statistics_per_service_cost)'
+```
+
+而 `-E 'test(statistics_per_service_cost)'` 在 `performance_manual` 里**恰好只选中 1 条**
+用例。`Integration Tests (schema)` 的原话（job 日志，`15:42:43` → `15:42:47`）：
+
+```text
+    Starting 1 test across 1 binary (22 tests skipped)
+        PASS [   3.331s] (1/1) synapse-rust::performance_manual appservice_scheduler_perf_tests::tests::statistics_per_service_cost_does_not_grow_with_service_count
+     Summary [   3.331s] 1 test run: 1 passed, 22 skipped
+
+##[error]this step ran ZERO tests. The target/module filter no longer matches
+  anything, so the step is a no-op that reports success. Fix the target/module
+  name (or delete the step) — do not leave it green-by-emptiness.
+```
+
+**测试 PASS 了，守卫说"一条都没跑"。** 原因在守卫的正则里：
+
+```bash
+elif ! grep -qE '(^[[:space:]]*test result: (ok|FAILED)\. [1-9][0-9]* passed|Starting [1-9][0-9]* tests)'
+```
+
+nextest 的计数行是**单复数变化**的：`Starting 3 tests across 1 binary`，但只选中一条时是
+`Starting 1 test across 1 binary`。正则只写了复数形式 ⇒ 任何"恰好跑 1 条"的步骤 100% 被判
+空转。该步骤由 `ea8276d8e`（补性能门禁那条提交）引入，**自引入起就没有绿过**。
+
+这与该脚本自己的历史是同一类故障的第三次变形：2026-09-20 是 ANSI 颜色（`Starting` 被
+SGR 序列打断）、2026-09-30 是 `grep -q` + `pipefail` 的 SIGPIPE（日志大于 64 KB 时误判），
+这次是**单复数**。三次都是"判据写死了某一种输出形态"，而输出形态有多个合法变体。
+
+**处置**：`Starting [1-9][0-9]* tests?`（单数、复数都认），并在
+`tests/unit/ci_test_scope_tests.rs::require_tests_ran_sees_through_ansi_color` 里补两条断言
+（单数必须绿、`Starting 0 tests` 必须仍红）。
+
+| 证据 | 读数 |
+|---|---|
+| A/B（旧脚本 vs 新脚本，同一份 nextest 单数输出） | 旧 `exit 1` + `this step ran ZERO tests`；新 `exit 0` + `OK: this step actually ran tests.` |
+| 反控 `Starting 0 tests across 1 binary` | 新旧都 `exit 1`（放宽到单数没有把真空放过） |
+| 正控 `Starting 3 tests` | 新旧都 `exit 0` |
+| 守卫测试 | `require_tests_ran_sees_through_ansi_color` **PASS**、`the_zero_tests_judgement_goes_red_and_a_real_run_passes` **PASS** |
+
+### 8.2 `Security Audit` 的两条都是真的：一条 `unsound` 公告、一条许可缺口
+
+同一运行里 `Security Audit` 红在 `Supply-chain gate (cargo-deny + cargo-audit)`，摘要两行失败：
+
+```text
+   advisories FAILED: 1 errors, 0 warnings, 2 notes
+      licenses FAILED: 1 errors, 0 warnings, 552 notes
+```
+
+| 条目 | 原文 | 判定 |
+|---|---|---|
+| `RUSTSEC-2026-0386`（`tokio 1.53.1`） | `error[unsound]: AsyncFd::new and related constructors violate I/O safety`；`Solution: Upgrade to >=1.51.6, <1.52.0 OR >=1.53.3` | ✅ 真公告，已升 `tokio 1.53.1 → 1.54.1`（`cargo update -p tokio`）。本仓全仓 `AsyncFd` **零引用**，故实际暴露面为零，但门禁要的是"版本在补丁区间内" |
+| `xxhash-rust 0.8.19` 的 `license = "BSL-1.0"` | `error[rejected]: failed to satisfy license requirements`；`BSL-1.0 - Boost Software License 1.0: OSI approved / FSF Free/Libre` | ✅ 真缺口，已按 `webpki-roots` 的**同一口径**做 crate 级例外 |
+
+`xxhash-rust` 不是直接依赖：它是 `022cbd67f`（redis 0.29 → 1.7）带进来的**传递依赖**，
+`BSL-1.0` 是宽松许可（义务只有保留声明）。这里刻意**不**把它塞进全局 `allow` ——
+全局放行会让未来任意依赖的 `BSL-1.0` 静默通过，与"不留静默额度"的原则相反。
+
+本地复验的边界必须写清：`cargo deny check licenses` ⇒ `licenses ok`（可离线跑）；
+`cargo deny check advisories` **本机跑不了**（
+
+```text
+[ERROR] failed to fetch advisory database https://github.com/rustsec/advisory-db:
+failed to prepare fetch: ... error sending request for url (.../info/refs?service=git-upload-pack)
+```
+
+），所以"1.54.1 已清掉该公告"这句话的证据是 CI 里 advisory 自己给的 `Solution` 区间，
+不是我本地跑出来的 —— 结论要等下一轮 CI 的 `Security Audit` 才能确认。
+
+⚠️ 另注：`Security Audit` 是**路径过滤**触发的，多数提交上它是 `skipped`（近 12 次
+`ci.yml` 里 5 次 `skipped`、5 次 `failure`、1 次 `in_progress`）。**`skipped` 不是绿**，
+所以这两条从 `022cbd67f`（2026-10-22）起就存在，只是一直没被这个 job 读到。
+
+### 8.3 两个看起来像回归、其实不是的东西
+
+| 现象 | 实测 | 性质 |
+|---|---|---|
+| `Integration Tests (database)` 第 15 步 `Assert no leftover test databases` 也红 | 该步 `if: always()`，与第 14 步同时红；日志里大量 `ERROR: out of shared memory`（锁表耗尽） | **次生**：共享内存耗尽把用例打断 ⇒ janitor 来不及回收 `test_*` 库。不是独立的卫生缺陷，跟着 §8.1 与覆盖率车道的并发问题一起解决 |
+| `Benchmark` 的 `Run benchmarks` 红 | `##[error]The runner has received a shutdown signal` + `Process completed with exit code 143`，日志停在 `Compiling synapse-rust`（13:42:55 → 13:48:26 被杀） | **基础设施**：runner 被回收，不是断言失败、不是超时（该 job 没配 `timeout-minutes`）。`37b74872c` 与 `e1379be27` 两次同型，属复发型抖动，需单独决策（降并发 codegen / 拆 bench 构建），不在本轮改 |
+
+### 8.4 一个必须说清的大盘事实
+
+近 12 次 `ci.yml` 运行**没有一次 `success`**（`40596915572` 之前全部 `failure`）。
+所以"某个 job 红了"这件事在本仓已经**失去信息量** —— 这正是 §7 说的
+"存量红标签掩盖成因"的上游原因。逐条把红拆成"门禁自身缺陷 / 真实缺陷 / 基础设施"三类，
+比追求"把红刷绿"更有意义。
+
+## 9 复核命令（一键）
 
 ```bash
 # ① 门禁本身
