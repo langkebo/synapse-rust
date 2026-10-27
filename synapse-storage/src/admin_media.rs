@@ -559,6 +559,97 @@ impl AdminMediaStorage {
 
         Ok(if result.rows_affected() > 0 { 1 } else { 0 })
     }
+
+    /// Record (or refresh) the index row for one generated thumbnail variant.
+    ///
+    /// `width` / `height` are the **requested** dimensions — the same values
+    /// that form the cache key and the on-disk file name — not the actual
+    /// output size. `generate_thumbnail` clamps output to
+    /// `MAX_THUMB_OUTPUT_DIMENSION`, so two different requests can produce the
+    /// same output size; keying the index on the output size would make them
+    /// collide and overwrite each other.
+    ///
+    /// `is_animated` mirrors the `_animated` file-name suffix (`.webp`) so an
+    /// animated and a static variant of the same media/size/method coexist.
+    /// Conflicting rows update the mutable facts (content type / size /
+    /// timestamp) rather than inserting a duplicate.
+    // reason: 缩略图变体字段逐个来自生成点（缓存键的各个分量），打包成结构体只会把同一份字段列表抄两遍
+    #[allow(clippy::too_many_arguments)]
+    pub async fn upsert_thumbnail(
+        &self,
+        media_id: &str,
+        width: i32,
+        height: i32,
+        method: &str,
+        content_type: &str,
+        size: i64,
+        created_ts: i64,
+        is_animated: bool,
+    ) -> Result<(), ApiError> {
+        sqlx::query!(
+            r#"
+            INSERT INTO thumbnails (media_id, width, height, method, content_type, size, created_ts, is_animated)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            ON CONFLICT (media_id, width, height, method, is_animated) DO UPDATE
+            SET content_type = EXCLUDED.content_type,
+                size = EXCLUDED.size,
+                created_ts = EXCLUDED.created_ts
+            "#,
+            media_id,
+            width,
+            height,
+            method,
+            content_type,
+            size,
+            created_ts,
+            is_animated,
+        )
+        .execute(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
+
+        Ok(())
+    }
+
+    /// Drop every thumbnail index row belonging to `media_id`.
+    ///
+    /// Returns the number of rows deleted. Deleting the media row itself also
+    /// cascades here, so this is for callers that remove the on-disk
+    /// thumbnails but keep the media row.
+    pub async fn delete_thumbnails_for_media(&self, media_id: &str) -> Result<u64, ApiError> {
+        let result = sqlx::query!(
+            r#"
+            DELETE FROM thumbnails
+            WHERE media_id = $1
+            "#,
+            media_id,
+        )
+        .execute(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
+
+        Ok(result.rows_affected())
+    }
+
+    /// Drop thumbnail index rows created before `before_ts`.
+    ///
+    /// Used by the mtime-based file sweeps (`cleanup_old_thumbnails` /
+    /// `purge_media_cache`) so the index stops advertising files those sweeps
+    /// just unlinked. Returns the number of rows deleted.
+    pub async fn delete_thumbnails_before(&self, before_ts: i64) -> Result<u64, ApiError> {
+        let result = sqlx::query!(
+            r#"
+            DELETE FROM thumbnails
+            WHERE created_ts < $1
+            "#,
+            before_ts,
+        )
+        .execute(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_cause("Database error", e))?;
+
+        Ok(result.rows_affected())
+    }
 }
 
 #[async_trait]
@@ -1296,5 +1387,57 @@ mod admin_read_paths_db_tests {
         assert_eq!(storage.unprotect_media(&quarantined, "@admin:test").await.expect("no-op"), 0);
         assert_eq!(status_of(&pool, &quarantined).await.as_deref(), Some("quarantined"));
         assert_eq!(storage.unprotect_media(&format!("m_absent_{s}"), "@admin:test").await.expect("missing"), 0);
+    }
+
+    #[tokio::test]
+    async fn upsert_thumbnail_upserts_by_variant_and_keeps_animated_apart() {
+        let (_iso, pool) = test_pool().await;
+        let storage = AdminMediaStorage::new(&pool);
+        let s = uuid::Uuid::new_v4().simple().to_string();
+        let media_id = format!("m_thumb_{s}");
+        insert_media_row(&pool, &media_id, "@t:test", 10, 1, None, None).await;
+
+        storage.upsert_thumbnail(&media_id, 32, 32, "crop", "image/jpeg", 100, 10, false).await.expect("first");
+        // 同一变体重复登记：更新可变事实，不新增行
+        storage.upsert_thumbnail(&media_id, 32, 32, "crop", "image/jpeg", 200, 20, false).await.expect("second");
+        // 同 media/size/method 但动图：靠 is_animated 独立成行
+        storage.upsert_thumbnail(&media_id, 32, 32, "crop", "image/webp", 300, 30, true).await.expect("animated");
+
+        let rows: Vec<(i32, i32, String, i64, bool)> = sqlx::query_as(
+            "SELECT width, height, content_type, size, is_animated FROM thumbnails
+             WHERE media_id = $1 ORDER BY is_animated",
+        )
+        .bind(&media_id)
+        .fetch_all(&*pool)
+        .await
+        .expect("read thumbnails");
+        assert_eq!(rows.len(), 2, "静态变体一行 + 动图变体一行");
+        assert_eq!(rows[0], (32, 32, "image/jpeg".to_string(), 200, false), "冲突分支应更新 size");
+        assert_eq!(rows[1], (32, 32, "image/webp".to_string(), 300, true));
+    }
+
+    #[tokio::test]
+    async fn delete_thumbnails_scopes_by_media_and_by_age() {
+        let (_iso, pool) = test_pool().await;
+        let storage = AdminMediaStorage::new(&pool);
+        let s = uuid::Uuid::new_v4().simple().to_string();
+        let keep = format!("m_tk_{s}");
+        let drop = format!("m_td_{s}");
+        insert_media_row(&pool, &keep, "@t:test", 10, 1, None, None).await;
+        insert_media_row(&pool, &drop, "@t:test", 10, 1, None, None).await;
+
+        storage.upsert_thumbnail(&drop, 32, 32, "crop", "image/jpeg", 1, 100, false).await.expect("old");
+        storage.upsert_thumbnail(&drop, 64, 64, "scale", "image/jpeg", 1, 900, false).await.expect("new");
+        storage.upsert_thumbnail(&keep, 32, 32, "crop", "image/jpeg", 1, 100, false).await.expect("keep");
+
+        assert_eq!(storage.delete_thumbnails_for_media(&drop).await.expect("by media"), 2, "只删目标 media 的行");
+        let keep_rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM thumbnails WHERE media_id = $1")
+            .bind(&keep)
+            .fetch_one(&*pool)
+            .await
+            .expect("count keep");
+        assert_eq!(keep_rows, 1);
+
+        assert_eq!(storage.delete_thumbnails_before(500).await.expect("by age"), 1, "早于阈值的行按全局期限删");
     }
 }

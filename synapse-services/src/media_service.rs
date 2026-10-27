@@ -568,9 +568,96 @@ impl MediaService {
                 error = %e,
                 "Failed to cache thumbnail"
             );
+        } else {
+            self.register_thumbnail(media_id, width, height, method, animated, thumbnail.len() as i64).await;
         }
 
         Ok(thumbnail)
+    }
+
+    /// Best-effort index row for one generated thumbnail variant.
+    ///
+    /// The file on disk stays the source of truth for serving; this row is the
+    /// queryable index of what has been generated, so failures are logged and
+    /// swallowed — a request must never fail because the index is unwritable.
+    ///
+    /// `width` / `height` are the requested dimensions (identical to the cache
+    /// key and the file name), not the clamped output size; see
+    /// [`AdminMediaStorage::upsert_thumbnail`].
+    async fn register_thumbnail(
+        &self,
+        media_id: &str,
+        width: u32,
+        height: u32,
+        method: &str,
+        animated: bool,
+        size: i64,
+    ) {
+        let Some(storage) = &self.admin_media_storage else {
+            return;
+        };
+        let (Ok(width), Ok(height)) = (i32::try_from(width), i32::try_from(height)) else {
+            ::tracing::warn!(
+                media_id = %media_id,
+                width,
+                height,
+                "Thumbnail dimensions exceed INTEGER range; skipping index row"
+            );
+            return;
+        };
+        let content_type = if animated { "image/webp" } else { "image/jpeg" };
+        if let Err(e) = storage
+            .upsert_thumbnail(media_id, width, height, method, content_type, size, current_timestamp_millis(), animated)
+            .await
+        {
+            ::tracing::error!(
+                media_id = %media_id,
+                width,
+                height,
+                method = %method,
+                animated,
+                error = %e,
+                "Failed to record thumbnail index row"
+            );
+        }
+    }
+
+    /// Remove every cached thumbnail file belonging to `media_id`.
+    ///
+    /// Returns the number of files removed. `media_id` can itself contain `_`,
+    /// so names are matched structurally by [`thumbnail_file_matches_id`]
+    /// rather than by a plain prefix test.
+    async fn delete_thumbnail_files(&self, media_id: &str) -> u64 {
+        let thumbnail_path = self.thumbnail_path.clone();
+        let media_id_owned = media_id.to_string();
+        let media_id_for_log = media_id.to_string();
+        tokio::task::spawn_blocking(move || {
+            let mut deleted = 0u64;
+            if let Ok(entries) = std::fs::read_dir(&thumbnail_path) {
+                for entry in entries.flatten() {
+                    let file_name = entry.file_name().to_string_lossy().to_string();
+                    if !thumbnail_file_matches_id(&file_name, &media_id_owned) {
+                        continue;
+                    }
+                    if let Err(e) = std::fs::remove_file(entry.path()) {
+                        ::tracing::warn!(
+                            error = %e,
+                            file_name = %file_name,
+                            media_id = %media_id_owned,
+                            "Failed to delete thumbnail file"
+                        );
+                    } else {
+                        deleted += 1;
+                    }
+                }
+            }
+            deleted
+        })
+        .await
+        .unwrap_or_else(|e| {
+            ::tracing::warn!(error = %e, media_id = %media_id_for_log, "Thumbnail file cleanup task failed");
+            0
+        })
     }
 
     fn generate_thumbnail(
@@ -855,6 +942,15 @@ impl MediaService {
                     "Failed to write thumbnail"
                 );
             } else {
+                self.register_thumbnail(
+                    media_id,
+                    config.width,
+                    config.height,
+                    method_str,
+                    false,
+                    thumbnail.len() as i64,
+                )
+                .await;
                 generated.push(thumbnail_filename);
             }
         }
@@ -902,6 +998,15 @@ impl MediaService {
         })
         .await
         .map_err(|e| ApiError::internal_with_cause("Task error", e))?;
+
+        // 文件已按 mtime 删除，索引行不能继续宣称这些缩略图存在：用同一阈值清理索引。
+        if let Some(storage) = &self.admin_media_storage {
+            let max_age_ms = max_age_days.saturating_mul(24 * 60 * 60 * 1000);
+            let cutoff_ts = current_timestamp_millis().saturating_sub(i64::try_from(max_age_ms).unwrap_or(i64::MAX));
+            if let Err(e) = storage.delete_thumbnails_before(cutoff_ts).await {
+                ::tracing::error!(error = %e, cutoff_ts, "Failed to delete stale thumbnail index rows");
+            }
+        }
 
         Ok(result)
     }
@@ -1042,11 +1147,20 @@ impl MediaService {
 
         removal.map_err(|e| ApiError::not_found(format!("Failed to delete media file: {e}")))?;
 
+        // 原文件已删，缩略图既无来源也再不会被命中：文件和索引一并清掉。
+        let removed_thumbnails = self.delete_thumbnail_files(media_id).await;
+        if let Some(storage) = &self.admin_media_storage {
+            if let Err(e) = storage.delete_thumbnails_for_media(media_id).await {
+                ::tracing::error!(media_id = %media_id, error = %e, "Failed to delete thumbnail index rows");
+            }
+        }
+
         self.forget_file_name(media_id).await;
         ::tracing::info!(
             media_id = %media_id,
             file_name = %file_name,
             server_name = %server_name,
+            removed_thumbnails,
             "Deleted media"
         );
         Ok(())
@@ -1125,6 +1239,14 @@ impl MediaService {
         .map_err(|e| ApiError::internal_with_cause("Task error", e))?;
 
         deleted_count += thumb_deleted;
+
+        // 缩略图文件已按 mtime 删除，索引行同步按同一阈值清理，避免索引指向已不存在的文件。
+        if let Some(storage) = &self.admin_media_storage {
+            if let Err(e) = storage.delete_thumbnails_before(before_ts).await {
+                ::tracing::error!(error = %e, before_ts, "Failed to purge thumbnail index rows");
+            }
+        }
+
         ::tracing::info!(deleted_count, before_ts, "Purged media cache");
         Ok(deleted_count)
     }
@@ -1132,6 +1254,28 @@ impl MediaService {
 
 fn media_file_matches_id(file_name: &str, media_id: &str) -> bool {
     file_name.strip_prefix(media_id).is_some_and(|rest| rest.starts_with('.') || rest.starts_with('_'))
+}
+
+/// `TRUE` iff `file_name` is a cached thumbnail of `media_id`.
+///
+/// Thumbnail names are `{media_id}_{width}x{height}_{method}[_animated].{ext}`.
+/// `media_id` may itself contain `_`, so the variant segment cannot be found
+/// with `rsplit_once('_')`; parsing is anchored at the `_<digits>x<digits>_`
+/// tail instead, which no other part of the name can satisfy by accident.
+fn thumbnail_file_matches_id(file_name: &str, media_id: &str) -> bool {
+    let Some(rest) = file_name.strip_prefix(media_id).and_then(|rest| rest.strip_prefix('_')) else {
+        return false;
+    };
+    let Some((width, rest)) = rest.split_once('x') else {
+        return false;
+    };
+    if width.is_empty() || !width.bytes().all(|b| b.is_ascii_digit()) {
+        return false;
+    }
+    let Some((height, tail)) = rest.split_once('_') else {
+        return false;
+    };
+    !height.is_empty() && height.bytes().all(|b| b.is_ascii_digit()) && !tail.is_empty()
 }
 
 #[cfg(test)]
@@ -1458,5 +1602,19 @@ mod tests {
 
         let result = MediaService::generate_thumbnail(&buf, 32, 32, ThumbnailMethod::Scale, false);
         assert!(result.is_ok(), "normal image must succeed: {result:?}");
+    }
+
+    #[test]
+    fn test_thumbnail_file_matches_id_parses_variant_segment() {
+        assert!(thumbnail_file_matches_id("abc_32x32_crop.jpg", "abc"));
+        assert!(thumbnail_file_matches_id("abc_800x600_scale_animated.webp", "abc"));
+        // media_id 自身含 '_'：只能靠 `_<digits>x<digits>_` 尾巴区分，不能把前缀当成别人的
+        assert!(thumbnail_file_matches_id("abc_1_32x32_crop.jpg", "abc_1"));
+        assert!(!thumbnail_file_matches_id("abc_1_32x32_crop.jpg", "abc"));
+        // 原文件与其它 media 的缩略图都不算
+        assert!(!thumbnail_file_matches_id("abc.png", "abc"));
+        assert!(!thumbnail_file_matches_id("abcd_32x32_crop.jpg", "abc"));
+        assert!(!thumbnail_file_matches_id("abc_photo_32x32_crop.jpg", "abc"));
+        assert!(!thumbnail_file_matches_id("abc_32xcrop_x.jpg", "abc"));
     }
 }

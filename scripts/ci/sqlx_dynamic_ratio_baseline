@@ -3595,7 +3595,18 @@ BASELINE_DYNAMIC_PRODUCTION=106
 #   **收紧方向**：`synapse-storage` 已有 `test_isolation` 级别的建行夹具需求，若把
 #   "确保 room / user 存在"抽成 `event/db_tests.rs` 与 `trait_object_dispatch_tests.rs`
 #   共用的单点夹具，可回落 1–2 点；届时本项必须同批下调并就地登记。
-BASELINE_DYNAMIC_TEST_INFRA=831
+# 2026-10-27: 831 → **832**（+2 本批缩略图索引，−1 为基线余量按实测收回）。
+#   `synapse-storage/src/admin_media.rs` 的 `admin_read_paths_db_tests` 新增两处动态 SQL：
+#   ① 读回变体行的 `SELECT width, height, content_type, size, is_animated … ORDER BY is_animated`；
+#   ② 删除后确认其它 media 的行仍在的 `SELECT COUNT(*)`。
+#   两处都是**断言读回**：这组测试钉的是 UPSERT 的冲突分支与删除范围，不读回就
+#   无法区分"更新了一行"与"插了两行"。
+#   为什么不能改静态宏：`#[cfg(test)]` 内的 `query!` 不进 `cargo sqlx prepare`（默认
+#   target 集），`--all-targets` 会 E0432 —— 同上方各条。本批实测净 +1（改前实测 830，
+#   旧基线 831 留有 1 点余量），按"零余量"原则一并收回。
+#   **收紧方向**：若把"按变体读回缩略图行"抽成 `admin_read_paths_db_tests` 的公共夹具，
+#   本条可回落 1 点；届时必须同批下调并就地登记。
+BASELINE_DYNAMIC_TEST_INFRA=832
 # 2026-10-15: 1353 → 1354（+1，方案 B4.3）。新增
 #   `synapse-storage/src/schema_health_check.rs` 的 `check_invalid_indexes()` —— 它让
 #   **半建索引**（`pg_index.indisvalid = false`）可见；此前只查"缺表/缺列/缺索引名"，
@@ -3683,7 +3694,19 @@ BASELINE_DYNAMIC_TEST_INFRA=831
 #     * `cleanup_expired_devices` 的 `query!`（原 L279）
 #     * `revoke_device` 的 `query!`（原 L330）
 #   **收紧方向**：基线下限随删除下移；若重新加回等价查询，须同批上调并就地登记。
-BASELINE_STATIC=1354
+# 2026-10-27: 1354 → **1360**（按实测收紧到零余量；+3 本批缩略图索引，+3 基线滞后）。
+#   本批：`synapse-storage/src/admin_media.rs` 新增三个静态方法（生产区 +3）
+#     * `upsert_thumbnail` —— `INSERT … ON CONFLICT (media_id, width, height, method,
+#       is_animated) DO UPDATE`（缩略图变体登记；唯一键由迁移
+#       `uq_thumbnails_variant` 保证）；
+#     * `delete_thumbnails_for_media` —— 删除缩略图文件但保留 `media_metadata` 行
+#       的调用方用（客户端删除链路不删媒体行，FK 级联不生效）；
+#     * `delete_thumbnails_before` —— mtime 扫描（`cleanup_old_thumbnails` /
+#       `purge_media_cache`）删文件后同步清索引。
+#   另外 3 处属**基线滞后**：改前实测已是 1357，2026-10-24 之后新增的静态查询
+#   未同步到本项，本批按实测一次性对齐（不是"动态改静态"）。
+#   **收紧方向**：基线下限只随删除下调，且须在条目里写明被删的查询。
+BASELINE_STATIC=1360
 # 兼容旧接口：总数 = 生产 + 测试基础设施（132 + 767 = 899；本项不入棘轮，仅保持一致）
 # 2026-10-21: 883 → 884，随 `BASELINE_DYNAMIC_PRODUCTION` 的 +1（`get_space_visibility_batch`）同步。
 # 2026-10-21: 884 → 887，随 `BASELINE_DYNAMIC_PRODUCTION` 的 +3（`get_rooms_batch` 与两条
@@ -3704,7 +3727,9 @@ BASELINE_STATIC=1354
 #   逐段归因见本文件 2026-10-26 两条同批条目）。本项不入棘轮，仅保持"总数 = 生产 + 测试"一致。
 # 2026-10-26: 935 → **937**，随 `BASELINE_DYNAMIC_TEST_INFRA` 的 +2 同步（106 + 831 = 937；
 #   来源 `fd5a978d1` 的 trait 转发层测试夹具，见上方同批条目）。
-BASELINE_DYNAMIC=937
+# 2026-10-27: 937 → **938**，随 `BASELINE_DYNAMIC_TEST_INFRA` 的 +1 同步
+#   （106 + 832 = 938；生产侧基线未动，实测 105 仍在门禁内）。
+BASELINE_DYNAMIC=938
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

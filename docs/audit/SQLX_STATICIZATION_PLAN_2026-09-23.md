@@ -2191,11 +2191,22 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 <!-- sqlx-plan-numbers:start -->
 <!-- 以下数字由 `scripts/ci/check_plan_numbers_fresh.sh` 与基线/实测现算比对；改基线必须同步改这里。 -->
 BASELINE_DYNAMIC_PRODUCTION=106
-BASELINE_DYNAMIC_TEST_INFRA=831
-BASELINE_STATIC=1354
+BASELINE_DYNAMIC_TEST_INFRA=832
+BASELINE_STATIC=1360
 BASELINE_QUERY_BUILDER=17
-SQLX_CACHE_ENTRIES=1319
+SQLX_CACHE_ENTRIES=1322
 <!-- sqlx-plan-numbers:end -->
+
+> **2026-10-27 更新（缩略图索引闭环：`thumbnails` 从零读写变成可查询索引）**，三项数字：
+> - `BASELINE_STATIC` **1354 → 1360**（+6）：`synapse-storage/src/admin_media.rs` 新增
+>   `upsert_thumbnail` / `delete_thumbnails_for_media` / `delete_thumbnails_before`
+>   三个静态方法（+3）；另外 3 处是 2026-10-24 之后新增静态查询造成的**基线滞后**，
+>   本批按实测（改前 1357）一次性对齐，不是"动态改静态"。
+> - `BASELINE_DYNAMIC_TEST_INFRA` **831 → 832**（净 +1）：同文件 `admin_read_paths_db_tests`
+>   新增两条断言读回（UPSERT 冲突分支、删除范围），本批 +2、旧基线余量 −1。
+> - `SQLX_CACHE_ENTRIES` **1319 → 1322**（+3，与上条三个新 `query!` 一一对应）：
+>   经唯一入口 `scripts/ci/sqlx_prepare.sh` 重生成。同批迁移基线给 `thumbnails`
+>   加 `is_animated` 列与 `uq_thumbnails_variant` 唯一索引（`ON CONFLICT` 的前提）。
 
 > **2026-10-27 更新（to_device 保留期清理改走 `query!`）**，数字块一项：
 > - `SQLX_CACHE_ENTRIES` **1318 → 1319**（+1）：`prune_old_to_device_messages` 的字面量

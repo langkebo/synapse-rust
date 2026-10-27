@@ -1024,9 +1024,13 @@ CREATE TABLE IF NOT EXISTS thumbnails (
     content_type TEXT NOT NULL,
     size BIGINT NOT NULL,
     created_ts BIGINT NOT NULL,
+    is_animated BOOLEAN NOT NULL DEFAULT FALSE,
     CONSTRAINT pk_thumbnails PRIMARY KEY (id),
     CONSTRAINT fk_thumbnails_media FOREIGN KEY (media_id) REFERENCES media_metadata(media_id) ON DELETE CASCADE
 );
+
+-- 既有库补列：is_animated 用于区分动图缩略图与静态缩略图（同一 media_id + 尺寸 + method 可各存一份）
+ALTER TABLE thumbnails ADD COLUMN IF NOT EXISTS is_animated BOOLEAN NOT NULL DEFAULT FALSE;
 
 CREATE TABLE IF NOT EXISTS media_quota (
     id BIGSERIAL,
@@ -3509,6 +3513,9 @@ CREATE INDEX IF NOT EXISTS idx_media_uploader ON media_metadata(uploader_user_id
 CREATE INDEX IF NOT EXISTS idx_media_server ON media_metadata(server_name);
 CREATE INDEX IF NOT EXISTS idx_media_metadata_content_hash ON media_metadata(content_hash);
 CREATE INDEX IF NOT EXISTS idx_thumbnails_media ON thumbnails(media_id);
+-- 业务唯一键：一个缩略图变体（media_id + 请求尺寸 + method + 是否动图）只应存在一行，
+-- 供生成端 UPSERT 与删除端精确清理使用。尺寸存请求值（=缓存键=文件名），非截断后的输出尺寸。
+CREATE UNIQUE INDEX IF NOT EXISTS uq_thumbnails_variant ON thumbnails(media_id, width, height, method, is_animated);
 CREATE INDEX IF NOT EXISTS idx_user_media_quota_used ON user_media_quota(used_bytes DESC) WHERE used_bytes > 0;
 CREATE INDEX IF NOT EXISTS idx_media_quota_config_enabled ON media_quota_config(is_enabled) WHERE is_enabled = TRUE;
 CREATE INDEX IF NOT EXISTS idx_media_usage_log_user ON media_usage_log(user_id);
@@ -4952,6 +4959,9 @@ FOR EACH ROW EXECUTE FUNCTION sync_room_member_count();
 -- 例外：uq_to_device_txn_msgid 是应用层 to-device 去重依赖（INSERT ... ON CONFLICT
 -- (sender_user_id, sender_device_id, message_id)，见增量迁移 20260710120000），
 -- 必须保留，否则 record_transaction 报 "no unique constraint matching the ON CONFLICT specification"。
+-- 例外：uq_thumbnails_variant 是缩略图索引的业务唯一键，upsert_thumbnail 的
+-- ON CONFLICT (media_id, width, height, method, is_animated) 依赖它做仲裁，
+-- 同样必须保留，否则报 "no unique or exclusion constraint matching the ON CONFLICT specification"。
 
 DO $$
 DECLARE
@@ -4970,7 +4980,7 @@ BEGIN
           -- 保留 public 已删除的冗余索引（镜像失真）。
           AND n.nspname = current_schema()
           AND c.relname LIKE 'uq_%'
-          AND c.relname NOT IN ('uq_to_device_txn_msgid')
+          AND c.relname NOT IN ('uq_to_device_txn_msgid', 'uq_thumbnails_variant')
           -- 排除 CONSTRAINT 创建的索引（它们通常叫 <table>_<col>_key）
           AND NOT EXISTS (
               SELECT 1 FROM pg_constraint con

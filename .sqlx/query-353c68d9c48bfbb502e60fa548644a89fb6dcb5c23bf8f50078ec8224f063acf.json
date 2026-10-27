@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM thumbnails\n            WHERE media_id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "353c68d9c48bfbb502e60fa548644a89fb6dcb5c23bf8f50078ec8224f063acf"
+}
