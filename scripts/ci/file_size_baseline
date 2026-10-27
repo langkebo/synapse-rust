@@ -6,7 +6,7 @@
 
 3516 synapse-storage/src/event/db_tests.rs
 3403 synapse-common/src/test_isolation.rs
-2974 synapse-test-utils/src/lib.rs
+2981 synapse-test-utils/src/lib.rs
 2510 synapse-services/src/sync_service/tests.rs
 1905 src/server/mod.rs
 1850 synapse-storage/src/push/mod.rs
@@ -142,7 +142,6 @@
 950 synapse-storage/src/room_summary/repository.rs
 949 synapse-services/src/relations_service.rs
 948 synapse-cache/src/tests.rs
-944 synapse-storage/src/pruning.rs
 941 synapse-storage/src/retention.rs
 939 synapse-services/src/graph_metadata.rs
 931 synapse-common/src/password_hash_pool.rs
@@ -150,6 +149,7 @@
 927 synapse-web/src/routes/app_service.rs
 927 synapse-web/src/routes/room_summary.rs
 926 synapse-common/src/security.rs
+925 synapse-storage/src/pruning.rs
 918 synapse-services/src/room/lifecycle/create.rs
 915 synapse-common/src/config/tests.rs
 915 synapse-web/src/routes/friend_room.rs

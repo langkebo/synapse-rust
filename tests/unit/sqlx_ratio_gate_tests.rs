@@ -388,21 +388,28 @@ fn parse_metric(output: &str, key: &str) -> Option<u64> {
 //
 // 本用例用**双向**断言钉住：折叠后的摘要命中 ⇒ 通过；把"未折叠"的摘要登记为缓存
 // ⇒ 必须失败（否则这条用例只是恰好通过，重写解析器时会静默回归）。
+//
+// ⚠️ 夹具里的表名必须用**真实表**（`events`）而不是 `t`：本文件会被
+// `scripts/check_schema_table_coverage.py` 逐字扫一遍（它不区分"夹具里的 SQL 文本"
+// 与"真正要执行的 SQL"），任何 `UPDATE <标识符>` / `FROM <标识符>` 都会被当成
+// "引用了未在迁移中定义的表"，一个占位表名会直接把 `Repo Sanity` 第一条检查变红，
+// 而它红了以后同 job 的 20 多个门禁**全部 skipped**。同约定见
+// `tests/unit/sqlx_dynamic_literal_guard_tests.rs:474`。
 // =============================================================================
 
 /// 用行尾续行写的 `query!`。续行前的空格属于 SQL，续行后的缩进不属于 SQL。
 const CONTINUATION_SOURCE: &str = r#"
 fn f() {
-    let _ = sqlx::query!("UPDATE t SET a = $1 \
+    let _ = sqlx::query!("UPDATE events SET a = $1 \
          WHERE b = $2", 1i64, 2i64);
 }
 "#;
 
 /// Rust 求值后的字符串（`\` + 换行 + 下一行前导空白 被删除）。
-const CONTINUATION_COLLAPSED: &str = "UPDATE t SET a = $1 WHERE b = $2";
+const CONTINUATION_COLLAPSED: &str = "UPDATE events SET a = $1 WHERE b = $2";
 
 /// 未按 Rust 语义求值的形态：解析器**原样保留**续行换行与缩进。
-const CONTINUATION_RAW: &str = "UPDATE t SET a = $1 \n         WHERE b = $2";
+const CONTINUATION_RAW: &str = "UPDATE events SET a = $1 \n         WHERE b = $2";
 
 fn sha256_hex(input: &str) -> String {
     use sha2::{Digest, Sha256};
