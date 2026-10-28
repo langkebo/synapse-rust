@@ -97,13 +97,45 @@ if [ -z "${HTTPS_PROXY:-}${https_proxy:-}" ]; then
     echo "ℹ️  已按 git http.proxy=$GIT_PROXY 注入 HTTPS_PROXY（供 cargo-deny 拉取 advisory-db）"
   fi
 fi
-if ! cargo deny check advisories; then
-  echo ""
-  echo "❌ push 被拦下：cargo-deny advisories 未通过（见上方输出）。"
-  echo "$BYPASS_HINT"
-  exit 1
+# ⚠️ fetch 失败 ≠ 命中公告。2026-10-28 实测：本机到 github.com 的 git/HTTPS 被代理拦成
+# `failed to prepare fetch: An IO error occurred when talking to the server`，于是这条
+# **阻断**把"网络不通"报成了"代码有漏洞"，人被逼着 `git push --no-verify` —— 即
+# "判据把环境故障当代码缺陷"，与本仓反复修的假红同型（require_tests_ran 的 ANSI/SIGPIPE/单复数）。
+#
+# 处置是**分层**而不是放宽：先照常 fetch；只有在输出里确认是 advisory-db 拉取失败时，
+# 才用**本地已存在的** db 复核一次（`-d` = 不 fetch）。此时不算"通过"，显式告警"未含最新公告"，
+# 最新公告由 CI 每次新拉 db 兜底。本地 db 不存在或复核仍失败时照旧阻断。
+deny_log="$(mktemp)"
+if ! cargo deny check advisories 2>&1 | tee "$deny_log"; then
+  if grep -qE "failed to fetch advisory database" "$deny_log"; then
+    adv_db_root="${CARGO_HOME:-$HOME/.cargo}/advisory-db"
+    local_db="$(ls -d "$adv_db_root"/advisory-db-* 2>/dev/null | head -1)"
+    db_rev=""
+    if [ -n "$local_db" ]; then
+      db_rev="$(git -C "$local_db" log -1 --format='%h %ad' --date=short 2>/dev/null)"
+    fi
+    echo ""
+    echo "⚠️  advisory-db 拉取失败（网络/代理），改用本地已存在的副本复核：${db_rev:-（未找到本地 db）}"
+    if [ -n "$local_db" ] && cargo deny check advisories -d; then
+      echo "⚠️  advisories ok —— **但这是本地副本的结论，不含最新公告**；"
+      echo "    以 CI 的 Security Audit 为准（它每次新拉 db）。本次 push 放行。"
+    else
+      echo "❌ push 被拦下：本地副本复核也失败（不是网络问题，见上方输出）。"
+      echo "$BYPASS_HINT"
+      rm -f "$deny_log"
+      exit 1
+    fi
+  else
+    echo ""
+    echo "❌ push 被拦下：cargo-deny advisories 未通过（见上方输出）。"
+    echo "$BYPASS_HINT"
+    rm -f "$deny_log"
+    exit 1
+  fi
+else
+  echo "✅ cargo-deny advisories 通过"
 fi
-echo "✅ cargo-deny advisories 通过"
+rm -f "$deny_log"
 
 # ── Stage 3（阻断）：cargo-machete 未使用依赖 ─────────────────────────────────
 # 依赖只增不减会持续放大编译时间与供应链面。machete 静态扫描各 crate 的 Cargo.toml，

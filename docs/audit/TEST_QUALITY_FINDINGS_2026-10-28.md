@@ -27,9 +27,28 @@
 | A5 | 豁免机制自身无校验：缺 `reason`、缺 `rules`、`rules` 为空集、规则编号写错，一律静默生效 | — | ✅ 已修（同 A4 提交，`validate_exemptions()` 在 `main()` 首行调用） |
 | A6 | workflow 注释里写着**不存在**的守卫函数 `ci_test_scope_tests.rs::docker_security_scan_base_images_are_read_from_the_dockerfile` | 该文件无此函数，真实守卫在 `workflow_pipefail_tests.rs` | ✅ 已修 `b900f8c30` |
 | A7 | `Digest Pin Integrity` 把三个 digest **抄一份**写死在 workflow ⇒ Dockerfile 升 pin 后仍验**旧** digest，自证不了"当前 pin 有效" | — | ✅ 已修（`read_base_image_pins.sh` 为唯一读取入口） |
+| A8 | `.githooks/pre-push` 的 `cargo deny check advisories` 把 **advisory-db 拉取失败**当成"代码有漏洞"阻断 push ⇒ 人被逼 `--no-verify`（本轮实测踩到，见 §1.1） | 输出为 `failed to prepare fetch: An IO error occurred when talking to the server`；同一棵树上 `cargo deny check advisories -d`（不 fetch）**`advisories ok`** | ✅ 已修（分层：确认是拉取失败才用本地 db 复核，且显式告警"不含最新公告"，CI 兜底） |
 
-共性：A1 与 A2/A3 是**同一个脚本第三次**"判据写死单一合法输出形态"。根因是判据建立在
-**日志文本**上，而不是工具自己的退出码 —— 见 §5 待办 6。
+共性：A1 与 A2/A3 是**同一个脚本第三次**"判据写死单一合法输出形态"；A8 是**第四种**同型形态，
+但换了个位置——它把**环境故障**也折叠成"代码缺陷"。根因一致：判据的输入是外部世界（日志文本 /
+网络），而不是"被测对象本身的状态"。
+
+### 1.1 A8 的现场（本轮真实踩到，不修就得绕过门禁）
+
+纯文档提交被 pre-push 拦下：
+
+```text
+2026-10-28 00:01:07 [ERROR] failed to fetch advisory database https://github.com/rustsec/advisory-db:
+failed to prepare fetch: An IO error occurred when talking to the server:
+error sending request for url (.../advisory-db/info/refs?service=git-upload-pack)
+
+❌ push 被拦下：cargo-deny advisories 未通过（见上方输出）。
+  绕过：git push --no-verify（仅紧急情况）
+```
+
+同树上加 `--disable-fetch`（用本地已有副本）⇒ `advisories ok`、`EXIT 0`。两条读数的差别只有
+"能不能连上 github.com"，与代码无关。钩子里的注释早就写了代理透传（`HTTPS_PROXY`），但代理本身
+返回 502，"注入代理"救不了"代理不可用"。
 
 ## 2 B 类：判据结构上"看不到"（不是假红，是根本没人看）
 
@@ -128,7 +147,7 @@ C4 是第一个案例。可选方向：基线改为"随改动一起评审的可�
 `require_tests_ran.sh` 本轮只修了单复数，**机制未改**：判据仍是"日志里必须出现某个正向计数行"，
 一旦 nextest 换文案或加 `--no-tests=pass` 就再假红（已发生三次）。收紧方向是优先用工具自己的
 退出码（`cargo nextest --no-tests=fail`），正则兜底只保留"宽进严出"的最小集合 —— 改机制会动
-CI 语义，需另立决策。
+CI 语义，需另立决策。A8 是同一根因的另一面：判据的输入是网络可达性，于是断网就被报成漏洞。
 
 ## 5 一条可复用的判据
 
