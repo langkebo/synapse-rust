@@ -572,6 +572,28 @@ cargo llvm-cov --test integration --features "…" --lcov --output-path /tmp/rou
 > 2. **134 个文件 + 6 条 core-path 的逐条定性**仍要等一份完整 lcov（§6.1），
 >    在那之前**禁止** `--update`，也不逐条手改基线。
 
+#### 3.1.3.2 关账把主车道弄红了：`--raise-queue` 把"完成"读成"丢失"（2026-10-28 已修）
+
+关账后第一份完整报告（run 40649970973，674 个文件、`Run coverage` 首次转绿）的
+`Per-file coverage ratchet` 红了，但红的原因与覆盖率无关：
+
+```text
+Coverage raise queue is unusable: raise queue scripts/ci/coverage_raise_queue.json is empty
+  — the 30% lift task was dropped silently
+```
+
+`scripts/check_file_coverage.py::load_raise_queue` 当时对 `entries` 为空**无条件**判红。
+而"达成即删"的终态恰好就是 `entries: []` + `closed` 收尾块 —— 于是**按规矩关账**
+反而让 674 个文件根本没被比较过。这条判据的本意是"任务不许被静默丢弃"，
+它把"完成"与"丢弃"混成了同一种形态（与 §3.1.3 判据 9–11 修的是同一对概念，
+只是这次漏在了读台账的另一端）。
+
+修法：`load_raise_queue` 返回 `(entries, closed)`，空 `entries` + 有 `closed`
+⇒ 打印 `[RAISE-CLOSED]`（含封存值与 `absorption_pending`）并**不参与退出码**；
+空 `entries` 且无收尾块 ⇒ 仍是 exit 2。守卫补两例
+（`the_ratchet_accepts_a_closed_ledger` / `the_ratchet_still_rejects_an_empty_ledger_without_a_closure`），
+12 → **14** 例。
+
 #### 3.1.3.1 `logging.rs` 实施记录（2026-10-28）：补测试时撞出两个真缺陷
 
 补测试本身是机械的，**但"能写测试"的前提是先把它拆成可测形状** —— 而拆分过程中暴露的两条

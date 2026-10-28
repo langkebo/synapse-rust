@@ -530,12 +530,27 @@ def check_file_coverage(
     return 0
 
 
-def load_raise_queue(path: pathlib.Path) -> List[dict]:
-    """Load the coverage raise ledger (`coverage_raise_queue.json` → `entries`).
+def load_raise_queue(path: pathlib.Path) -> Tuple[List[dict], Optional[dict]]:
+    """Load the coverage raise ledger → `(entries, closed)`.
 
     Fail-closed like `--core-files` / `--non-unit-coverable`: a missing file, a
-    missing `entries` array, or an empty list all mean the P2 task silently
-    stopped being reported — the state nobody notices.
+    missing `entries` array, or an empty list **without a closure block** all mean
+    the P2 task silently stopped being reported — the state nobody notices.
+
+    ## `entries: []` + `closed` 是合法终态（2026-10-28 修正）
+
+    台账的口径是「达成即删」：最后一条达标时条目会被删光，数字搬进 `closed`
+    （`at` / `why` / `measurements`）。而本函数的旧实现在 `entries` 为空时**无条件**
+    判红，于是"按规矩关账"反而把整条主车道弄红：实测 run 40649970973 的
+    `Per-file coverage ratchet` 就是红在这句话上（
+    `raise queue … is empty — the 30% lift task was dropped silently`），而报告里
+    674 个文件根本没被比较过。**判据把"完成"读成了"丢失"**。
+
+    所以现在区分两件事：
+      * 空 + 有 `closed` ⇒ 关账完成，指标只打印 `[RAISE-CLOSED]`，不参与退出码；
+      * 空 + 无 `closed` ⇒ 仍是 exit 2（"任务被静默丢弃"），这条不变量不变。
+    结构校验（`closed` 的字段与"达标才允许关账"）由 `scripts/ci/check_coverage_raise_queue.py`
+    负责，本函数只认"有没有"这一层。
     """
     if not path.exists():
         raise ValueError(f"raise queue not found: {path}")
@@ -543,14 +558,23 @@ def load_raise_queue(path: pathlib.Path) -> List[dict]:
         data = json.load(f)
     if not isinstance(data, dict) or not isinstance(data.get("entries"), list):
         raise ValueError(f"raise queue {path} has no `entries` array")
+    closed = data.get("closed")
+    closed = closed if isinstance(closed, dict) and closed else None
     if not data["entries"]:
-        raise ValueError(
-            f"raise queue {path} is empty — the 30% lift task was dropped silently"
-        )
-    return data["entries"]
+        if closed is None:
+            raise ValueError(
+                f"raise queue {path} is empty and carries no `closed` block — "
+                "the 30% lift task was dropped silently"
+            )
+        return [], closed
+    return data["entries"], closed
 
 
-def report_raise_queue(current: Dict[str, float], entries: List[dict]) -> None:
+def report_raise_queue(
+    current: Dict[str, float],
+    entries: List[dict],
+    closed: Optional[dict] = None,
+) -> None:
     """Print progress for the `coverage_raise_queue.json` entries.
 
     **Deliberately cannot affect the exit code.** `target` is an aspiration, not
@@ -561,8 +585,11 @@ def report_raise_queue(current: Dict[str, float], entries: List[dict]) -> None:
     a row has reached its target and is still listed, and when a recorded start
     value is above the current baseline (i.e. the floor was quietly lowered).
 
-    Two extra states matter here:
+    Three extra states matter here:
 
+    * `[RAISE-CLOSED]`: the ledger is finished (`entries: []` + a `closed` block
+      recording the measured values). Printed so a closed task stays visible
+      instead of looking like "someone deleted the file";
     * `[RAISE-NODATA]`: the file is missing from *this* report. A file that is
       silently absent is not "0%", it is "not measured" — the same failure shape
       as the `594 个条目保留自上次` shrinkage, so it gets its own tag;
@@ -570,6 +597,24 @@ def report_raise_queue(current: Dict[str, float], entries: List[dict]) -> None:
       commit that lets the ratchet tighten the baseline.
     """
     if not entries:
+        if closed:
+            measurements = closed.get("measurements")
+            numbers = (
+                ", ".join(
+                    f"{p} {v:g}%"
+                    for p, v in sorted(measurements.items())
+                    if isinstance(v, (int, float))
+                )
+                if isinstance(measurements, dict)
+                else ""
+            )
+            print("=== Coverage raise queue: 已关账（entries 为空 + closed 收尾块）===")
+            print(f"  [RAISE-CLOSED] {closed.get('at')} — {closed.get('why')}")
+            if numbers:
+                print(f"  封存实测值：{numbers}")
+            tail = closed.get("absorption_pending")
+            if isinstance(tail, str) and tail.strip():
+                print(f"  待吸收：{tail}")
         return
     print("=== Coverage raise queue (progress only; `target` is NOT a floor) ===")
     for entry in entries:
@@ -788,9 +833,10 @@ def main() -> int:
     # The raise ledger is read before the ratchet runs so a malformed ledger is
     # reported as exit 2 (unusable input), not confused with a coverage failure.
     raise_entries: List[dict] = []
+    raise_closed: Optional[dict] = None
     if args.raise_queue is not None:
         try:
-            raise_entries = load_raise_queue(args.raise_queue)
+            raise_entries, raise_closed = load_raise_queue(args.raise_queue)
         except (OSError, ValueError, json.JSONDecodeError) as error:
             print(f"Coverage raise queue is unusable: {error}", file=sys.stderr)
             return 2
@@ -838,7 +884,7 @@ def main() -> int:
 
     # 打印在 save_baseline 之前：本轮收紧后 `[RAISE-DONE]` 的条目会在下一轮变成
     # 「基线已达标」，那时守卫（check_coverage_raise_queue.py）就会要求删条目。
-    report_raise_queue(current, raise_entries)
+    report_raise_queue(current, raise_entries, raise_closed)
 
     save_path = args.save_baseline or args.baseline
     lowered_count = save_baseline(

@@ -366,3 +366,63 @@ fn the_ledger_gate_self_proves_its_own_rules() {
     assert!(text.contains("mutation-check OK"), "the self-proof must print a verdict:\n{text}");
     assert!(!text.contains("MISS"), "every injected defect must be detected:\n{text}");
 }
+
+/// (m) 台账「关账」后，**主车道的棘轮**不能再把它读成"任务被静默丢弃"。
+///
+/// 实测 run 40649970973（2026-10-28）：`Per-file coverage ratchet` 红在这句话上 ——
+/// `raise queue … is empty — the 30% lift task was dropped silently` ——
+/// 而同一份报告里 674 个文件**根本没被比较过**。判据把"按规矩完成"读成了"丢失"，
+/// 于是一次关账把整条主车道弄红，且看起来像覆盖率出了问题。
+#[test]
+fn the_ratchet_accepts_a_closed_ledger() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let report = write_lcov(dir.path(), &[("src/probe_half.rs", 100, 40)]);
+    let baseline = write_baseline(dir.path(), &[("src/probe_half.rs", 40.0)]);
+    let queue = dir.path().join("closed.json");
+    fs::write(
+        &queue,
+        r#"{"entries":[],"closed":{"at":"2026-10-28","why":"fixture closure that is long enough to pass","measurements":{"src/probe_half.rs":40.0}}}"#,
+    )
+    .expect("closed ledger must be writable");
+    let saved = dir.path().join("saved.json");
+    let (code, text) = run(
+        &ratchet_script(),
+        &[
+            "--report",
+            utf8(&report),
+            "--baseline",
+            utf8(&baseline),
+            "--save-baseline",
+            utf8(&saved),
+            "--global-floor",
+            "40",
+            "--new-file-floor",
+            "50",
+            "--raise-queue",
+            utf8(&queue),
+        ],
+    );
+
+    assert_eq!(code, 0, "a closed ledger must not fail the ratchet:\n{text}");
+    assert!(text.contains("[RAISE-CLOSED]"), "the closure must stay visible, not vanish:\n{text}");
+}
+
+/// (n) 反面：空台账**没有**收尾块 ⇒ 仍然是 exit 2。
+///
+/// 与 (m) 配对才完整：放宽到"空白名单一律放行"就把 P2 那条不变量（任务不许被静默丢弃）
+/// 一起删掉了。
+#[test]
+fn the_ratchet_still_rejects_an_empty_ledger_without_a_closure() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let report = write_lcov(dir.path(), &[("src/probe_half.rs", 100, 40)]);
+    let baseline = write_baseline(dir.path(), &[("src/probe_half.rs", 40.0)]);
+    let queue = dir.path().join("empty.json");
+    fs::write(&queue, "{\"entries\":[]}\n").expect("empty ledger must be writable");
+    let (code, text) = run(
+        &ratchet_script(),
+        &["--report", utf8(&report), "--baseline", utf8(&baseline), "--raise-queue", utf8(&queue)],
+    );
+
+    assert_eq!(code, 2, "an empty ledger with no closure is still 'dropped silently':\n{text}");
+    assert!(text.contains("dropped silently"), "the message must say what happened:\n{text}");
+}
