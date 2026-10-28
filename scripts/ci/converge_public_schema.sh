@@ -72,9 +72,13 @@ set -euo pipefail
 cd "$(dirname "$0")/../.." # repo root (scripts/ci -> repo root)
 
 # 口令的单一来源见 scripts/lib/db_credentials.sh（deploy 栈生成随机强口令）。
+# 端口默认 5432（CI 的 service container 映射），但必须尊重 `TEST_DB_PORT` ——
+# 与 `init_test_public_schema.sh` / `prepare_test_db.sh` 同形，否则本机跑测试库
+# （127.0.0.1:55432）时这一步会打到 deploy 栈所在的 5432 实例，并且在那边
+# `public` 上执行 DROP（本脚本的 MODE=apply 会删"不在 baseline 里"的对象）。
 # shellcheck source=../lib/db_credentials.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/db_credentials.sh"
-export TEST_DATABASE_URL="${TEST_DATABASE_URL:-postgresql://synapse:$(db_password)@localhost:5432/synapse_test}"
+export TEST_DATABASE_URL="${TEST_DATABASE_URL:-postgresql://synapse:$(db_password)@localhost:${TEST_DB_PORT:-5432}/synapse_test}"
 TEMPLATE_SCHEMA="${TEMPLATE_SCHEMA:-${TEST_DB_TEMPLATE_SCHEMA:-test_template_ci}}"
 MODE="${CONVERGE_MODE:-apply}"
 MIN_TABLES="${MIN_TABLES:-100}"

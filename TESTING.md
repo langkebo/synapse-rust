@@ -833,24 +833,45 @@ python3 scripts/ci/check_test_impact.py --files a.rs b.rs
 
 ### 9.1 本地测试
 
+**先选实例，再导出 URL —— 两条路的端口和口令都不同，混用会打到 deploy 栈那台实例。**
+
 ```bash
-# 启动PostgreSQL
-docker run -d --name synapse_postgres \
+# ── (A) 推荐：独立测试容器（127.0.0.1:55432），与 deploy 栈的 5432 完全隔离 ──
+# 起容器 + 跑迁移 + 打印该用的 export 行（脚本自己会说连的是哪台）。
+bash scripts/dev-test-setup.sh up
+
+# 它打印的内容形如（口令 synapse 是这个 dev 容器的固定值，不是 deploy 栈的）：
+export TEST_DATABASE_URL="postgres://synapse:synapse@localhost:55432/synapse_test"
+export TEST_DB_TEMPLATE_SCHEMA=public
+SQLX_OFFLINE=true cargo test --features test-utils --test integration -- --test-threads=2
+```
+
+```bash
+# ── (B) 没有 dev 容器、想临时起一个一次性实例：同样用 55432，不要用 5432 ──
+docker run -d --name synapse_postgres_test \
   -e POSTGRES_USER=synapse \
   -e POSTGRES_PASSWORD=synapse \
   -e POSTGRES_DB=synapse_test \
-  -p 5432:5432 \
+  -p 127.0.0.1:55432:5432 \
   postgres:16
 
-# 设置环境变量（下面这个一次性容器自己用了 POSTGRES_PASSWORD=synapse，所以值是 `synapse`）
-# ⚠️ 若本机已在跑 **deploy 栈**（docker/deploy：占用 5432，且口令是部署时随机生成的），
-#    上面的 `docker run` 会端口冲突，直连也要用那个口令：
-#    export DATABASE_URL="$(bash scripts/lib/db_credentials.sh url synapse_test)"
-export DATABASE_URL="postgres://synapse:synapse@localhost:5432/synapse_test"
-
-# 运行测试
+export TEST_DATABASE_URL="postgres://synapse:synapse@localhost:55432/synapse_test"
 cargo test --test integration
 ```
+
+```bash
+# ── (C) ⚠️ 只有当你**确实**要连 deploy 栈那台实例（5432）时才用这条 ──
+# deploy 栈的口令是部署时随机生成的，只能用脚本读；库名要显式给。
+# ⚠️ 这等于在**生产实例**上建/删 schema（`prepare_test_db.sh` 会 CREATE DATABASE、
+#    `converge_public_schema.sh` 会在 public 上 DROP "不在 baseline 里"的对象）。
+#    **不要在跑着真实数据的机器上这么干**；测试一律走 (A)/(B)。
+export TEST_DB_PORT=5432
+export TEST_DATABASE_URL="$(bash scripts/lib/db_credentials.sh url synapse_test)"
+```
+
+> 历史注记：本节此前直接写 `export DATABASE_URL="postgres://synapse:synapse@localhost:5432/synapse_test"`
+> —— 那行在 deploy 栈运行时会把测试打到 5432 上的真实实例（口令还与之不符），
+> 与 §9.1 上方"本地集成测试库固定用 127.0.0.1:55432"的约定自相矛盾。2026-10-29 改为按实例分列。
 
 ### 9.1.1 ⚠️ 本地测试库必须定期清理（否则 PostgreSQL 会变成小时级不可用）
 

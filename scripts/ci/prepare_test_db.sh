@@ -54,11 +54,25 @@ set -euo pipefail
 cd "$(dirname "$0")/../.." # repo root (scripts/ci -> repo root)
 
 # 口令的单一来源见 scripts/lib/db_credentials.sh（deploy 栈部署时会生成随机强
-# 口令，硬编码 `synapse` 会以"错口令"的形式失败）。端口与库名仍按 H-12 约定
-# 写死在这一行 —— tests/unit/test_db_url_convention_tests.rs 会断言它。
+# 口令，硬编码 `synapse` 会以"错口令"的形式失败）。
+#
+# ⚠️ 端口默认 5432（= CI 的 service container 映射、`${DB_EXPOSE_PORT:-5432}:5432`），
+# 但**必须可覆盖**：本机 deploy 栈占着 5432 且带真实数据，本地测试库在
+# `127.0.0.1:55432`（容器 `synapse-test-db`，见 scripts/dev-test-setup.sh）。
+# 此前这一行把 `localhost:5432` 写死、`TEST_DB_PORT` 完全失效 —— 而本脚本紧接着调用的
+# `init_test_public_schema.sh` 尊重 `TEST_DB_PORT`，于是"URL 指 5432、DDL 落 55432"，
+# 两个实例各写一半（同一约定多副本不一致的老毛病，见
+# tests/unit/test_db_url_convention_tests.rs 头部）。默认值不变，只让覆盖生效。
 # shellcheck source=../lib/db_credentials.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/db_credentials.sh"
-export TEST_DATABASE_URL="${TEST_DATABASE_URL:-postgresql://synapse:$(db_password)@localhost:5432/synapse_test}"
+if [ -z "${TEST_DATABASE_URL:-}" ] && [ -z "${TEST_DB_PORT:-}" ]; then
+    echo "==> TEST_DATABASE_URL / TEST_DB_PORT 都未设置 ⇒ 使用默认端口 5432。" >&2
+    echo "==> 若本机 deploy 栈（docker/deploy）正在运行，请显式指定测试库：TEST_DB_PORT=55432。" >&2
+fi
+# 端口内联成 `${TEST_DB_PORT:-5432}`，不中转变量：守卫
+# （tests/unit/test_db_url_convention_tests.rs）断言的是**这条 URL 表达式本身**，
+# 中转一层会让"变量还在、URL 却写死 5432"的回归骗过断言（假绿）。
+export TEST_DATABASE_URL="${TEST_DATABASE_URL:-postgresql://synapse:$(db_password)@localhost:${TEST_DB_PORT:-5432}/synapse_test}"
 export DATABASE_URL="$TEST_DATABASE_URL"
 unset SYNAPSE_TEST_ALLOW_PUBLIC_SCHEMA_WIPE
 

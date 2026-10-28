@@ -46,6 +46,16 @@ const RUST_RESOLVERS: [&str; 5] = [
 
 /// Shell entry points that resolve a test-database target, with the port
 /// default each one must carry.
+///
+/// 两条形态都合法，取决于脚本是否**自己拼 URL**：
+/// * `TEST_DB_PORT:-5432` / `PGPORT:-5432` —— 端口来自变量、默认为 5432（可覆盖）；
+/// * `localhost:5432/synapse_test` —— 整条 URL 写死（仅当脚本没有覆盖需求时）。
+///
+/// ⚠️ 2026-10-29 修：`prepare_test_db.sh` 与 `converge_public_schema.sh` 原属后者，
+/// 但它们是**本机也会跑**的路径，写死 5432 会在 deploy 栈运行时打到那台实例
+/// （本机测试库是 127.0.0.1:55432）。两者已改为 `TEST_DB_PORT:-5432`：**默认值不变**
+/// （CI 的 service container 就是 5432），只是让覆盖生效。断言仍是"必须带 5432 默认"，
+/// 所以把默认值改掉照样会红。
 const SCRIPT_PORT_DEFAULTS: [(&str, &str); 8] = [
     ("scripts/init_test_public_schema.sh", "TEST_DB_PORT:-5432"),
     ("scripts/cleanup_test_schemas.sh", "PGPORT:-5432"),
@@ -57,8 +67,11 @@ const SCRIPT_PORT_DEFAULTS: [(&str, &str); 8] = [
     ("scripts/ci/run_coverage.sh", "localhost:5432/synapse_test"),
     // 2026-09-26：CI seed 入口与它调用的 D-57② 收敛脚本都解析测试库目标，
     // 因此一并纳入守卫 —— "每个副本都要被扫到"是这条约定自己的要求。
-    ("scripts/ci/prepare_test_db.sh", "localhost:5432/synapse_test"),
-    ("scripts/ci/converge_public_schema.sh", "localhost:5432/synapse_test"),
+    // 2026-10-29：两者改为可覆盖端口（默认仍 5432），理由见本常量文档注释。
+    // 期望串取**完整 URL 表达式**而不是裸的 `TEST_DB_PORT:-5432`：后者只要脚本里
+    // 还留着一个同名变量就能通过，哪怕 URL 已经写死回 5432（实测过这种假绿）。
+    ("scripts/ci/prepare_test_db.sh", "localhost:${TEST_DB_PORT:-5432}/synapse_test"),
+    ("scripts/ci/converge_public_schema.sh", "localhost:${TEST_DB_PORT:-5432}/synapse_test"),
 ];
 
 /// Resolvers that must **delegate** to the single implementation instead of
