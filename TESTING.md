@@ -132,9 +132,9 @@ ROUTE_TABLE_SDK=979
 TEST_FILES_E2E=3
 TEST_FILES_INTEGRATION=168
 TEST_FILES_PERFORMANCE=5
-TEST_FILES_TESTS_DIR=402
-TEST_FILES_TESTS_DIR_RS=314
-TEST_FILES_UNIT=135
+TEST_FILES_TESTS_DIR=403
+TEST_FILES_TESTS_DIR_RS=315
+TEST_FILES_UNIT=136
 
 <!-- doc-metrics:end -->
 
@@ -444,6 +444,12 @@ python3 scripts/check_file_coverage.py \
   - `[DECL-ONLY]`：只有声明、没有函数体的文件（trait/struct 只有签名）在 llvm-cov 里
     只剩 1–3 行**不可达**的宏展开行（`#[async_trait]` 的默认体垫片），分母本身没有意义。
     判定条件写死为「新文件 + `LF ≤ 3` + `LH == 0`」，实测全仓只有 3 个文件命中。
+- **基线同时记分母**（`lines_found`，2026-10-28 起）：只存 `line_pct` 时「分母变大」与
+  「命中行变少」在棘轮眼里同形，于是 `classify_coverage_drift.py` 把「低于基线」分成
+  `DENOM`（新代码没被覆盖，非退化）/ `LOST-HITS`（命中行绝对减少，真回归）/
+  `DROP`（两侧分母有一侧未知 ⇒ 无法归因）。**`line_pct` 与 `lines_found` 必须来自同一次
+  测量**：回归分支只保留旧分母，老条目保持缺失（输出里打 `?`，绝不填 0）。
+  改基线格式的动机与代价见 `docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md` §3.1.7。
 - 最近一次完整报告：**674 个文件**（2026-10-28，run 40649970973，`bash scripts/ci/run_coverage.sh`
   的 CI 版）。本地跑之前先看 `docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md` §3.1.6
   的路径归一化注意事项。

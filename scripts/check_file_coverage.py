@@ -85,8 +85,19 @@ def is_test_only(path: str) -> bool:
     return any(marker in normalized for marker in TEST_ONLY_MARKERS)
 
 
-def load_baseline(path: pathlib.Path) -> Dict[str, float]:
+def load_baseline(
+    path: pathlib.Path,
+    lines_found: Optional[Dict[str, int]] = None,
+) -> Dict[str, float]:
     """Load prior coverage baseline (file_path -> line_pct).
+
+    `lines_found`, when given, is filled with each entry's recorded `LF`
+    (executeable line count) so callers can tell **"分母变大"** from
+    **"覆盖到的行变少"** — see `save_baseline` for why the pair matters and why a
+    legacy entry (written before 2026-10-28) has **no** `lines_found` key.
+
+    老条目没有该字段 ⇒ **不回填、不猜**。`lines_found[p] = 0` 之类的默认值会让
+    "未知"读成"零行"，而那正好是分类器最需要区分的两种处境之一。
 
     A truncated / zero-byte / non-JSON baseline is treated as **no baseline**
     rather than crashing: `json.load` used to raise `JSONDecodeError` straight out
@@ -108,6 +119,11 @@ def load_baseline(path: pathlib.Path) -> Dict[str, float]:
         )
         return {}
     if isinstance(data, dict) and "files" in data:
+        if lines_found is not None:
+            for item in data["files"]:
+                lf = item.get("lines_found")
+                if isinstance(lf, int) and lf > 0:
+                    lines_found[item["path"]] = lf
         return {item["path"]: item["line_pct"] for item in data["files"]}
     if isinstance(data, dict):
         return data
@@ -148,11 +164,21 @@ def require_baseline(path: pathlib.Path, baseline: Dict[str, float]) -> Optional
     return None
 
 
+def _baseline_entry(path_key: str, line_pct: float, lines_found: Optional[int]) -> dict:
+    """One `files[]` row. `lines_found` 只在**已知且与 line_pct 同源**时写出。"""
+    entry = {"path": path_key, "line_pct": round(line_pct, 2)}
+    if lines_found is not None:
+        entry["lines_found"] = int(lines_found)
+    return entry
+
+
 def save_baseline(
     path: pathlib.Path,
     files: Dict[str, float],
     previous: Optional[Dict[str, float]] = None,
     allow_lower: Collection[str] = (),
+    lines_found: Optional[Dict[str, int]] = None,
+    previous_lines: Optional[Dict[str, int]] = None,
 ) -> int:
     """Save the coverage snapshot, never LOWERING a recorded floor — unless told to.
 
@@ -195,25 +221,69 @@ def save_baseline(
     向下调多少、为什么，都在提交信息与 review diff 里可见（`coverage_baseline.json`
     的那一行就是审计记录）。
 
+    ## `lines_found`：把 `line_pct` 的**分母**一起记下来（2026-10-28）
+
+    只存 `line_pct` 时，"分母变大"与"覆盖到的行变少"在棘轮眼里**完全同形**：
+
+    * 文件从 769 行涨到 1200 行、命中行从 283 涨到 400 ⇒ 59.47% → 33.3%，
+      这是**新代码没被覆盖**，不是退化；
+    * 文件行数不变、命中行从 283 掉到 200 ⇒ 59.47% → 36.5%，
+      这是**覆盖它的测试不再跑**，是退化。
+
+    实测（2026-10-28，第一份完整报告 674 个文件）两条最大的下降正好各占一边：
+    `synapse-federation/src/client.rs`（LF 769、五次改动）与
+    `synapse-storage/src/event/txn_dedup.rs`（LF 45、零改动）。
+    基线多存一个 `LF` 就能把这两类判开，代价是 1 个整数/条目。
+
+    **必须成对**：`line_pct` 与 `lines_found` 要来自**同一次测量**，否则
+    "59.47% × 769 行"这种拼出来的组合会凭空造出 457 行命中，而真实值可能是别的。
+    所以：
+
+    * 本次更严（`cur >= prev`）⇒ floor 与它的分母一起换成这一对；
+    * 本次更低（floor 保持不变）⇒ **连同旧分母一起留着**；旧条目没有分母时
+      ⇒ 就让它没有（未知），绝不拿本次的 LF 去配旧的 pct。
+
+    代价（明确接受）：`2026-10-28` 之前写下的条目一旦落在"低于 floor"那一支，它的
+    分母永远补不上 —— 除非哪天被 `--allow-lower` 点名或覆盖率回到 floor 之上。
+    这类条目在 `classify_coverage_drift.py` 里会标成 `LF-UNKNOWN`，不会被当成回归。
+
     返回被下调的条目数。
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     previous = previous or {}
+    lines_found = lines_found or {}
+    previous_lines = previous_lines or {}
     lower_set = set(allow_lower)
-    merged = {p: float(v) for p, v in previous.items()}
+    merged: Dict[str, float] = {}
+    merged_lines: Dict[str, int] = {}
     lowered = 0
-    for path_key, value in files.items():
+    for path_key in set(previous) | set(files):
         prev_value = float(previous.get(path_key, 0.0))
-        cur_value = float(value)
-        if path_key in lower_set:
-            if cur_value < prev_value:
+        cur_value = files.get(path_key)
+        prev_lf = previous_lines.get(path_key)
+        if cur_value is None:
+            # 本次报告里没有它 ⇒ 保留旧条目（不删），连它的分母一起
+            merged[path_key] = prev_value
+            if prev_lf is not None:
+                merged_lines[path_key] = prev_lf
+            continue
+        cur_value = float(cur_value)
+        cur_lf = lines_found.get(path_key)
+        if path_key in lower_set or cur_value >= prev_value:
+            # floor 换成本次值（显式下调，或棘轮正常收紧）⇒ 分母跟着换，成对
+            if path_key in lower_set and cur_value < prev_value:
                 lowered += 1
             merged[path_key] = cur_value
-        else:
-            merged[path_key] = max(prev_value, cur_value)
+            if cur_lf is not None:
+                merged_lines[path_key] = cur_lf
+            continue
+        # floor 保持旧值 ⇒ 只保留**旧的**分母；旧条目没有就保持未知
+        merged[path_key] = prev_value
+        if prev_lf is not None:
+            merged_lines[path_key] = prev_lf
     payload = {
         "files": [
-            {"path": p, "line_pct": round(v, 2)} for p, v in sorted(merged.items())
+            _baseline_entry(p, merged[p], merged_lines.get(p)) for p in sorted(merged)
         ]
     }
     with open(path, "w") as f:
@@ -760,7 +830,8 @@ def main() -> int:
 
     lines_found: Dict[str, int] = {}
     current = parse_lcov(args.report, lines_found)
-    baseline = load_baseline(args.baseline)
+    baseline_lines: Dict[str, int] = {}
+    baseline = load_baseline(args.baseline, baseline_lines)
 
     # A ratchet without its baseline cannot enforce anything (see
     # `require_baseline`). Checked before the expensive per-file loop so the
@@ -915,7 +986,12 @@ def main() -> int:
 
     save_path = args.save_baseline or args.baseline
     lowered_count = save_baseline(
-        save_path, current, previous=baseline, allow_lower=args.allow_lower
+        save_path,
+        current,
+        previous=baseline,
+        allow_lower=args.allow_lower,
+        lines_found=lines_found,
+        previous_lines=baseline_lines,
     )
     # 把"这次报告里没有、但基线保留下来"的条目数打出来：不打印的话，一份不完整的 lcov
     # 会**静默**让基线缩水（曾经的故障形态，见 `save_baseline` 的 docstring）。

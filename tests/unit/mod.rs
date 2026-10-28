@@ -33,6 +33,7 @@ mod coverage_baseline_lowering_tests;
 mod coverage_leg_resilience_tests;
 // P2「提升到 30%」的台账：target 是目标不是下限（重贴下限 = 188 文件红），
 // 牙齿在"达成即删 / 记账起点不得高于基线"两条判据上。
+mod coverage_drift_attribution_tests;
 mod coverage_raise_queue_tests;
 mod coverage_ratchet_exemption_tests;
 // PR 覆盖率车道：范围由 diff → crate 的映射决定，口径是"变更行下界"（不读合并基线）。

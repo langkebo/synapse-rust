@@ -93,7 +93,7 @@
 `routes/device.rs::broadcast_device_list_update`（签名事务），死的是 `device_sync` 里那条
 零调用者的重复实现，已删除；更正过程记在[附录 D](#附录-d已关闭条目索引)。
 剩下的 4 条里，**没有一条会造成数据丢失或越权**；2 条 P2 分别是 `events` 未分区（ARCH-04）、
-524 行静默忽略（CODE-10）
+517 行静默忽略（CODE-10）
 —— 全是**长期结构债**：
 不修也不会立刻出错，但每加一个功能都在加利息。2 条 P3 **全部是 §0.2.3 的登记项**
 （N+1 只剩 1 处、已有 bench 组但无测量指认它是热点 / 索引清单人工不可反推），没有待裁决项。
@@ -163,7 +163,7 @@
 
 | 编号 | 级别 | 一句话 | 为什么不做 |
 |---|---|---|---|
-| **CODE-10** | P2 | 生产 **524 行** `let _ =` / `unwrap_or_default()`（194 文件） | 大部分是合法用法；设下降配额会诱导写 `unwrap()` 来"减少计数"（§10.10） |
+| **CODE-10** | P2 | 生产 **517 行** `let _ =` / `unwrap_or_default()`（193 文件） | 大部分是合法用法；设下降配额会诱导写 `unwrap()` 来"减少计数"（§10.10） |
 | **PERF-11** | P3 | N+1 查询**剩 1 处**（原 3 处中 2 处已消除，风险可控） | 该路径已有 bench 组覆盖，但无测量指认它是热点 |
 | **PERF-12 / MAINT-07** | P3 | `INDEXES.md` 人工表无法从 DDL 反推 | 重生成会让"索引治理"退化成"索引清单"；计数已由 `check_doc_metrics.py` 现算 |
 
@@ -193,17 +193,17 @@
 
 | 度量 | 真值 | 命令 / 来源 |
 |---|---|---|
-| 测试文件 | **402**（`.rs` **314**；unit **135** / integration **168** / e2e **3** / perf **5**） | `python3 scripts/ci/check_doc_metrics.py --print` |
+| 测试文件 | **403**（`.rs` **315**；unit **136** / integration **168** / e2e **3** / perf **5**） | `python3 scripts/ci/check_doc_metrics.py --print` |
 | 基线索引定义 | **344** | 同上 |
 | 活路由 / 派生表行 / `INDEXES.md` 人工表 | **979** / **981** / **134** | 同上（`LIVE_ROUTES` / `DERIVED_TABLE_ROWS` / `INDEXES_DOC_ROWS`） |
 | clippy allow | **160 处 / 111 文件**（扫描 **832** 个 `.rs`）；其中无理由 **0 / 0**（棘轮基线） | `python3 scripts/ci/check_clippy_allow_ratchet.py`（全量站点走其 `scan()`） |
-| `let _ =` / `unwrap_or_default()` / `if let Ok(` | 生产 **524** 行 / **194** 文件；全仓 **1616** 行 / **356** 文件 | 全仓 = `git ls-files -z '*.rs' \| xargs -0 grep -cE 'let _ =\|if let Ok\(\|unwrap_or_default\(\)'` 求和；生产口径 = 8 个 crate 根（`PRODUCTION_ROOTS`）且剔 `tests/`、`*/tests.rs`、`*_tests.rs`、测试基建文件（`test*.rs`）与内联 `#[cfg(test)]` 块，由 `check_doc_metrics.py` 现算 |
+| `let _ =` / `unwrap_or_default()` / `if let Ok(` | 生产 **517** 行 / **193** 文件；全仓 **1610** 行 / **356** 文件 | 全仓 = `git ls-files -z '*.rs' \| xargs -0 grep -cE 'let _ =\|if let Ok\(\|unwrap_or_default\(\)'` 求和；生产口径 = 8 个 crate 根（`PRODUCTION_ROOTS`）且剔 `tests/`、`*/tests.rs`、`*_tests.rs`、测试基建文件（`test*.rs`）与内联 `#[cfg(test)]` 块，由 `check_doc_metrics.py` 现算 |
 | `tokio::time::sleep` | **104** 站点（PROD **26** / TEST_INLINE **34** / TEST_FILE **44**） | `python3 scripts/ci/check_sleep_ratchet.py` |
 | `>2000` 行 `.rs` | 生产 **0**（W11 前 7，内联测试外移后最大 1557）；测试基建 **2**（`test_isolation.rs` **3375**、`test-utils/lib.rs` **2786**）；生成 **1**（`derived_route_table_always.inc.rs` **5512**）；测试 **3**（`room_service_tests_migrated.rs` **5248**、`event/db_tests.rs` **3516**、`sync_service/tests.rs` **2510**） | `git ls-files '*.rs' \| xargs wc -l \| awk '$1>2000'` |
 | 依赖分裂 | crate 名 **47** / 多版本 **32** / 同版本多来源 **15** | `cargo tree -d --workspace --locked` 按 crate 名聚合 |
 | `check_*` 门禁脚本 | **58 个，全部可达或已登记（豁免 0）** | `python3 scripts/ci/check_gate_reachability.py` |
 | 基线 SQL `updated_ts` 列 | **85 列**：`NOT NULL` **43** / 可空 **42** | `python3 scripts/ci/check_schema_timestamp_convention.py --print` |
-> **生产静默忽略先从 831 降到 826、再由 826 降到 524（2026-10-28），两次都是口径纠正，不是修代码。**
+> **生产静默忽略先从 831 降到 826、再由 826 降到 517（2026-10-28），两次都是口径纠正，不是修代码。**
 >
 > **第一次（831 → 826）**：那 5 行 `let _ = drop_schema(...)` 本来就在
 > `#[cfg(test)] mod db_schema_pool_tests` 里，但这行的剔除规则只看**路径**（`tests/`、
@@ -211,22 +211,28 @@
 > 把该测试模块拆到 `synapse-test-utils/src/db_schema_pool_tests.rs`（同时解决 `lib.rs`
 > 触顶 2995 行棘轮）之后，它们按文件名归入测试口径。
 >
-> **第二次（826 → 524，文件 241 → 194）**：上一次的收尾句已经点出「这条规则的真实盲区是内联
+> **第二次（826 → 517，文件 241 → 193）**：上一次的收尾句已经点出「这条规则的真实盲区是内联
 > `#[cfg(test)]`」，本轮把它补上了。826 行 / 241 文件实际拆成四桶，只有第一桶是生产：
 >
 > | 桶 | 行 | 文件 | 举例 |
 > |---|---|---|---|
-> | 真实生产 | **524** | **194** | `room/lifecycle/create.rs` 的 `let _ = tx.rollback().await;`（合法：回滚失败已无补救动作） |
+> | 真实生产 | **517** | **193** | `room/lifecycle/create.rs` 的 `let _ = tx.rollback().await;`（合法：回滚失败已无补救动作） |
 > | 生产文件内联 `#[cfg(test)]` 块 | 184 | 48 | `retention_service.rs::cleanup_test_room`、`call_session.rs::cleanup_test_data` |
 > | 生产根内测试基建文件（`test*.rs`） | 61 | 6 | `synapse-common/src/test_isolation.rs` |
 > | 非生产根（`benches/` 30、`synapse-test-utils/` 13、`scripts/` 9、`vendor/` 5） | 57 | 7 | bench 夹具的 `let _ =` |
 >
-> 全仓 1616 行 / 356 文件（行数不变，文件数 +1：2026-10-28 把两条 prune 回归测试从
+> 全仓 1610 行 / 356 文件（文件数 +1：2026-10-28 把两条 prune 回归测试从
 > `test_isolation.rs` 拆到 `synapse-common/src/test_isolation/tests/prune_tests.rs`，
 > 同时让该文件回落到行数棘轮上限之内）。**任何「测试写在生产文件里」的仓库
 > 都会把测试代码记成生产债务**，所以 `check_doc_metrics.py` 现在按花括号配对屏蔽
 > `#[cfg(test)]` / `#[cfg(all(test, …))]` 整块，而 `#[cfg(any(test, feature = "test-utils"))]`
 > 仍算生产 —— 带该 feature 构建时它确实进产物。
+>
+> **517 / 193（2026-10-28 晚）**：工作区里有另一个会话未提交的 `.rs` 改动
+> （`synapse-e2ee/src/{cross_signing,device_keys}/service.rs`、
+> `synapse-federation/src/event_broadcaster.rs`），它同时让生产桶少了 7 行、1 个文件；
+> 本轮只新增了一个测试文件（`tests/unit/coverage_drift_attribution_tests.rs`，落在 `tests/`
+> 口径，不影响生产桶）。该会话提交后需再对一次读数。
 
 > 漂移是正常的（代码在动）。**不要把本表当常量**：下一轮先跑上面这几条命令再引用。
 > 除「依赖分裂」「`check_*` 门禁脚本数」「`>2000` 行明细」三行外，其余数字都由
@@ -382,12 +388,12 @@
   读代码的人分不清"预留"与"忘了删"。
 - **修法**：补 `reason = "by-design unsupported: …"` 指向契约条目。
 
-### CODE-10（P2）生产 524 行 `let _ =` / `unwrap_or_default()`，无收敛策略
+### CODE-10（P2）生产 517 行 `let _ =` / `unwrap_or_default()`，无收敛策略
 
-- **口径**：生产 **524 行 / 194 文件**；全仓 **1616 行 / 356 文件**（命令与门禁见 §0.4 ——
+- **口径**：生产 **517 行 / 193 文件**；全仓 **1610 行 / 356 文件**（命令与门禁见 §0.4 ——
   `grep -c` 计的是**行**，一行里两处只算一次）。生产口径 = 8 个 crate 根且剔 `tests/`、
   `*_tests.rs`、测试基建文件（`test*.rs`）与内联 `#[cfg(test)]` 块。
-- **826 → 524 是口径纠正，不是修了 302 行**：原数字把生产文件里的内联测试模块（184 行 / 48 文件，
+- **826 → 517 是口径纠正，不是修了 306 行**：原数字把生产文件里的内联测试模块（184 行 / 48 文件，
   如 `retention_service.rs::cleanup_test_room`）、生产根内的测试基建文件（61 行 / 6 文件）与
   非生产根（57 行 / 7 文件：`benches/` 30、`synapse-test-utils/` 13、`scripts/` 9、`vendor/` 5）
   都算成了生产债务。分解表见 §0.4 的注。
@@ -395,8 +401,8 @@
 - **明确不做**：总数下降配额（§10.10：配额会诱导写 `unwrap()` 来"减少计数"）。
 - **下一轮可做的**：按"错误被吞后有没有用户可见后果"分类，只处理前两类；不要动 `unwrap_or_default()`
   在 `Option` 语义下的合法用法。
-- **2026-10-28 复核：524 行里"DB 错误 ≡ 未找到"只有 22 处**。生产桶中 `if let Ok(` 共
-  **145 行 / 62 文件**（占 524 的 28%），按被吞掉的错误来源分桶：fs/serde/parse **59**、
+- **2026-10-28 复核：517 行里"DB 错误 ≡ 未找到"只有 22 处**。生产桶中 `if let Ok(` 共
+  **145 行 / 62 文件**（占 517 的 28%），按被吞掉的错误来源分桶：fs/serde/parse **59**、
   cache **26**、other **24**、疑似 DB **22**、其余 `await` **14**。前两桶是合法降级
   （缓存失效、`Option` 解析、磁盘回退），不是债务。22 处 DB 吞错按**用户可见后果**分档：
   - **静默降级（2 处，后果最大）**：`/keys/query` 在 `get_cross_signing_keys_batch` 失败时以
@@ -830,7 +836,7 @@ W8 计划的三项（`TEST-05` → `NEW-05` → `FUNC-05`）已全部收口，�
 | 待办 | 前提 |
 |---|---|
 | ARCH-04（`events` 分区） | 需要真实数据量证明收益；本机无生产级数据 |
-| CODE-10（524 行静默忽略） | 只按"错误被吞有无用户可见后果"分类处理，且**不设配额** |
+| CODE-10（517 行静默忽略） | 只按"错误被吞有无用户可见后果"分类处理，且**不设配额** |
 
 其余（`PERF-11/12`、`MAINT-07`）都是随触达顺手做或等外部条件的登记项。
 PERF-01 已于 W10 收口（`to_device_messages` 按龄清理 + 零天关闭开关，判据与变异见附录 D）；

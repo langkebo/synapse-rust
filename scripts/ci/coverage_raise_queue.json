@@ -8,7 +8,7 @@
     "且封存值全部 >= target —— 空台账不等于关账，关账要拿数字说话；⑤基线还没吸收那些数字时，",
     "closed 必须带 absorption_pending 说明等哪一轮 —— 『测到了』不等于『棘轮已确认』。",
     "守卫：scripts/ci/check_coverage_raise_queue.py；进度打印：check_file_coverage.py --raise-queue。",
-    "状态：2026-10-28 三条全部达标并关闭（明细见 docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md §3.1.3）。"
+    "状态：2026-10-28 三条全部达标并关闭，且实测值已进基线（明细见 docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md §3.1.3）。"
   ],
   "closed": {
     "at": "2026-10-28",
@@ -23,7 +23,7 @@
       "src/tasks/mod.rs": "lib 腿（2026-10-28 本机 --lib，LH:183/LF:267）",
       "synapse-common/logging.rs": "synapse-common lib 腿（2026-10-28 本机，LH:96/LF:199）"
     },
-    "absorption_pending": "三条实测值都来自具名腿（各自是 CI 合并报告的子集），而提交版 coverage_baseline.json 里它们仍是 0.0%：抬升只发生在下一轮 Code Coverage 跑到 `Commit coverage baseline (auto-ratchet)` 那一步（save_baseline 的 max() 写回 + main push 自动提交）。所以这里记的是『已测到』，不是『棘轮已确认』；基线吸收后本字段必须删除，判据 12 会逼你删。"
+    "absorbed_at": "2026-10-28：三条实测值已由本轮基线迁移吸收（router.rs 94.29%、tasks/mod.rs 68.54%、logging.rs 92.31%，均为 CI 合并报告口径），故 `absorption_pending` 按判据 12 删除。"
   },
   "entries": []
 }
