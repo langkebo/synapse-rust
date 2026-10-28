@@ -9,7 +9,7 @@
 
 | 项 | 值 | 来源 |
 |---|---|---|
-| 产品版本 | `6.2.0` | `Cargo.toml` 的 `[workspace.package].version`，`GET /_matrix/server_version` 原样上报 |
+| 产品版本 | `6.3.0` | `Cargo.toml` 的 `[workspace.package].version`，`GET /_matrix/server_version` 原样上报 |
 | 协议 | Matrix Client-Server **v1.1 – v1.17**（`versions` 数组） | `GET /_matrix/client/v3/versions` |
 | 默认房间版本 | `12` | `capabilities.m.room_versions.default` |
 | 本地基址 | `http://127.0.0.1:8008`（容器 `synapse-app` 映射到宿主回环） | `docker/config/homeserver.yaml` 的 `server.public_baseurl` 默认值 |
@@ -139,7 +139,7 @@ curl "http://127.0.0.1:8008/_matrix/client/v3/sync?access_token=$TOKEN"   # → 
 > 上表按 SDK lane（`--features all-extensions`）× `default` profile 计数，共 **1019** 条
 > （源：`tests/unit/fixtures/ledger_export_sdk/default.json`，`generated_at = 2026-05-02T00:00:00Z`）。
 > golden lane（默认特性闭包）为 **959** 条，即 `docs/openapi/route-table.json` 的 CI 对账口径。
-> `/_matrix/client/v1/` 中的 "v1" 是**端点版本**，与本服务产品版本 `6.2.0` 无关。
+> `/_matrix/client/v1/` 中的 "v1" 是**端点版本**，与本服务产品版本 `6.3.0` 无关。
 >
 > 扩展族（SAML/CAS、voice、`m.call.*`、admin 通知）在源码中受 Cargo 特性门控
 > （`saml-sso` / `cas-sso` / `voice-extended` / `voip-tracking` / `server-notifications`）；

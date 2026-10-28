@@ -5,7 +5,7 @@
 > 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 > 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 >
-> **包版本**: v6.2.0（以 `Cargo.toml` 为准）｜**迁移/数据库基线**: v12（迁移 `00000000_unified_schema_v12.sql` 单一基线）
+> **包版本**: v6.3.0（以 `Cargo.toml` 为准）｜**迁移/数据库基线**: v12（迁移 `00000000_unified_schema_v12.sql` 单一基线）
 >
 > 说明：`v12` 指 **数据库迁移/schema 基线**（当前为 `migrations/00000000_unified_schema_v12.sql` 单一 forward 基线），与包版本号（SemVer，见 `Cargo.toml`）是两套独立口径，二者无需相等。
 >
@@ -17,12 +17,79 @@
 
 | 版本 | 发布日期 | 性质 | 主要内容 |
 |------|----------|------|----------|
+| [v6.3.0](#v630---2026-10-28) | 2026-10-28 | 功能+安全 | worker 多进程拓扑 W-A…W-I / 私有端点前缀治理 / 隐私与 E2EE 加固 B-6…B-9 / Synapse v1.162 对齐 |
 | [v6.2.0](#v620---2026-07-22) | 2026-07-22 | 重构 | 架构优化 Round 2（收口）：test_utils 类型修复 / clippy expect-used 门禁 / 1291 文件 trait 迁移 |
 | [v6.1.0](#v610---2026-07-14) | 2026-07-14 | 重构+安全 | 架构优化 Round 2：Auth trait 分层 / EventStore 读写分离 / 安全加固 / Bench+Snapshot |
 | [v6.0.5](#v605---2026-07-09) | 2026-07-09 | 重构 | 架构优化 Round 2：trait 提取 / glob re-export 收敛 / 中间件迁移 / storage 拆分 |
 | [v10.0.0](#v10000---2026-06-12) | 2026-06-12 | 迁移基线（DB） | P0/P1 全部修复 / v10 迁移基线 / clippy 门禁修复 / 文档同步 / P2 #7 L1 unwrap 治理 |
 | [v8.0.0](#v8000---2026-06-06) | 2026-06-06 | 历史 | P0 全部修复 / v8 迁移基线 / E2EE vodozemac 收敛 Phase 1+2 / Step 10-12 工程门禁 |
 | [v7.x](#v7x---2026-05-28-前) | 2026-05-28 前 | 历史 | 旧 `Cargo.toml` 版本基线，包含 v7 迁移文件（已被 v8 收敛） |
+
+---
+
+## [v6.3.0] - 2026-10-28
+
+> 自 v6.2.0（2026-07-22）以来的累计发布：**2450 个提交**（非合并 2372 个：fix 776 /
+> docs 557 / feat 284 / test 195 / refactor 155 / chore 157 / perf 99 / ci 25 / security 6 等）。
+> 三条主线：**worker 多进程拓扑（W-A…W-I）**、**私有端点前缀治理（ISSUE-13 / A 族清零）**、
+> **隐私与端到端加密加固（B-6…B-9）**，另有 Synapse v1.162 行为对齐与门禁体系可执行化。
+
+### Added（新增）
+- **worker 多进程拓扑 W-A…W-I**：`stream_writers` 八路均可转发（六路真转发、两路硬拒）/
+  根二进制按角色起实例 / 心跳自声明身份并自查注册 / 负载均衡接入生产（默认关）/
+  拓扑校验从"只记日志"变为可强制 / 参考多进程部署与端到端烟测 /
+  `worker_write_forward_total` 指标、`/_health` 判据与告警
+- **MSC 面**：MSC3266 room summary（含 `query_ignored` 登记）、MSC4262 LEFT_ROOM、
+  MSC4190 注册面、MSC4242 孤儿查询删除、MSC4354 sticky TTL、MSC4140 延迟事件全套端点、
+  MSC4210 legacy 提及默认隐藏、MSC3981 递归与拓扑序、MSC4222 `state_after`、
+  MSC4311 宽限开关与 `rooms.knock`、MSC3861/MAS 接线、MSC3720 account status、
+  MSC3814 dehydrated device events、MSC4297 v2.1 交叉验证、MSC4452 `m.preview_url` 稳定化
+- **关系 API**：补 4 段 `/{relType}/{eventType}` 路由，`event_type` 过滤落到存储与服务层
+- **三方事件准入钩子** `check_event_allowed`：含内容改写、触发侧配置，覆盖房间创建序列与
+  burn-after-read
+- **搜索**：`event_search` 物化表（表 + 触发器 + GIN 索引），房间/消息搜索改命中 trgm 索引
+- **新表**：`event_receipts_stream`（stream 位点日志）、`user_pending_deactivations`（注销队列）
+- **运维与观测**：PostgreSQL Grafana 20 面板、exporter 与 6 条 PG 告警、备份新鲜度闭环、
+  WAL 归档（PITR）与恢复演练 runbook、alert-handler 格式适配层（钉钉/企业微信原生）、
+  SpikeInAuthFailures 与 MessageQueueBacklog 两条告警从失效栈迁入
+- **媒体**：`preview_url` 实现真实抓取（钉扎 IP + 逐跳 SSRF 校验 + 硬上限）
+- **Admin**：per-user 邀请名单端点、媒体端点族补齐、读面 RBAC 登记
+
+### Changed（变更）
+- **破坏性**：删除 `/_matrix/client/*` 下的私有端点死别名（**77 + 78 条**迁至
+  `/_matrix/vendor/v1`），退役 **22 条** `client/v1` 双注册（A 族清零，并加"只减不增"守卫）
+- **破坏性**：`stream_writers` 从配置项变成可执行的写归属；无 Redis 时 `events` /
+  `to_device` 转发改为启动即报错
+- `/_matrix/client/versions` 宣告延到 **v1.17**，并以"证据表 + 守卫"锁住声明
+- 数据库统一收敛到容器（5432 仅发布到宿主回环），部署时生成强随机口令并做口令校验
+- 请求超时与第三方规则调用超时改为配置项（超时按 fail-closed 拒绝）
+- 清理 4 张废弃表并折入迁移基线；三条 CHECK 只在定义变化时重建
+
+### Fixed（修复）
+- 联邦入站完整性校验从 join 推广到 leave/knock（FED-02）
+- 注销补齐账户级数据清理与待处理邀请/敲击拒绝；`/requestToken` 防账号枚举
+- to-device 积压按龄回收；stream 位点改为 per-stream 多标签 gauge
+- Admin 读面三处判定不自洽（集合端点 / 路径别名 / 无覆盖只读）
+
+### Security（安全）
+- **B-6** 私密房间短 Megolm 轮换（1 天 / 50 条）
+- **B-7** 服务端持有房间密钥必须可见且默认关闭（`/_health` 与部署期断言）
+- **B-8** to-device 反滥用限流
+- **B-9** 一次性邀请 + 私密 DM 默认 retention + 测试门禁闭环
+- CAS SSO 同源校验、默认口令治理、`/metrics` 三态暴露控制、监控栈反向代理的
+  Basic Auth 与 HTTPS
+
+### Performance（性能）
+- 事件准入改用共享 `room_state` 缓存；状态决议结果按冲突集合缓存并提为进程内共享
+- 缓存前缀扫描按命名空间收窄；指标直方图内存有界化
+- N+1 查询整改（PERF-06…14、CODE-04/07）
+
+### Release / 工程
+- 包版本 `[workspace.package].version` 6.2.0 → **6.3.0**（9 个成员 crate 继承）
+- `build-and-push.sh` 不再硬编码镜像版本，改为读 `[workspace.package].version`；
+  `scripts/api_test/generate_openapi.py` 的 OpenAPI `info.version` 同口径读取
+- CI 增加 `concurrency`（PR 新推送取消旧 run）、门禁可达性元门禁（TEST-04）、
+  `client/v1` 退役面棘轮、契约 `query_unknown` 裁决表、逐文件覆盖率台账与"达成即删"流程
 
 ---
 

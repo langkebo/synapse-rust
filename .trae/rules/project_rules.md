@@ -1,7 +1,7 @@
 # synapse-rust 项目规则
 
-> 版本: v2.5.1
-> 更新日期: 2026-10-06
+> 版本: v2.5.2
+> 更新日期: 2026-10-28
 > 本规则基于项目实际实现，结合 PostgreSQL 最佳实践、数据模型规范和字段标准制定。
 
 ---
@@ -18,7 +18,7 @@ synapse-rust 是一个使用 Rust 编写的 Matrix homeserver 实现，兼容 Sy
 | 项目类型 | Matrix 服务器实现 (Rust) |
 | 主要语言 | Rust |
 | 数据库 | PostgreSQL |
-| 当前版本 | v6.2.0 |
+| 当前版本 | v6.3.0 |
 | 代码行数 | ~100,000 行 |
 | 源文件数 | ~400 个 |
 
@@ -766,3 +766,4 @@ cargo audit
 | 2.4.0 | 2026-06-20 | 新增第十七节 17.5"当前 SemVer 不兼容的深层重复依赖"：记录 11 组版本分裂的根因与消除路径；`cargo update` 统一 4 个兼容补丁 + 清理 12 个未使用传递依赖 |
 | 2.5.0 | 2026-10-06 | DOC-01 修复：重写 §1.3 目录结构为真实 workspace crate 布局（8 个成员 crate，`migrations/` 仅 1 个统一基线 SQL），修正 §7.0 `container.rs` 链接为 `synapse-services/src/container.rs` |
 | 2.5.1 | 2026-10-06 | DOC-09 连带修复：§16「遗留问题审计」指向更新为当前权威 `docs/audit/COMPREHENSIVE_LEGACY_ISSUES_REPORT_20261006.md`（原 `LEGACY_ISSUES_REPORT_20261004.md` 已归档至 `docs/audit/archive/`），消除本地守卫 `workspace_rules_reference_paths_exist` 的失效引用 |
+| 2.5.2 | 2026-10-28 | 发布 v6.3.0：§1.1「当前版本」同步为 v6.3.0（唯一版本源仍是 `Cargo.toml` 的 `[workspace.package].version`） |

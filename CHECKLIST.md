@@ -1,8 +1,16 @@
 # 项目优化完成清单 ✅
 
-> 本文件于 2026-09-02 重构，整合至最新状态（synapse-rust v6.2.0）。
+> **本文件已降级为历史快照，不再是待办真源。**
+>
+> 当前唯一权威的开放项清单（未完成任务、数字真值、裁决与验收口径）见
+> [`docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md`](docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md)：
+> - §0.2 未完成任务
+> - §0.4 数字真值区（由 `scripts/ci/check_doc_metrics.py` 守卫）
+> - §10.2 裁决与验收口径
+>
+> 下方条目保留 2026-09-02 的原始结论用于追溯；已订正的部分就地标注。本文件于 2026-09-02 重构，最后复核于 2026-10-28（synapse-rust v6.3.0）。
 
-## 最新提交记录
+## 最新提交记录（截至 2026-09-02）
 
 | 时间 | Commit | 内容 |
 |------|--------|------|
@@ -50,7 +58,7 @@
 - [x] 修复编译错误
 - [x] 通过 Clippy 检查（`SQLX_OFFLINE=true cargo clippy --workspace --all-features --locked -D warnings`）
 - [x] 代码格式化（`cargo fmt --all -- --check`）
-- [x] 依赖安全（`cargo audit --no-fetch`：**0 vulnerabilities**，594 crates，1239 advisories）
+- [x] 依赖安全（`cargo audit`：**0 vulnerabilities**，594 crates，1239 advisories）—— **订正（2026-10-28）**：审计现由 `scripts/ci/supply_chain_gate.sh` 执行且**必须使用新鲜 advisory DB**，该脚本明确禁止 `--no-fetch`
 - [x] 供应链检查（`cargo deny`：bans/licenses/sources 全部 ok）
 - [x] 未使用依赖（`cargo machete`：0 unused）—— **订正（2026-10-06，DOC-05）**：此结论此前失真（实测 **10 个**未使用依赖，见 `DEAD-01`）；2026-10-06 已逐一删除并把 `cargo machete` 接入 `.githooks/pre-push`（阻断级），`cargo machete` 复验 **0 unused**
 
@@ -75,7 +83,7 @@
 | 编译 | `cargo build --locked` | ✅ Pass |
 | Clippy | `SQLX_OFFLINE=true cargo clippy --workspace --all-features --locked -- -D warnings` | ✅ 0 warnings |
 | 格式化 | `cargo fmt --all -- --check` | ✅ 0 errors |
-| 依赖审计 | `cargo audit --no-fetch` | ✅ 0 vulnerabilities |
+| 依赖审计 | `cargo audit`（经 `scripts/ci/supply_chain_gate.sh`） | ✅ 0 vulnerabilities |
 | 依赖质量 | `cargo machete` | ✅ 0 unused（2026-10-06 复验；已接入 `.githooks/pre-push` 阻断门禁，见 `DEAD-01`） |
 | 供应链 | `cargo deny check bans licenses sources` | ✅ all ok |
 | 服务健康 | `curl matrix.test/_matrix/client/versions` | ✅ 200 |
@@ -107,7 +115,7 @@ cargo build --locked
 cargo fmt --all -- --check
 SQLX_OFFLINE=true cargo clippy --workspace --all-features --locked -- -D warnings
 cargo machete
-cargo audit --no-fetch
+bash scripts/ci/supply_chain_gate.sh    # cargo audit + cargo deny（advisory DB 必须新鲜，勿加 --no-fetch）
 
 # 集成测试（需要 postgres）
 cargo test --features test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications --test integration
@@ -133,21 +141,23 @@ cp .env.example .env
 
 ---
 
-## 待处理项
+## 待处理项（2026-10-28 复核）
+
+> 开放项真源仍是 [`docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md`](docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md) §0.2。本节只保留历史条目的最新状态。
 
 ### 🔴 高优先级
-- [ ] **P1 计费问题**：GitHub 账户侧操作（ Billing → 查看 spending limit / 支付方式）
+- [ ] **P1 计费问题**：GitHub 账户侧操作（Billing → 查看 spending limit / 支付方式），不在代码范围内
 
 ### 🟡 中优先级
-- [ ] **RUSTSEC-2023-0071 豁免过期**：`deny.toml` review-by 2026-06-30 已过，需重新评估 RSA ES256 迁移状态
-- [ ] **CI `cargo audit --no-fetch`**：在 `ci.yml` 中添加 `--no-fetch` flag 避免 GitHub 网络访问失败
-- [ ] **清理 `docs/archive/`**：大量重复命名混乱的 archive 文件，建议压缩归档或建索引
+- [x] ~~RUSTSEC-2023-0071 豁免过期~~ → **订正（2026-10-28）**：`deny.toml` 的 review-by 已延到 **2026-12-21**，豁免仍在有效期内；下次评审前需确认 RSA 使用面（仅签名/生成，无 PKCS#1 v1.5 解密路径）
+- [x] ~~CI 加 `cargo audit --no-fetch`~~ → **作废（2026-10-28）**：此方向是反的。`ci.yml` 已不直接调用 `cargo audit`，审计统一走 `scripts/ci/supply_chain_gate.sh`，该脚本明确要求 advisory DB 每轮都是新鲜的，**禁止** `--no-fetch`
+- [ ] **清理 `docs/archive/`**：当前 7 个条目，重复命名混乱，建议压缩归档或建索引
 
 ### 💭 低优先级
-- [ ] 删除根目录 5 个 `.profraw` 覆盖率文件
-- [ ] 创建 `docs/operations/` 目录（SOP：日志、备份、监控、故障切换）
-- [ ] 更新 AGENTS.md 中的 "Quick commands"（部分引用的脚本路径已变更）
+- [x] ~~删除根目录 5 个 `.profraw`~~ → **订正（2026-10-28）**：实测只剩 1 个（`default_15756436196812376674_0_9751.profraw`），且已被 `.gitignore`（`*.profraw`）忽略，不会进版本库
+- [ ] 创建 `docs/operations/` 目录（SOP：日志、备份、监控、故障切换）—— 目录仍不存在
+- [x] ~~更新 AGENTS.md 中的 "Quick commands"~~ → 已改为 `## Common commands` 并全面重写，路径与命令均对应当前仓库
 
 ---
 
-**最后更新**：2026-10-06（DOC-05 复核：`migrations/` delta 迁移 **0 个**、`cargo machete` **0 unused** 且已接入 pre-push 阻断门禁；其余检查项仍为 2026-09-02 结论，synapse-rust v6.2.0）
+**最后更新**：2026-10-28（复核为 v6.3.0 发布准备：本节三条旧条目已作废/订正；其余历史结论保留；开放项以审计文档 §0.2 为准）

@@ -13,14 +13,30 @@
 # 推送目标: vmuser232922/mysynapse 私有仓库 (Docker Hub)
 #
 # 用法:
-#   ./build-and-push.sh                      # 构建并推送 0.1.6-amd64 + latest
-#   VERSION=0.1.7 ./build-and-push.sh        # 自定义版本
+#   ./build-and-push.sh                      # 构建并推送 <包版本>-amd64 + latest
+#   VERSION=6.3.1 ./build-and-push.sh        # 自定义版本（覆盖 Cargo.toml）
 #   SKIP_PUSH=1 ./build-and-push.sh          # 仅本地构建，不推送
 # ----------------------------------------------------------------------------
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# 版本单一源头 = Cargo.toml 的 [workspace.package].version，避免脚本里的
+# 硬编码版本与包版本脱节（历史上脚本曾长期停在 0.1.x）。
+CARGO_VERSION="$(awk '
+    /^\[workspace\.package\]/ { in_section = 1; next }
+    /^\[/ { in_section = 0 }
+    in_section && /^[[:space:]]*version[[:space:]]*=/ {
+        gsub(/.*=[[:space:]]*"|".*/, "", $0); print; exit
+    }
+' "${SCRIPT_DIR}/Cargo.toml")"
+if [ -z "${CARGO_VERSION}" ]; then
+    echo "❌ 无法从 ${SCRIPT_DIR}/Cargo.toml 的 [workspace.package] 读取 version" >&2
+    exit 1
+fi
+
 IMAGE_NAME="${IMAGE_NAME:-vmuser232922/mysynapse}"
-VERSION="${VERSION:-0.1.6}"
+VERSION="${VERSION:-${CARGO_VERSION}}"
 PLATFORM="${PLATFORM:-linux/amd64}"
 ARCH_SUFFIX="${ARCH_SUFFIX:-amd64}"
 TARGET_STAGE="${TARGET_STAGE:-tools}"

@@ -40,6 +40,26 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+# 版本单一源头 = 仓库根 `Cargo.toml` 的 `[workspace.package].version`
+# （与 `build-and-push.sh` 同口径；此前这里硬编码 `6.2.0`，包版本升级后会脱节）。
+_CARGO_TOML = Path(__file__).resolve().parents[2] / "Cargo.toml"
+
+
+def _workspace_version() -> str:
+    """读取 `[workspace.package].version`，读不到直接失败（不猜默认值）。"""
+    text = _CARGO_TOML.read_text(encoding="utf-8")
+    if "[workspace.package]" not in text:
+        raise RuntimeError(f"{_CARGO_TOML} 缺少 [workspace.package] 段")
+    section = text.split("[workspace.package]", 1)[1].split("\n[", 1)[0]
+    for line in section.splitlines():
+        key, sep, value = line.partition("=")
+        if sep and key.strip() == "version":
+            version = value.strip().strip('"')
+            if version:
+                return version
+    raise RuntimeError(f"{_CARGO_TOML} 的 [workspace.package] 缺少 version")
+
+
 # OpenAPI 3.0.3 标准状态码 schema (Minimal — 后续可扩)
 DEFAULT_RESPONSES: dict[str, dict[str, Any]] = {
     "200": {
@@ -426,7 +446,7 @@ def build_openapi(
         "openapi": "3.0.3",
         "info": {
             "title": f"Synapse-Rust Client-Server API (profile: {profile_label})",
-            "version": "6.2.0",
+            "version": _workspace_version(),
             "description": "\n".join(desc_lines),
         },
         "servers": [

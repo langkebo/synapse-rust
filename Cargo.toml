@@ -250,7 +250,7 @@ exclude = ["vendor/pastey"]
 # P2-01: 产品版本单一源头。所有 workspace 成员通过 `version.workspace = true`
 # 继承此版本，使任意 crate 的 `env!("CARGO_PKG_VERSION")` 都上报产品版本。
 [workspace.package]
-version = "6.2.0"
+version = "6.3.0"
 
 # DC4: Centralized dependency version management.
 # All crate members inherit versions from here; features are still declared
