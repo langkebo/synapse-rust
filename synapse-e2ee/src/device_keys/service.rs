@@ -201,30 +201,32 @@ impl DeviceKeyService {
         if let Some(cs_storage) = &self.cross_signing_storage {
             let user_ids: Vec<String> = device_keys.keys().cloned().collect();
             if !user_ids.is_empty() {
-                if let Ok(cs_keys_by_user) = cs_storage.get_cross_signing_keys_batch(&user_ids).await {
-                    for (user_id, keys) in cs_keys_by_user {
-                        for key in keys {
-                            let key_value = key.key_json.clone().unwrap_or_else(|| {
-                                serde_json::json!({
-                                    "user_id": key.user_id,
-                                    "usage": key.usage,
-                                    "keys": { format!("ed25519:{}", key.public_key): key.public_key },
-                                    "signatures": key.signatures,
-                                })
-                            });
+                // A storage failure must not degrade into an empty cross-signing
+                // section: clients treat "no CS keys returned" as "peer never
+                // uploaded any" and stop trusting a verified identity (CODE-10).
+                let cs_keys_by_user = cs_storage.get_cross_signing_keys_batch(&user_ids).await?;
+                for (user_id, keys) in cs_keys_by_user {
+                    for key in keys {
+                        let key_value = key.key_json.clone().unwrap_or_else(|| {
+                            serde_json::json!({
+                                "user_id": key.user_id,
+                                "usage": key.usage,
+                                "keys": { format!("ed25519:{}", key.public_key): key.public_key },
+                                "signatures": key.signatures,
+                            })
+                        });
 
-                            match key.key_type.as_str() {
-                                "master" => {
-                                    master_keys.insert(user_id.clone(), key_value);
-                                }
-                                "self_signing" => {
-                                    self_signing_keys.insert(user_id.clone(), key_value);
-                                }
-                                "user_signing" => {
-                                    user_signing_keys.insert(user_id.clone(), key_value);
-                                }
-                                _ => {}
+                        match key.key_type.as_str() {
+                            "master" => {
+                                master_keys.insert(user_id.clone(), key_value);
                             }
+                            "self_signing" => {
+                                self_signing_keys.insert(user_id.clone(), key_value);
+                            }
+                            "user_signing" => {
+                                user_signing_keys.insert(user_id.clone(), key_value);
+                            }
+                            _ => {}
                         }
                     }
                 }

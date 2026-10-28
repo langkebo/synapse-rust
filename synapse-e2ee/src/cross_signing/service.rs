@@ -222,31 +222,28 @@ impl CrossSigningService {
         match key_type {
             "master" => {
                 if let Some(dk_storage) = &self.device_keys_storage {
-                    if let Ok(Some(device_key)) = dk_storage.get_device_key(user_id, device_id, "ed25519").await {
-                        let signing_key_id = format!("ed25519:{device_id}");
-                        if !Self::verify_key_signature(user_id, key, &device_key.public_key, &signing_key_id) {
-                            return Err(ApiError::bad_request(
-                                "Invalid signature on master key: not signed by device\'s ed25519 key".to_string(),
-                            ));
-                        }
-                    } else {
+                    // A storage failure is an internal error, not "the device key
+                    // is missing": only a real `None` may be reported as 400 (CODE-10).
+                    let device_key =
+                        dk_storage.get_device_key(user_id, device_id, "ed25519").await?.ok_or_else(|| {
+                            ApiError::bad_request("Cannot verify master key: no ed25519 device key found".to_string())
+                        })?;
+                    let signing_key_id = format!("ed25519:{device_id}");
+                    if !Self::verify_key_signature(user_id, key, &device_key.public_key, &signing_key_id) {
                         return Err(ApiError::bad_request(
-                            "Cannot verify master key: no ed25519 device key found".to_string(),
+                            "Invalid signature on master key: not signed by device\'s ed25519 key".to_string(),
                         ));
                     }
                 }
             }
             "self_signing" | "user_signing" => {
-                if let Ok(Some(master_key)) = self.storage.get_cross_signing_key(user_id, "master").await {
-                    if !Self::verify_cross_key_signature(user_id, key, &master_key) {
-                        return Err(ApiError::bad_request(format!(
-                            "Invalid signature on {key_type} key: not signed by master key"
-                        )));
-                    }
-                } else {
-                    return Err(ApiError::bad_request(
-                        "Cannot verify cross-signing key: master key not found".to_string(),
-                    ));
+                let master_key = self.storage.get_cross_signing_key(user_id, "master").await?.ok_or_else(|| {
+                    ApiError::bad_request("Cannot verify cross-signing key: master key not found".to_string())
+                })?;
+                if !Self::verify_cross_key_signature(user_id, key, &master_key) {
+                    return Err(ApiError::bad_request(format!(
+                        "Invalid signature on {key_type} key: not signed by master key"
+                    )));
                 }
             }
             _ => {}
@@ -441,25 +438,29 @@ impl CrossSigningService {
 
         if let Some(sig) = ssk_sig {
             let device_key_json = if let Some(dk_storage) = &self.device_keys_storage {
-                if let Ok(Some(device_key)) = dk_storage.get_device_key(user_id, device_id, "signed_curve25519").await {
-                    let mut json = serde_json::json!({
-                        "user_id": user_id,
-                        "device_id": device_id,
-                        "algorithms": device_key.algorithm,
-                        "keys": {
-                            format!("{}:{}", device_key.algorithm, device_key.key_id): device_key.public_key
-                        },
-                    });
-                    if let Some(obj) = json.as_object_mut() {
-                        obj.remove("signatures");
-                        obj.remove("unsigned");
+                // Only a genuinely absent device key falls back to the minimal
+                // JSON; a storage error must surface instead of masquerading as
+                // "signature invalid" (CODE-10).
+                match dk_storage.get_device_key(user_id, device_id, "signed_curve25519").await? {
+                    Some(device_key) => {
+                        let mut json = serde_json::json!({
+                            "user_id": user_id,
+                            "device_id": device_id,
+                            "algorithms": device_key.algorithm,
+                            "keys": {
+                                format!("{}:{}", device_key.algorithm, device_key.key_id): device_key.public_key
+                            },
+                        });
+                        if let Some(obj) = json.as_object_mut() {
+                            obj.remove("signatures");
+                            obj.remove("unsigned");
+                        }
+                        json
                     }
-                    json
-                } else {
-                    serde_json::json!({
+                    None => serde_json::json!({
                         "user_id": user_id,
                         "device_id": device_id,
-                    })
+                    }),
                 }
             } else {
                 serde_json::json!({
@@ -617,28 +618,30 @@ impl CrossSigningService {
                 signatures.iter().find(|s| s.signing_key_id == ssk_key_id || s.signing_key_id.starts_with("ed25519:"));
 
             if let Some(sig) = ssk_sig {
+                // Only a genuinely absent device key falls back to the minimal
+                // JSON; a storage error must surface instead of masquerading as
+                // "signature invalid" (CODE-10).
                 let device_key_json = if let Some(dk_storage) = &self.device_keys_storage {
-                    if let Ok(Some(device_key)) =
-                        dk_storage.get_device_key(user_id, device_id, "signed_curve25519").await
-                    {
-                        let mut json = serde_json::json!({
-                            "user_id": user_id,
-                            "device_id": device_id,
-                            "algorithms": device_key.algorithm,
-                            "keys": {
-                                format!("{}:{}", device_key.algorithm, device_key.key_id): device_key.public_key
-                            },
-                        });
-                        if let Some(obj) = json.as_object_mut() {
-                            obj.remove("signatures");
-                            obj.remove("unsigned");
+                    match dk_storage.get_device_key(user_id, device_id, "signed_curve25519").await? {
+                        Some(device_key) => {
+                            let mut json = serde_json::json!({
+                                "user_id": user_id,
+                                "device_id": device_id,
+                                "algorithms": device_key.algorithm,
+                                "keys": {
+                                    format!("{}:{}", device_key.algorithm, device_key.key_id): device_key.public_key
+                                },
+                            });
+                            if let Some(obj) = json.as_object_mut() {
+                                obj.remove("signatures");
+                                obj.remove("unsigned");
+                            }
+                            json
                         }
-                        json
-                    } else {
-                        serde_json::json!({
+                        None => serde_json::json!({
                             "user_id": user_id,
                             "device_id": device_id,
-                        })
+                        }),
                     }
                 } else {
                     serde_json::json!({
@@ -767,7 +770,7 @@ impl CrossSigningService {
             for device_id in &device_ids {
                 let verified = self
                     .verify_device_key_with_prefetched(user_id, device_id, &master_key, &self_signing_key, &sigs)
-                    .await;
+                    .await?;
                 verified_devices.push(verified);
             }
 
@@ -786,7 +789,7 @@ impl CrossSigningService {
         master_key: &Option<CrossSigningKey>,
         self_signing_key: &Option<CrossSigningKey>,
         all_signatures: &[DeviceSignature],
-    ) -> DeviceKeyVerificationResult {
+    ) -> Result<DeviceKeyVerificationResult, ApiError> {
         // Filter signatures for this specific device
         let signatures: Vec<&DeviceSignature> =
             all_signatures.iter().filter(|s| s.target_device_id == *device_id).collect();
@@ -816,28 +819,30 @@ impl CrossSigningService {
                 signatures.iter().find(|s| s.signing_key_id == ssk_key_id || s.signing_key_id.starts_with("ed25519:"));
 
             if let Some(sig) = ssk_sig {
+                // Only a genuinely absent device key falls back to the minimal
+                // JSON; a storage error must surface instead of masquerading as
+                // "signature invalid" (CODE-10).
                 let device_key_json = if let Some(dk_storage) = &self.device_keys_storage {
-                    if let Ok(Some(device_key)) =
-                        dk_storage.get_device_key(user_id, device_id, "signed_curve25519").await
-                    {
-                        let mut json = serde_json::json!({
-                            "user_id": user_id,
-                            "device_id": device_id,
-                            "algorithms": device_key.algorithm,
-                            "keys": {
-                                format!("{}:{}", device_key.algorithm, device_key.key_id): device_key.public_key
-                            },
-                        });
-                        if let Some(obj) = json.as_object_mut() {
-                            obj.remove("signatures");
-                            obj.remove("unsigned");
+                    match dk_storage.get_device_key(user_id, device_id, "signed_curve25519").await? {
+                        Some(device_key) => {
+                            let mut json = serde_json::json!({
+                                "user_id": user_id,
+                                "device_id": device_id,
+                                "algorithms": device_key.algorithm,
+                                "keys": {
+                                    format!("{}:{}", device_key.algorithm, device_key.key_id): device_key.public_key
+                                },
+                            });
+                            if let Some(obj) = json.as_object_mut() {
+                                obj.remove("signatures");
+                                obj.remove("unsigned");
+                            }
+                            json
                         }
-                        json
-                    } else {
-                        serde_json::json!({
+                        None => serde_json::json!({
                             "user_id": user_id,
                             "device_id": device_id,
-                        })
+                        }),
                     }
                 } else {
                     serde_json::json!({
@@ -876,7 +881,7 @@ impl CrossSigningService {
         let is_verified = chain_intact && verified_by_self_signing;
         let verification_method = if is_verified { Some("self_signing_key".to_string()) } else { None };
 
-        DeviceKeyVerificationResult {
+        Ok(DeviceKeyVerificationResult {
             user_id: user_id.to_string(),
             device_id: device_id.to_string(),
             is_verified,
@@ -884,7 +889,7 @@ impl CrossSigningService {
             verified_by_self_signing,
             verification_method,
             verified_at: if is_verified { Some(current_timestamp_utc()) } else { None },
-        }
+        })
     }
 }
 
