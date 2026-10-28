@@ -911,6 +911,75 @@ python3 scripts/check_file_coverage.py --report /tmp/cov_rel/lcov.info \
   "这次哪几个 floor 真的收紧了"。**没做**，留作需要时的显式决策。
 - `DENOM` 只说明"命中行没减少"，**没有**说明"新代码该有测试" —— 那是 ramp-up 门禁的事。
 
+#### 3.1.7.6 遗留 128 条的逐层归因（2026-10-28，人工队列从 128 降到 16）
+
+分母进基线之后，**下一轮**的下降能自动归因；但 2026-10-28 之前冻结的条目没有分母。
+这一节把能证的证掉，把证不了的压到最小，剩下的才是人要看的那一撮。
+
+方法只有三层，全部可在本地复现：
+
+1. **floor 设定在哪个提交**：`git blame --line-porcelain scripts/ci/coverage_baseline.json`
+   读 **`line_pct` 行**（不是 `path` 行 —— 读路径行会全部落到基线首提那一刻，因为后续提交
+   只改数字不改路径）；
+2. **源文件自那以后怎么变**：`git diff --numstat <floor_rev>..HEAD -- <file>` 的增删行数；
+3. **文件里的测试用例有没有被搬走**：`#[test]` / `#[tokio::test]` 的出现次数
+   （⚠️ 不能数 `#[cfg(test)]`：外移后原文仍留着 `#[cfg(test)] mod db_tests;` 的**声明**，
+   计数不变。`room/mod.rs` 就是这种：975 行测试被搬走，标记数却从 1 变 3）。
+
+| 层 | 判据 | 条数 | core | 结论 |
+|---|---|---|---|---|
+| **L1 已证** | 源文件 `+0/−0`（字节未变） | **2** | 1 | 非代码退化：行数/命中变了只能是编译配置或执行路径变了 |
+| **L2a 已证** | `dele == 0`（纯新增） | **4** | 1 | 非退化：新增代码没人跑到，旧行的命中不会因此减少 |
+| **L3 已证口径** | 内联测试用例数变少 | **14** | 4 | 非退化：被搬走的正是**覆盖得最好的那些行**，分子分母同时缩小、比例下降 |
+| **L2b 最简解释** | `add > dele`（净增长） | **92** | 34 | 分母增长是**最简解释**，但「删过代码」这条通路没被排除 ⇒ 不是证明 |
+| **L4 必须人看** | 净缩减或持平，且测试未搬走 | **16** | 4 | 删代码是丢掉命中的**唯一**通路，只能逐条看 |
+
+**L3 为什么算"已证"**：`9b40cac97`（"内联测试模块外移，7 个 >2000 行文件全部降到 1557 以内"）
+把这批文件里的 `#[cfg(test)] mod db_tests { … }` 整体搬到独立文件。内联测试代码**同样进
+llvm-cov 的分母**且几乎 100% 命中，所以它一搬走，"高覆盖的一大块"就离开了统计口径 ——
+`room/mod.rs` 975 行、`membership/mod.rs` 1239 行、`device/mod.rs` 1235 行都是这么少的。
+这条与 §3.1.7 开头的两个例子同源：**比例下降不等于覆盖退步**。
+
+**L4 的 16 条（这就是人工队列，core 4 条先看）**：
+
+| 文件 | 基线 → 本次 | 增/删 | LF | core |
+|---|---|---|---|---|
+| `synapse-web/routes/handlers/auth_discovery.rs` | 45.10% → 21.62% | +13/−28 | 37 | core |
+| `synapse-storage/user/storage.rs` | 79.83% → 64.23% | +456/−458 | 710 |  |
+| `synapse-services/wiring/admin.rs` | 97.36% → 91.63% | +124/−178 | 263 |  |
+| `synapse-services/e2ee_audit/audit_service.rs` | 81.17% → 75.56% | +8/−87 | 180 |  |
+| `synapse-services/wiring/federation.rs` | 94.12% → 90.00% | +4/−27 | 20 |  |
+| `synapse-cache/error.rs` | 33.33% → 30.00% | +5/−5 | 90 |  |
+| `synapse-services/saml_service.rs` | 40.47% → 37.14% | +120/−157 | 999 |  |
+| `synapse-services/registration_service.rs` | 92.26% → 89.47% | +1/−7 | 152 |  |
+| `synapse-storage/media_quota/repository.rs` | 90.62% → 88.20% | +89/−222 | 161 |  |
+| `synapse-web/routes/admin/register.rs` | 66.67% → 65.33% | +14/−20 | 199 | core |
+| `synapse-services/auth/login.rs` | 94.59% → 93.78% | +43/−96 | 209 | core |
+| `src/bin/synapse_ledger_export.rs` | 59.06% → 58.67% | +1/−1 | 150 |  |
+| `synapse-storage/dehydrated_device.rs` | 97.75% → 97.41% | +115/−124 | 657 |  |
+| `synapse-services/sliding_sync_service/state.rs` | 95.38% → 95.08% | +6/−12 | 61 |  |
+| `synapse-e2ee/device_keys/models.rs` | 98.98% → 98.97% | +4/−21 | 292 | core |
+| `synapse-services/sms_provider/aliyun.rs` | 98.45% → 98.44% | +1/−3 | 192 |  |
+
+已抽查第一条（`auth_discovery.rs`）：`get_auth_issuer` 被整函数删除（−28），同时新增 13 行
+未覆盖代码 ⇒ 命中行与分母同时变动。它**不是**"测试被删"，但那 13 行确实没有测试 ——
+属于"要么给新代码补测试、要么接受它"，与 §3.1.7 里 `DENOM` 的处理方式一致。
+
+**试过并否掉的估计器（写下来免得再试一次）**：曾想用
+`LF_prev ≈ 文件行数(floor) × (LF_now / 文件行数_now)`、再由 `pct` 反算命中行。
+拿 6 条已证样本校准就破了 —— 3 条"只增不删"的算出 `−3 / −3 / −5` 行损失，
+而它们**不可能**丢命中（没删任何行）。误差来源正是 L3 那条通路：`floor` 时文件里
+有内联测试，`LF_now/行数_now` 已经不含它们，于是 `LF_prev` 被系统性低估。
+**分母口径变过的文件，任何"按行数比例外推"的方法都无效。**
+
+**结论与处置**：
+
+- **20 条可证**（L1 2 + L2a 4 + L3 14）⇒ 不需要动，等它们被重测时 `cur >= prev` 自动成对写入；
+- **92 条最简解释是分母增长**（L2b）⇒ 不追；这批的共同点是文件都在长，`pct` 掉得温和；
+- **16 条必须人看**（L4）⇒ 人工队列，core 4 条优先；
+- **不给这 128 条补 `--allow-lower`**：那是把 floor 下调到当前值，等于承认"以后不许涨回来"，
+  与"这些下降大多是口径"这个结论正好相反。`--allow-lower` 只用于**已确认的合法重构**。
+
 ### 3.2 性能验收只有报告，没有断言
 
 `tests/performance/appservice_scheduler_perf_tests.rs` 的 **2 条用例全部** `#[ignore]`（`reason` 写明
