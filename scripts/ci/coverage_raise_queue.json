@@ -3,37 +3,27 @@
     "覆盖率『提升队列』台账（一次性任务，逐文件记账）。",
     "口径：只收『有生产入口、基线记录为 0 或极低』的文件，目标统一 30%（--max-target）。",
     "target 不是 floor：把它当绝对下限重贴，就是 2026-09-19 那次 188 文件红的翻版。",
-    "真正的强制力来自三条：①基线只会被 max() 抬升；②一旦 opened_at <= 基线且基线 >= target，",
-    "守卫就判红要求删条目（防僵尸台账）；③基线低于 opened_at 也判红（棘轮被下调）。",
-    "守卫：scripts/ci/check_coverage_raise_queue.py；进度打印：check_file_coverage.py --raise-queue。"
+    "真正的强制力来自五条：①基线只会被 max() 抬升；②一旦基线 >= target，守卫判红要求删条目",
+    "（防僵尸台账）；③基线低于 opened_at 也判红（棘轮被下调）；④删空以后必须带 closed 收尾块，",
+    "且封存值全部 >= target —— 空台账不等于关账，关账要拿数字说话；⑤基线还没吸收那些数字时，",
+    "closed 必须带 absorption_pending 说明等哪一轮 —— 『测到了』不等于『棘轮已确认』。",
+    "守卫：scripts/ci/check_coverage_raise_queue.py；进度打印：check_file_coverage.py --raise-queue。",
+    "状态：2026-10-28 三条全部达标并关闭（明细见 docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md §3.1.3）。"
   ],
-  "entries": [
-    {
-      "path": "src/server/router.rs",
-      "opened_at": 0.0,
-      "target": 30.0,
-      "state": "measurement-stale",
-      "production_entry": "src/server/mod.rs:1 — SynapseServer::run 用 router() 的返回值挂到 axum",
-      "plan": "不补测试：2026-10-25 定向插桩实测 integration 腿 29/35=82.9%，0.0 是 2026-09-19 bootstrap 按 --lib 口径冻结的陈旧值。等完整 lcov 落地后基线的 max() 自动收紧，守卫随即要求删条目；若 CI 仍报 0，按 classify_coverage_drift.py 的 GONE-NOT-BUILT 处置。",
-      "evidence": "docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md §3.1.2 表（LF:35 LH:29）"
+  "closed": {
+    "at": "2026-10-28",
+    "why": "三条全部达到 30%：两条是基线陈旧（router.rs 的 integration 腿 82.9%、tasks/mod.rs 的 4 条 tokio 用例 68.54%），一条是真缺口补测试后 48.24%。按『达成即删』收尾，实测值留在 measurements 里。",
+    "measurements": {
+      "src/server/router.rs": 82.9,
+      "src/tasks/mod.rs": 68.54,
+      "synapse-common/logging.rs": 48.24
     },
-    {
-      "path": "src/tasks/mod.rs",
-      "opened_at": 0.0,
-      "target": 30.0,
-      "state": "measurement-stale-or-needs-tests",
-      "production_entry": "src/server/mod.rs:1 — SynapseServer::run 调用 ScheduledTasks::start_all",
-      "plan": "两支：4 条 tokio 用例（from_config 两例 / 台账初值 / 关闭全部任务）2026-10-26 才加，若 CI 复测非零则同 router.rs 走陈旧路线；若仍 0/203，说明这两条腿都不编译该模块，需要把 start_all 的 tick 路径做成可注入时钟的用例（先抽 clock，再驱动一次 tick）。",
-      "evidence": "docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md §3.1.2 与 §7.5 表（0/203）"
+    "legs": {
+      "src/server/router.rs": "integration 腿（2026-10-25 定向插桩，LH:29/LF:35）；lib 腿 0/35，属预期",
+      "src/tasks/mod.rs": "lib 腿（2026-10-28 本机 --lib，LH:183/LF:267）",
+      "synapse-common/logging.rs": "synapse-common lib 腿（2026-10-28 本机，LH:96/LF:199）"
     },
-    {
-      "path": "synapse-common/logging.rs",
-      "opened_at": 0.0,
-      "target": 30.0,
-      "state": "needs-tests",
-      "production_entry": "src/server/telemetry.rs:1 — init_logging 是进程启动路径的唯一调用点",
-      "plan": "真缺口（49 行、零测试）。修法是把 subscriber 装配从 init_logging 抽出 build_subscriber(config, tracer)，init_logging 只负责 set_global_default；单测用 tracing::subscriber::with_default 覆盖 json/plain × tracer 有无 4 条分支与 EnvFilter 的 verbose/info 两档，预计执行 30 行以上（>60%），远超 30% 目标。注意不要直接调 init()：全局 subscriber 只能装一次，并行测试下会 panic。",
-      "evidence": "docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md §3.1.2 表（0/49）"
-    }
-  ]
+    "absorption_pending": "三条实测值都来自具名腿（各自是 CI 合并报告的子集），而提交版 coverage_baseline.json 里它们仍是 0.0%：抬升只发生在下一轮 Code Coverage 跑到 `Commit coverage baseline (auto-ratchet)` 那一步（save_baseline 的 max() 写回 + main push 自动提交）。所以这里记的是『已测到』，不是『棘轮已确认』；基线吸收后本字段必须删除，判据 12 会逼你删。"
+  },
+  "entries": []
 }

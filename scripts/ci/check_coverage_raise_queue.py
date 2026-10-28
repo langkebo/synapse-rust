@@ -29,6 +29,10 @@
 | 6 | `当前基线 < target` | 已达成 ⇒ 必须删条目（防僵尸） |
 | 7 | `production_entry` 开头的 `.rs` 文件真实存在 | "有生产入口"是**可验证的前提**，不是抄来的断言 |
 | 8 | `plan` 与 `evidence` 非空且 `plan` 至少 15 个字符 | 防止 `plan: "补测试"` 这种没有下一步的记账 |
+| 9 | `entries` 为空时，必须有一份 `closed` 收尾块（`at` / `why` / `measurements`） | **三条都达标就该把台账关掉**；但"删空"与"关掉"是两件事。没有收尾块的空台账 = 任务被静默丢弃（判据 6 逼着你删最后一条，要么给个交代，要么就一直挂着） |
+| 10 | `closed.measurements` 里每个文件的实测值都必须 `>= --max-target` | 收尾块是**证据**，不是安慰话。没达标就写 `closed` 等于给"未完成"盖章 |
+| 11 | `closed` 存在时 `entries` 必须为空 | 重新开账必须删掉收尾块，否则 `closed` 会变成一句与当前状态矛盾的话 |
+| 12 | `closed.measurements` 的每个路径都必须在基线里；基线仍 `< target` 时必须给出 `closed.absorption_pending`；全部 `>= target` 时该字段必须删除 | **"测到了"和"基线收了"是两件事**：关账靠具名腿的实测，基线抬升靠下一轮 CI 的 `max()` 写回。混为一谈就会在基线仍是 0.0% 时对外宣称"机器已确认"；而吸收完了不删说明，又成了第二句与状态矛盾的话 |
 
 ## 用法
 
@@ -67,6 +71,9 @@ STATES = {
 # `src/server/mod.rs:1 — 说明` ⇒ 取 `src/server/mod.rs`。
 ENTRY_FILE_RE = re.compile(r"^([A-Za-z0-9_./-]+\.rs)(?::\d+)?(?:\s|$|—)")
 
+# `closed.at` 只接受日期：带时间的戳会让"哪天关的账"多出一种解析口径，而这行字只是给人看的。
+DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
 # 覆盖率百分比存两位小数，比较时用同一精度（否则 29.999999 与 30.0 会来回抖）。
 EPS = 0.005
 
@@ -84,14 +91,15 @@ def load_baseline(path: pathlib.Path) -> dict[str, float]:
     return {item["path"]: float(item["line_pct"]) for item in data["files"]}
 
 
-def load_queue(path: pathlib.Path) -> list[dict]:
+def load_queue(path: pathlib.Path) -> tuple[list[dict], object]:
+    """Return `(entries, closed)`; `closed` is the optional closure block."""
     with open(path) as f:
         data = json.load(f)
     if not isinstance(data, dict) or "entries" not in data:
         raise ValueError(f"queue {path} has no `entries` array")
     if not isinstance(data["entries"], list):
         raise ValueError(f"queue {path}: `entries` must be a list")
-    return data["entries"]
+    return data["entries"], data.get("closed")
 
 
 def audit(
@@ -109,11 +117,6 @@ def audit(
     blocked: list[str] = []
     rows: list[dict] = []
     seen: dict[str, int] = {}
-
-    if not entries:
-        errors.append(
-            "`entries` is empty — an empty ledger means the P2 task was dropped silently"
-        )
 
     for index, entry in enumerate(entries):
         where = f"entries[{index}]"
@@ -207,6 +210,119 @@ def audit(
     return errors, blocked, rows
 
 
+def audit_state(
+    entries: list[dict], closed: object, max_target: float = DEFAULT_MAX_TARGET
+) -> list[str]:
+    """判据 9–11：台账的「开着还是关着」。
+
+    判据 6 会逼着把达标的条目删掉 —— 删到最后一条时，「删空」与「关账」必须被区分开。
+    所以空台账只有两种合法形态：要么还有条目，要么带一份**带数字的**收尾块。没有收尾块的
+    空台账按「任务被静默丢弃」处理（fail-closed），这正是判据 6 逼出来的那个时刻：
+    你手上最后一条也达标了，总得给个交代。
+    """
+    errors: list[str] = []
+
+    if closed is None:
+        if not entries:
+            errors.append(
+                "`entries` is empty and there is no `closed` block — an empty ledger without a "
+                "closure note means the P2 task was dropped silently"
+            )
+        return errors
+
+    if not isinstance(closed, dict):
+        return [f"`closed` must be an object, got {type(closed).__name__}"]
+
+    if entries:
+        errors.append(
+            f"`closed` is set while {len(entries)} entr(y|ies) remain — a reopened ledger must drop "
+            "the closure note, otherwise `closed` contradicts the current state"
+        )
+
+    at = closed.get("at")
+    if not isinstance(at, str) or DATE_RE.match(at) is None:
+        errors.append(f"`closed.at` must be a YYYY-MM-DD date, got {at!r}")
+
+    why = closed.get("why")
+    if not isinstance(why, str) or len(why.strip()) < 15:
+        errors.append("`closed.why` must say why the ledger is finished (>= 15 chars)")
+
+    measurements = closed.get("measurements")
+    if not isinstance(measurements, dict) or not measurements:
+        errors.append(
+            "`closed.measurements` must map each file to its measured coverage — a closure without "
+            "numbers is an assertion, not evidence"
+        )
+        return errors
+
+    for path, pct in measurements.items():
+        if not isinstance(pct, (int, float)):
+            errors.append(
+                f"`closed.measurements[{path!r}]` must be a number, got {pct!r}"
+            )
+        elif pct + EPS < max_target:
+            errors.append(
+                f"`closed.measurements[{path!r}]` records {pct:g}% < target {max_target:g}% — "
+                "a closure is only legal once every row is met"
+            )
+
+    return errors
+
+
+def audit_absorption(
+    closed: object,
+    baseline: dict[str, float],
+    max_target: float = DEFAULT_MAX_TARGET,
+) -> list[str]:
+    """判据 12：收尾块里的数字与**基线是否已吸收**必须彼此一致。
+
+    `closed.measurements` 记的是"在某条具名腿上测到多少"，而 `coverage_baseline.json` 记的是
+    "棘轮认可的地板"。两者之间隔着一轮真实的 CI 覆盖率：只有 `Per-file coverage ratchet` 跑到
+    `Commit coverage baseline (auto-ratchet)` 那一步，`max()` 才会把 0.0% 抬到实测值。所以：
+
+    * 基线还没吸收 ⇒ 必须写 `absorption_pending` 说清"等哪一轮"，否则关账会被读成
+      "机器已经确认过了"；
+    * 基线已经吸收 ⇒ 这段说明必须删掉，否则它马上变成又一句与状态矛盾的话
+      （与判据 11 同一条理由：现在为真的句子，条件一变就是假的）。
+    """
+    if not isinstance(closed, dict):
+        return []
+    measurements = closed.get("measurements")
+    if not isinstance(measurements, dict) or not measurements:
+        # 判据 9–11 已经在报这个结构问题，这里不重复。
+        return []
+
+    errors: list[str] = []
+    pending: list[str] = []
+    for path, pct in measurements.items():
+        if path not in baseline:
+            errors.append(
+                f"`closed.measurements[{path!r}]`: no entry in coverage_baseline.json — the closure "
+                "must name files the ratchet knows, otherwise nothing can ever absorb the number"
+            )
+            continue
+        current = round(baseline[path], 2)
+        if current + EPS < max_target:
+            pending.append(f"{path} baseline={current:.2f}%")
+
+    note = closed.get("absorption_pending")
+    if pending:
+        if not isinstance(note, str) or len(note.strip()) < 15:
+            errors.append(
+                "`closed.absorption_pending` is required while the committed baseline still sits "
+                f"below the target ({'; '.join(pending)}) — a closure records what was *measured*, "
+                "not what the ratchet has absorbed; say which run is expected to absorb it"
+            )
+    elif isinstance(note, str) and note.strip():
+        errors.append(
+            "`closed.absorption_pending` is stale — every measurement is already >= "
+            f"{max_target:g}% in coverage_baseline.json, so the ratchet has absorbed them; delete "
+            "the note (a caveat that outlives its cause is another sentence contradicting reality)"
+        )
+
+    return errors
+
+
 def describe(entry: dict, root: pathlib.Path = ROOT) -> str | None:
     """`production_entry` 的首个文件不存在时返回错误文本。
 
@@ -248,13 +364,32 @@ def print_rows(rows: list[dict], max_target: float) -> None:
     print()
 
 
+def describe_closure(closed: object) -> str:
+    """一行收尾摘要（台账开着时明确说"开着"，避免"--print 没有 closed 行"被读成没关账）。"""
+    if not isinstance(closed, dict):
+        return "closure: (ledger is open)"
+    measurements = closed.get("measurements")
+    numbers = (
+        ", ".join(
+            f"{path} {pct:g}%"
+            for path, pct in sorted(measurements.items())
+            if isinstance(pct, (int, float))
+        )
+        if isinstance(measurements, dict)
+        else ""
+    )
+    head = f"closure: closed on {closed.get('at')} — {closed.get('why')}"
+    return f"{head} [{numbers}]" if numbers else head
+
+
 def mutation_check(
     baseline: dict[str, float],
     max_target: float,
     root: pathlib.Path,
 ) -> int:
-    """三条判据各注入一次真实缺陷，必须各命中至少一条。
+    """八次注入，覆盖三类判据：行级 3 条、台账状态 3 条、收尾块与基线 2 条。
 
+    每次只注入一处缺陷，且必须至少命中一条 —— 命中 0 条说明那条判据是空转的。
     用 fixture 而不是改磁盘上的台账：已经达成的样本在真实数据里**不存在**（存在就说明
     台账该删了），所以"达成即红"这条只能靠合成基线自证。fixture 复刻真实条目的字段，
     只改被判的那一处 —— 这样报出来的问题不会同时命中别的判据。
@@ -302,6 +437,71 @@ def mutation_check(
         print(f"{status} {label} -> {hit} problem(s)")
         for line in [*errors, *blocked]:
             print(f"       {line}")
+
+    # 判据 9–11 是「台账状态」的判据，与上面三条「单行判据」分开注入：它们判的是
+    # entries 与 closed 的关系，改一行数据表达不出来。
+    state_mutations: list[tuple[str, list[dict], object]] = [
+        ("an empty ledger with no closure note", [], None),
+        (
+            "a closure note left on a ledger that still has rows",
+            [dict(sample)],
+            {
+                "at": "2026-10-28",
+                "why": "fixture closure long enough to pass the length check",
+                "measurements": {sample["path"]: 82.9},
+            },
+        ),
+        (
+            "a closure whose recorded measurement is below the target",
+            [],
+            {
+                "at": "2026-10-28",
+                "why": "fixture closure long enough to pass the length check",
+                "measurements": {sample["path"]: 12.0},
+            },
+        ),
+    ]
+    for label, state_entries, closed in state_mutations:
+        errors = audit_state(state_entries, closed, max_target)
+        hit = len(errors)
+        status = "OK  " if hit else "MISS"
+        if hit == 0:
+            failures += 1
+        print(f"{status} {label} -> {hit} problem(s)")
+        for line in errors:
+            print(f"       {line}")
+
+    # 判据 12 判的是「收尾块与基线」的关系，同样改一行数据表达不出来：要同时给 closed 与基线。
+    absorbed = {
+        "at": "2026-10-28",
+        "why": "fixture closure long enough to pass the length check",
+        "measurements": {sample["path"]: 82.9},
+    }
+    absorption_mutations: list[tuple[str, dict, dict[str, float]]] = [
+        (
+            "a closure the baseline has not absorbed, with no pending note",
+            dict(absorbed),
+            {sample["path"]: 0.0},
+        ),
+        (
+            "a pending note left behind after the baseline caught up",
+            {
+                **absorbed,
+                "absorption_pending": "fixture note long enough to pass the length check",
+            },
+            {sample["path"]: 82.9},
+        ),
+    ]
+    for label, closed, absorption_baseline in absorption_mutations:
+        errors = audit_absorption(closed, absorption_baseline, max_target)
+        hit = len(errors)
+        status = "OK  " if hit else "MISS"
+        if hit == 0:
+            failures += 1
+        print(f"{status} {label} -> {hit} problem(s)")
+        for line in errors:
+            print(f"       {line}")
+
     if failures:
         print(
             f"mutation-check FAILED: {failures} mutation(s) went undetected",
@@ -352,7 +552,7 @@ def main() -> int:
         return mutation_check(baseline, args.max_target, ROOT)
 
     try:
-        entries = load_queue(args.queue)
+        entries, closed = load_queue(args.queue)
     except (OSError, ValueError, json.JSONDecodeError) as error:
         print(f"raise queue cannot read {args.queue}: {error}", file=sys.stderr)
         return 2
@@ -360,11 +560,14 @@ def main() -> int:
     errors, blocked, rows = audit(entries, baseline, args.max_target)
     errors = [
         *errors,
+        *audit_state(entries, closed, args.max_target),
+        *audit_absorption(closed, baseline, args.max_target),
         *(d for d in (describe(e) for e in entries if isinstance(e, dict)) if d),
     ]
 
     if args.print:
         print_rows(rows, args.max_target)
+        print(describe_closure(closed))
         print(f"queue: {args.queue} ({len(entries)} entries)")
         print(f"baseline: {args.baseline} ({len(baseline)} files)")
         if errors:

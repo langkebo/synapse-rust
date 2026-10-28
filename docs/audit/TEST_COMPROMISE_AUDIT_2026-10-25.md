@@ -516,13 +516,13 @@ cargo llvm-cov --test integration --features "…" --lcov --output-path /tmp/rou
 
 台账 `scripts/ci/coverage_raise_queue.json`，守卫 `scripts/ci/check_coverage_raise_queue.py`。
 
-| 文件 | 记账起点 | 目标 | 性质 | 下一步 |
+| 文件 | 记账起点 | 目标 | 性质 | 结局（2026-10-28 关账） |
 |---|---|---|---|---|
-| `src/server/router.rs` | 0.0%（2026-09-19 bootstrap 冻结值） | 30% | **陈旧**：integration 腿实测 29/35 = 82.9%（§3.1.2） | 不补测试；等完整 lcov 落地后基线的 `max()` 自动收紧，守卫随即要求删条目 |
-| `src/tasks/mod.rs` | 0.0% | 30% | **待复测**：4 条 tokio 用例 2026-10-26 才加入，`0/203` 是加测试之前的读数 | CI 复测；若仍 `0/203` ⇒ 抽可注入时钟，驱动一次 tick |
-| `synapse-common/logging.rs` | 0.0% | 30% | **真缺口**：49 行、零测试，唯一调用点 `src/server/telemetry.rs::init_logging` | 把 subscriber 装配抽成 `build_subscriber()`，用 `tracing::subscriber::with_default` 覆盖 4 条分支 |
+| `src/server/router.rs` | 0.0%（2026-09-19 bootstrap 冻结值） | 30% | **陈旧**：lib 腿 `0/35` 只是没跑集成路径；integration 腿 29/35 = 82.9%（§3.1.2） | **关闭**，不补测试（实测 82.9%） |
+| `src/tasks/mod.rs` | 0.0% | 30% | **陈旧**：4 条 tokio 用例 2026-10-26 才加入，`0/203` 是加测试之前的读数 | **关闭**，lib 腿 183/267 = 68.54% |
+| `synapse-common/logging.rs` | 0.0% | 30% | **真缺口**：49 行、零测试，唯一调用点 `src/server/telemetry.rs::init_logging` | **关闭**，补测试 + 修两个缺陷后 96/199 = 48.24%（§3.1.3.1） |
 
-三层机制，缺一层这份台账就会变成"第二个真相"：
+五条机制，缺一条这份台账就会变成"第二个真相"：
 
 1. **`target` 不是 floor**。`check_file_coverage.py --raise-queue` 每轮打印
    `[RAISE] path: 12.3% → 30%（还差 17.7 个百分点）`，但**不参与退出码**。把它当绝对下限
@@ -531,6 +531,12 @@ cargo llvm-cov --test integration --features "…" --lcov --output-path /tmp/rou
    没有这条，条目会永远挂着、没人再看 —— `AGENTS.md` 铁律 8 的变体。
 3. **记账起点不得高于当前基线**。`opened_at > baseline` 说明该文件的 floor 被
    `--allow-lower` 或手改下调了，"从 40% 提到 30%"是自相矛盾的账，必须对齐。
+4. **关账要拿数字说话**（判据 9–11）。条目删到最后一条时，"删空"与"关账"是两件事：
+   空 `entries` 必须配 `closed`（`at` / `why` / `measurements`），封存值全部 `>= target`；
+   `closed` 在册时 `entries` 必须为空（重新开账要先删收尾块）。
+5. **"测到了" ≠ "基线收了"**（判据 12）。关账记的是**具名腿上的实测值**，而基线抬升要等
+   下一轮真实覆盖率跑到 `Commit coverage baseline (auto-ratchet)`；两者之间必须由
+   `closed.absorption_pending` 说明"等哪一轮"，吸收完成后该字段**必须删除**。
 
 两条容易被忽略的细节：
 
@@ -546,14 +552,103 @@ cargo llvm-cov --test integration --features "…" --lcov --output-path /tmp/rou
 | 合成 lcov：0% 文件 + target 30 | `[RAISE] … 0.0% → 30%`，退出码 **0**（不是 1） |
 | 合成 lcov：40% 文件 + target 30 | `[RAISE-DONE] … 40.0% ≥ 30%`，退出码 **0** |
 | 报告缺文件 | `[RAISE-NODATA]`，**不**报成 0% |
-| 台账不存在 / `entries` 为空 | 退出码 **2**（fail-closed） |
+| 台账不存在 / `entries` 为空且无收尾块 | 退出码 **2**（fail-closed），后者信息含 `dropped silently` |
 | 守卫：基线 30% 而条目 target 30% | 退出码 **1**，`delete this entry` |
-| 守卫：`opened_at` 40% 而基线 5% | 退出码 **1**，`was lowered` |
-| `--mutation-check` | 三条注入缺陷各命中 1 条（opened_at 高于基线 / 已达标仍挂 / 生产入口文件不存在） |
+| 守卫：`opened_at` 20% 而基线 5% | 退出码 **1**，`was lowered` |
+| 守卫：`closed` 在册但仍有条目 | 退出码 **2**，`reopened ledger` |
+| 守卫：`closed.measurements` 写 12% | 退出码 **2**，`only legal once every row is met` |
+| 守卫：基线仍 0.0% 而收尾块无 `absorption_pending` | 退出码 **2**（本次关账时**真实命中过**，见下） |
+| 守卫：基线已 82.9% 仍留 `absorption_pending` | 退出码 **2**，`is stale` |
+| `--mutation-check` | **8** 次注入（行级 3 + 状态级 3 + 吸收级 2）各命中 1 条 |
+| `tests/unit/coverage_raise_queue_tests.rs` | **12/12** 绿（0.20 s，真起 `python3` 子进程） |
 
-> **仍未做的**（别把"建了台账"读成"覆盖率达标"）：`logging.rs` 的 `build_subscriber()`
-> 重构与 `tasks/mod.rs` 的复测结论都要等一次专门的改动 + 一轮完整 lcov。台账只保证
-> "任务不会被忘记"。
+> **关账之后还剩什么**（别把 `closed` 读成"CI 已经确认"）：
+>
+> 1. 三条实测值都来自**具名腿**，而 `scripts/ci/coverage_baseline.json` 里它们仍是 `0.0`。
+>    抬升路径是确定的（`save_baseline` 的 `max(prev, cur)` + main push 上的自动提交），
+>    但它要求 `Code Coverage` job 一路绿到 `Commit coverage baseline (auto-ratchet)` 那一步 ——
+>    而该 job 目前红在**别的**文件上（§6.3 的 `Per-file coverage ratchet` 6/6 红）。
+>    ⇒ 别把"台账关了"当成"基线涨了"；`absorption_pending` 就是这句话的机器可读版本。
+> 2. **134 个文件 + 6 条 core-path 的逐条定性**仍要等一份完整 lcov（§6.1），
+>    在那之前**禁止** `--update`，也不逐条手改基线。
+
+#### 3.1.3.1 `logging.rs` 实施记录（2026-10-28）：补测试时撞出两个真缺陷
+
+补测试本身是机械的，**但"能写测试"的前提是先把它拆成可测形状** —— 而拆分过程中暴露的两条
+都属"生产路径已经坏了、没有任何测试能看见"：
+
+**① 二次安装是 `panic`，不是 `Err` ⇒ 调用方的错误分支是不可达代码**
+
+原实现最后一步是 `.init()`（`SubscriberInitExt`），全局 dispatcher 已存在时它 **panic**。
+而唯一调用点 `src/server/telemetry.rs:39` 写的是：
+
+```rust
+if let Err(e) = crate::common::logging::init_logging(&config.logging, tracer_provider) {
+    tracing::error!("Failed to initialize logging: {e}");
+    std::process::exit(1);
+}
+```
+
+那条 `Err` 分支**从来没可能执行过**：失败形态是 panic，不是返回值。改成
+`tracing::subscriber::set_global_default(subscriber)?` 后分支才可达，退出码与日志也才有内容。
+用例 `a_second_install_is_reported_instead_of_panicking` 断言 `Err` 文本含
+`already been set`（先抢装一次 `Registry::default()`，无论谁先抢到槽位，**第二次**必为 `Err`）。
+
+**② `RUST_LOG=`（设为空）会让整个进程**静默**——连"日志已初始化"都不打**
+
+根因不在本仓代码，而在 `EnvFilter::try_from_default_env()` 对**空值**的语义：它返回 **`Ok`**，
+得到的是**零指令过滤器**，而零指令过滤器匹配不到任何事件 —— 于是整条日志链路既没有报错、
+也没有输出。
+
+决定性证据不是日志行数，而是一个 30 行独立探针（`tracing-subscriber =0.3.23`，与 `Cargo.lock`
+同版本；装一个计数 `Layer` + `EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"))`，
+发一条 INFO、一条 DEBUG）：
+
+| `RUST_LOG` | `try_from_default_env()` | 到达 layer 的事件数 |
+|---|---|---|
+| 未设置 | `Err` | **1**（INFO 通过，DEBUG 被 level 拦掉） |
+| `=`（空串） | **`Ok`** | **0** |
+
+`Logging initialized: level=…, format=…` 这一行同样被吞 ⇒ 运维既看不到业务日志，也看不到
+"日志系统已就绪"。触发面很宽：compose 的 `RUST_LOG:`（冒号后留空）、K8s ConfigMap 空值、
+systemd `Environment=RUST_LOG=`、`export RUST_LOG=$(...)` 取到空串。
+
+修法是先判"这条变量到底有没有内容"再交给 `EnvFilter`：
+
+```rust
+fn rust_log_is_useable(raw: &str) -> bool { !raw.trim().is_empty() }
+
+match std::env::var("RUST_LOG") {
+    Ok(raw) if rust_log_is_useable(&raw) => EnvFilter::try_new(raw)      // 解析失败 ⇒ 回落
+        .unwrap_or_else(|_| EnvFilter::new(fallback_directive(&config.level))),
+    _ => EnvFilter::new(fallback_directive(&config.level)),
+}
+```
+
+修后 `RUST_LOG=` 与"未设置"走同一条回落路径：同一测试二进制、只改环境，两种情况下事件计数
+一致（`logging::tests` 5 条全绿）。这里保留 `try_new`（而不是 `EnvFilter::new`）是为了不改变
+"非法 `RUST_LOG` ⇒ 回落配置级别"的既有语义：`new` 是 lossy 的，会丢掉坏指令、留下半截过滤器。
+
+**③ 可测性重构（生产 API 内部拆分，行为不变）**
+
+`fallback_directive`（纯字符串策略）/ `build_subscriber`（返回
+`Box<dyn Subscriber + Send + Sync>`，四分支收成一个安装点）/ `init_logging`（只负责安装 + 打
+banner）。`_tracer_provider` 改名 `tracer_provider` 并写清它**只是存在性标志**：provider 早在
+`TelemetryService::initialize` 里 `global::set_tracer_provider` 过了，这里只决定要不要挂
+`OpenTelemetryLayer`。
+
+> ⚠️ 两条实测教训（都不是"手滑"，是同一种思维缺陷的两个层级）：
+>
+> 1. **读输出对错行**。第一次看测试输出，把"`RUST_LOG=` 下仍打印 DEBUG"当成"空值绕过配置级别"
+>    写进了注释 —— 实际是 8 次循环的输出错位。改用计数（`grep -c`）才二分清楚。
+> 2. **计数模式本身有歧义**。改用计数后又踩第二次：`grep -c smoke` 数出 **12**，而不是预期的
+>    8 —— 因为 span 名 `logging_smoke` 也含 `smoke`，4 条 DEBUG 行（`second event`）的 `spans`
+>    字段把 span 名一起打了出来。同一模式在"未设置"与"空值"下都数出 12，**看起来完全一致**，
+>    结论碰巧是对的，但证据是错的。
+>
+> ⇒ 结论落在**日志文本**上就要先怀疑"文本里还有谁在说同一个词"。这条（"空值 ⇒ 零指令过滤器"）
+> 最后用**不依赖日志文本**的探针定死（`ok=false / events=1` vs `ok=true / events=0`）。
+> **判据建立在日志文本上，最硬的自证是换一个不读日志的观测面。**
 
 ### 3.2 性能验收只有报告，没有断言
 
