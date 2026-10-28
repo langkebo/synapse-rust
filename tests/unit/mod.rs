@@ -28,6 +28,7 @@ mod beacon_info_parse_tests;
 mod captcha_shape_only_tests;
 mod client_push_service_tests;
 mod core_api_tests;
+mod coverage_baseline_lowering_tests;
 mod coverage_ratchet_exemption_tests;
 mod e2ee_shape_only_tests;
 mod event_report_shape_only_tests;
@@ -62,6 +63,7 @@ mod rate_limit_shape_only_tests;
 mod reactions_shape_only_tests;
 mod refresh_token_shape_only_tests;
 mod registration_token_shape_only_tests;
+mod require_tests_ran_mechanism_tests;
 mod retention_shape_only_tests;
 
 mod room_summary_shape_only_tests;

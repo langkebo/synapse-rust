@@ -1133,21 +1133,22 @@ jobs:
       # 隔离单元是整库，"漏一个"就是 20 MB + 一行 `pg_database`。把本地验收的
       # "残留 0"带进 CI：非零即红。挂在 `always()` 上，测试失败时也能分清是
       # "跑挂了"还是"顺手漏了库"。
+      #
+      # ⚠️ 判据本身必须能区分「有残留」与「查不到」（2026-10-28）：
+      # 旧实现是一行 `psql -tAc` + `[ "$left" -ne 0 ]`，服务器在
+      # `out of shared memory` 之后连不上时 `left` 是空串，于是比较报
+      # `integer expression expected` —— **服务器不可用**被显示成一条语法错误，
+      # 读者会当成"janitor 漏了库"，而真实主因在上一屏。现在归因、重试、整数校验
+      # 都在 `scripts/ci/assert_no_leftover_test_databases.sh` 里，三种结论各有
+      # 明确的错误标题（Leftover / Cannot determine / 干净）。
       - name: Assert no leftover test databases
         if: always() && matrix.isolation == 'database'
         env:
+          PGHOST: localhost
+          PGPORT: "5432"
+          PGUSER: synapse
           PGPASSWORD: synapse
-        run: |
-          set -euo pipefail
-          left="$(psql -h localhost -U synapse -d postgres -tAc \
-            "SELECT count(*) FROM pg_database WHERE datname LIKE 'test\_%'")"
-          if [ "${left}" -ne 0 ]; then
-            echo "::error::${left} leftover test database(s) — the janitor did not reclaim them"
-            psql -h localhost -U synapse -d postgres -tAc \
-              "SELECT datname FROM pg_database WHERE datname LIKE 'test\_%'" >&2
-            exit 1
-          fi
-          echo "no leftover test databases"
+        run: bash scripts/ci/assert_no_leftover_test_databases.sh
 
       # e2e 目标此前**没有任何 workflow 调用**（`grep -rn "test e2e" .github/workflows/` 无命中），
       # 而 CLAUDE.md 把它记为可用命令 —— 未被执行的测试会静默腐坏。
@@ -1295,6 +1296,15 @@ jobs:
         # 2026-09-21 复核：advisory 的 patched 区间覆盖锁定的 rand 0.8.7 / 0.9.5，
         # 故 `.cargo/audit.toml` 里那条 ignore 已删（降级会让 cargo-audit 自己红），
         # 本棘轮作为纵深防御保留。
+        #
+        # ⚠️ `!cancelled()`（2026-10-28）：本 job 里 4 条门禁彼此**独立**，但步骤默认
+        # "前一个失败就 skip"。实测 run 40513351117：`Supply-chain gate` 一红，
+        # 后面 `Check rand::rng() ratchet` / `Install cargo-geiger` / `Run cargo-geiger`
+        # / `Check outdated dependencies` **全部 skipped** —— 一个门禁失败把另外三个
+        # 一起遮蔽，日志里只剩一个红点，看不出其余三个其实从没跑过。
+        # 任一门禁失败仍会让 job 变红（step 级 failure 就是 job failure），
+        # 所以这里不需要额外的聚合步骤，只需要"不要在队友倒下时停止工作"。
+        if: ${{ !cancelled() }}
         run: bash scripts/ci/check_rand_rng_ratchet.sh
 
       # ── cargo-geiger: unsafe usage scan ──
@@ -1305,29 +1315,40 @@ jobs:
         # 钉住版本：run_cargo_geiger.py 依赖 cargo-geiger 的 JSON schema
         # （SafetyReport.packages / ReportEntry.unsafety.used）。之前是未钉版本的
         # `cargo install cargo-geiger --locked`，上游一发新版就可能再次漂移成"恒 0 假绿"。
+        if: ${{ !cancelled() }}
         run: cargo install cargo-geiger --version '^0.13' --locked
 
       - name: Run cargo-geiger (unsafe usage scan)
+        id: geiger
+        if: ${{ !cancelled() }}
         run: python3 scripts/ci/run_cargo_geiger.py
 
       - name: Upload cargo-geiger report
-        if: always()
+        # 只在 geiger 真的执行过时上传：本步骤此前是裸 `always()`，于是上游被 skip 时
+        # 它照样运行、报 `No files were found with the provided path`，
+        # 而步骤结论仍是 success —— "报告存在"变成假象（实测 run 40513351117）。
+        # `if-no-files-found: ignore` 只兜"跑了但没产出"这一种残余情况。
+        if: always() && steps.geiger.outcome != 'skipped'
         uses: actions/upload-artifact@v4
         with:
           name: cargo-geiger-report
           path: artifacts/cargo-geiger.json
+          if-no-files-found: ignore
           retention-days: 14
 
       # m-2: Track outdated dependencies for security-relevant crates.
       # Non-blocking: only warns, does not fail the pipeline.
       # Focus on crypto crates that may need patch-level bumps.
       - name: Check outdated dependencies (cargo-outdated)
+        id: outdated
+        if: ${{ !cancelled() }}
         continue-on-error: true
         run: |
           # Even though this step is `continue-on-error`, the pipeline must not
           # lie about what `cargo outdated` did: `| tee` alone reports tee's 0.
           # `set -o pipefail` keeps the reported status the command's own.
           set -o pipefail
+          mkdir -p artifacts
           cargo install cargo-outdated --locked
           echo "=== Outdated dependencies (focus: crypto) ==="
           cargo outdated --root-deps-only 2>&1 | tee artifacts/outdated-deps.txt
@@ -1336,11 +1357,13 @@ jobs:
           cargo outdated 2>&1 | grep -E '(x25519-dalek|ed25519-dalek|curve25519-dalek|aes-gcm|chacha20poly1305|ring|openssl|rustls)' || echo "No updates available for tracked security crates."
 
       - name: Upload outdated-deps report
-        if: always()
+        # 与 geiger 同理：裸 `always()` 会在本步骤被 skip 时照样运行并报 No files。
+        if: always() && steps.outdated.outcome != 'skipped'
         uses: actions/upload-artifact@v4
         with:
           name: outdated-deps-report
           path: artifacts/outdated-deps.txt
+          if-no-files-found: ignore
           retention-days: 14
 
   build:
@@ -1564,10 +1587,12 @@ jobs:
           fi
 
   # ──────────────────────────────────────────────────────────────
-  # CI Summary — compact failure digest for maintainers
-  # Skips on success (no noise). On failure, prints only failed
-  # jobs + one representative error line so the PR author can triage
-  # without scrolling through 4 parallel matrix logs.
+  # CI Summary — 逐门禁结论表（不是"再判一次红"）
+  #
+  # 红由各门禁自己报；本 job 只负责把「一整个 run 只有一个失败结论」
+  # 拆成「谁红了 / 红在哪个 step / 谁被 skip」。旧版注释声称会打印
+  # "one representative error line"，实现里根本没有 —— 只列了 job 名。
+  # 主行程长期"每次都有一个 job 失败"，光有名字已经不含信息量。
   # ──────────────────────────────────────────────────────────────
   ci-summary:
     name: CI Summary
@@ -1580,19 +1605,30 @@ jobs:
     # digest is what a PR author reads first. Whether the job *blocks* a merge is
     # decided by branch protection, not by this list; this only makes a failure
     # visible.
-    needs: [changes, repo-sanity, test, integration-test, security-audit, build, coverage, pr-benchmark-gate]
+    #
+    # `feature-matrix` 与 `openapi-artifact` 同样长期缺席：前者是**唯一**按 feature
+    # 维度编译的地方（`--all-features` 覆盖不到"单开的 feature 能不能编过"），
+    # 后者产出契约链的 client.yaml / route-table.json。两个都不在表里时，
+    # 它们红了也只会显示成一个不属于任何门禁的孤立红点。
+    needs: [changes, repo-sanity, openapi-artifact, feature-matrix, test, integration-test, security-audit, build, coverage, pr-benchmark-gate]
     steps:
-      - name: Print compact failure digest
+      # 这个 job 的用途不是"再判一次红"（红由各门禁自己报），而是把
+      # 「一整个 run 只有一个失败结论」拆成**逐门禁结论表**：谁红了、红在哪个 step、
+      # 谁被 skip（skip ≠ 绿）。
+      #
+      # 旧实现只列失败 job 的**名字**，却把注释写成 "one representative error line" ——
+      # 注释与实现不符；实际效果是读者拿到一个名字列表，仍要逐个点开 4 条矩阵日志
+      # 才能知道红在哪一步。而 CI 主行程长期"每次都有一个 job 失败"，
+      # 光有名字已经不含信息量。
+      - name: Print per-gate conclusion table
         uses: actions/github-script@v7
         with:
           script: |
-            // Fetch the current workflow run (works for push, PR, and dispatch events)
             const { data: run } = await github.rest.actions.getWorkflowRun({
               owner: context.repo.owner,
               repo: context.repo.repo,
               run_id: context.runId,
             });
-
             const { data: jobsData } = await github.rest.actions.listJobsForWorkflowRun({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -1600,41 +1636,67 @@ jobs:
               per_page: 100,
             });
 
-            // Keep the latest conclusion per job name (matrix children share names)
-            const jobConclusions = {};
-            for (const job of jobsData.jobs ?? []) {
-              if (job.status === 'completed') {
-                jobConclusions[job.name] = job.conclusion;
+            const jobs = jobsData.jobs ?? [];
+            const completed = jobs.filter(j => j.status === 'completed');
+
+            // 排序：越"该看"的越靠前。skipped 排在 success 之前 —— 未执行不算通过。
+            const rank = { failure: 0, timed_out: 1, cancelled: 2, skipped: 3, neutral: 4, success: 5 };
+            const of = c => rank[c] ?? 9;
+            completed.sort((a, b) => of(a.conclusion) - of(b.conclusion) || a.name.localeCompare(b.name));
+
+            const FAILED = new Set(['failure', 'timed_out', 'cancelled']);
+            const counts = {};
+            for (const j of completed) counts[j.conclusion] = (counts[j.conclusion] ?? 0) + 1;
+
+            const failedJobs = completed.filter(j => FAILED.has(j.conclusion));
+            const skippedJobs = completed.filter(j => j.conclusion === 'skipped');
+            const verdict = failedJobs.length > 0 ? 'FAILED' : (skippedJobs.length > 0 ? 'GREEN (with skipped gates)' : 'ALL GREEN');
+
+            await core.summary.addHeading(`CI Result: ${verdict}`, 2).addRaw(
+              `<p>${completed.length} job(s) completed — ` +
+              Object.entries(counts).map(([c, n]) => `<code>${c}</code>: ${n}`).join(' · ') +
+              `</p>`
+            );
+
+            // 逐门禁结论表：结论 + 失败/跳过的 step 名。
+            // step 名比 job 名有信息量 —— 同一个 job 里有 5 个门禁，
+            // "Security Audit 失败" 与 "Supply-chain gate 失败" 是两件事。
+            const rows = completed.map(j => {
+              const badSteps = (j.steps ?? [])
+                .filter(s => FAILED.has(s.conclusion))
+                .map(s => s.name);
+              let detail = '—';
+              if (badSteps.length > 0) {
+                detail = badSteps.map(n => `\`${n}\``).join('<br>');
+              } else if (j.conclusion === 'skipped') {
+                detail = '_未执行（skip 不等于通过）_';
               }
+              const name = j.html_url ? `[${j.name}](${j.html_url})` : j.name;
+              return [name, `\`${j.conclusion}\``, detail];
+            });
+            await core.summary.addTable([
+              [{ data: 'Job', header: true }, { data: 'Conclusion', header: true }, { data: 'Failing step', header: true }],
+              ...rows,
+            ]);
+
+            if (skippedJobs.length > 0) {
+              await core.summary.addRaw(
+                `<p><b>注意</b>：${skippedJobs.length} 个 job 是 skipped —— 这些门禁本次` +
+                `<b>没有验证任何东西</b>。若要判"这条链是绿的"，先让它们真的执行。</p>`
+              );
             }
 
-            const failed = Object.entries(jobConclusions)
-              .filter(([, c]) => c === 'failure' || c === 'cancelled')
-              .map(([name]) => name);
+            await core.summary.addRaw(
+              `<p><i>Workflow run: <a href="${run.html_url}">${run.display_title}</a> on ${run.head_branch ?? 'unknown'}</i></p>`
+            );
+            await core.summary.write();
 
-            if (failed.length === 0) {
-              console.log('No failed jobs detected — nothing to summarise.');
-              core.summary.addRaw('<h2>CI Result: ALL GREEN</h2>');
-              core.summary.write();
-              return;
-            }
-
-            const html = `
-              <h2>CI Result: FAILED</h2>
-              <p>Compact digest of failed jobs (${failed.length} of ${Object.keys(jobConclusions).length} ran to completion). Navigate to each job link for detailed output.</p>
-              <ul>
-                ${failed.map(name => {
-                  const job = jobsData.jobs.find(j => j.name === name);
-                  const link = job?.html_url ?? '#';
-                  return `<li><a href="${link}"><b>${name}</b></a></li>`;
-                }).join('\n')}
-              </ul>
-              <p><i>Workflow run: <a href="${run.html_url}">${run.display_title}</a> on ${run.head_branch ?? 'unknown'}</i></p>
-            `;
-
-            core.summary.addRaw(html);
-            core.summary.write();
-            console.log('Failed jobs:', failed.join(', '));
+            const digest = failedJobs.map(j => {
+              const bad = (j.steps ?? []).filter(s => FAILED.has(s.conclusion)).map(s => s.name);
+              return `${j.name} [${j.conclusion}]${bad.length ? ' @ ' + bad.join(' | ') : ''}`;
+            });
+            console.log(digest.length ? 'Failed gates:\n  ' + digest.join('\n  ') : 'No failed jobs.');
+            console.log(`verdict=${verdict} failed=${failedJobs.length} skipped=${skippedJobs.length}`);
 
       # ── 哨兵：这次 run 到底"真的验证了什么" ────────────────────────────────
       #

@@ -6,13 +6,30 @@
 # libtest 在过滤器什么都没匹配到时打印 `running 0 tests` 并 **exit 0**。
 # 于是 CI 里 `--test unit <模块名>` 这类步骤，只要模块名/目标名漂移（本仓库发生过
 # 6 次：模块其实在 tests/integration 且名为 `*_migrated`；还有一条测试名全仓不存在），
-# 步骤就变成"每次必绿的空转"，而且看不出任何异常。nextest 同理，除非显式
-# `--no-tests=fail`。这里把"必须跑过测试"变成退出码，一处实现、多处复用（铁律 2）。
+# 步骤就变成"每次必绿的空转"，而且看不出任何异常。
+#
+# ── 判据来源：机制，不是日志文本（2026-10-28 重写）──────────────────────────
+#
+# 旧实现用正则去匹配**人类可读的进度文案**：
+#   `Starting 3 tests across 1 binary`（nextest）、`test result: ok. 12 passed`（libtest）
+# 这条路线已经连续制造三次假红，每次都只是把正则补一下：
+#   ① `CARGO_TERM_COLOR=always` 让进度行带 SGR 序列 ⇒ 匹配不到（2026-09-20）
+#   ② `strip_ansi | grep -q` 命中即退 + `pipefail` ⇒ 上游 EPIPE 141（2026-09-30）
+#   ③ nextest 单数 `Starting 1 test across 1 binary` ⇒ 只写复数的正则必红（2026-10-27）
+# 文案是给**人**看的，随时会变（加颜色、改单复数、换措辞），把它当判据就是把门禁
+# 建在别人的排版上。现在改为问**框架自己**：
+#
+#   * `cargo nextest`：追加 `--no-tests=fail`。空集由 nextest 直接返回非零退出码，
+#     不需要读任何输出。（`--no-tests=pass` 会被本脚本拒绝：那等于关掉本门禁。）
+#   * `cargo test`（libtest，无等价旗标）：先跑一次 `--list` 问"注册表里有几条"，
+#     数 `^<name>: test$` 行。`--list` 输出的是**用例清单**（机器可解析的结构），
+#     不是汇总文案，因此不受颜色/单复数/措辞影响；命中 0 条就不必再跑真正的测试。
+#   * 其它命令：无法机制化，退化为旧日志判据，并打印 ⚠️ 提示不要依赖它。
 #
 # 用法：
 #   bash scripts/ci/require_tests_ran.sh cargo test --locked --test integration foo -- --test-threads=1
 #
-# 退出码：被测命令失败 → 原样透传；跑了 0 个测试 → 1；正常 → 0。
+# 退出码：被测命令失败 → 原样透传；跑 0 个测试 → 1；用法/配置错误 → 2；正常 → 0。
 set -uo pipefail
 
 if [ "$#" -eq 0 ]; then
@@ -20,67 +37,126 @@ if [ "$#" -eq 0 ]; then
     exit 2
 fi
 
+# 认出 cargo 子命令：跳过 `cargo` 本体与 `+toolchain` 覆盖，取第一个实义子命令。
+sub="__not_cargo__"
+saw_cargo=0
+for a in "$@"; do
+    if [ "$saw_cargo" -eq 0 ]; then
+        case "$a" in
+            cargo | */cargo)
+                saw_cargo=1
+                continue
+                ;;
+            *) break ;;
+        esac
+    fi
+    case "$a" in
+        +*) continue ;;
+        *)
+            sub="$a"
+            break
+            ;;
+    esac
+done
+
+# ── nextest：让框架自己判空集 ────────────────────────────────────────────────
+if [ "$sub" = "nextest" ]; then
+    have_flag=0
+    for a in "$@"; do
+        case "$a" in
+            --no-tests=*)
+                have_flag=1
+                if [ "$a" != "--no-tests=fail" ]; then
+                    echo "::error::'$a' would let this gate pass on an empty selection." >&2
+                    echo "  This wrapper exists precisely to fail on 0 tests; drop the flag" >&2
+                    echo "  (it is injected as --no-tests=fail) or change it to =fail." >&2
+                    exit 2
+                fi
+                ;;
+        esac
+    done
+    if [ "$have_flag" -eq 0 ]; then
+        set -- "$@" --no-tests=fail
+    fi
+    # 不 tee：nextest 自己的退出码就是判据，劫持 stdout 只会再引入一次 SIGPIPE 风险。
+    "$@"
+    exit $?
+fi
+
+# ── libtest：问注册表，不读文案 ──────────────────────────────────────────────
+if [ "$sub" = "test" ]; then
+    cargo_args=()
+    libtest_args=()
+    pass_through=0
+    for a in "$@"; do
+        if [ "$pass_through" -eq 0 ] && [ "$a" = "--" ]; then
+            pass_through=1
+            continue
+        fi
+        if [ "$pass_through" -eq 0 ]; then
+            cargo_args+=("$a")
+        else
+            libtest_args+=("$a")
+        fi
+    done
+
+    # `--exact` 改变过滤语义（精确 vs 子串）。预检必须用同一语义，否则
+    # `filter 写短了` 这种最常见的漂移会被子串匹配掩盖成"有测试"。
+    list_args=(--list)
+    if [ "${#libtest_args[@]}" -gt 0 ]; then
+        for a in "${libtest_args[@]}"; do
+            case "$a" in
+                --exact) list_args=(--exact --list) ;;
+            esac
+        done
+    fi
+
+    # `grep -c` 读完整个输入（不像 `grep -q` 命中即退），配合 pipefail 也不会 EPIPE。
+    # `--list` 只编译+列举，不执行用例，所以不会触碰 DB/Redis。
+    n_listed="$(
+        "${cargo_args[@]}" -- "${list_args[@]}" 2>/dev/null |
+            grep -cE '^[^ ].*: test$'
+    )" || true
+    case "$n_listed" in
+        '' | *[!0-9]*) n_listed=0 ;;
+    esac
+
+    if [ "$n_listed" -eq 0 ]; then
+        echo "" >&2
+        echo "::error::this step ran ZERO tests. The target/module filter no longer matches" >&2
+        echo "  anything, so the step is a no-op that reports success. Fix the target/module" >&2
+        echo "  name (or delete the step) — do not leave it green-by-emptiness." >&2
+        echo "  --- probed with ---" >&2
+        echo "  ${cargo_args[*]} -- ${list_args[*]}" >&2
+        exit 1
+    fi
+
+    echo "OK: filter selects ${n_listed} test(s); running them."
+    "$@"
+    exit $?
+fi
+
+# ── 其它命令：没有机制判据，退回日志文本（并明说这是弱判据）────────────────
+echo "::warning::'$sub' is not cargo test/nextest — falling back to log-text matching." >&2
+echo "  This is layout-dependent (colour, singular/plural, wording). Prefer wrapping a" >&2
+echo "  cargo test/nextest invocation, or add a mechanism-level check for this command." >&2
+
 log="$(mktemp "${TMPDIR:-/tmp}/require_tests_ran.XXXXXX")"
 trap 'rm -f "$log"' EXIT
 
-# 保留完整输出（CI 日志里仍然可见），同时落盘用于判定。
 "$@" 2>&1 | tee "$log"
 rc=${PIPESTATUS[0]}
-
 if [ "$rc" -ne 0 ]; then
     echo "::error::test command failed with exit $rc" >&2
     exit "$rc"
 fi
 
-# libtest:  `test result: ok. 12 passed; 0 failed; …`
-# nextest:  `Starting 12 tests across 1 binary`
-#
-# ⚠️ 匹配前必须**剥掉 ANSI SGR 序列**。workflow 级 `CARGO_TERM_COLOR: always`
-# 让 nextest 即使在管道里也带颜色输出，日志里是
-#   `\x1b[32;1m    Starting\x1b[0m \x1b[1m3\x1b[0m tests …`
-# 于是 `Starting [1-9][0-9]* tests` 匹配不到，本脚本会对一个**真跑了 3 个测试**的
-# 步骤报 "ran ZERO tests" 并 exit 1（CI 实测 2026-09-20：新增的
-# "Run latency benchmarks serially" 车道 3/3 passed，却被本脚本判空转）。
-# 本地之所以没复现：本地没有 `CARGO_TERM_COLOR=always`，输出里没有颜色。
 ANSI_ESC=$'\033'
-strip_ansi() { sed -E "s/${ANSI_ESC}\\[[0-9;]*[A-Za-z]//g"; }
-
-# ⚠️ 先**整份**剥色到一个变量，再对变量做匹配 —— 不要写成
-#   `strip_ansi <"$log" | grep -qE …`
-# `grep -q` 命中即退出（这正是"真的跑了测试"的那一次），上游 `sed` 随即收到 SIGPIPE；
-# `set -o pipefail` 于是把整条管道的状态变成 141 ⇒ `! pipeline` 为真 ⇒ 明明命中却被判
-# "ran ZERO tests"。触发条件是"日志大于一个管道缓冲（~64 KB）且命中出现在靠前处"——
-# 2026-09-30 CI 实测：`Gated modules actually run tests (D-25)` 的 **friend_room** 行
-# （113 个用例、带 `CARGO_TERM_COLOR=always` 的彩色输出）在两条 all-features 车道上
-# 都以 `this step ran ZERO tests` 红掉，而同一份日志里就有 `Starting 113 tests`。
-# 落到变量后 `grep` 读的是 here-string（没有上游写者）⇒ 不可能再 EPIPE。
-stripped="$(strip_ansi <"$log")"
-
-# ⚠️ nextest 的计数行是**单复数变化**的：`Starting 3 tests across 1 binary`，
-# 但只选中一条用例时是 `Starting 1 test across 1 binary (22 tests skipped)`。
-# 旧正则只写了复数形式 `Starting [1-9][0-9]* tests`，于是"恰好跑 1 条"的步骤
-# 100% 被判空转。CI 实测 2026-10-27（run 40513351117）：`Integration Tests (schema)`
-# 与 `Integration Tests (database)` 的 `Appservice statistics cost gate` 都用
-# `-E 'test(statistics_per_service_cost)'` 只选一条，日志里明明是
-# `PASS [3.331s] (1/1) … statistics_per_service_cost_does_not_grow_with_service_count`
-# 加 `Summary 1 test run: 1 passed`，两条车道却都红在
-# `this step ran ZERO tests` —— 该步骤自 `ea8276d8e` 引入起就**没有绿过**。
-# 故这里用 `tests?`：单数、复数都要认。
-ran_zero=0
-if grep -qE '^[[:space:]]*test result: (ok|FAILED)\. 0 passed' <<<"$stripped"; then
-    ran_zero=1
-elif ! grep -qE '(^[[:space:]]*test result: (ok|FAILED)\. [1-9][0-9]* passed|Starting [1-9][0-9]* tests?)' <<<"$stripped"; then
-    # 既看不到"0 passed"也看不到任何正数 —— 说明命令根本没跑测试框架
-    # （例如目标名写错、被 feature 门控掉、或输出格式变了）。
-    ran_zero=1
-fi
-
-if [ "$ran_zero" -eq 1 ]; then
+stripped="$(sed -E "s/${ANSI_ESC}\\[[0-9;]*[A-Za-z]//g" <"$log")"
+# 三种已知布局都认：libtest 汇总行 / nextest 进度行 / nextest 结尾 Summary 行。
+if ! grep -qE '(^[[:space:]]*test result: (ok|FAILED)\. [1-9][0-9]* passed|Starting [1-9][0-9]* tests?|Summary.*[^0-9][1-9][0-9]* tests? run)' <<<"$stripped"; then
     echo "" >&2
-    echo "::error::this step ran ZERO tests. The target/module filter no longer matches" >&2
-    echo "  anything, so the step is a no-op that reports success. Fix the target/module" >&2
-    echo "  name (or delete the step) — do not leave it green-by-emptiness." >&2
-    echo "  --- last lines of output ---" >&2
+    echo "::error::this step ran ZERO tests (log-text fallback; see the warning above)." >&2
     tail -5 "$log" >&2
     exit 1
 fi

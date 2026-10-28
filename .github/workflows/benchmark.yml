@@ -24,6 +24,16 @@ jobs:
   benchmark:
     name: Run benchmarks
     runs-on: ubuntu-latest
+    # 显式 timeout（2026-10-28）：本仓 benchmark job 实测 ~55 min，平台托管 runner 的
+    # 默认上限是 360 min，于是「被平台回收」这种情况此前没有本地判据 ——
+    # run 40603416972 的 `Run benchmarks` 只跑了 11 min 就收到
+    # `The runner has received a shutdown signal` 并 exit 143，读日志的人无法区分
+    # 「跑了太久超时」「runner 被回收」「benchmark 真的崩了」。
+    # 设了 timeout-minutes 后两种情形的日志指纹不同：
+    #   * 超时 -> `has exceeded the maximum execution time of N minutes`；
+    #   * 平台回收 -> `received a shutdown signal` + exit 143。
+    # 取值口径：实测正常耗时 x ~1.35 余量，不贴紧（benchmark 受 runner 负载影响大）。
+    timeout-minutes: 75
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_benchmarks == 'true'
     # `pages: write` / `id-token: write` existed only for the removed
     # `github-action-benchmark` gh-pages push (see the note at `Store benchmark
@@ -170,6 +180,7 @@ jobs:
     # 并应用迁移。
     name: Sliding sync perf gate
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_benchmarks == 'true'
 
     services:
@@ -267,6 +278,7 @@ jobs:
     # 与 ci.yml 的测试库 seed 是同一实现。
     name: Pagination perf gate (DB-backed)
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_benchmarks == 'true'
 
     services:
@@ -335,6 +347,7 @@ jobs:
   performance-comparison:
     name: Performance comparison
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     needs: benchmark
     if: github.event_name == 'pull_request'
     permissions:
@@ -445,6 +458,7 @@ jobs:
   performance-manual:
     name: Run manual performance tests
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_performance_manual == 'true'
 
     steps:
@@ -473,6 +487,7 @@ jobs:
   benchmark-report:
     name: Generate benchmark report
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: benchmark
     if: github.ref == 'refs/heads/main'
 

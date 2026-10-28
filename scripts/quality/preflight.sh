@@ -203,12 +203,60 @@ run "check_doc_line_refs.py" python3 scripts/ci/check_doc_line_refs.py
 step "Schema：updated_ts 可空性棘轮"
 run "check_schema_timestamp_convention.py" python3 scripts/ci/check_schema_timestamp_convention.py
 
+# ── 契约 gate ────────────────────────────────────────────────────────────────
+#
+# ⚠️ `ROUTE_CONTRACT.md` 的头行是「自动生成于 <date>」，**每天都变**。而 `changed`
+# 是 `git diff --name-only`，于是"工作区里躺着一份仅日期不同的 ROUTE_CONTRACT.md"
+# 会被算成"本次改动了契约链"，gate 随即 SKIP。
+#
+# 这个 SKIP 是**粘性的**：丢弃那份改动没用（下一次任何生成动作又把它写回来），
+# 只要它还在工作区，之后**每一次**提交都命中 SKIP —— 契约链从此再没被校验过，
+# 而 SKIP 在输出里看起来像通过（"exit 0 ≠ 绿"的又一例）。实测 2026-10-27 → 10-28
+# 跨午夜时连续命中。
+#
+# 所以判据不能是"这个路径是否出现在改动集"，而是"它的差异是不是结构性的"：
+# 把日期行剥掉后若与 HEAD 相同（与 `check_route_contract.sh` 自身的 normalize 同口径），
+# 就当它没被改动，照常跑 gate。
+route_contract_structurally_changed() {
+    local doc="docs/synapse-rust/ROUTE_CONTRACT.md"
+    git diff --quiet -- "$doc" && return 1
+    python3 - "$doc" <<'PY'
+import re
+import subprocess
+import sys
+
+doc = sys.argv[1]
+
+
+def norm(text: str) -> str:
+    return "\n".join(
+        line.rstrip()
+        for line in text.splitlines()
+        if not re.search("自动生成于", line)
+    )
+
+
+try:
+    old = subprocess.check_output(["git", "show", f"HEAD:{doc}"], text=True)
+except subprocess.CalledProcessError:
+    sys.exit(0)  # 未跟踪：任何内容都算结构性改动
+new = open(doc, encoding="utf-8").read()
+sys.exit(0 if norm(old) != norm(new) else 1)
+PY
+}
+
 step "契约 gate"
-if [ -z "$(printf '%s\n' "$changed" | grep -E 'ROUTE_CONTRACT|ledger_annotations|extract_registered|derived_route|ledger_export|route-table\.json|route_ledger' || true)" ]; then
+contract_chain=$(
+    printf '%s\n' "$changed" |
+        grep -E 'ledger_annotations|extract_registered|derived_route|ledger_export|route-table\.json|route_ledger' ||
+        true
+)
+if [ -z "$contract_chain" ] && ! route_contract_structurally_changed; then
     run "check_route_contract.sh" bash scripts/contract/check_route_contract.sh
 else
     echo "SKIP 本次改动了契约链文件 ⇒ 该 gate 在提交前构造性红（它把重生成的 ROUTE_CONTRACT.md 与 HEAD 比），"
     echo "     改在提交后复核（参见 docs/audit/OPTIMIZATION_EXECUTION_PLAN_2026-09-15.md §8.3 L-6）"
+    echo "     （仅日期漂移不算：判据是 route_contract_structurally_changed，与 gate 自身的 normalize 同口径）"
     # D-5：sidecar 新鲜度不依赖 HEAD（只把源码抽取结果与已提交的 ROUTE_HANDLERS.json 比），
     # 因此必须在这里也跑。跳过的恰好是「改了路由/ledger 注解但忘了同提交重生成」这一形态。
     run "gen_route_handlers.py --check" python3 scripts/contract/gen_route_handlers.py --check

@@ -46,7 +46,7 @@ import functools
 import json
 import pathlib
 import sys
-from typing import Dict, List, Optional, Tuple
+from typing import Collection, Dict, List, Optional, Tuple
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -136,8 +136,9 @@ def save_baseline(
     path: pathlib.Path,
     files: Dict[str, float],
     previous: Optional[Dict[str, float]] = None,
-) -> None:
-    """Save the coverage snapshot, never LOWERING a recorded floor.
+    allow_lower: Collection[str] = (),
+) -> int:
+    """Save the coverage snapshot, never LOWERING a recorded floor — unless told to.
 
     A ratchet must be monotone. The previous version overwrote every entry with
     the current number, so a file whose coverage dropped had its floor lowered to
@@ -162,12 +163,38 @@ def save_baseline(
 
     代价：文件被删除 / 重命名后旧条目会留在基线里（棘轮只增不减，无害；重命名后的新路径
     按"新文件"受 ramp-up 约束，那本来就是 policy 想要的压力）。
+
+    ## `allow_lower`：合法重构的唯一出口（2026-10-28）
+
+    `max(prev, cur)` 是**上界只降不升**的语义，于是"合法删代码"没有合规路径：
+
+    * 把一个 600 行文件里**已覆盖**的逻辑抽到新文件，原文件剩下的多是不易覆盖的分支
+      ⇒ 该文件覆盖率下降，但新文件受 ramp-up 门槛约束，整体覆盖没变差；
+    * 原文件的 floor 仍是历史最高值 ⇒ **永久红**；
+    * `--save-baseline` 也救不了（`max` 会把旧值写回去），唯一出路是手改 54 KB 的 JSON，
+      而那次手改在 review 里看起来和"偷偷放宽门禁"没有区别。
+
+    `allow_lower` 把这条出口**显式化**：只有命令行逐条点名（`--allow-lower <path>`）的
+    文件才允许把 floor 下调到本次实测值，其余一律继续 `max`。默认空集 ⇒ CI 路径零变化。
+    向下调多少、为什么，都在提交信息与 review diff 里可见（`coverage_baseline.json`
+    的那一行就是审计记录）。
+
+    返回被下调的条目数。
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     previous = previous or {}
+    lower_set = set(allow_lower)
     merged = {p: float(v) for p, v in previous.items()}
+    lowered = 0
     for path_key, value in files.items():
-        merged[path_key] = max(float(previous.get(path_key, 0.0)), float(value))
+        prev_value = float(previous.get(path_key, 0.0))
+        cur_value = float(value)
+        if path_key in lower_set:
+            if cur_value < prev_value:
+                lowered += 1
+            merged[path_key] = cur_value
+        else:
+            merged[path_key] = max(prev_value, cur_value)
     payload = {
         "files": [
             {"path": p, "line_pct": round(v, 2)} for p, v in sorted(merged.items())
@@ -176,6 +203,7 @@ def save_baseline(
     with open(path, "w") as f:
         json.dump(payload, f, indent=2)
         f.write("\n")
+    return lowered
 
 
 def load_prefix_list(path: Optional[pathlib.Path]) -> List[str]:
@@ -350,6 +378,7 @@ def check_file_coverage(
     core_threshold: float,
     non_unit_prefixes: List[str],
     report_path: pathlib.Path,
+    allow_lower: Collection[str] = (),
 ) -> int:
     """Enforce per-file coverage thresholds.  Returns exit code.
 
@@ -359,11 +388,17 @@ def check_file_coverage(
     The exemption is checked **after** the baseline-known branch on purpose: a
     file the coverage leg cannot execute is still forbidden from regressing below
     its recorded value, so the list can never hide a regression.
+
+    `allow_lower` is the explicit escape hatch for a deliberately lowered floor
+    (see `save_baseline`). A path listed there is still reported — as
+    `[LOWERED]`, not as a silent pass — so the drop stays visible in the log.
     """
     failures: List[str] = []
     warnings: List[str] = []
     core_failures: List[str] = []
     exemptions: List[str] = []
+    lowered: List[str] = []
+    lower_set = set(allow_lower)
     all_paths = sorted(set(current.keys()) | set(baseline.keys()))
 
     for path in all_paths:
@@ -422,6 +457,11 @@ def check_file_coverage(
                 f"[{tag}] {path}: {cur:.1f}% < {floor:.0f}% "
                 f"(was {prev_txt}, delta={delta:+.1f}%)"
             )
+            # 显式授权的下调不判红，但**必须打印**：静默放行与"门禁没在工作"
+            # 无法区分（铁律 8）。
+            if path in lower_set:
+                lowered.append(f"{msg} — floor lowered on purpose (--allow-lower)")
+                continue
             if tag == "CORE":
                 core_failures.append(msg)
             else:
@@ -431,6 +471,14 @@ def check_file_coverage(
                 f"[{tag}] {path}: {cur:.1f}% (below global {global_threshold:.0f}% "
                 f"but above new-file ramp-up {new_file_threshold:.0f}%)"
             )
+
+    if lowered:
+        print(
+            f"=== Floors lowered on purpose (--allow-lower, {len(lowered)} file(s)) ==="
+        )
+        for entry in lowered:
+            print(f"  {entry}")
+        print()
 
     if exemptions:
         print("=== Non-unit-coverable exemptions (new files; no floor applied) ===")
@@ -530,6 +578,19 @@ def main() -> int:
         type=pathlib.Path,
         default=None,
         help="Path to write the updated baseline snapshot (default: overwrite --baseline).",
+    )
+    parser.add_argument(
+        "--allow-lower",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help=(
+            "Explicitly allow this file's floor to be lowered to the current "
+            "measurement (repeatable). Use it for a legitimate refactor that "
+            "moves covered logic out of a file; every other file keeps the "
+            "monotone `max(previous, current)` rule. Each PATH must already "
+            "exist in the baseline — a typo would otherwise be a silent no-op."
+        ),
     )
     args = parser.parse_args()
 
@@ -634,6 +695,35 @@ def main() -> int:
         print("No source-file coverage data found in report.", file=sys.stderr)
         return 1
 
+    # `--allow-lower` 只对**基线已知**的路径有意义。打错一个字符会让它变成
+    # 静默空操作（用户以为自己放行了，实际没有），所以这里 fail-closed。
+    #
+    # ⚠️ 路径口径是 `_normalize_path` 之后的 key（`synapse-common/error.rs`）——
+    # 注意**没有** `src/` 段，与 lcov 的 `SF:` 行写法不同。这条差异是真实陷阱：
+    # 拿 lcov 里的写法来点名会匹配不上，所以报错时直接把候选打出来，别让人猜。
+    unknown_lower = [p for p in args.allow_lower if p not in baseline]
+    if unknown_lower:
+        print(
+            "--allow-lower names path(s) with no baseline entry:\n  "
+            + "\n  ".join(unknown_lower),
+            file=sys.stderr,
+        )
+        for bad in unknown_lower:
+            leaf = bad.rsplit("/", 1)[-1]
+            candidates = sorted(p for p in baseline if p.rsplit("/", 1)[-1] == leaf)
+            if candidates:
+                print(
+                    "  did you mean (baseline keys are normalized: `crate/<path under src/>`):\n    "
+                    + "\n    ".join(candidates),
+                    file=sys.stderr,
+                )
+        print(
+            "  A new file is governed by the ramp-up/core floors, not by a recorded "
+            "floor; a typo would otherwise be a silent no-op.",
+            file=sys.stderr,
+        )
+        return 2
+
     exit_code = check_file_coverage(
         current=current,
         baseline=baseline,
@@ -643,10 +733,13 @@ def main() -> int:
         core_threshold=args.core_threshold,
         non_unit_prefixes=non_unit_prefixes,
         report_path=args.report,
+        allow_lower=args.allow_lower,
     )
 
     save_path = args.save_baseline or args.baseline
-    save_baseline(save_path, current, previous=baseline)
+    lowered_count = save_baseline(
+        save_path, current, previous=baseline, allow_lower=args.allow_lower
+    )
     # 把"这次报告里没有、但基线保留下来"的条目数打出来：不打印的话，一份不完整的 lcov
     # 会**静默**让基线缩水（曾经的故障形态，见 `save_baseline` 的 docstring）。
     retained = len(set(baseline) - set(current))
@@ -654,6 +747,11 @@ def main() -> int:
         print(
             f"baseline {save_path}: {len(current)} 个文件本次测量，"
             f"{retained} 个条目保留自上次（未出现在本次报告里，不删）"
+        )
+    if args.allow_lower:
+        print(
+            f"baseline {save_path}: {lowered_count} 个 floor 被 --allow-lower 下调"
+            f"（共点名 {len(args.allow_lower)} 个路径；其余仍按 max(prev, cur) 收紧）"
         )
 
     return exit_code
