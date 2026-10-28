@@ -376,7 +376,13 @@ fn run_runner(probe: &Probe, crates: &[&str], extra_env: &[(&str, &str)]) -> Out
         // `affected_crates.py` 要跑**真** `cargo metadata`（path 首位是假 cargo）。
         .env("CARGO", std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string()))
         // `BASH_ENV` 会把 shim 目录重新前置，把假 cargo 顶掉 —— 这条用例就什么也没证明。
-        .env_remove("BASH_ENV");
+        .env_remove("BASH_ENV")
+        // 主车道（`run_coverage.sh`）用 `env RUST_TEST_THREADS=4 cargo llvm-cov …` 起测试，
+        // 于是**任何**在它里面跑的用例都会继承这个变量。不清掉的话，非 storage 腿读到的
+        // 线程数永远是 4，下面"只有 storage 需要单线程"的断言必红（2026-10-28 实测：
+        // `llvm-cov -p synapse-web … --lib --no-report --no-fail-fast`, threads=4）。
+        // 这里量的是"脚本有没有自己钉线程数"，不是"环境里恰好有什么"。
+        .env_remove("RUST_TEST_THREADS");
     for (key, value) in extra_env {
         command.env(key, value);
     }

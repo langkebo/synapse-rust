@@ -254,3 +254,43 @@ fn a_tiny_file_with_bodies_still_fails_the_new_file_floor() {
         "the declaration-only exemption must not cover files with function bodies:\n{output}"
     );
 }
+
+/// (h) 进了基线的声明文件也必须**被命名为** `[DECL-ONLY]`，而不是静默通过。
+///
+/// 没有这条时，同一个文件只因"曾经进过基线"就从 `[DECL-ONLY]` 掉进 `[TOUCHED]` 分支：
+/// 结论一样（0.0 不低于 0.0），但审计侧数不出全仓到底有几个结构性 0% 的文件 ——
+/// 它们会和"真没测试"混在同一个 0.0 堆里。
+#[test]
+fn a_baseline_known_declaration_file_is_named_as_decl_only() {
+    // 基线键与 lcov 的 SF 都走 `_normalize_path`：根 crate 的 `src/…` 原样保留，
+    // 而 `synapse-services/src/…` 会被折成 `synapse-services/…`。用根 crate 路径，
+    // 两边键才真的相同（否则这条用例退化成"新文件"分支，什么也没证明）。
+    let probe = "src/probe_decl_baselined.rs";
+    let (code, output) = run_ratchet(&list_path(), &[(probe, 2, 0)], &[(probe, 0.0)]);
+
+    assert_eq!(code, 0, "a baseline-known declaration-only file must not fail the ratchet:\n{output}");
+    assert!(
+        output.contains("[DECL-ONLY] src/probe_decl_baselined.rs"),
+        "the structural exemption must be printed even for a baseline-known file:\n{output}"
+    );
+}
+
+/// (i) 反面：基线里那个文件**有过正覆盖** ⇒ 0% 是真跌，不许被声明豁免吞掉。
+///
+/// `prev > 0` 证明它有可命中行，就不是声明文件。放宽这条等于给"曾经有测试、后来删光"
+/// 的文件开一条静默通道。
+#[test]
+fn a_baseline_known_file_with_positive_coverage_is_not_exempted() {
+    let probe = "src/probe_decl_regressed.rs";
+    let (code, output) = run_ratchet(&list_path(), &[(probe, 2, 0)], &[(probe, 50.0)]);
+
+    assert_eq!(code, 1, "a baseline-known file that had positive coverage must still be judged:\n{output}");
+    assert!(
+        output.contains("[TOUCHED]") && output.contains(probe),
+        "the regression must be reported as a TOUCHED failure:\n{output}"
+    );
+    assert!(
+        !output.contains("[DECL-ONLY] src/probe_decl_regressed.rs"),
+        "the declaration-only exemption must not cover a file that was previously reachable:\n{output}"
+    );
+}

@@ -223,23 +223,39 @@ fn every_report_carries_an_explicit_package_scope() {
     assert_eq!(reports, 2, "两条腿各应生成一次报告，实得 argv：\n{}", outcome.argv);
 }
 
-/// 步骤 2 的报告范围必须等于「工作区成员 − synapse-storage」，否则新增 crate 会静默
-/// 少覆盖（报告里连它的文件都不会出现，棘轮与定性工具都看不见）。
+/// 步骤 2 的报告范围必须等于**全部**工作区成员（含 `synapse-storage`）。
+///
+/// 历史口径是「成员 − synapse-storage」，理由是 storage 由步骤 1 单独跑。那把**测试范围**
+/// 和**报告范围**混成了一件事：storage 被 services/web 依赖并**插桩**编译，集成测试对它的
+/// 命中就写在步骤 2 的 profraw 里；报告范围排除它 ⇒ 这些命中被整段丢弃。
+///
+/// 实测（2026-10-28，步骤 2 形态、只跑 `membership_storage_tests_migrated` 一个文件）：
+/// `synapse-storage/membership/mod.rs` 命中 **284/1019 = 27.87%**，旧口径下这 284 行一行
+/// 也进不了报告。别拿同目录的 `membership/api.rs` 当证据 —— 它是 `impl MemberStoreApi for
+/// RoomMemberStorage` 的委托层，每个方法只有一行转发，而调用方都持有具体类型、不经 trait
+/// 对象，所以结构性不可达（恒 0%）。两者的落差与报告口径无关。
+///
+/// 测试范围仍排除 storage（db_tests 直连 public，并发会互相 DROP），那是**执行**约束；
+/// 报告范围则必须是全工作区，否则新增/漏列的 crate 会静默少覆盖。
 #[test]
 fn rest_report_scope_matches_the_workspace() {
     let script = fs::read_to_string(repo_root().join(SCRIPT)).expect("run_coverage.sh must be readable");
     let declared = parse_rest_report_scope(&script);
 
-    let mut names: Vec<String> =
-        cargo_workspace_members().into_iter().filter(|name| name != "synapse-storage").collect();
+    let mut names = cargo_workspace_members();
     names.sort();
 
     assert_eq!(
         declared,
         names,
-        "run_coverage.sh 的 REST_REPORT_ARGS 必须等于「工作区成员 − synapse-storage」。\n\
+        "run_coverage.sh 的 REST_REPORT_ARGS 必须等于**全部**工作区成员。\n\
          差集（漏了的 crate 会静默不参与覆盖率）：{:?}",
         names.iter().filter(|name| !declared.contains(name)).collect::<Vec<_>>()
+    );
+    assert!(
+        declared.iter().any(|name| name == "synapse-storage"),
+        "报告范围必须包含 synapse-storage：步骤 2 的集成测试会执行它的代码，\
+         排除它等于把那些命中扔掉（实测 `membership/mod.rs` 284/1019 = 27.87% 会被整段丢弃）"
     );
 }
 
@@ -347,7 +363,10 @@ fn stale_profraw_from_a_killed_run_is_purged() {
 #[test]
 fn a_missing_leg_does_not_wipe_the_other_legs_data() {
     let probe = probe("missing_leg");
-    let outcome = run_script_with(&probe, "0", "256", &[("FAKE_REPORT_FAIL_FOR", "-p synapse-storage")]);
+    // 用 `--output-path` 里的文件名选腿，而不是 `-p synapse-storage`：自从步骤 2 的
+    // **报告**范围也包含 storage（它被 services/web 依赖并插桩），`-p synapse-storage`
+    // 会同时命中两条腿的报告命令，那就变成"两条腿都失败"，测不到降级合并。
+    let outcome = run_script_with(&probe, "0", "256", &[("FAKE_REPORT_FAIL_FOR", "storage.lcov")]);
 
     assert!(outcome.report_written, "一条腿没产出 lcov 时，另一条腿的数据必须被合并写出。输出：\n{}", outcome.stderr);
     assert!(
@@ -410,6 +429,59 @@ fn merge_lcov_refuses_to_silently_drop_a_missing_input() {
     assert_eq!(output.status.code(), Some(2), "缺输入必须 fail-closed。输出：\n{text}");
     assert!(text.contains("not found"), "must name the missing input, got:\n{text}");
     assert!(!output_path.exists(), "缺输入时不许写出半份报告");
+}
+
+/// 合并**同一个 SF**时不许把 LF 塌成 DA 行数。
+///
+/// llvm-cov 的 `LF` 可以大于 `DA` 行数（函数定义行等"幽灵行"有覆盖区域但无执行计数）。
+/// 若合并时用 `LF = len(da)` 重算，分母口径就变了，同一个文件的百分比会和它自己的
+/// 基线不可比。2026-10-28 实测 `synapse-storage/src/membership/mod.rs`：
+/// llvm-cov 450/1019 = 44.2%，按 DA 重算 403/590 = 68.3%，131/152 个 storage 文件受影响。
+#[test]
+fn merging_the_same_file_from_both_legs_keeps_the_lf_denominator() {
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("merge_lcov_lf_denominator");
+    fs::create_dir_all(&dir).expect("probe dir");
+    let leg_a = dir.join("leg_a.lcov");
+    let leg_b = dir.join("leg_b.lcov");
+    let output_path = dir.join("merged.lcov");
+    // 两腿各报 2 个 DA 行，但 LF 都报 10（其余 8 行是幽灵行）。
+    fs::write(&leg_a, "SF:synapse-storage/src/probe.rs\nDA:1,1\nDA:2,0\nLF:10\nLH:5\nend_of_record\n")
+        .expect("fixture lcov A");
+    fs::write(&leg_b, "SF:synapse-storage/src/probe.rs\nDA:1,0\nDA:2,1\nDA:3,0\nLF:10\nLH:5\nend_of_record\n")
+        .expect("fixture lcov B");
+    if output_path.exists() {
+        fs::remove_file(&output_path).expect("stale fixture must be removable");
+    }
+
+    let output = Command::new("python3")
+        .arg(repo_root().join("scripts/merge_lcov.py"))
+        .arg(&leg_a)
+        .arg(&leg_b)
+        .arg("-o")
+        .arg(&output_path)
+        .current_dir(repo_root())
+        .output()
+        .expect("merge_lcov.py must be runnable");
+    assert!(output.status.success(), "merge_lcov.py 必须成功。stderr：\n{}", String::from_utf8_lossy(&output.stderr));
+    let merged = fs::read_to_string(&output_path).expect("merged output");
+
+    let lf = merged
+        .lines()
+        .find_map(|l| l.strip_prefix("LF:"))
+        .and_then(|v| v.parse::<usize>().ok())
+        .expect("merged record must carry LF");
+    let lh = merged
+        .lines()
+        .find_map(|l| l.strip_prefix("LH:"))
+        .and_then(|v| v.parse::<usize>().ok())
+        .expect("merged record must carry LH");
+
+    assert_eq!(lf, 10, "LF 不许塌成 DA 行数（3 行），实际合并结果：\n{merged}");
+    assert_eq!(lh, 5, "LH 不许被 DA 命中行数（2 行）压掉，实际合并结果：\n{merged}");
+    assert!(
+        merged.contains("DA:1,1") && merged.contains("DA:2,1") && merged.contains("DA:3,0"),
+        "DA 仍要按行取 max 求和，实际合并结果：\n{merged}"
+    );
 }
 
 /// 锁表上限是环境前置条件，且它的缺失会被表达成"上百个测试失败"。
