@@ -187,22 +187,89 @@ def baseline_kv(rel: str) -> dict[str, int]:
     return values
 
 
+def _is_test_only_attr(line: str) -> bool:
+    s = line.strip()
+    return s.startswith("#[cfg(test)]") or s.startswith("#[cfg(all(test")
+
+
+def _cfg_test_line_mask(lines: list[str]) -> list[bool]:
+    """标出 `#[cfg(test)]` 项内部的行（含属性行）。
+
+    §0.4 的生产口径第一版只按**路径**剔测试，于是写在生产文件里的
+    `#[cfg(test)] mod db_tests { … }` 一直被记成生产债务 —— `call_session.rs` /
+    `retention_service.rs` / `chunked_upload.rs` 里成片的 `let _ = sqlx::query(…)`
+    全是测试清理代码。这里按花括号配对把测试块整体剔掉。
+
+    只认 `cfg(test)` 与 `cfg(all(test, …))`（后者要求所有条件成立 ⇒ 只在测试构建里编译）。
+    `cfg(any(test, feature = "test-utils"))` **不算**：带该 feature 构建时它进产物。
+    """
+    mask = [False] * len(lines)
+    i = 0
+    while i < len(lines):
+        if not _is_test_only_attr(lines[i]):
+            i += 1
+            continue
+        j = i
+        while j < len(lines) and lines[j].strip().startswith("#["):
+            j += 1
+        while j < len(lines) and (
+            not lines[j].strip() or lines[j].strip().startswith("//")
+        ):
+            j += 1
+        if j >= len(lines):
+            break
+        if "{" not in lines[j]:
+            # `mod tests;` —— 只有一行声明，主体在独立文件里（已按路径剔除）。
+            mask[i] = True
+            i = j + 1
+            continue
+        depth = 0
+        k = j
+        while k < len(lines):
+            mask[k] = True
+            depth += lines[k].count("{") - lines[k].count("}")
+            if depth <= 0:
+                break
+            k += 1
+        i = k + 1
+    return mask
+
+
 @functools.lru_cache(maxsize=1)
 def silent_ignore_counts() -> tuple[int, int, int, int]:
-    """(生产行, 生产文件, 全仓行, 全仓文件) —— 受版本控制的 `.rs`。"""
+    """(生产行, 生产文件, 全仓行, 全仓文件) —— 受版本控制的 `.rs`。
+
+    生产口径 = **8 个 crate 根**（`PRODUCTION_ROOTS`）且剔 `tests/`、`*_tests.rs`、
+    测试基建文件（`test*.rs`）与内联 `#[cfg(test)]` 块。第一版漏了后两条，把
+    `benches/` / `scripts/` / `vendor/` / `synapse-test-utils/` 与生产文件里的内联测试
+    都算成生产，数字虚高约 300 行（2026-10-28 纠正，见审计 §0.4 的注）。
+    """
     prod_lines = prod_files = all_lines = all_files = 0
     for path in git_files("*.rs"):
         try:
             text = (REPO / path).read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        hits = sum(1 for line in text.splitlines() if SILENT_IGNORE.search(line))
+        lines = text.splitlines()
+        hits = sum(1 for line in lines if SILENT_IGNORE.search(line))
         if not hits:
             continue
         all_lines += hits
         all_files += 1
-        if not TEST_PATH.search(path):
-            prod_lines += hits
+        if (
+            not path.startswith(PRODUCTION_ROOTS)
+            or TEST_PATH.search(path)
+            or TEST_INFRA_FILE.search(path)
+        ):
+            continue
+        mask = _cfg_test_line_mask(lines)
+        prod_hits = sum(
+            1
+            for idx, line in enumerate(lines)
+            if not mask[idx] and SILENT_IGNORE.search(line)
+        )
+        if prod_hits:
+            prod_lines += prod_hits
             prod_files += 1
     return prod_lines, prod_files, all_lines, all_files
 

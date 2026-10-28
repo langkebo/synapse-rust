@@ -93,10 +93,10 @@
 `routes/device.rs::broadcast_device_list_update`（签名事务），死的是 `device_sync` 里那条
 零调用者的重复实现，已删除；更正过程记在[附录 D](#附录-d已关闭条目索引)。
 剩下的 4 条里，**没有一条会造成数据丢失或越权**；2 条 P2 分别是 `events` 未分区（ARCH-04）、
-826 行静默忽略（CODE-10）
+524 行静默忽略（CODE-10）
 —— 全是**长期结构债**：
 不修也不会立刻出错，但每加一个功能都在加利息。2 条 P3 **全部是 §0.2.3 的登记项**
-（N+1 缺 benchmark 支撑 / 索引清单人工不可反推），没有待裁决项。
+（N+1 只剩 1 处、已有 bench 组但无测量指认它是热点 / 索引清单人工不可反推），没有待裁决项。
 
 **下一批该做什么**：**没有"我们知道怎么改但还没动手"的条目了**。剩下的 4 条分两类 ——
 ① 3 条**登记项**（§0.2.3，共 4 个 ID —— `PERF-12` / `MAINT-07` 同属一行；明确不做或只等外部条件）；
@@ -163,8 +163,8 @@
 
 | 编号 | 级别 | 一句话 | 为什么不做 |
 |---|---|---|---|
-| **CODE-10** | P2 | 生产 **826 行** `let _ =` / `unwrap_or_default()`（241 文件） | 大部分是合法用法；设下降配额会诱导写 `unwrap()` 来"减少计数"（§10.10） |
-| **PERF-11** | P3 | N+1 查询 3 处（风险可控） | 当前数据量下无实测劣化，缺 benchmark 支撑 |
+| **CODE-10** | P2 | 生产 **524 行** `let _ =` / `unwrap_or_default()`（194 文件） | 大部分是合法用法；设下降配额会诱导写 `unwrap()` 来"减少计数"（§10.10） |
+| **PERF-11** | P3 | N+1 查询**剩 1 处**（原 3 处中 2 处已消除，风险可控） | 该路径已有 bench 组覆盖，但无测量指认它是热点 |
 | **PERF-12 / MAINT-07** | P3 | `INDEXES.md` 人工表无法从 DDL 反推 | 重生成会让"索引治理"退化成"索引清单"；计数已由 `check_doc_metrics.py` 现算 |
 
 ## 0.3 复核历史（压缩）
@@ -196,20 +196,37 @@
 | 测试文件 | **402**（`.rs` **314**；unit **135** / integration **168** / e2e **3** / perf **5**） | `python3 scripts/ci/check_doc_metrics.py --print` |
 | 基线索引定义 | **344** | 同上 |
 | 活路由 / 派生表行 / `INDEXES.md` 人工表 | **979** / **981** / **134** | 同上（`LIVE_ROUTES` / `DERIVED_TABLE_ROWS` / `INDEXES_DOC_ROWS`） |
-| clippy allow | **160 处 / 111 文件**（扫描 **831** 个 `.rs`）；其中无理由 **0 / 0**（棘轮基线） | `python3 scripts/ci/check_clippy_allow_ratchet.py`（全量站点走其 `scan()`） |
-| `let _ =` / `unwrap_or_default()` / `if let Ok(` | 生产 **826** 行 / **241** 文件；全仓 **1616** 行 / **355** 文件 | `git ls-files -z '*.rs' \| xargs -0 grep -cE 'let _ =\|if let Ok\(\|unwrap_or_default\(\)'`；生产口径再剔 `tests/`、`*/tests.rs`、`*_tests.rs` |
+| clippy allow | **160 处 / 111 文件**（扫描 **832** 个 `.rs`）；其中无理由 **0 / 0**（棘轮基线） | `python3 scripts/ci/check_clippy_allow_ratchet.py`（全量站点走其 `scan()`） |
+| `let _ =` / `unwrap_or_default()` / `if let Ok(` | 生产 **524** 行 / **194** 文件；全仓 **1616** 行 / **356** 文件 | 全仓 = `git ls-files -z '*.rs' \| xargs -0 grep -cE 'let _ =\|if let Ok\(\|unwrap_or_default\(\)'` 求和；生产口径 = 8 个 crate 根（`PRODUCTION_ROOTS`）且剔 `tests/`、`*/tests.rs`、`*_tests.rs`、测试基建文件（`test*.rs`）与内联 `#[cfg(test)]` 块，由 `check_doc_metrics.py` 现算 |
 | `tokio::time::sleep` | **104** 站点（PROD **26** / TEST_INLINE **34** / TEST_FILE **44**） | `python3 scripts/ci/check_sleep_ratchet.py` |
-| `>2000` 行 `.rs` | 生产 **0**（W11 前 7，内联测试外移后最大 1557）；测试基建 **2**（`test_isolation.rs` **3403**、`test-utils/lib.rs` **2786**）；生成 **1**（`derived_route_table_always.inc.rs` **5512**）；测试 **3**（`room_service_tests_migrated.rs` **5248**、`event/db_tests.rs` **3516**、`sync_service/tests.rs` **2510**） | `git ls-files '*.rs' \| xargs wc -l \| awk '$1>2000'` |
+| `>2000` 行 `.rs` | 生产 **0**（W11 前 7，内联测试外移后最大 1557）；测试基建 **2**（`test_isolation.rs` **3375**、`test-utils/lib.rs` **2786**）；生成 **1**（`derived_route_table_always.inc.rs` **5512**）；测试 **3**（`room_service_tests_migrated.rs` **5248**、`event/db_tests.rs` **3516**、`sync_service/tests.rs` **2510**） | `git ls-files '*.rs' \| xargs wc -l \| awk '$1>2000'` |
 | 依赖分裂 | crate 名 **47** / 多版本 **32** / 同版本多来源 **15** | `cargo tree -d --workspace --locked` 按 crate 名聚合 |
 | `check_*` 门禁脚本 | **58 个，全部可达或已登记（豁免 0）** | `python3 scripts/ci/check_gate_reachability.py` |
 | 基线 SQL `updated_ts` 列 | **85 列**：`NOT NULL` **43** / 可空 **42** | `python3 scripts/ci/check_schema_timestamp_convention.py --print` |
-> **生产静默忽略从 831 降到 826（2026-10-28）不是「修掉了 5 处」，是口径纠正**：
-> 那 5 行 `let _ = drop_schema(...)` 本来就在 `#[cfg(test)] mod db_schema_pool_tests` 里，
-> 但这行的剔除规则只看**路径**（`tests/`、`*_tests.rs`），而它们当时躺在 `lib.rs` ——
-> 文件名不像测试文件，于是一直被算成「生产」。把该测试模块拆到
-> `synapse-test-utils/src/db_schema_pool_tests.rs`（同时解决 `lib.rs` 触顶 2995 行棘轮）
-> 之后，它们按文件名归入测试口径。**这条规则的真实盲区是内联 `#[cfg(test)]`**，
-> 不只是这一次：任何「测试写在 lib.rs 里」的仓库都会把测试代码记成生产债务。
+> **生产静默忽略先从 831 降到 826、再由 826 降到 524（2026-10-28），两次都是口径纠正，不是修代码。**
+>
+> **第一次（831 → 826）**：那 5 行 `let _ = drop_schema(...)` 本来就在
+> `#[cfg(test)] mod db_schema_pool_tests` 里，但这行的剔除规则只看**路径**（`tests/`、
+> `*_tests.rs`），而它们当时躺在 `lib.rs` —— 文件名不像测试文件，于是一直被算成「生产」。
+> 把该测试模块拆到 `synapse-test-utils/src/db_schema_pool_tests.rs`（同时解决 `lib.rs`
+> 触顶 2995 行棘轮）之后，它们按文件名归入测试口径。
+>
+> **第二次（826 → 524，文件 241 → 194）**：上一次的收尾句已经点出「这条规则的真实盲区是内联
+> `#[cfg(test)]`」，本轮把它补上了。826 行 / 241 文件实际拆成四桶，只有第一桶是生产：
+>
+> | 桶 | 行 | 文件 | 举例 |
+> |---|---|---|---|
+> | 真实生产 | **524** | **194** | `room/lifecycle/create.rs` 的 `let _ = tx.rollback().await;`（合法：回滚失败已无补救动作） |
+> | 生产文件内联 `#[cfg(test)]` 块 | 184 | 48 | `retention_service.rs::cleanup_test_room`、`call_session.rs::cleanup_test_data` |
+> | 生产根内测试基建文件（`test*.rs`） | 61 | 6 | `synapse-common/src/test_isolation.rs` |
+> | 非生产根（`benches/` 30、`synapse-test-utils/` 13、`scripts/` 9、`vendor/` 5） | 57 | 7 | bench 夹具的 `let _ =` |
+>
+> 全仓 1616 行 / 356 文件（行数不变，文件数 +1：2026-10-28 把两条 prune 回归测试从
+> `test_isolation.rs` 拆到 `synapse-common/src/test_isolation/tests/prune_tests.rs`，
+> 同时让该文件回落到行数棘轮上限之内）。**任何「测试写在生产文件里」的仓库
+> 都会把测试代码记成生产债务**，所以 `check_doc_metrics.py` 现在按花括号配对屏蔽
+> `#[cfg(test)]` / `#[cfg(all(test, …))]` 整块，而 `#[cfg(any(test, feature = "test-utils"))]`
+> 仍算生产 —— 带该 feature 构建时它确实进产物。
 
 > 漂移是正常的（代码在动）。**不要把本表当常量**：下一轮先跑上面这几条命令再引用。
 > 除「依赖分裂」「`check_*` 门禁脚本数」「`>2000` 行明细」三行外，其余数字都由
@@ -275,12 +292,22 @@
 
 ### ARCH-04（P2）`events` 未分区、`room_memberships` 无归档
 
-- **位置**：`migrations/00000000_unified_schema_v12.sql`（`events` 建表块，注释里保留了未实现的分区说明）；
-  `synapse-services/src/admin/retention.rs`（保留策略按单条 `DELETE`）
-- **影响**：消息表随运行时间线性膨胀，索引与 autovacuum 成本持续上升；单条 `DELETE` 会产生长事务
-  与大量死元组，大房间上可能拖垮 WAL 与复制延迟。
-- **现状**：W4 只做了**分批 prune**（`PERF-06`，已关闭）；分区/归档未动。
+- **位置**：
+  - `migrations/00000000_unified_schema_v12.sql`：`events` 是**普通表**（L325
+    `CREATE TABLE IF NOT EXISTS events (`，无 `PARTITION BY`）；v11 增量段 L4679 只留了一行待办注释
+    「events 分区（需要独立处理：先 ADD PARTITION CONSTRAINT 后分批迁移）」—— 分区**从未落地**。
+  - `synapse-services/src/retention_service.rs`（`run_cleanup` → `storage.delete_local_messages_before`）
+    与 `synapse-storage/src/retention.rs`（实际删除语句）。
+- **影响**：消息表随运行时间线性膨胀，索引与 autovacuum 成本持续上升；`room_memberships` 只按
+  `ON DELETE CASCADE` 跟随房间删除，没有独立归档，历史房间的成员轨迹不可追溯。
+- **现状**：`PERF-06` 已关闭，删除**已分批**（`synapse-storage/src/retention.rs` 走
+  `crate::pruning::prune_in_batches(PRUNE_BATCH_SIZE, …)`，按 `ctid IN (SELECT … LIMIT …)` 循环），
+  所以原记录里的「单条 `DELETE` 长事务 / 大房间拖垮 WAL」**已不成立**；剩下的只是
+  **表规模线性增长 + 无归档**。分区/归档未动。
 - **修法**：按 `origin_server_ts` 声明式分区（或至少按月归档表）。
+- **为什么还开着**：分区收益取决于真实数据量与写入分布，本机无生产级数据；做它等于重写统一基线
+  SQL（`EXPECTED_BASELINE_FINGERPRINT` 是契约），属**等外部条件**（§0.2.2）。
+- **更正**：本节原写位置 `synapse-services/src/admin/retention.rs` —— **该路径不存在**（2026-10-28 更正）。
 
 ### ARCH-05（P2）7 个生产文件 >2000 行 —— ✅ 已关闭（本笔）
 
@@ -355,16 +382,37 @@
   读代码的人分不清"预留"与"忘了删"。
 - **修法**：补 `reason = "by-design unsupported: …"` 指向契约条目。
 
-### CODE-10（P2）生产 830 行 `let _ =` / `unwrap_or_default()`，无收敛策略
+### CODE-10（P2）生产 524 行 `let _ =` / `unwrap_or_default()`，无收敛策略
 
-- **口径**：生产 **826 行 / 241 文件**；全仓 **1616 行 / 355 文件**（命令与门禁见 §0.4 ——
-  `grep -c` 计的是**行**，一行里两处只算一次）。全仓比生产多出的 2 行/1 文件来自
-  `tests/unit/pr_coverage_lane_tests.rs` 的探针 helper（读 `PATH`、读 argv 日志各一处
-  `unwrap_or_default()`）—— 测试基建，生产口径未变。
+- **口径**：生产 **524 行 / 194 文件**；全仓 **1616 行 / 356 文件**（命令与门禁见 §0.4 ——
+  `grep -c` 计的是**行**，一行里两处只算一次）。生产口径 = 8 个 crate 根且剔 `tests/`、
+  `*_tests.rs`、测试基建文件（`test*.rs`）与内联 `#[cfg(test)]` 块。
+- **826 → 524 是口径纠正，不是修了 302 行**：原数字把生产文件里的内联测试模块（184 行 / 48 文件，
+  如 `retention_service.rs::cleanup_test_room`）、生产根内的测试基建文件（61 行 / 6 文件）与
+  非生产根（57 行 / 7 文件：`benches/` 30、`synapse-test-utils/` 13、`scripts/` 9、`vendor/` 5）
+  都算成了生产债务。分解表见 §0.4 的注。
 - **已做**：W0 只加了"危险性扫描"（缓存/存储删除禁止 `let _`）+ 3 个 helper 收敛 19 处缓存失效。
 - **明确不做**：总数下降配额（§10.10：配额会诱导写 `unwrap()` 来"减少计数"）。
 - **下一轮可做的**：按"错误被吞后有没有用户可见后果"分类，只处理前两类；不要动 `unwrap_or_default()`
   在 `Option` 语义下的合法用法。
+- **2026-10-28 复核：524 行里"DB 错误 ≡ 未找到"只有 22 处**。生产桶中 `if let Ok(` 共
+  **145 行 / 62 文件**（占 524 的 28%），按被吞掉的错误来源分桶：fs/serde/parse **59**、
+  cache **26**、other **24**、疑似 DB **22**、其余 `await` **14**。前两桶是合法降级
+  （缓存失效、`Option` 解析、磁盘回退），不是债务。22 处 DB 吞错按**用户可见后果**分档：
+  - **静默降级（2 处，后果最大）**：`/keys/query` 在 `get_cross_signing_keys_batch` 失败时以
+    **200 返回空 cross-signing keys**（`synapse-e2ee/src/device_keys/service.rs:204`）—— 客户端会
+    判定对端未上传 CS key；`get_joined_members` 失败时联邦接收方为空、事件**静默不外发**
+    （`synapse-federation/src/event_broadcaster.rs:465`，上层只有 `tracing::warn!`）。
+  - **fail-closed 但诊断误导（5 处）**：`cross_signing/service.rs` 的 225 / 240 / 444 / 621 / 820
+    把 DB 错误包装成 400「no ed25519 device key found / master key not found」，
+    排查会去查密钥缺失而不是数据库。
+  - **局部视图退化（1 处）**：presence 成员集退化成只剩自己
+    （`synapse-services/src/sliding_sync_service/extensions.rs:208`）。
+  - **有兜底 / 设计如此（不算债务）**：`friend_room_service/mod.rs` 的 103 / 139 / 153 把 DB
+    错误当成"没有好友房"，靠 `room_memberships` 的 UNIQUE 兜底；`cross_signing/service.rs:735`
+    有 fallback 分支；`media_service.rs:1021` 是设计上的磁盘回退。
+  - **裁决**：本轮按 §10.2「无用户影响证据不做」**只登记不修**。前两档若要修，代价是把
+    `if let Ok(..)` 换成 `?`（200/400 变 500），必须同步改对应测试 ⇒ 下一轮独立改动。
 
 ### CODE-11（P3）棘轮口径 **159 site / 0 处无 `// reason:`（0 文件）**，基线 **0/0** —— ✅ 已关闭（W12，见附录 D）
 
@@ -440,10 +488,31 @@
   还原后绿（三次实测）。
 - **边界**：生产实例的 `postgresql.conf` 由部署方管理，本仓只覆盖 docker 这一种形态。
 
-### PERF-11（P3）N+1 查询 3 处（风险可控）
+### PERF-11（P3）N+1 查询剩 1 处（原 3 处，风险可控）
 
-- **位置**：原记录 3 处（列表查询里按行再查一次）。**缺少 benchmark 支撑**，当前数据量下无实测劣化。
-- **修法**：等 `bench` 车道覆盖到这几条路径再改；不要在无测量依据时换 `JOIN`（会改变内存形状）。
+- **位置（仅剩）**：`synapse-services/src/sliding_sync_service/filters.rs` —— 列表查询拿到 `rooms`
+  后逐个 `build_room_json`（每房间一次成员/状态查询）。
+- **已消除 2 处**：
+  - `synapse-services/src/user_service.rs`：两处「每个共享房间查一次成员」改成
+    `membership_storage.get_members_batch(&rooms, "join")`（代码里有
+    `// One query for all shared rooms instead of one per room.`）；
+  - `synapse-services/src/room/lifecycle/create.rs`：创建房间后的逐设备/逐 appservice 循环改写为
+    `invalidate_room_state` + `dispatch_appservice_events_for_room`。
+- **为什么不改剩下这一处**：该路径**已有 bench 组覆盖**（`benches/performance_sliding_sync_benchmarks.rs`
+  的 `sync_response` 走 `service.sync()` 全链路，`sliding_sync_p95_p99_latency` 出 p95/p99，
+  由 `scripts/ci/sliding_sync_perf_gate.sh` 强制要求执行），但**没有任何一次测量指认它是热点**。
+  批量取状态需要新的 storage API 并改变内存形状 ⇒ 按 §10.2「无测量依据不做」处理。
+- **2026-10-28 复核：逐房查询是条件性的，现有仪器也分辨不到它**（结论不变，理由写准）：
+  - 三条腿都**不是**固定每房 3 次 —— `build_required_state_events` 在 `required_state` 为 `None`
+    时直接返回空（0 次），否则走 `cached_room_state`（缓存未命中才 1 次）；`build_timeline`
+    在 `timeline_limit` 为 `None`/`0` 时返回空（0 次），否则每房 1 次；sticky 只在配置了
+    `sticky_event_storage` 时每房 1 次。典型形态是每房 1 次（timeline），不是 3 次。
+  - **bench 只覆盖 timeline 那条腿**：`build_initial_sync_request` 的 `required_state` 为 `None`，
+    `timeline_limit` 为 `Some(10)`，状态腿（缓存未命中时的那次查询）**从未进过 bench**。
+  - **门禁阈值没有分辨力**：`PerformanceConfig::default().sliding_sync_latency_threshold_ms = 5000`
+    而实测 p95 为 0.7–11ms（100 房）；500 房 × 每房数 ms 也够不到 5000ms ⇒ N+1 回归推不红门禁。
+  - 因此准确表述是「**仪器在、但只测了一条腿、阈值也分辨不到**」，不等于「测量证明它不是热点」。
+    要让这条变成"有据可改"，前置条件是：bench 带上 `required_state`，且阈值按房间数分档收紧。
 
 ### PERF-12 / MAINT-07（P3）`INDEXES.md` 与 SQL 的计数漂移（整份生成明确不做）
 
@@ -761,7 +830,7 @@ W8 计划的三项（`TEST-05` → `NEW-05` → `FUNC-05`）已全部收口，�
 | 待办 | 前提 |
 |---|---|
 | ARCH-04（`events` 分区） | 需要真实数据量证明收益；本机无生产级数据 |
-| CODE-10（826 行静默忽略） | 只按"错误被吞有无用户可见后果"分类处理，且**不设配额** |
+| CODE-10（524 行静默忽略） | 只按"错误被吞有无用户可见后果"分类处理，且**不设配额** |
 
 其余（`PERF-11/12`、`MAINT-07`）都是随触达顺手做或等外部条件的登记项。
 PERF-01 已于 W10 收口（`to_device_messages` 按龄清理 + 零天关闭开关，判据与变异见附录 D）；

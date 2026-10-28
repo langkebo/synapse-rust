@@ -23,6 +23,14 @@ on:
         default: false
         type: boolean
 
+# PR 上同一分支的新推送取消旧 run（此前没有 concurrency，旧 run 只能靠人工
+# `gh run cancel` 让出 runner，导致 "2 queued + 2 in_progress" 长期积压）。
+# 事件名进 group 是刻意的：周一的 schedule 慢速车道和本地 workflow_dispatch 必须
+# 各自成组，否则会被同分支的 push run 顶掉——历史上慢速车道正是靠 schedule 兜底。
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
