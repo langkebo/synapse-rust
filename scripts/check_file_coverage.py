@@ -66,7 +66,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 # 对它们套"新文件 ≥50% / core ≥70%"是把结构性的 0/2 当成质量缺陷：
 # 实测 2026-10-28 全仓仅 3 个文件命中该形态（`synapse-services/src/auth/{credential_auth,
 # token_auth}.rs` 各 LF:2/LH:0、`synapse-storage/src/stream_positions.rs` LF:2/LH:0）。
-# 只在**新文件**分支生效，且必须 `cur == 0.0`：有 1 行命中（33%）仍是真信号，照常判红。
+# 只在满足 `LF <= 3` + `LH == 0` + 基线里没有正覆盖时才生效（新文件与基线已知一视同仁，
+# 见 `check_file_coverage` 里的注释）；有 1 行命中（33%）仍是真信号，照常判红。
 DECL_ONLY_MAX_LINES = 3
 
 TEST_ONLY_MARKERS: Tuple[str, ...] = (
@@ -517,9 +518,18 @@ def check_file_coverage(
 
         # 声明文件（trait/struct/enum 只有签名，没有函数体）在 llvm-cov 里只剩宏展开的
         # 1–3 行，且不可达 ⇒ 结构性 0%，与"没写测试"无关。详见 `DECL_ONLY_MAX_LINES`。
-        # 只对**新文件**生效：基线已知的仍走下面的回归比较（0.0 不会低于 0.0，天然通过）。
+        #
+        # 对**基线已知**的文件同样生效（2026-10-28）：否则同一个声明文件只因为"进过基线"
+        # 就从 `[DECL-ONLY]` 掉进 `[TOUCHED]` 分支 —— 结论一样（0.0 不低于 0.0），但豁免
+        # 不再被打印，审计侧根本数不出到底有几个结构性 0% 的文件。
+        # 回归保护不放松：`prev > 0` 说明这个文件曾经有行被命中过，那它就不是声明文件，
+        # 0% 是真跌，照旧走下面的回归比较。
         coverable = (lines_found or {}).get(path, 0)
-        if is_new and coverable <= DECL_ONLY_MAX_LINES and cur == 0.0:
+        if (
+            coverable <= DECL_ONLY_MAX_LINES
+            and cur == 0.0
+            and (prev is None or prev == 0.0)
+        ):
             exemptions.append(
                 f"[DECL-ONLY] {path}: {coverable} coverable line(s), none reachable "
                 "(declaration-only file: no function bodies to execute)"

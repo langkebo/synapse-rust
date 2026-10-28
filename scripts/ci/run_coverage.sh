@@ -53,7 +53,23 @@ STORAGE_FEATURES="test-utils,privacy-ext,voice-extended,voip-tracking,beacons,se
 REST_FEATURES="test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications,cas-sso,saml-sso"
 
 # 步骤 2 的**报告范围**：`cargo llvm-cov report` 不支持 `--workspace`，必须逐个 `-p`。
-# 这份名单 = 工作区成员 − synapse-storage（它由步骤 1 单独覆盖）。
+# 这份名单 = **全部**工作区成员（含 synapse-storage）。
+#
+# 为什么报告范围必须包含 synapse-storage（2026-10-28）：
+#   步骤 2 的**测试**范围是「工作区 − synapse-storage」（见下方命令：db_tests 直连 public，
+#   与其它测试并发会互相 DROP），但 storage 作为 services/web 的**依赖**同样被
+#   `-C instrument-coverage` 编译并插桩，集成测试对它的命中就写在步骤 2 的 profraw 里。
+#   旧口径把 storage 从**报告**范围里也排掉，那些命中被整段丢弃。
+#   实测（2026-10-28，步骤 2 形态、只跑 `membership_storage_tests_migrated` 一个测试文件）：
+#   `synapse-storage/membership/mod.rs` 在步骤 2 的 profraw 里命中 **284/1019 = 27.87%**，
+#   旧口径下这 284 行一行也进不了报告。
+#
+#   别拿 `membership/api.rs` 当证据：它恒为 0%，因为那是**委托层** —— `impl MemberStoreApi
+#   for RoomMemberStorage` 每个方法只有一行转发，而调用方都持有具体类型、不经 trait 对象，
+#   所以这些行结构性不可达。同一目录 `mod.rs` 才是实现，两者的落差与报告口径无关。
+#
+#   `merge_lcov.py` 对同一 SF 按行取 max ⇒ 两条腿都含 storage 不会重复计数，
+#   而且新口径只可能抬高、不可能拉低任何文件（步骤 1 的命中原样保留）。
 # 漂移守卫：`tests/unit/coverage_leg_resilience_tests.rs::rest_report_scope_matches_the_workspace`
 # 会拿 `cargo metadata` 的成员列表对账 —— 加了 crate 却忘了这里，报告就会静默少覆盖它。
 REST_REPORT_ARGS=(
@@ -63,6 +79,7 @@ REST_REPORT_ARGS=(
     -p synapse-federation
     -p synapse-rust
     -p synapse-services
+    -p synapse-storage
     -p synapse-test-utils
     -p synapse-web
 )

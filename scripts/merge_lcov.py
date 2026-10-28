@@ -11,7 +11,20 @@ Semantics:
       (which may exceed the number of DA lines, e.g. function-definition lines
       that carry no execution counter).
     - When the same SF appears in multiple inputs, DA lines are merged by taking
-      the max hit count per line, and LF/LH are recomputed from the merged DA.
+      the max hit count per line. LF/LH are then **lower-bounded**, not
+      recomputed from DA alone:
+          LF = max(sum of input LFs, len(merged DA))
+          LH = max(sum of input LHs, lines with hits in merged DA), capped by LF
+      Recomputing from DA alone (`LF = len(da)`) silently drops the phantom
+      lines that llvm-cov counts but never emits as DA. That changes the
+      *denominator definition* rather than the measurement, and it makes the
+      file's percentage incomparable with the same file's baseline (which was
+      recorded from a single-leg report, i.e. llvm-cov's own LF/LH).
+      2026-10-28 measured on `synapse-storage/src/membership/mod.rs`:
+      llvm-cov 450/1019 = 44.2%, DA-only recompute 403/590 = 68.3%.
+      The true union of phantom lines is not observable from lcov, so `max`
+      is the conservative choice: it never invents coverage that no input
+      reported.
     - Output order follows first-seen order across inputs.
 
 Rationale (方案 B):
@@ -60,10 +73,27 @@ def parse_lcov(path):
     return records
 
 
-def recompute_totals(da):
-    lf = len(da)
-    lh = sum(1 for h in da.values() if h > 0)
+def block_totals(block):
+    """从 llvm-cov 原始块里取 LF/LH（无则 0）。"""
+    lf = lh = 0
+    for line in block:
+        if line.startswith("LF:"):
+            lf = int(line[3:])
+        elif line.startswith("LH:"):
+            lh = int(line[3:])
     return lf, lh
+
+
+def recompute_totals(da, source_totals):
+    """合并记录的 LF/LH：取输入单腿值与 DA 下界中的**较大者**。
+
+    只按 DA 重算会丢掉 llvm-cov 计入 LF 但不输出 DA 的行（函数定义行等），
+    等于换了分母口径，与"单腿记录"不可比。取 max 是保守下界：不会凭空造出
+    任何一条输入都没报过的覆盖率。
+    """
+    lf = max([len(da)] + [t[0] for t in source_totals])
+    lh = max([sum(1 for h in da.values() if h > 0)] + [t[1] for t in source_totals])
+    return lf, min(lh, lf)
 
 
 def main():
@@ -86,21 +116,22 @@ def main():
         )
         return 2
 
-    merged = OrderedDict()  # sf -> {block, da, is_merged}
+    merged = OrderedDict()  # sf -> [block, da, [source LF/LH, ...]]
     for path in args.inputs:
         for sf, (block, da) in parse_lcov(path).items():
             if sf not in merged:
-                merged[sf] = [list(block), dict(da), False]
+                merged[sf] = [list(block), dict(da), [block_totals(block)]]
             else:
-                existing_block, existing_da, _ = merged[sf]
+                existing_block, existing_da, source_totals = merged[sf]
                 for lineno, hits in da.items():
                     existing_da[lineno] = max(existing_da.get(lineno, 0), hits)
-                merged[sf] = [existing_block, existing_da, True]
+                source_totals.append(block_totals(block))
+                merged[sf] = [existing_block, existing_da, source_totals]
 
     total_lf = 0
     total_lh = 0
     with open(args.output, "w", encoding="utf-8") as f:
-        for sf, (block, da, was_merged) in merged.items():
+        for sf, (block, da, source_totals) in merged.items():
             f.write(f"SF:{sf}\n")
             for l in block:
                 # Strip stale LF/LH/end markers from the block; we rewrite totals.
@@ -109,18 +140,13 @@ def main():
                 f.write(l + "\n")
             for lineno in sorted(da):
                 f.write(f"DA:{lineno},{da[lineno]}\n")
-            if was_merged:
-                lf, lh = recompute_totals(da)
+            if len(source_totals) > 1:
+                lf, lh = recompute_totals(da, source_totals)
             else:
                 # Preserve llvm-cov's original totals from the block.
-                lf = lh = 0
-                for l in block:
-                    if l.startswith("LF:"):
-                        lf = int(l[3:])
-                    elif l.startswith("LH:"):
-                        lh = int(l[3:])
+                lf, lh = source_totals[0]
                 if lf == 0 and da:
-                    lf, lh = recompute_totals(da)
+                    lf, lh = len(da), sum(1 for h in da.values() if h > 0)
             f.write(f"LF:{lf}\n")
             f.write(f"LH:{lh}\n")
             f.write("end_of_record\n")
