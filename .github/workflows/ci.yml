@@ -196,6 +196,18 @@ jobs:
         if: ${{ !cancelled() }}
         run: python3 scripts/ci/check_ci_summary_dependencies.py --mutation-check
 
+      # 覆盖率「提升队列」台账：审计 §3.1 的 P2 一次性任务（把有生产入口的 0% 文件
+      # 提到 30%），逐文件记账。`target` **不是 floor** —— 当成绝对下限重贴就是
+      # 2026-09-19 那次 `188 files red`（那些文件没有回退，只是从没达标）。
+      # 台账的牙齿在这里：①达到目标仍在册 ⇒ 红（防僵尸条目）；②`opened_at` 高于
+      # 当前基线 ⇒ 红（说明 floor 被 --allow-lower 或手改下调）；③登记的生产入口
+      # 文件必须真实存在（"有生产入口"这个前提要被验证，不能只是文档里的一句话）。
+      # 每次都跑（~30ms，只读两个 JSON）：故障形态是"CI 自动收紧基线"和"删了文件"，
+      # 与本次改动集无关。
+      - name: Coverage raise-queue ledger (achieved rows must be deleted)
+        if: ${{ !cancelled() }}
+        run: python3 scripts/ci/check_coverage_raise_queue.py
+
       # SQLx 棘轮：动态查询不得增加、编译期校验（query!/query_as!）不得减少。
       # 基线见 scripts/ci/sqlx_dynamic_ratio_baseline。
       # 历史：本脚本此前只扫 src/（漏掉 synapse-storage 等 crate 的 97% 调用）、
@@ -1582,6 +1594,9 @@ jobs:
         # floors are deliberately not re-applied to baseline-known files, because
         # doing so made the first committed baseline red on 188 files that had not
         # regressed at all (measured 2026-09-19).
+        # `--raise-queue` 只打印进度（[RAISE] / [RAISE-DONE] / [RAISE-NODATA]），
+        # **不参与退出码**：P2 的 30% 是目标不是下限，重贴下限就是上面那次 188 红。
+        # 它的强制力在同 job 的 "Coverage raise-queue ledger" 一步。
         # Fails (exit 2) when scripts/ci/coverage_baseline.json is absent, because
         # the "touched must not regress" half of the ratchet is unreachable
         # without it. On main the previous step bootstraps it and the
@@ -1595,7 +1610,8 @@ jobs:
             --new-file-floor 50 \
             --core-files scripts/ci/core_file_coverage_prefixes.txt \
             --core-threshold 70 \
-            --non-unit-coverable scripts/ci/non_unit_coverable_prefixes.txt
+            --non-unit-coverable scripts/ci/non_unit_coverable_prefixes.txt \
+            --raise-queue scripts/ci/coverage_raise_queue.json
 
       # 定性步骤：把棘轮那一行短落（`19.4% < 74.6%`）翻译成**成因**
       # （DROP / ZEROED / GONE-NOT-BUILT / GONE-SOURCE）。

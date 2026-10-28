@@ -274,7 +274,7 @@ if let Some(last_rotation) = rotations.first() { /* 重放处理 */ }           
 | 优先级 | 动作 |
 |---|---|
 | **P1 ✅ 已完成** | `--new-file-floor 30 → 50`（先不喊 60，避免一次打红太多）；`core_file_coverage_prefixes.txt` 内的新文件沿用 70 |
-| **P2** | 给 0% 文件中**有生产入口**的（`src/server/router.rs`、`src/tasks/mod.rs`、`synapse-common/logging.rs`）建"提升到 30%"的一次性任务，逐文件记账（**不是**一刀切重贴全局下限 —— 那会重演 188 文件红） |
+| **P2 ✅ 台账已建（2026-10-28）** | 给 0% 文件中**有生产入口**的（`src/server/router.rs`、`src/tasks/mod.rs`、`synapse-common/logging.rs`）建"提升到 30%"的一次性任务，逐文件记账（**不是**一刀切重贴全局下限 —— 那会重演 188 文件红）。台账 `scripts/ci/coverage_raise_queue.json`、守卫 `scripts/ci/check_coverage_raise_queue.py`，机制与实跑见 **§3.1.3** |
 | **P2** | 把 coverage 加进 PR 车道（可只跑受影响 crate 的 lcov，用 `cargo llvm-cov -p <crate>` 降成本） |
 
 ### 3.1.1 覆盖率基线可以被一次「不完整报告」清零（本次审计中新发现 + 已修）
@@ -502,7 +502,58 @@ cargo llvm-cov --test integration --features "…" --lcov --output-path /tmp/rou
 
    在二选一落地之前，往这个文件加覆盖率的收益上限很低 —— 断言的对象本身没有消费者。
 
-`logging.rs` / `telemetry.rs` 登记为已知缺口不排期（启动路径，收益低）。
+`logging.rs` / `telemetry.rs` 曾登记为"已知缺口不排期（启动路径，收益低）"。**这条判定
+已被 §3.1.3 的台账取代**：`logging.rs` 的三层装配（filter / db-metrics layer / fmt layer
+× json/plain × tracer）都能在 `tracing::subscriber::with_default` 作用域里执行，不需要起进程，
+"启动路径不可测"不成立；`telemetry.rs` 仍留在缺口里（它构造全局 tracer provider，属于进程级
+一次性初始化）。
+
+### 3.1.3 「提升到 30%」的逐文件台账（2026-10-28 落地，P2）
+
+§3.1 的 P2 要的不是"把下限改成 30%"—— 那正是 2026-09-19 `188 files red` 的形态：
+188 个文件报的是 `was X%, delta=+0.0%`，**没有回退，只是从没达标**。要的是
+"逐文件记账的一次性任务"：每条文件各自的起点、目标、缺口性质、下一步。
+
+台账 `scripts/ci/coverage_raise_queue.json`，守卫 `scripts/ci/check_coverage_raise_queue.py`。
+
+| 文件 | 记账起点 | 目标 | 性质 | 下一步 |
+|---|---|---|---|---|
+| `src/server/router.rs` | 0.0%（2026-09-19 bootstrap 冻结值） | 30% | **陈旧**：integration 腿实测 29/35 = 82.9%（§3.1.2） | 不补测试；等完整 lcov 落地后基线的 `max()` 自动收紧，守卫随即要求删条目 |
+| `src/tasks/mod.rs` | 0.0% | 30% | **待复测**：4 条 tokio 用例 2026-10-26 才加入，`0/203` 是加测试之前的读数 | CI 复测；若仍 `0/203` ⇒ 抽可注入时钟，驱动一次 tick |
+| `synapse-common/logging.rs` | 0.0% | 30% | **真缺口**：49 行、零测试，唯一调用点 `src/server/telemetry.rs::init_logging` | 把 subscriber 装配抽成 `build_subscriber()`，用 `tracing::subscriber::with_default` 覆盖 4 条分支 |
+
+三层机制，缺一层这份台账就会变成"第二个真相"：
+
+1. **`target` 不是 floor**。`check_file_coverage.py --raise-queue` 每轮打印
+   `[RAISE] path: 12.3% → 30%（还差 17.7 个百分点）`，但**不参与退出码**。把它当绝对下限
+   ⇒ 今天立刻 3 条红，而这三条一条都没回退过。
+2. **达成必须删条目**。基线 `>= target` 时守卫判红并打印 `delete this entry`。
+   没有这条，条目会永远挂着、没人再看 —— `AGENTS.md` 铁律 8 的变体。
+3. **记账起点不得高于当前基线**。`opened_at > baseline` 说明该文件的 floor 被
+   `--allow-lower` 或手改下调了，"从 40% 提到 30%"是自相矛盾的账，必须对齐。
+
+两条容易被忽略的细节：
+
+- **`[RAISE-NODATA]` 是独立标签**：报告里没有该文件 ≠ 0%。这与 `594 个条目保留自上次`
+  是同一类静默风险 —— 缺文件时棘轮不红，只是"少比了几条"；
+- **`production_entry` 会被验证存在**："有生产入口"是 P2 的前提，而前提可以用一条
+  `exists()` 检查 ⇒ 文件被删/改名后台账自己报红，而不是继续以断言形式躺在文档里。
+
+验证（本次实跑，2026-10-28）：
+
+| 场景 | 结果 |
+|---|---|
+| 合成 lcov：0% 文件 + target 30 | `[RAISE] … 0.0% → 30%`，退出码 **0**（不是 1） |
+| 合成 lcov：40% 文件 + target 30 | `[RAISE-DONE] … 40.0% ≥ 30%`，退出码 **0** |
+| 报告缺文件 | `[RAISE-NODATA]`，**不**报成 0% |
+| 台账不存在 / `entries` 为空 | 退出码 **2**（fail-closed） |
+| 守卫：基线 30% 而条目 target 30% | 退出码 **1**，`delete this entry` |
+| 守卫：`opened_at` 40% 而基线 5% | 退出码 **1**，`was lowered` |
+| `--mutation-check` | 三条注入缺陷各命中 1 条（opened_at 高于基线 / 已达标仍挂 / 生产入口文件不存在） |
+
+> **仍未做的**（别把"建了台账"读成"覆盖率达标"）：`logging.rs` 的 `build_subscriber()`
+> 重构与 `tasks/mod.rs` 的复测结论都要等一次专门的改动 + 一轮完整 lcov。台账只保证
+> "任务不会被忘记"。
 
 ### 3.2 性能验收只有报告，没有断言
 

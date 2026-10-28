@@ -151,6 +151,13 @@ run "check_gate_reachability.py" python3 scripts/ci/check_gate_reachability.py
 step "CI 汇总哨兵的依赖一致性"
 run "check_ci_summary_dependencies.py" python3 scripts/ci/check_ci_summary_dependencies.py --mutation-check
 
+# 覆盖率「提升队列」台账（审计 §3.1 的 P2 一次性任务）：逐文件记"从哪个值提到 30%"。
+# `target` 不是 floor（重贴下限 = 2026-09-19 那次 188 文件红）。牙齿在本步：
+# ①达到目标仍在册 ⇒ 红（防僵尸条目）；②`opened_at` 高于当前基线 ⇒ 红（floor 被下调）；
+# ③登记的生产入口文件必须存在。~30ms，只读两个 JSON，与改动集无关。
+step "覆盖率提升队列台账（达成即删）"
+run "check_coverage_raise_queue.py" python3 scripts/ci/check_coverage_raise_queue.py
+
 # `updated_ts` 可空性棘轮（ARCH-06）：两种形态并存是现状，规则已改口为"新表必须显式选"，
 # 本步只是不让计数悄悄朝可空方向漂。~20ms，且只读基线 SQL，与改动集无关。
 # `sleep` 站点棘轮（TEST-05）：分三桶计数，只许下降。~0.3s，只读 .rs 源码。

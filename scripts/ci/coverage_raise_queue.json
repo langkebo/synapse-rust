@@ -1,0 +1,39 @@
+{
+  "_comment": [
+    "覆盖率『提升队列』台账（一次性任务，逐文件记账）。",
+    "口径：只收『有生产入口、基线记录为 0 或极低』的文件，目标统一 30%（--max-target）。",
+    "target 不是 floor：把它当绝对下限重贴，就是 2026-09-19 那次 188 文件红的翻版。",
+    "真正的强制力来自三条：①基线只会被 max() 抬升；②一旦 opened_at <= 基线且基线 >= target，",
+    "守卫就判红要求删条目（防僵尸台账）；③基线低于 opened_at 也判红（棘轮被下调）。",
+    "守卫：scripts/ci/check_coverage_raise_queue.py；进度打印：check_file_coverage.py --raise-queue。"
+  ],
+  "entries": [
+    {
+      "path": "src/server/router.rs",
+      "opened_at": 0.0,
+      "target": 30.0,
+      "state": "measurement-stale",
+      "production_entry": "src/server/mod.rs:1 — SynapseServer::run 用 router() 的返回值挂到 axum",
+      "plan": "不补测试：2026-10-25 定向插桩实测 integration 腿 29/35=82.9%，0.0 是 2026-09-19 bootstrap 按 --lib 口径冻结的陈旧值。等完整 lcov 落地后基线的 max() 自动收紧，守卫随即要求删条目；若 CI 仍报 0，按 classify_coverage_drift.py 的 GONE-NOT-BUILT 处置。",
+      "evidence": "docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md §3.1.2 表（LF:35 LH:29）"
+    },
+    {
+      "path": "src/tasks/mod.rs",
+      "opened_at": 0.0,
+      "target": 30.0,
+      "state": "measurement-stale-or-needs-tests",
+      "production_entry": "src/server/mod.rs:1 — SynapseServer::run 调用 ScheduledTasks::start_all",
+      "plan": "两支：4 条 tokio 用例（from_config 两例 / 台账初值 / 关闭全部任务）2026-10-26 才加，若 CI 复测非零则同 router.rs 走陈旧路线；若仍 0/203，说明这两条腿都不编译该模块，需要把 start_all 的 tick 路径做成可注入时钟的用例（先抽 clock，再驱动一次 tick）。",
+      "evidence": "docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md §3.1.2 与 §7.5 表（0/203）"
+    },
+    {
+      "path": "synapse-common/logging.rs",
+      "opened_at": 0.0,
+      "target": 30.0,
+      "state": "needs-tests",
+      "production_entry": "src/server/telemetry.rs:1 — init_logging 是进程启动路径的唯一调用点",
+      "plan": "真缺口（49 行、零测试）。修法是把 subscriber 装配从 init_logging 抽出 build_subscriber(config, tracer)，init_logging 只负责 set_global_default；单测用 tracing::subscriber::with_default 覆盖 json/plain × tracer 有无 4 条分支与 EnvFilter 的 verbose/info 两档，预计执行 30 行以上（>60%），远超 30% 目标。注意不要直接调 init()：全局 subscriber 只能装一次，并行测试下会 panic。",
+      "evidence": "docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md §3.1.2 表（0/49）"
+    }
+  ]
+}

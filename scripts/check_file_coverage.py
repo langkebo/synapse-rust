@@ -23,6 +23,14 @@ Policy (revised 2026-09-19; see docs/audit/GATE_INTEGRITY_SWEEP_2026-09-19.md §
     still written back by `--save-baseline`, and each one is printed in the
     run's exemption list. A missing/empty list, or a prefix matching no file on
     disk, is a hard error (exit 2), exactly like `--core-files`.
+  - `--raise-queue` is a *reporting* input, not a floor. It names the files the
+    audit's P2 task wants lifted to a target (30%), and every run prints their
+    current measurement, the gap, and `[RAISE-DONE]` once the target is met (so
+    the ledger row gets deleted). It **cannot** change the exit code: making
+    `target` an absolute floor is exactly the 2026-09-19 `188 files red` mistake
+    (188 files never met it; none had regressed). The ledger's teeth live in
+    `scripts/ci/check_coverage_raise_queue.py`, which turns "achieved but still
+    listed" into a failure.
 
 Why the baseline-known rule is "no regression" and not `max(prev, global)`:
 the previous floor made a freshly bootstrapped baseline unsatisfiable by
@@ -522,6 +530,77 @@ def check_file_coverage(
     return 0
 
 
+def load_raise_queue(path: pathlib.Path) -> List[dict]:
+    """Load the coverage raise ledger (`coverage_raise_queue.json` → `entries`).
+
+    Fail-closed like `--core-files` / `--non-unit-coverable`: a missing file, a
+    missing `entries` array, or an empty list all mean the P2 task silently
+    stopped being reported — the state nobody notices.
+    """
+    if not path.exists():
+        raise ValueError(f"raise queue not found: {path}")
+    with open(path) as f:
+        data = json.load(f)
+    if not isinstance(data, dict) or not isinstance(data.get("entries"), list):
+        raise ValueError(f"raise queue {path} has no `entries` array")
+    if not data["entries"]:
+        raise ValueError(
+            f"raise queue {path} is empty — the 30% lift task was dropped silently"
+        )
+    return data["entries"]
+
+
+def report_raise_queue(current: Dict[str, float], entries: List[dict]) -> None:
+    """Print progress for the `coverage_raise_queue.json` entries.
+
+    **Deliberately cannot affect the exit code.** `target` is an aspiration, not
+    a floor: re-applying an absolute floor to baseline-known files made the
+    first committed baseline red on 188 files that had not regressed at all
+    (measured 2026-09-19) — the very outcome `coverage_policy.md` forbids. The
+    ledger's enforcement is separate: `check_coverage_raise_queue.py` fails when
+    a row has reached its target and is still listed, and when a recorded start
+    value is above the current baseline (i.e. the floor was quietly lowered).
+
+    Two extra states matter here:
+
+    * `[RAISE-NODATA]`: the file is missing from *this* report. A file that is
+      silently absent is not "0%", it is "not measured" — the same failure shape
+      as the `594 个条目保留自上次` shrinkage, so it gets its own tag;
+    * `[RAISE-DONE]`: reached the target ⇒ delete the ledger row in the same
+      commit that lets the ratchet tighten the baseline.
+    """
+    if not entries:
+        return
+    print("=== Coverage raise queue (progress only; `target` is NOT a floor) ===")
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        path = entry.get("path")
+        target = entry.get("target")
+        if not isinstance(path, str) or not isinstance(target, (int, float)):
+            continue
+        target = float(target)
+        cur = current.get(path)
+        if cur is None:
+            print(
+                f"  [RAISE-NODATA] {path}: 本次报告里没有该文件（目标 {target:.0f}%）"
+                " — 先查 classify_coverage_drift.py 的 GONE-* 成因，别当成 0%"
+            )
+            continue
+        cur = round(cur, 2)
+        if cur >= target - 0.005:
+            print(
+                f"  [RAISE-DONE] {path}: {cur:.1f}% ≥ {target:.0f}% — "
+                "删掉 coverage_raise_queue.json 里的这一条（基线会本轮收紧）"
+            )
+        else:
+            print(
+                f"  [RAISE] {path}: {cur:.1f}% → {target:.0f}%"
+                f"（还差 {target - cur:.1f} 个百分点）"
+            )
+    print()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Enforce per-file coverage thresholds from an lcov report."
@@ -571,6 +650,17 @@ def main() -> int:
             "(one prefix per line, matched by prefix). New files under these "
             "prefixes are exempt from the new-file floors; baseline-known "
             "regression checks still apply."
+        ),
+    )
+    parser.add_argument(
+        "--raise-queue",
+        type=pathlib.Path,
+        default=None,
+        help=(
+            "Path to the coverage raise ledger (JSON with an `entries` array). "
+            "Every run prints each entry's measured value, its gap to `target`, "
+            "and [RAISE-DONE] once met. REPORTING ONLY — it never changes the "
+            "exit code; see the module docstring for why `target` is not a floor."
         ),
     )
     parser.add_argument(
@@ -695,6 +785,16 @@ def main() -> int:
         print("No source-file coverage data found in report.", file=sys.stderr)
         return 1
 
+    # The raise ledger is read before the ratchet runs so a malformed ledger is
+    # reported as exit 2 (unusable input), not confused with a coverage failure.
+    raise_entries: List[dict] = []
+    if args.raise_queue is not None:
+        try:
+            raise_entries = load_raise_queue(args.raise_queue)
+        except (OSError, ValueError, json.JSONDecodeError) as error:
+            print(f"Coverage raise queue is unusable: {error}", file=sys.stderr)
+            return 2
+
     # `--allow-lower` 只对**基线已知**的路径有意义。打错一个字符会让它变成
     # 静默空操作（用户以为自己放行了，实际没有），所以这里 fail-closed。
     #
@@ -735,6 +835,10 @@ def main() -> int:
         report_path=args.report,
         allow_lower=args.allow_lower,
     )
+
+    # 打印在 save_baseline 之前：本轮收紧后 `[RAISE-DONE]` 的条目会在下一轮变成
+    # 「基线已达标」，那时守卫（check_coverage_raise_queue.py）就会要求删条目。
+    report_raise_queue(current, raise_entries)
 
     save_path = args.save_baseline or args.baseline
     lowered_count = save_baseline(

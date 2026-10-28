@@ -31,6 +31,9 @@ mod core_api_tests;
 mod coverage_baseline_lowering_tests;
 // 覆盖率车道的产出必须与「测试是否全绿」解耦：一条假红不许抹掉整份 lcov。
 mod coverage_leg_resilience_tests;
+// P2「提升到 30%」的台账：target 是目标不是下限（重贴下限 = 188 文件红），
+// 牙齿在"达成即删 / 记账起点不得高于基线"两条判据上。
+mod coverage_raise_queue_tests;
 mod coverage_ratchet_exemption_tests;
 mod e2ee_shape_only_tests;
 mod event_report_shape_only_tests;
