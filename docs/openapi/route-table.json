@@ -2,7 +2,7 @@
   "schema_version": "1",
   "ledger_schema_version": "4",
   "lane": "golden",
-  "generated_at": "2026-09-16T00:00:00Z",
+  "generated_at": "2026-05-02T00:00:00Z",
   "source": "synapse_ledger_export",
   "profile": "default",
   "profile_flags": {
@@ -10,7 +10,7 @@
     "worker_enabled": false,
     "saml_enabled": false
   },
-  "total_routes": 899,
+  "total_routes": 900,
   "_meta": {
     "generated_by": "gen_route_table.py",
     "note": "本文件由 CI 自动生成，禁止手改。如需刷新: python3 scripts/api_test/gen_route_table.py"
@@ -8640,6 +8640,17 @@
     {
       "method": "POST",
       "path": "/_synapse/admin/v1/users/{user_id}/devices/{device_id}/delete",
+      "registered_by": "admin::user",
+      "path_params": [
+        "user_id",
+        "device_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "POST",
+      "path": "/_synapse/admin/v1/users/{user_id}/devices/{device_id}/verify",
       "registered_by": "admin::user",
       "path_params": [
         "user_id",

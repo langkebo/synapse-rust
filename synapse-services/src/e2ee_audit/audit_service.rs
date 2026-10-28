@@ -206,6 +206,32 @@ impl CrossSigningVerificationService {
         Ok(report)
     }
 
+    /// Verify **one** device of `user_id` and record a `verify_device` audit entry.
+    ///
+    /// 404 when `device_id` is not in that user's device list: the path's
+    /// `user_id` stays authoritative, so an admin cannot reach another user's
+    /// device by guessing a device id, and the report can never carry an owner
+    /// that contradicts the path.
+    ///
+    /// 这是 `verify_device` 的**唯一生产入口**（`POST
+    /// /_synapse/admin/v1/users/{user_id}/devices/{device_id}/verify`）。
+    /// `verify_user_devices` 走的是批量读签名的那条路，两者别合并：
+    /// 合并会让单设备验证退化成 N+1，或让批量路径多读 N 次。
+    pub async fn verify_device_for_user(
+        &self,
+        user_id: &str,
+        device_id: &str,
+    ) -> Result<DeviceVerificationStatus, ApiError> {
+        let device = self
+            .get_user_devices(user_id)
+            .await?
+            .into_iter()
+            .find(|device| device.device_id == device_id)
+            .ok_or_else(|| ApiError::not_found(format!("Device {device_id} not found for user {user_id}")))?;
+
+        self.verify_device(&device).await
+    }
+
     /// See [`verify_device`].
     pub async fn verify_device(&self, device: &DeviceInfo) -> Result<DeviceVerificationStatus, ApiError> {
         let signature_valid = self.verify_device_signature(device).await?;

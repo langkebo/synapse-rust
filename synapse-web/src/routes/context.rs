@@ -581,6 +581,8 @@ pub struct AdminContext {
     pub event_redaction_service: Arc<synapse_services::event_redaction_service::EventRedactionService>,
     /// The `e2ee_audit_service` field.
     pub e2ee_audit_service: Arc<synapse_services::e2ee_audit::E2eeAuditService>,
+    /// 交叉签名单设备验证（`POST …/devices/{device_id}/verify`）。
+    pub cross_signing_verification: Arc<synapse_services::e2ee_audit::CrossSigningVerificationService>,
     /// The `captcha_service` field.
     pub captcha_service: Arc<synapse_services::captcha_service::CaptchaService>,
     /// The `telemetry_alert_service` field.
@@ -658,6 +660,7 @@ impl FromRef<AppState> for AdminContext {
             policy_service: state.services.admin.modules.policy_service.clone(),
             event_redaction_service: state.services.rooms.event_redaction_service.clone(),
             e2ee_audit_service: state.services.admin.modules.e2ee_audit_service.clone(),
+            cross_signing_verification: state.services.admin.modules.cross_signing_verification.clone(),
             push_notification_service: state.services.admin.modules.push_notification_service.clone(),
             app_service_manager: state.services.admin.modules.app_service_manager.clone(),
             app_service_scheduler: state.services.admin.modules.app_service_scheduler.clone(),

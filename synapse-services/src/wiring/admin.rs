@@ -86,6 +86,8 @@ impl AdminServices {
         ));
 
         let e2ee_audit_service = Arc::new(crate::e2ee_audit::E2eeAuditService::new(pool.clone()));
+        let cross_signing_verification =
+            Arc::new(crate::e2ee_audit::CrossSigningVerificationService::new(pool.clone(), e2ee_audit_service.clone()));
         let event_report_storage: Arc<synapse_storage::event_report::EventReportStorage> =
             Arc::new(synapse_storage::event_report::EventReportStorage::new(pool));
         let event_report_service =
@@ -377,6 +379,7 @@ impl AdminServices {
                 delayed_event_storage,
                 delayed_event_service,
                 e2ee_audit_service,
+                cross_signing_verification,
                 background_update_service,
                 module_storage,
                 module_service,

@@ -12,12 +12,12 @@
 > 数据源为本目录的 `ROUTE_HANDLERS.json`；`route_metrics.py --check` 会拿本节三个数字与 sidecar 对账，
 > 任何一处手改或漂移都判红。引用「路由数量」时必须写明口径，三个数字不可互相替代。
 
-- **注册路由条目**（唯一 `(method, absolute_path)`，经 `.nest()` 前缀解析后去重）：**979**
-  · `/_matrix/client` 333 · `/_synapse/admin` 299 · 其他命名空间 347
-- **唯一路径**（去掉方法后的唯一 `absolute_path`）：**779**
-  · `/_matrix/client` 246 · `/_synapse/admin` 232 · 其他命名空间 301
-- **逻辑端点**（唯一路径再折叠 `v1`/`v3`/`r0`/`unstable/<seg>` → `vX`）：**760**
-  · `/_matrix/client` 229 · `/_synapse/admin` 230 · 其他命名空间 301
+- **注册路由条目**（唯一 `(method, absolute_path)`，经 `.nest()` 前缀解析后去重）：**980**
+  · `/_matrix/client` 333 · `/_synapse/admin` 300 · 其他命名空间 347
+- **唯一路径**（去掉方法后的唯一 `absolute_path`）：**780**
+  · `/_matrix/client` 246 · `/_synapse/admin` 233 · 其他命名空间 301
+- **逻辑端点**（唯一路径再折叠 `v1`/`v3`/`r0`/`unstable/<seg>` → `vX`）：**761**
+  · `/_matrix/client` 229 · `/_synapse/admin` 231 · 其他命名空间 301
 - 含路由注册的模块文件：**66**（生成器口径；sidecar 口径 113/74/51 的差异见附录 B）
 - `derived_routes.rs` 中的 `registered_by` 标签：**75**
 - 非默认 profile 门控的路由（`default` 构建不注册）：**19**（worker **11** · oidc **8**，明细见「运行时 Profile 门控」）
@@ -78,7 +78,7 @@
 **逐模块清单里的两种标注**（都从派生表反解，不是人工维护）：
 
 - 〔仅 `X` profile〕 —— 该路由**只**在 profile `X` 下注册，默认构建里不存在（即上表成员）；
-- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，**不**计入上表；这类孪生行正是派生表 981 行去重为 979 条的来源。
+- 〔`always` / `X` 双档注册〕 —— 同一 `(method, path)` 在 `always` 与 `X` 两档都注册，但两档的 `registered_by` 不同（默认档走回退实现，`X` 档走完整实现）。默认档可用，**不**计入上表；这类孪生行正是派生表 982 行去重为 980 条的来源。
 
 当前共 **2** 条双档注册：
 
@@ -926,7 +926,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_matrix/client/v3/thirdparty/user`
 - `GET` `/_matrix/client/v3/thirdparty/user/{protocol}`
 
-### 管理 (Admin) （150 条）
+### 管理 (Admin) （151 条）
 
 #### `admin/room/mod.rs` — 46 条 ✅派生表
 
@@ -977,7 +977,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `PUT` `/_synapse/admin/v1/rooms/{room_id}/make_admin`
 - `PUT` `/_synapse/admin/v1/rooms/{room_id}/members/{user_id}`
 
-#### `admin/user.rs` — 27 条 ✅派生表
+#### `admin/user.rs` — 28 条 ✅派生表
 
 - `DELETE` `/_synapse/admin/v1/users/{user_id}`
 - `DELETE` `/_synapse/admin/v1/users/{user_id}/devices/{device_id}`
@@ -1000,6 +1000,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `POST` `/_synapse/admin/v1/users/batch_deactivate`
 - `POST` `/_synapse/admin/v1/users/{user_id}/deactivate`
 - `POST` `/_synapse/admin/v1/users/{user_id}/devices/{device_id}/delete`
+- `POST` `/_synapse/admin/v1/users/{user_id}/devices/{device_id}/verify`
 - `POST` `/_synapse/admin/v1/users/{user_id}/evict`
 - `POST` `/_synapse/admin/v1/users/{user_id}/login`
 - `POST` `/_synapse/admin/v1/users/{user_id}/logout`
@@ -1873,8 +1874,8 @@ EXTERNAL_TYPE_FILES = ("synapse-storage/src/sliding_sync/models.rs",)
 
 > 本附录为人工维护，基于 **SDK Manager 源码 + 后端 handler 源码双侧实读**，逐条核对「已封装后端功能」的完整性；重新生成脚本不覆盖本段。
 > **审计对象**：`@langkebo/matrix-js-sdk@40.2.0-langkebo.5`（`/Users/ljf/Desktop/hu_ts/matrix-js-sdk`）。
-> **后端事实源**：本文件路由面（**979** 条注册条目；另两个口径 779 / 760 见「总览」）+ `synapse-web/src/routes/**` handler 源码。
-> 　· 计数口径（2026-10-24 复核）：**979** = `all` profile 去重后的 `method + path` 条目数，三处独立读数一致 ——
+> **后端事实源**：本文件路由面（**980** 条注册条目；另两个口径 779 / 760 见「总览」）+ `synapse-web/src/routes/**` handler 源码。
+> 　· 计数口径（2026-10-29 复核）：**980** = `all` profile 去重后的 `method + path` 条目数，三处独立读数一致 ——
 > 　　`tests/unit/fixtures/ledger_export_sdk/all.json` 的 `entry_count`、`docs/synapse-rust/ROUTE_HANDLERS.json` 的 `counts.routes`、
 > 　　以及 `derived_route_table_*.inc.rs` 的 981 行去重结果（960 `always` + 11 `worker` + 10 `oidc`）。
 > 　· **模块口径有三种，混用就会互相"打假"**（2026-10-24 逐一实跑复核）：
@@ -2345,9 +2346,9 @@ EXTERNAL_TYPE_FILES = ("synapse-storage/src/sliding_sync/models.rs",)
 
 | 产物 | 坐标 | 条数 | 用途 |
 |---|---|---|---|
-| `docs/openapi/route-table.json` | golden × default | **899** | CI drift 基线、`placeholder_scan_tests` 的唯一输入 |
-| `docs/openapi/route-table-sdk.json` | sdk × all | **979** | SDK 实际摄入的最大完整面 |
-| `tests/unit/fixtures/ledger_export{,_sdk}/{default,worker,all}.json` | 两 lane × 三 profile，共 6 份 | **各文件自带 `entry_count`**（实测 899/910/917、960/971/979）—— 不在此手抄，见下方复算命令 | 契约提取的输入 |
+| `docs/openapi/route-table.json` | golden × default | **900** | CI drift 基线、`placeholder_scan_tests` 的唯一输入 |
+| `docs/openapi/route-table-sdk.json` | sdk × all | **980** | SDK 实际摄入的最大完整面 |
+| `tests/unit/fixtures/ledger_export{,_sdk}/{default,worker,all}.json` | 两 lane × 三 profile，共 6 份 | **各文件自带 `entry_count`**（实测 900/911/918、961/972/980）—— 不在此手抄，见下方复算命令 | 契约提取的输入 |
 
 > **这三行不再手抄数字的理由**：2026-10-24 复核发现它们全是旧读数（`968 / 975` 与
 > `968/979/986、1029/1040/1048`），而 R6 门禁只比对 `route-table-sdk.json` 与 fixture，

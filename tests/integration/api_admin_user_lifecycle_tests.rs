@@ -570,3 +570,183 @@ async fn test_plain_admin_can_reset_plain_user_password() {
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK, "resetting a plain user's password is legitimate admin work");
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 交叉签名单设备验证：POST /_synapse/admin/v1/users/{user_id}/devices/{device_id}/verify
+//
+// 这条路由是 `CrossSigningVerificationService::verify_device` 的**唯一生产入口**
+// （此前整个服务只有集成测试在构造，`verify_device` 因此从未被执行过 ——
+// 见 docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md §3.1.7.11）。
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// 注册一个普通用户，返回 `(user_id, access_token, device_id)`。
+async fn register_plain_user(app: &axum::Router, prefix: &str) -> (String, String, String) {
+    let username = format!("{prefix}_{}", rand::random::<u32>());
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/register")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "username": username,
+                "password": "VerifyDevice!123",
+                "auth": { "type": "m.login.dummy" }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.expect("register plain user");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 4096).await.expect("read register body");
+    let json: Value = serde_json::from_slice(&body).expect("register json");
+    let user_id = json["user_id"].as_str().expect("register user_id").to_string();
+    let token = json["access_token"].as_str().expect("register access_token").to_string();
+    let device_id = json["device_id"].as_str().expect("register device_id").to_string();
+    (user_id, token, device_id)
+}
+
+fn encode_user_id(user_id: &str) -> String {
+    user_id.replace('@', "%40").replace(':', "%3A")
+}
+
+fn verify_uri(user_id: &str, device_id: &str) -> String {
+    format!("/_synapse/admin/v1/users/{}/devices/{}/verify", encode_user_id(user_id), device_id.replace(' ', "%20"))
+}
+
+async fn post_verify(app: &axum::Router, token: &str, user_id: &str, device_id: &str) -> (StatusCode, Value) {
+    let request = Request::builder()
+        .method("POST")
+        .uri(verify_uri(user_id, device_id))
+        .header("Authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.expect("verify request");
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), 8192).await.expect("read verify body");
+    let json: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+    (status, json)
+}
+
+/// 没有交叉签名、没有设备签名 ⇒ 三项全 false，且响应必须回显路径上的 owner/device。
+///
+/// 反向断言（同一条用例里）：**GET 必须 405** —— 这个端点会写 `e2ee_audit_log`，
+/// 做成 GET 会让管理面板的轮询把审计表撑大。
+#[tokio::test]
+async fn test_admin_verify_device_reports_unverified_without_cross_signing() {
+    let _guard = test_mutex().lock().await;
+    let Some((app, pool, cache)) = setup_test_context().await else {
+        return;
+    };
+    let admin_token = get_super_admin_token(&app, &pool, &cache).await;
+    let (user_id, _token, device_id) = register_plain_user(&app, "verify_plain").await;
+
+    let (status, json) = post_verify(&app, &admin_token, &user_id, &device_id).await;
+    assert_eq!(status, StatusCode::OK, "admin verify device: {json}");
+    assert_eq!(json["user_id"], user_id, "响应必须回显路径上的 user_id");
+    assert_eq!(json["device_id"], device_id, "响应必须回显路径上的 device_id");
+    assert_eq!(json["signature_valid"], false, "没有设备签名时 signature_valid 必须 false");
+    assert_eq!(json["is_cross_signed"], false, "没有 self_signing 密钥时 is_cross_signed 必须 false");
+    assert_eq!(json["is_verified"], false, "is_verified = signature_valid && is_cross_signed");
+
+    let get_request = Request::builder()
+        .uri(verify_uri(&user_id, &device_id))
+        .header("Authorization", format!("Bearer {admin_token}"))
+        .body(Body::empty())
+        .unwrap();
+    let get_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), get_request).await.unwrap();
+    assert_eq!(
+        get_response.status(),
+        StatusCode::METHOD_NOT_ALLOWED,
+        "该端点会写审计行，必须是 POST；GET 若可用就等于把写操作暴露成可被轮询的读"
+    );
+}
+
+/// 播种 `self_signing` 交叉签名密钥 + 该设备的签名 ⇒ 三项全 true，并落一行
+/// `operation = "verify_device"` 的审计记录（`e2ee_audit_log`）。
+#[tokio::test]
+async fn test_admin_verify_device_marks_verified_and_records_audit_entry() {
+    let _guard = test_mutex().lock().await;
+    let Some((app, pool, cache)) = setup_test_context().await else {
+        return;
+    };
+    let admin_token = get_super_admin_token(&app, &pool, &cache).await;
+    let (user_id, _token, device_id) = register_plain_user(&app, "verify_signed").await;
+
+    let now = synapse_common::current_timestamp_millis();
+    sqlx::query(
+        r"INSERT INTO cross_signing_keys (user_id, key_type, key_data, added_ts)
+          VALUES ($1, 'self_signing', $2, $3)
+          ON CONFLICT (user_id, key_type) DO NOTHING",
+    )
+    .bind(&user_id)
+    .bind(json!({"ed25519:AA": "fakebase64keydata"}))
+    .bind(now)
+    .execute(pool.as_ref())
+    .await
+    .expect("seed cross_signing_keys");
+
+    sqlx::query(
+        r"INSERT INTO device_signatures
+              (user_id, device_id, target_user_id, target_device_id, algorithm, signature, created_ts)
+          VALUES ($1, $2, $1, $2, 'ed25519', $3, $4)",
+    )
+    .bind(&user_id)
+    .bind(&device_id)
+    .bind(json!({"ed25519:AA": "sigbytes"}))
+    .bind(now)
+    .execute(pool.as_ref())
+    .await
+    .expect("seed device_signatures");
+
+    let (status, json) = post_verify(&app, &admin_token, &user_id, &device_id).await;
+    assert_eq!(status, StatusCode::OK, "admin verify device: {json}");
+    assert_eq!(json["signature_valid"], true, "播种了设备签名就必须 true");
+    assert_eq!(json["is_cross_signed"], true, "播种了 self_signing 就必须 true");
+    assert_eq!(json["is_verified"], true);
+
+    // 审计侧证：服务必须真的写了 `verify_device` 行（不是只读不算）。
+    let audit = synapse_services::e2ee_audit::E2eeAuditService::new(pool.clone());
+    let history = audit.get_key_history(&user_id).await.expect("key history");
+    let entry = history
+        .iter()
+        .find(|entry| entry.operation == "verify_device" && entry.device_id.as_deref() == Some(device_id.as_str()))
+        .expect("verify_device audit entry must be written");
+    assert!(entry.details["is_verified"].as_bool() == Some(true), "审计行必须记录当时的判定结果：{:?}", entry.details);
+}
+
+/// 404 三种形态，每一种都会让"用 GET 设备表直接定位"的写法蒙混过关：
+/// ① 设备 id 不存在；② 设备存在但属于**别人**；③ 用户不存在。
+#[tokio::test]
+async fn test_admin_verify_device_404s_for_unknown_device_and_for_another_users_device() {
+    let _guard = test_mutex().lock().await;
+    let Some((app, pool, cache)) = setup_test_context().await else {
+        return;
+    };
+    let admin_token = get_super_admin_token(&app, &pool, &cache).await;
+    let (owner, _owner_token, owner_device) = register_plain_user(&app, "verify_owner").await;
+    let (_other, _other_token, other_device) = register_plain_user(&app, "verify_other").await;
+
+    let (status, json) = post_verify(&app, &admin_token, &owner, "NO_SUCH_DEVICE").await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "不存在的设备 id 必须 404：{json}");
+
+    // 关键：`other_device` 真实存在，但它不属于 `owner`。路径里的 user_id 是权威口径，
+    // 所以这里必须 404 —— 否则就是把「按用户校验」退化成了「按设备 id 全局查」。
+    let (status, json) = post_verify(&app, &admin_token, &owner, &other_device).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "别人的设备不能通过本用户的路径验证：{json}");
+
+    let (status, json) = post_verify(&app, &admin_token, "@nosuchuser:localhost", &owner_device).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "不存在的用户必须 404：{json}");
+}
+
+/// 非管理员一律 403（`AdminUser` 提取器兜底），且**不得**因为 404 分支先执行而泄漏设备是否存在。
+#[tokio::test]
+async fn test_admin_verify_device_rejects_non_admin_callers() {
+    let _guard = test_mutex().lock().await;
+    let Some((app, _pool, _cache)) = setup_test_context().await else {
+        return;
+    };
+    let (user_id, token, device_id) = register_plain_user(&app, "verify_nonadmin").await;
+
+    let (status, json) = post_verify(&app, &token, &user_id, &device_id).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "普通用户不得调用管理端点：{json}");
+}

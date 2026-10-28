@@ -16,6 +16,7 @@ use synapse_common::types::UserId;
 use synapse_common::ApiError;
 use synapse_common::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
 use synapse_services::admin_user_service::{decode_user_cursor, encode_user_cursor, AdminUserCursor};
+use synapse_services::e2ee_audit::DeviceVerificationStatus;
 use synapse_services::user_service::User as AdminUserRecord;
 use validator::Validate;
 
@@ -75,6 +76,12 @@ pub fn create_user_router() -> Router<crate::routes::AppState> {
         .route(
             "/_synapse/admin/v1/users/{user_id}/devices/{device_id}/delete",
             post(delete_user_device_admin_compat),
+        )
+        // 交叉签名：单设备验证。**POST 而不是 GET** —— 它会在 `e2ee_audit_log` 里
+        // 落一行 `verify_device`；用 GET 会让管理面板的轮询静默把审计表撑大。
+        .route(
+            "/_synapse/admin/v1/users/{user_id}/devices/{device_id}/verify",
+            post(verify_user_device_admin),
         )
         .route("/_synapse/admin/v2/users", get(get_users_v2))
         .route("/_synapse/admin/v2/users/{user_id}", get(get_user_v2))
@@ -637,6 +644,31 @@ pub async fn delete_user_device_admin_compat(
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     delete_user_device_admin(admin, state, path, headers).await
+}
+
+/// See [`verify_user_device_admin`].
+///
+/// 返回 [`DeviceVerificationStatus`]：`signature_valid`（设备签名表里有没有这个设备的签名）
+/// × `is_cross_signed`（该用户有没有 `self_signing` 交叉签名密钥）⇒ `is_verified`。
+///
+/// 为什么是 POST 而不是 GET：`verify_device_for_user` 会写一行 `e2ee_audit_log`
+/// （`operation = "verify_device"`）。做成 GET 的话，管理面板一刷新就多一条审计记录，
+/// 审计表会被"读操作"撑大，反而让真正的验证动作淹没在里面。
+///
+/// 不额外写 `admin_audit` 行：设备级验证结果已经由 `e2ee_audit_log` 承载（含
+/// `device_id` 与三项布尔细节），再记一条只会让同一动作在两份审计里各出现一次。
+#[axum::debug_handler]
+pub async fn verify_user_device_admin(
+    _admin: AdminUser,
+    State(ctx): State<AdminContext>,
+    Path((user_id, device_id)): Path<(String, DeviceId)>,
+) -> Result<Json<DeviceVerificationStatus>, ApiError> {
+    // 先按路径里的 `user_id` 解析用户：用户不存在 ⇒ 404，且后续只在该用户的设备表里找设备
+    // （设备 id 全局唯一，但不用它直接定位 —— 否则路径与响应里的 owner 可能对不上）。
+    let user = resolve_user(&ctx, &user_id).await?;
+    let status = ctx.cross_signing_verification.verify_device_for_user(&user.user_id, device_id.as_str()).await?;
+
+    Ok(Json(status))
 }
 
 /// See [`login_as_user`].

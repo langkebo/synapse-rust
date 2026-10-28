@@ -1190,12 +1190,48 @@ llvm-cov 分母，所以 `saml_service.rs` 的 pct 会明显上升 —— 那是
 `use super::*` 从模块内部开后门 —— 那测的是自己写的桩，正是本审计（§3.1.7.9 两条备注、
 §3.1.7.6 否掉的行数外推估计器）反复拒绝的"把数字做上去"。**A 组因此从 5 条降为 4 条。**
 
-处置二选一，需产品决策（本轮不做）：
+处置二选一，需产品决策。**2026-10-29 已拍板：接线**（不删）。
 
-| 方案 | 内容 | 代价 |
-|---|---|---|
-| **删除**（推荐） | 删 `verify_device` + `verify_device_signature` + `check_cross_signing`（−28 行），`DeviceInfo` 收为私有并撤 `mod.rs` 的 re-export | 零调用方 ⇒ 零行为变化；`DeviceInfo` 仍被 `get_user_devices()` 内部使用 |
-| 接线 | 给 admin 加「单设备验证」端点 | 功能新增，超出本轮；且要同时给 `DeviceInfo` 加构造函数 |
+| 方案 | 内容 | 当时列出的代价 | 结论 |
+|---|---|---|---|
+| 删除 | 删 `verify_device` + `verify_device_signature` + `check_cross_signing`（−28 行），`DeviceInfo` 收为私有并撤 `mod.rs` 的 re-export | 零调用方 ⇒ 零行为变化 | 未采纳 |
+| **接线**（已采纳） | 给 admin 加「单设备验证」端点 | "功能新增、超出本轮；且要同时给 `DeviceInfo` 加构造函数" | **已实施，见下** |
+
+**实施记录（2026-10-29）**——四个改动点，全部围绕"让那条不可达路径变成可达"：
+
+1. `CrossSigningVerificationService::verify_device_for_user(user_id, device_id)`：先按**路径里的
+   `user_id`** 取该用户的设备列表，再在其中找 `device_id`，找不到 ⇒ `404`。这样路径的 owner 是
+   权威口径，不会出现"按设备 id 全局查、响应里的 owner 与路径对不上"。
+   决策说明就地写在 doc comment 里：**不要**把这条路径与 `verify_user_devices` 合并 ——
+   合并要么让单设备验证退化成 N+1，要么让批量路径多读 N 次。
+   > 原计划要给 `DeviceInfo` 加 `pub fn new`，实际不需要：转换只发生在同一模块内，
+   > 保持字段私有反而少一个可以乱构造的入口。
+2. 装配：`AdminModuleServices` 新增 `cross_signing_verification`，与 `e2ee_audit_service`
+   **共享同一个** `Arc<E2eeAuditService>`（审计行必须落在同一张 `e2ee_audit_log` 上）。
+3. 路由：`POST /_synapse/admin/v1/users/{user_id}/devices/{device_id}/verify`
+   （`synapse-web/src/routes/admin/user.rs`）。**用 POST 不用 GET**：这条路径会写一行
+   `e2ee_audit_log`，做成 GET 会让管理面板的刷新把审计表撑大 —— 有用例反向钉住这一点
+   （GET 必须 405）。不额外写 `admin_audit` 行：设备级结论已由 `e2ee_audit_log` 承载
+   （含 `device_id` 与三项布尔），再记一条只会让同一动作在两份审计里各出现一次。
+4. 契约链（改路由字面量必须整条）：`gen_derived_routes.py --bootstrap` →
+   `generate_sdk_ledger_fixtures.sh` + 三次 golden `synapse_ledger_export` →
+   `gen_derived_routes.py --check` → `gen_route_handlers.py`（sidecar 写盘）→
+   `gen_contract_doc.py` → `gen_route_table.py` 两份视图 → `route_metrics.py --write`。
+   ⚠️ 顺序有坑：**`route_metrics.py --write` 必须在 sidecar 重生成之后**跑，否则它按旧
+   计数写块，`--check` 再报漂移（本次踩了一次）。
+
+测试（4 条，扩在 `tests/integration/api_admin_user_lifecycle_tests.rs`，不新增测试文件）：
+
+| 用例 | 断的东西 |
+|---|---|
+| `…reports_unverified_without_cross_signing` | 无签名无交叉签名 ⇒ 三项全 false，且响应回显路径上的 `user_id`/`device_id`；**反向**：同一路径 `GET` 必须 405 |
+| `…marks_verified_and_records_audit_entry` | 播种 `self_signing` + 设备签名 ⇒ 三项全 true；并**回查 `e2ee_audit_log`** 里真有一行 `verify_device`（`details.is_verified == true`），防"只算不记" |
+| `…404s_for_unknown_device_and_for_another_users_device` | 三种 404：设备 id 不存在 / **设备存在但属于别人** / 用户不存在 |
+| `…rejects_non_admin_callers` | 普通用户调用 ⇒ 403 |
+
+变异自证：把 `verify_device_for_user` 的设备查找改成 `.find(|d| d.device_id == device_id || true)`
+（= 不按 user 过滤、退化成"取该用户第一台设备"）⇒ 第 3 条红，实测返回
+`200` 且 `device_id` 回显的是**另一台**设备 —— 正是"路径 owner 与响应不一致"的形态。恢复后 4/4 绿。
 
 ##### 第 3 条已补：`user/storage.rs` 两个管理面函数（5 条用例）
 
