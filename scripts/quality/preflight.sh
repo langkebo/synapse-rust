@@ -158,6 +158,18 @@ run "check_ci_summary_dependencies.py" python3 scripts/ci/check_ci_summary_depen
 step "覆盖率提升队列台账（达成即删）"
 run "check_coverage_raise_queue.py" python3 scripts/ci/check_coverage_raise_queue.py
 
+# PR 覆盖率车道的两个前提（`pr-coverage` job 用的就是这三条命令）：
+# ① 映射完整 —— `git diff` → crate 的规则必须覆盖**每一个**跟踪的 `.rs`。新开一个顶层目录
+#    放源码时，这里就会红，而不是等某个 PR 的覆盖率数字莫名偏低（那形态没人归因得出来）。
+#    ~0.5s（一次 `cargo metadata` + `git ls-files`），与改动集无关。
+# ② 判据自证 —— 阈值/分母/缺失判定四组合成输入必须各落在预期退出码上。
+#    ~50ms，纯计算。
+step "覆盖率：改动 → crate 映射完整（PR 车道）"
+run "affected_crates.py" python3 scripts/ci/affected_crates.py --self-check
+
+step "覆盖率：变更行判据自证（PR 车道）"
+run "check_changed_line_coverage.py" python3 scripts/ci/check_changed_line_coverage.py --mutation-check
+
 # `updated_ts` 可空性棘轮（ARCH-06）：两种形态并存是现状，规则已改口为"新表必须显式选"，
 # 本步只是不让计数悄悄朝可空方向漂。~20ms，且只读基线 SQL，与改动集无关。
 # `sleep` 站点棘轮（TEST-05）：分三桶计数，只许下降。~0.3s，只读 .rs 源码。
