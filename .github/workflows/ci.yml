@@ -1686,6 +1686,124 @@ jobs:
           fi
 
   # ──────────────────────────────────────────────────────────────
+  # PR Coverage — 只测「改动落到的那几个 crate」（PR 专用车道）
+  #
+  # 为什么不复用 `Code Coverage`：那条是全量口径（storage 单跑 + 其余 workspace，
+  # 实测 67 分钟、含 1424 条集成测试），放在每个 PR 上等于给每次推送加一小时。
+  # 这条车道用 `cargo llvm-cov -p <crate> --lib` 把范围收到改动面。
+  #
+  # ⚠️ 代价必须写在脸上：**单腿读数是下界**，与 `coverage_baseline.json` 的合并
+  # 基线不可比 —— 实测 `src/bin/healthcheck.rs` 合并基线 10.91%、单腿 0.00%；
+  # `src/server/mod.rs` 32.30% vs 22.63%。差异全部来自"这一步没跑那些测试"。
+  # 所以本车道**不读基线**，判据是"变更行有没有被跑到"（下界口径），
+  # 缺文件/缺 crate 一律 fail-closed。口径与取舍见
+  # `scripts/ci/check_changed_line_coverage.py` 的 docstring。
+  #
+  # 守卫：`tests/unit/pr_coverage_lane_tests.rs`（映射、变更行判定、本 job 的旗标）；
+  # `affected_crates.py --self-check` 保证"每个跟踪的 .rs 都有归属 crate"。
+  # ──────────────────────────────────────────────────────────────
+  pr-coverage:
+    name: PR Coverage (affected crates)
+    runs-on: ubuntu-latest
+    needs: [changes]
+    # 纯文档 PR 不跑（`changes` 的 `non-docs` 过滤器已含 `!docs/**` `!**/*.md`）。
+    # 注意：这也意味着哨兵在 docs-only PR 上**不能**要求本车道跑过 —— 见 ci-summary。
+    if: github.event_name == 'pull_request' && needs.changes.outputs.non-docs == 'true'
+    # 20 分钟上限是判据而不是期望：超时基本只说明范围算错了（比如把整个 workspace
+    # 当成"受影响"），那时要回去看 `affected_crates.py` 的映射，而不是加超时。
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16
+        options: >-
+          --shm-size=512m
+        env:
+          POSTGRES_USER: synapse
+          POSTGRES_PASSWORD: synapse
+          POSTGRES_DB: synapse
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # `git diff <base-sha>...HEAD` 需要真实历史：浅克隆里 base 提交不在本地，
+          # 差异会退化成"整个仓库"，受影响 crate 直接变成全部。
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.93.0
+          components: llvm-tools-preview
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Resolve affected crates
+        id: affected
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          # 认不出的 `.rs` 路径在这里就红（exit 2），不留给后面的"少测一个 crate"。
+          crates="$(python3 scripts/ci/affected_crates.py --base "$BASE_SHA" --head HEAD --format space)"
+          printf 'crates=%s\n' "$crates" >> "$GITHUB_OUTPUT"
+          if [ -z "$crates" ]; then
+            echo "::notice::本次改动没有落到任何 crate（纯文档/脚本/迁移），跳过覆盖率采集"
+          else
+            echo "受影响 crate: $crates"
+          fi
+
+      - name: Set up test database (only needed by synapse-storage)
+        # 只有改到 storage 时才播种：它的 db_tests 直连 public schema，没有模板库会以
+        # "表不存在"失败，那种红看起来像代码问题。
+        if: contains(steps.affected.outputs.crates, 'synapse-storage')
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse_test
+          TEST_DB_TEMPLATE_SCHEMA: test_template_ci
+        run: bash scripts/ci/prepare_test_db.sh
+
+      - name: Collect coverage (affected crates only)
+        if: steps.affected.outputs.crates != ''
+        run: bash scripts/ci/run_pr_coverage.sh ${{ steps.affected.outputs.crates }}
+
+      - name: Changed-line coverage (lower bound)
+        if: steps.affected.outputs.crates != ''
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          # `--min-percent 0` 是**显式决定**：单腿读数是下界，按固定阈值判红会在
+          # "改动由集成测试覆盖"的 PR 上常态假红。真正带牙齿的是：未知路径红、
+          # 变更文件不在报告里红（NODATA）、任一腿失败红。
+          # 抬阈值的路径（0 → 30 → 50）要求先攒够样本，见该脚本 docstring。
+          python3 scripts/ci/check_changed_line_coverage.py \
+            --report coverage/lcov.info \
+            --base "$BASE_SHA" \
+            --min-percent 0
+
+      - name: Upload PR coverage artifact
+        # `always()`：数据在这条车道**红的时候**才有归因价值（同主车道的教训）。
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-coverage-report
+          path: coverage/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # ──────────────────────────────────────────────────────────────
   # CI Summary — 逐门禁结论表（不是"再判一次红"）
   #
   # 红由各门禁自己报；本 job 只负责把「一整个 run 只有一个失败结论」
@@ -1709,7 +1827,7 @@ jobs:
     # 维度编译的地方（`--all-features` 覆盖不到"单开的 feature 能不能编过"），
     # 后者产出契约链的 client.yaml / route-table.json。两个都不在表里时，
     # 它们红了也只会显示成一个不属于任何门禁的孤立红点。
-    needs: [changes, repo-sanity, openapi-artifact, feature-matrix, test, integration-test, security-audit, build, coverage, pr-benchmark-gate]
+    needs: [changes, repo-sanity, openapi-artifact, feature-matrix, test, integration-test, security-audit, build, coverage, pr-coverage, pr-benchmark-gate]
     steps:
       # 这个 job 的用途不是"再判一次红"（红由各门禁自己报），而是把
       # 「一整个 run 只有一个失败结论」拆成**逐门禁结论表**：谁红了、红在哪个 step、
@@ -1820,6 +1938,7 @@ jobs:
           TEST_RESULT: ${{ needs.test.result }}
           INTEGRATION_RESULT: ${{ needs.integration-test.result }}
           COVERAGE_RESULT: ${{ needs.coverage.result }}
+          PR_COVERAGE_RESULT: ${{ needs.pr-coverage.result }}
           BUILD_RESULT: ${{ needs.build.result }}
         run: |
           set -euo pipefail
@@ -1865,4 +1984,11 @@ jobs:
           else
             echo "info: this event does not require the slow tier (fast tier will still be checked above)"
           fi
+          if [ "$EVENT_NAME" = "pull_request" ] && [ "$NON_DOCS" = "true" ]; then
+            # PR 覆盖率车道：条件与 `pr-coverage.if` 逐字一致（pull_request + 非纯文档）。
+            # 它同样是"空跑看起来像验证"的高危位 —— 车道的价值全在"真的采到了数据"，
+            # 而 skip 在摘要里只是一行灰字。docs-only PR 上它必然 skipped，故不在此要求。
+            require_lane "PR Coverage" "$PR_COVERAGE_RESULT"
+          fi
+
           echo "sentinel OK: every lane required by this event actually ran"

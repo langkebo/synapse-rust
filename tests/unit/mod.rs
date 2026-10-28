@@ -35,6 +35,7 @@ mod coverage_leg_resilience_tests;
 // 牙齿在"达成即删 / 记账起点不得高于基线"两条判据上。
 mod coverage_raise_queue_tests;
 mod coverage_ratchet_exemption_tests;
+// PR 覆盖率车道：范围由 diff → crate 的映射决定，口径是"变更行下界"（不读合并基线）。
 mod e2ee_shape_only_tests;
 mod event_report_shape_only_tests;
 mod federation_cache_shape_only_tests;
@@ -61,6 +62,7 @@ mod msc4108_rendezvous_route_tests;
 mod msc_semantics_guard_tests;
 mod msc_tests;
 mod placeholder_scan_tests;
+mod pr_coverage_lane_tests;
 mod push_notification_route_tests;
 mod push_provider_wiring_tests;
 mod push_shape_only_tests;

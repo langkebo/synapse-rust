@@ -262,7 +262,7 @@ if let Some(last_rotation) = rotations.first() { /* 重放处理 */ }           
 
 | 缺口 | 证据 | 后果 |
 |---|---|---|
-| **不在 PR 车道** | `ci.yml:1380-1383` 的 `if` 只有 `schedule` / `workflow_dispatch+run_slow_tier` / `push main` | PR 阶段的覆盖回归**看不见**，合并进 main 后才知道 |
+| **不在 PR 车道** → **部分已解（2026-10-28）** | `ci.yml` 的 `code-coverage.if` 只有 `schedule` / `workflow_dispatch+run_slow_tier` / `push main`（全量口径 67 分钟，PR 上等不起）；新增的 `pr-coverage` 只跑受影响 crate（**下界**口径，见 §3.1.4） | 全量回归仍要等 main；但 PR 阶段现在能看到"这次改动新增的行有没有被跑到" |
 | **新文件只需 30%** → **✅ 已改为 50%**（2026-10-25） | `ci.yml:1522` `--new-file-floor 50`（原为 30）（脚本默认 60，被显式下调）。已上调到 50，同步 `run_coverage.sh` 提示、`coverage_policy.md` §1/§2/§3、`TESTING.md` | 用 40% 的假 lcov 喂脚本 ⇒ **exit 1**；50% ⇒ exit 0（不误伤） |
 | **已入库文件无绝对下限** | `scripts/check_file_coverage.py:8` 只判 `must not regress`；`ci.yml:1509-1512` 注释写明"absolute floors are deliberately not re-applied to baseline-known files, because…188 files red" | `coverage_baseline.json` 里 **59 个文件 0.0%、109 个 ≤30%** 被永久冻结，再差也不会红 |
 
@@ -275,7 +275,7 @@ if let Some(last_rotation) = rotations.first() { /* 重放处理 */ }           
 |---|---|
 | **P1 ✅ 已完成** | `--new-file-floor 30 → 50`（先不喊 60，避免一次打红太多）；`core_file_coverage_prefixes.txt` 内的新文件沿用 70 |
 | **P2 ✅ 台账已建（2026-10-28）** | 给 0% 文件中**有生产入口**的（`src/server/router.rs`、`src/tasks/mod.rs`、`synapse-common/logging.rs`）建"提升到 30%"的一次性任务，逐文件记账（**不是**一刀切重贴全局下限 —— 那会重演 188 文件红）。台账 `scripts/ci/coverage_raise_queue.json`、守卫 `scripts/ci/check_coverage_raise_queue.py`，机制与实跑见 **§3.1.3** |
-| **P2** | 把 coverage 加进 PR 车道（可只跑受影响 crate 的 lcov，用 `cargo llvm-cov -p <crate>` 降成本） |
+| **P2 ✅ 已落地（2026-10-28）** | 把 coverage 加进 PR 车道（可只跑受影响 crate 的 lcov，用 `cargo llvm-cov -p <crate>` 降成本）。新 job `pr-coverage` + `scripts/ci/{affected_crates.py,run_pr_coverage.sh,check_changed_line_coverage.py}`；判据是**变更行覆盖率**而不是"和基线比"（下界与合并基线不可比），机制、实测与边界见 **§3.1.4** |
 
 ### 3.1.1 覆盖率基线可以被一次「不完整报告」清零（本次审计中新发现 + 已修）
 
@@ -649,6 +649,65 @@ banner）。`_tracer_provider` 改名 `tracer_provider` 并写清它**只是存�
 > ⇒ 结论落在**日志文本**上就要先怀疑"文本里还有谁在说同一个词"。这条（"空值 ⇒ 零指令过滤器"）
 > 最后用**不依赖日志文本**的探针定死（`ok=false / events=1` vs `ok=true / events=0`）。
 > **判据建立在日志文本上，最硬的自证是换一个不读日志的观测面。**
+
+### 3.1.4 PR 车道的覆盖率（2026-10-28 落地，P2）
+
+`Code Coverage` 只在 main push / schedule / dispatch 上跑，而且是全量口径（实测 67 分钟、
+含 1424 条集成测试）—— 放在每个 PR 上等于给每次推送加一小时。于是 PR 作者**在合并前
+看不到**自己这次改动把覆盖率带到了哪里。新车道 `pr-coverage` 把范围收到"改动落到的那几个
+crate"：
+
+| 环节 | 实现 | 判据 |
+|---|---|---|
+| 范围 | `scripts/ci/affected_crates.py`（`git diff base...head` → `cargo metadata` 前缀匹配） | 认不出的 `.rs` ⇒ exit 2；`--self-check` 要求每个跟踪的 `.rs` 都有归属（当前 1156 个） |
+| 采集 | `scripts/ci/run_pr_coverage.sh <crate>…`（`cargo llvm-cov -p <crate> --lib`） | 每条腿显式 `-p` + `--lib`，且 `--no-report` 与 `report` 分开；缺腿降级合并、零腿不写空报告 |
+| 判据 | `scripts/ci/check_changed_line_coverage.py` | 变更文件必须在报告里（`NODATA` ⇒ exit 2）；变更行覆盖率低于 `--min-percent` ⇒ exit 1 |
+| 哨兵 | `ci-summary` 的 `require_lane "PR Coverage"` | PR 且非纯文档 ⇒ 车道 skip 也算红（"空跑不等于验证"） |
+
+**为什么判据是"变更行"而不是"和基线比"**：PR 车道只跑受影响 crate 自己的 lib 测试，
+读数是**下界**，与合并基线不可比。实测（本机，2026-10-28，同一份代码的两种腿）：
+
+| 文件 | 合并基线 | 单腿（根 crate lib） | 差异来源 |
+|---|---|---|---|
+| `src/bin/healthcheck.rs` | 10.91% | **0.00%** | bin 目标不在 `--lib` 腿里 |
+| `src/bin/synapse_worker.rs` | 38.19% | **0.00%** | 同上 |
+| `src/server/mod.rs` | 32.30% | **22.63%** | 由集成测试覆盖的部分不在这一步 |
+
+拿这种数字去比对基线，几乎每个被改到的文件都会红 —— 与 §3.1 的 `188 files red` 同一形态。
+所以本车道**不读 `coverage_baseline.json`**：`tests/unit/pr_coverage_lane_tests.rs`
+有一条断言禁止三个脚本出现 `--baseline`（注释里解释"为什么不用它"是允许的）。
+
+**默认阈值 `0` 是显式决定，不是遗漏**：单腿下界意味着"改动只被集成测试覆盖"的 PR
+（例如在 `synapse-web` 里加 route handler）会**常态假红**。真正带牙齿的是三条 fail-closed：
+未知 `.rs` 路径、变更文件不在报告里、任一腿失败。抬阈值（`0 → 30 → 50`）要先攒样本、
+看清"新增行的单腿命中率"分布再决定 —— 与 `--new-file-floor` 的阶梯口径一致。
+
+**成本实测**：`synapse-cache` 一条腿 —— 95 条用例、10 个文件、LF 2630 / LH 1615 = 61.41%，
+**热 target 25 s**（冷构建另计）。job 的 `timeout-minutes: 20` 是判据不是期望：超时基本
+只说明范围算错了（把整个 workspace 当成"受影响"），该回去看映射而不是加超时。
+
+**边界**（别把这读成"PR 上有完整覆盖率"）：
+
+- 集成测试腿不在 PR 车道（42 分钟）。`tests/` `benches/` `examples/` 里的变更文件按
+  "非 lib target"跳过，**打印数量**、不计入分母也不算 `NODATA`；
+- `synapse-storage` 的 db_tests 需要播种好的模板库：job 里按需跑 `prepare_test_db.sh`，
+  脚本侧再自检一次（模板表数 < 100 ⇒ 报错并给出可粘贴的命令）；
+- 不用 `--all-features`：feature 互斥与历史 OOM 都记在主车道注释里，这里沿用
+  `--features test-utils`，且**只在该 crate 定义了这个 feature 时才加**
+  （`synapse-cache` / `synapse-test-utils` 没有它，硬传会让 cargo 直接拒绝）。
+
+本地复现（与 CI 同一条命令）：
+
+```bash
+python3 scripts/ci/affected_crates.py --base origin/main --format space   # 范围
+bash scripts/ci/run_pr_coverage.sh synapse-common                        # 采集
+python3 scripts/ci/check_changed_line_coverage.py \
+    --report coverage/lcov.info --base origin/main                       # 判据
+```
+
+守卫 `tests/unit/pr_coverage_lane_tests.rs` **13 例**：映射表与 fail-closed、变更行
+判定的四种形态（含"只有删除"与"文件不在报告里"）、采集器的三条探针（假 cargo：旗标顺序 /
+缺腿降级 / 零腿不写空报告）、车道形状（PR 专属、有超时、不调全量脚本）、以及"不读基线"。
 
 ### 3.2 性能验收只有报告，没有断言
 

@@ -132,9 +132,9 @@ ROUTE_TABLE_SDK=979
 TEST_FILES_E2E=3
 TEST_FILES_INTEGRATION=168
 TEST_FILES_PERFORMANCE=5
-TEST_FILES_TESTS_DIR=401
-TEST_FILES_TESTS_DIR_RS=313
-TEST_FILES_UNIT=134
+TEST_FILES_TESTS_DIR=402
+TEST_FILES_TESTS_DIR_RS=314
+TEST_FILES_UNIT=135
 
 <!-- doc-metrics:end -->
 
@@ -447,6 +447,39 @@ python3 scripts/check_file_coverage.py \
 > `public` schema），且它的 LLVM 引擎在测试非零退出时**不返回任何覆盖数据**
 > （一个 flaky 就让 lcov 全空）。`tarpaulin.toml` 因此已删除；细节见
 > `scripts/ci/run_coverage.sh` 头部注释。
+
+#### 2.2.1 PR 车道：只测受影响 crate（下界口径）
+
+合并前的覆盖率由 `pr-coverage` job 提供（PR 专用；main push 仍走 §2.2 的全量口径）。
+它只跑**改动落到的那几个 crate**，所以快，但读数是**下界**：
+
+```bash
+# 1) 改动 → crate（认不出的 .rs 会 exit 2，不会静默漏测）
+python3 scripts/ci/affected_crates.py --base origin/main --format space
+
+# 2) 只采集这些 crate 的 lib 腿
+bash scripts/ci/run_pr_coverage.sh synapse-common synapse-web
+
+# 3) 判据：变更行的命中比例（不是"和基线比"）
+python3 scripts/ci/check_changed_line_coverage.py \
+  --report coverage/lcov.info --base origin/main
+```
+
+⚠️ **不要拿这个 lcov 去跑 §2.2 的 per-file 棘轮**。单腿读数与合并基线不可比：
+实测 `src/bin/healthcheck.rs` 合并基线 10.91%、单腿 **0.00%**（bin 目标不在 `--lib` 腿里），
+`src/server/mod.rs` 32.30% vs **22.63%**。差值全部来自"这一步没跑那些测试"，
+不是回归 —— 拿它比基线会让几乎每个被改到的文件都红。
+
+| 有牙齿的判据 | 说明 |
+|---|---|
+| 未知 `.rs` 路径 | `affected_crates.py` exit 2（新开顶层目录放源码必须先归类） |
+| 变更文件不在报告里 | `check_changed_line_coverage.py` exit 2（`NODATA`：该 crate 没测到/编译失败） |
+| 任一腿失败 | `run_pr_coverage.sh` exit 1（数据仍写出，红由退出码保留） |
+
+阈值默认 `--min-percent 0`（只报数不判红）是**显式决定**：改动只被集成测试覆盖的 PR
+会常态假红。抬阈值需要先攒样本（`0 → 30 → 50`），口径见
+`scripts/ci/check_changed_line_coverage.py` 的 docstring 与
+`docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md` §3.1.4。
 
 ### 2.3 性能基准测试
 

@@ -193,11 +193,11 @@
 
 | 度量 | 真值 | 命令 / 来源 |
 |---|---|---|
-| 测试文件 | **401**（`.rs` **313**；unit **134** / integration **168** / e2e **3** / perf **5**） | `python3 scripts/ci/check_doc_metrics.py --print` |
+| 测试文件 | **402**（`.rs` **314**；unit **135** / integration **168** / e2e **3** / perf **5**） | `python3 scripts/ci/check_doc_metrics.py --print` |
 | 基线索引定义 | **344** | 同上 |
 | 活路由 / 派生表行 / `INDEXES.md` 人工表 | **979** / **981** / **134** | 同上（`LIVE_ROUTES` / `DERIVED_TABLE_ROWS` / `INDEXES_DOC_ROWS`） |
 | clippy allow | **160 处 / 111 文件**（扫描 **831** 个 `.rs`）；其中无理由 **0 / 0**（棘轮基线） | `python3 scripts/ci/check_clippy_allow_ratchet.py`（全量站点走其 `scan()`） |
-| `let _ =` / `unwrap_or_default()` / `if let Ok(` | 生产 **826** 行 / **241** 文件；全仓 **1614** 行 / **354** 文件 | `git ls-files -z '*.rs' \| xargs -0 grep -cE 'let _ =\|if let Ok\(\|unwrap_or_default\(\)'`；生产口径再剔 `tests/`、`*/tests.rs`、`*_tests.rs` |
+| `let _ =` / `unwrap_or_default()` / `if let Ok(` | 生产 **826** 行 / **241** 文件；全仓 **1616** 行 / **355** 文件 | `git ls-files -z '*.rs' \| xargs -0 grep -cE 'let _ =\|if let Ok\(\|unwrap_or_default\(\)'`；生产口径再剔 `tests/`、`*/tests.rs`、`*_tests.rs` |
 | `tokio::time::sleep` | **104** 站点（PROD **26** / TEST_INLINE **34** / TEST_FILE **44**） | `python3 scripts/ci/check_sleep_ratchet.py` |
 | `>2000` 行 `.rs` | 生产 **0**（W11 前 7，内联测试外移后最大 1557）；测试基建 **2**（`test_isolation.rs` **3403**、`test-utils/lib.rs` **2786**）；生成 **1**（`derived_route_table_always.inc.rs` **5512**）；测试 **3**（`room_service_tests_migrated.rs` **5248**、`event/db_tests.rs` **3516**、`sync_service/tests.rs` **2510**） | `git ls-files '*.rs' \| xargs wc -l \| awk '$1>2000'` |
 | 依赖分裂 | crate 名 **47** / 多版本 **32** / 同版本多来源 **15** | `cargo tree -d --workspace --locked` 按 crate 名聚合 |
@@ -357,8 +357,10 @@
 
 ### CODE-10（P2）生产 830 行 `let _ =` / `unwrap_or_default()`，无收敛策略
 
-- **口径**：生产 **826 行 / 241 文件**；全仓 **1614 行 / 354 文件**（命令与门禁见 §0.4 ——
-  `grep -c` 计的是**行**，一行里两处只算一次）。
+- **口径**：生产 **826 行 / 241 文件**；全仓 **1616 行 / 355 文件**（命令与门禁见 §0.4 ——
+  `grep -c` 计的是**行**，一行里两处只算一次）。全仓比生产多出的 2 行/1 文件来自
+  `tests/unit/pr_coverage_lane_tests.rs` 的探针 helper（读 `PATH`、读 argv 日志各一处
+  `unwrap_or_default()`）—— 测试基建，生产口径未变。
 - **已做**：W0 只加了"危险性扫描"（缓存/存储删除禁止 `let _`）+ 3 个 helper 收敛 19 处缓存失效。
 - **明确不做**：总数下降配额（§10.10：配额会诱导写 `unwrap()` 来"减少计数"）。
 - **下一轮可做的**：按"错误被吞后有没有用户可见后果"分类，只处理前两类；不要动 `unwrap_or_default()`
