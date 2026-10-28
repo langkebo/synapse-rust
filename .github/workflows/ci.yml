@@ -208,6 +208,20 @@ jobs:
         if: ${{ !cancelled() }}
         run: python3 scripts/ci/check_coverage_raise_queue.py
 
+      # PR 覆盖率车道（`pr-coverage` job）的两个前提。放在这里而不是只放 preflight：
+      # preflight 可以被 `--no-verify` 绕过，而"映射覆盖不到某个 `.rs`"这类缺陷一旦溜过去，
+      # 表现是 **PR 上覆盖率数字莫名偏低**，没人归因得出来。
+      # ① 映射完整 —— 每个跟踪的 `.rs` 都必须有归属 crate（新开的顶层源码目录会在这里红）；
+      # ② 判据自证 —— 阈值/分母/缺失判定四组合成输入必须各落在预期退出码上。
+      # 两条合计 ~0.6 s，与本次改动无关（纯静态）。
+      - name: PR coverage — every tracked .rs maps to a crate
+        if: ${{ !cancelled() }}
+        run: python3 scripts/ci/affected_crates.py --self-check
+
+      - name: PR coverage — changed-line gate self-proof
+        if: ${{ !cancelled() }}
+        run: python3 scripts/ci/check_changed_line_coverage.py --mutation-check
+
       # SQLx 棘轮：动态查询不得增加、编译期校验（query!/query_as!）不得减少。
       # 基线见 scripts/ci/sqlx_dynamic_ratio_baseline。
       # 历史：本脚本此前只扫 src/（漏掉 synapse-storage 等 crate 的 97% 调用）、
