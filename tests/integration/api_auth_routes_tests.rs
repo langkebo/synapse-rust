@@ -245,6 +245,97 @@ async fn test_auth_metadata_returns_unrecognized_when_oidc_is_disabled() {
     assert_eq!(json["errcode"], "M_UNRECOGNIZED");
 }
 
+/// `auth_metadata` 的**成功路径**：OIDC 开着时把服务端能力文档下发出去。
+///
+/// 这条路径在此之前**一条测试都没有** —— 文件里 36 行可执行代码只有
+/// `M_UNRECOGNIZED` 那条错误路径被测到（实测 7/36 = 19.4%，见
+/// `docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md` §3.1.7.6 的 core L4 表）。
+///
+/// 顺带钉住 2026-10 新加的 RFC 8414 §2 / RFC 6749 §2.3.1 逻辑：
+/// **没有机密客户端时只应广告 `none`（公共客户端）**，登记了 `client_secrets`
+/// 之后才广告 secret 方法。这条逻辑此前没有任何断言，而客户端正是拿它决定
+/// 用什么方式去换 token。
+#[tokio::test]
+async fn test_auth_metadata_advertises_public_clients_only_without_confidential_secrets() {
+    let Some((app, _state)) = super::setup_fresh_test_app_with_config(enable_builtin_oidc).await else {
+        return;
+    };
+
+    let (status, body) = get_auth_metadata(app).await;
+
+    assert_eq!(status, StatusCode::OK, "OIDC 打开后必须下发能力文档，而不是 M_UNRECOGNIZED：{body}");
+    // 端点必须由 `issuer` 拼出来 —— 拼错一个前缀，客户端就会去请求一个不存在的地址。
+    let issuer = body["issuer"].as_str().expect("issuer must be a string").to_string();
+    assert!(!issuer.is_empty(), "issuer 不能为空：{body}");
+    assert_eq!(body["authorization_endpoint"], serde_json::json!(format!("{issuer}/_matrix/client/v3/oidc/authorize")));
+    assert_eq!(body["token_endpoint"], serde_json::json!(format!("{issuer}/_matrix/client/v3/oidc/token")));
+    assert_eq!(body["jwks_uri"], serde_json::json!(format!("{issuer}/.well-known/jwks.json")));
+
+    assert_eq!(
+        body["token_endpoint_auth_methods_supported"],
+        serde_json::json!(["none"]),
+        "没有登记 client_secrets 时只能广告公共客户端（`none`），\
+         广告 secret 方法会让客户端去用一个根本没有的密钥：{body}"
+    );
+    assert_eq!(body["code_challenge_methods_supported"], serde_json::json!(["S256"]), "PKCE 必须声明：{body}");
+}
+
+/// 登记了机密客户端之后，`token_endpoint_auth_methods_supported` 必须**同时**含三种方法。
+///
+/// 只加 `client_secret_basic` 会让只会用 `client_secret_post` 的客户端（不少移动端 SDK）
+/// 判定"这个服务器不支持我"，然后退回密码登录 —— 静默降级，没人会报 bug。
+#[tokio::test]
+async fn test_auth_metadata_advertises_secret_methods_once_confidential_clients_exist() {
+    let Some((app, _state)) = super::setup_fresh_test_app_with_config(|container| {
+        enable_builtin_oidc(container);
+        super::config_mut(container)
+            .builtin_oidc
+            .client_secrets
+            .insert("confidential-client".to_string(), "s3cr3t".to_string());
+    })
+    .await
+    else {
+        return;
+    };
+
+    let (status, body) = get_auth_metadata(app).await;
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["token_endpoint_auth_methods_supported"],
+        serde_json::json!(["none", "client_secret_basic", "client_secret_post"]),
+        "公共客户端与两种 secret 方法都要广告：{body}"
+    );
+}
+
+/// 让内置 OIDC 真正 `is_enabled()`：`enabled` + 非空 `issuer` + 至少一个用户。
+fn enable_builtin_oidc(container: &mut synapse_services::ServiceContainer) {
+    let config = super::config_mut(container);
+    config.builtin_oidc.enabled = true;
+    config.builtin_oidc.issuer = "https://issuer.example".to_string();
+    config.builtin_oidc.users = vec![synapse_common::config::BuiltinOidcUser {
+        id: "probe-user".to_string(),
+        username: "probe".to_string(),
+        password: None,
+        password_hash: None,
+        email: "probe@example.com".to_string(),
+        displayname: None,
+    }];
+}
+
+async fn get_auth_metadata(app: axum::Router) -> (StatusCode, Value) {
+    let request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/unstable/org.matrix.msc2965/auth_metadata")
+        .body(Body::empty())
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), 8192).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+    (status, json)
+}
+
 /// 已摘除的 `msc2965/auth_issuer` 端点不得复活。
 ///
 /// 该端点由 `76e5f9136`（"Remove deprecated msc2965/auth_issuer endpoint"，对齐上游

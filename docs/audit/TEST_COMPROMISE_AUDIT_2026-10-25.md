@@ -961,9 +961,43 @@ llvm-cov 的分母**且几乎 100% 命中，所以它一搬走，"高覆盖的�
 | `synapse-e2ee/device_keys/models.rs` | 98.98% → 98.97% | +4/−21 | 292 | core |
 | `synapse-services/sms_provider/aliyun.rs` | 98.45% → 98.44% | +1/−3 | 192 |  |
 
-已抽查第一条（`auth_discovery.rs`）：`get_auth_issuer` 被整函数删除（−28），同时新增 13 行
-未覆盖代码 ⇒ 命中行与分母同时变动。它**不是**"测试被删"，但那 13 行确实没有测试 ——
-属于"要么给新代码补测试、要么接受它"，与 §3.1.7 里 `DENOM` 的处理方式一致。
+#### 3.1.7.7 四条 core L4 的逐条裁决（2026-10-28，全部带逐行证据）
+
+L4 里 4 条落在 core-path，先看这 4 条。判据不看比例，直接读 lcov 的 `DA:` 行
+（哪几行**现在**没被执行），再对回源码：
+
+| 文件 | 当前 | 未执行的行 | 裁决 |
+|---|---|---|---|
+| `synapse-web/routes/handlers/auth_discovery.rs` | **7/36 = 19.4%** | `build_oidc_discovery` **整函数**（18–47）+ 成功返回 59 | **真缺口，已补（见下）** |
+| `synapse-web/routes/admin/register.rs` | 126/186 = 67.7% | 错误映射 `map_admin_register_service_error`、`extract_registration_client_ip`、captcha 分支 | 真缺口（多为错误/边缘分支），**非本轮退化** |
+| `synapse-services/auth/login.rs` | **186/192 = 96.9%** | 6 行：`PasswordHashError::Timeout` 分支 + 3 处 tracing | **无需动作**（降幅来自删掉了已覆盖的行） |
+| `synapse-e2ee/device_keys/models.rs` | **273/276 = 98.9%** | 3 行：`default_json_object`（serde 缺字段时的默认值 fn） | **无需动作**（同上） |
+
+**`auth_discovery.rs` 的缺口不是"少写了几行测试"**：`get_auth_metadata` 的**成功路径**
+一条用例都没有 —— 全文 36 行可执行代码，只有 `M_UNRECOGNIZED` 那条错误路径被执行过
+（7 行）。而且 2026-10 新加的 RFC 8414 §2 逻辑（"没有机密客户端时只广告 `none`"）
+**此前没有任何断言**，客户端正是拿这个字段决定用什么方式换 token；只广告
+`client_secret_basic` 会让只会用 `client_secret_post` 的 SDK 静默退回密码登录。
+
+已补两条（`tests/integration/api_auth_routes_tests.rs`，走 `setup_fresh_test_app_with_config`
+把内置 OIDC 打开）：
+
+- `test_auth_metadata_advertises_public_clients_only_without_confidential_secrets`
+  —— 无 `client_secrets` ⇒ 只广告 `["none"]`，并校验三个端点都由 `issuer` 拼出；
+- `test_auth_metadata_advertises_secret_methods_once_confidential_clients_exist`
+  —— 登记一个机密客户端 ⇒ `["none", "client_secret_basic", "client_secret_post"]`。
+
+变异自证（各跑一次真集成测试，每次 ~2 min）：
+
+| 变异 | 结果 |
+|---|---|
+| 退回旧行为（只写 `["client_secret_basic"]`） | **2 条新用例同时红** |
+| 漏掉 `client_secret_post`（其余不变） | **只有第二条红**，第一条仍绿 ⇒ 两条用例各管一件事，不是重复 |
+
+顺带说明为什么**不**用文件内 `#[cfg(test)] mod tests` 测它：内联测试代码**同样进该文件的
+llvm-cov 分母**且几乎 100% 命中 —— 那样做会把 19.4% 直接"提升"到高位，测的是自己而不是
+被测代码（这正是 §3.1.7.6 里 L3 那 14 条揭示的口径）。所以选择集成测试：它从路由进去，
+顺带覆盖中间件与序列化。
 
 **试过并否掉的估计器（写下来免得再试一次）**：曾想用
 `LF_prev ≈ 文件行数(floor) × (LF_now / 文件行数_now)`、再由 `pct` 反算命中行。
