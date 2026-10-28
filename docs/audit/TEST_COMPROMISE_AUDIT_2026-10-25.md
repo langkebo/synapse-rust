@@ -1014,6 +1014,56 @@ llvm-cov 分母**且几乎 100% 命中 —— 那样做会把 19.4% 直接"提�
 - **不给这 128 条补 `--allow-lower`**：那是把 floor 下调到当前值，等于承认"以后不许涨回来"，
   与"这些下降大多是口径"这个结论正好相反。`--allow-lower` 只用于**已确认的合法重构**。
 
+#### 3.1.7.8 `admin/register.rs` 的门禁分支：缺口全在"非默认配置"里（2026-10-28 已补 9 条）
+
+§3.1.7.7 把 `routes/admin/register.rs`（67.7%，core）判为"真缺口但非退化"。逐行读 `DA:`
+之后病因很具体：**60 条未命中行全部落在非默认配置分支上**。
+
+| 分支 | 未命中行 | 为什么默认配置下永远走不到 |
+|---|---|---|
+| `ensure_admin_registration_ip_policy` | 135–152 | `ip_whitelist` 默认空 ⇒ 第 132 行就 `return Ok(())` |
+| `extract_registration_client_ip` | 99–102 | 只被上一行调用 |
+| captcha 三段 | 175–192 | `require_captcha` 默认 `false` |
+| 人工审批两段 | 196–203 | `require_manual_approval` 默认 `false` |
+| 未启用 / 缺 `shared_secret` | 220 / 225 / 255 | 测试配置里是开着的 |
+| 字段校验失败 | 248 | 既有用例都发合法 payload |
+| `map_admin_register_service_error` | 83–95 | 需要"合法 nonce + 错 mac"才打到 |
+
+这不是"数字不好看"：**IP 白名单与人工审批令牌是授权控制**。它们默认关着，所以从来
+没有用例走过；而运维一旦打开，正是最需要有人验证它们真的在把关的时候 —— 配错的表现是
+"任何人知道 nonce 流程就能注册管理员"。
+
+**顺带纠正一处"绿了但测的是另一层"**：`api_input_validation_tests.rs` 里那两条
+`x-forwarded-for` 用例（8.8.8.8 ⇒ 403、127.0.0.1 ⇒ 200）断言的是 **`LocalhostGuard`**
+（消息 `Admin registration is only available from localhost`），不是 handler 的白名单
+（消息 `Admin registration source IP is not allowed`）。两者都返回 403，只判状态码会
+把"guard 拦住了"当成"白名单生效了"。新用例把 `allow_external_access` 打开让 guard 放行，
+才真正打到 handler 那一层，并**断言 message**。
+
+新增 `tests/integration/admin_register_controls_tests.rs`（9 条）：
+
+| 用例 | 钉住的东西 |
+|---|---|
+| `nonce_is_refused_when_admin_registration_is_disabled` | 未启用 ⇒ 400 + 明确措辞 |
+| `nonce_is_refused_when_the_shared_secret_is_missing` | 配了一半（enabled 但无密钥）⇒ 400 |
+| `nonce_is_refused_when_the_peer_is_outside_the_ip_whitelist` | 对端不在白名单 ⇒ 403，且是 handler 那句 |
+| `nonce_is_refused_when_the_forwarded_client_is_outside_the_ip_whitelist` | 反代场景：对端回环、转发头外部 ⇒ 403；**同 app 内**转发头回环 ⇒ 200（反向对照） |
+| `register_demands_a_captcha_id_when_captcha_is_required` | 缺 `captcha_id` ⇒ 400 |
+| `register_demands_a_captcha_code_when_the_id_is_present` | 有 id 缺 code ⇒ 400，且点名缺哪个 |
+| `register_requires_an_approval_token_that_actually_matches` | 缺 ⇒ 400；错 ⇒ 403；**前缀** 也不许过 |
+| `register_rejects_a_too_short_password_before_touching_the_service` | 校验失败 ⇒ 400 `M_INVALID_PARAM`，不掉进服务层变 500 |
+| `a_wrong_hmac_is_a_client_error_not_a_server_error` | 合法 nonce + 错 mac ⇒ 400 且点名 HMAC（此前该映射函数零执行） |
+
+变异自证（每次都跑真集成测试）：
+
+| 变异 | 结果 |
+|---|---|
+| `if false && !ip_matches_whitelist(remote_ip, …)`（对端白名单失效） | 对端用例红 |
+| `if false && !ip_matches_whitelist(client_ip, …)`（转发头白名单失效） | 转发头用例红（**另一个** if，两个变异各打一处） |
+| `approval_token_matches` 恒返回 `true` | 审批令牌用例红 |
+
+实测：9/9 绿（15.7 s）。覆盖率增益不在这里给数字 —— 下一轮完整报告出来才算数。
+
 ### 3.2 性能验收只有报告，没有断言
 
 `tests/performance/appservice_scheduler_perf_tests.rs` 的 **2 条用例全部** `#[ignore]`（`reason` 写明

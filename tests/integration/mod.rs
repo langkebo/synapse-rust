@@ -1,4 +1,5 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod admin_register_controls_tests;
 mod api_account_data_routes_tests;
 mod api_account_status_tests;
 mod api_admin_audit_tests;
