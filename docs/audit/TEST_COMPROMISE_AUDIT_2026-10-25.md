@@ -1121,6 +1121,50 @@ llvm-cov 分母**且几乎 100% 命中 —— 那样做会把 19.4% 直接"提�
   `user_service.rs` 里都有调用、`user_service_tests.rs` 里还有测试替身。**"搜不到"必须先
   换成 `grep -E` 或专用检索工具再说。**
 
+#### 3.1.7.10 §3.1.7.9 A 组第一条已补：SAML 配置脱敏（2026-10-28）
+
+`sampled` 里 5 条真缺口按风险排序，第一条是 `saml_service.rs` 的 `sanitized_base_config`
+—— 它把 SAML 配置交给管理端 UI，必须把私钥、证书、元数据 XML 与文件路径换成布尔量。
+漏一个字段不是"覆盖率少一点"，是私钥泄漏。
+
+补了 4 条用例（`mod tests` 内，跟随该文件既有 40+ 条内联测试的约定）：
+
+| 用例 | 断的东西 |
+|---|---|
+| `sanitized_base_config_never_serializes_secret_material` | 四个哨兵串一个都不许出现在序列化结果里（**反向断言**） |
+| `sanitized_base_config_reports_absent_secrets_as_false` | 都没配时三个布尔量必须 `false`（否则"恒 true"也能过） |
+| `sanitized_base_config_counts_path_only_secrets_as_present` | 只配 `*_path` 也算已加载（`a.is_some()` `\|\|` `b.is_some()` 的另一半） |
+| `effective_config_without_overrides_equals_the_sanitized_base` | 无覆盖时逐键等于脱敏视图 |
+
+变异自证（三处，各跑一次真测试）：
+
+| 变异 | 结果 |
+|---|---|
+| 把 `sp_private_key` 原样写进脱敏视图 | 第 1 条红 |
+| `has_sp_private_key` 恒 `true` | 第 2 条红 |
+| 去掉 `\|\| sp_private_key_path.is_some()` | 只有第 3 条红（另两条仍绿 ⇒ 不是重复断言） |
+
+**为什么最后是"整个测试模块外移"，而不是加几条内联用例**：
+
+1. 先按文件约定把 4 条写进 `mod tests` —— 文件从 1605 涨到 1693，`check_file_size_ratchet.py`
+   立刻判红（`saml_service.rs: 1605 -> 1693`）。这个文件已经**贴住**自己的历史上限，
+   再加一行都非法。
+2. 想放 `tests/unit/` 避开分母：但 `saml_service` 与 `synapse-storage::saml` 都在
+   `#[cfg(feature = "saml-sso")]` 后面，而**没有任何一条 unit 车道开这个 feature**
+   （默认车道 `--features test-utils,burn-after-read,server-notifications`；all-features 车道带
+   `-E` 过滤器）⇒ 放出去就是永不执行的死测试。
+3. 于是按棘轮自己的建议（"split the file"）把 `mod tests` **整体**搬到
+   `synapse-services/src/saml_service/tests.rs`，用 `#[cfg(test)] #[path = ...] mod tests;` 声明：
+   `use super::*` 仍能访问私有项，而两个文件分别计行数 —— 主文件 **1605 → 1197**，
+   测试文件 **507 行**（< 600），4 条新用例并在里面。
+
+副产品：`saml_service.rs` 从此离上限有 400 行余量；测试文件落在 `*/tests.rs` 口径内，
+**不进**生产静默忽略统计（实测 `check_doc_metrics` 的生产桶没变，只有 clippy 扫描文件数 832 → 833）。
+
+⚠️ 仍未变的结论：这 4 条**不能**读成"覆盖率涨了 X 点"。外移之后测试代码不再进该文件的
+llvm-cov 分母，所以 `saml_service.rs` 的 pct 会明显上升 —— 那是**口径回归到正确**，
+不是新增覆盖；真正的收益是那 39 行生产代码第一次被断言。
+
 ### 3.2 性能验收只有报告，没有断言
 
 `tests/performance/appservice_scheduler_perf_tests.rs` 的 **2 条用例全部** `#[ignore]`（`reason` 写明
