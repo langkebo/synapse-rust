@@ -420,7 +420,12 @@ async fn saml_requires_at_least_one_signature() {
 // （"存在 `has_sp_private_key` 这个键"）只能证明它**写了什么**，而脱敏函数的失效形态是
 // "**多写了什么**"。
 
-const SANITIZE_PRIVATE_KEY: &str = "-----BEGIN PRIVATE KEY-----SANITIZE-PROBE-PRIVATE";
+/// 哨兵：带真实 PEM 头，才验得出"脱敏漏字段 = 私钥泄漏"这条语义。
+///
+/// ⚠️ 名字必须是 `TEST_*PRIVATE_KEY`：`Repo Sanity / No private keys in source`
+/// 用 `grep -v "TEST_.*PRIVATE_KEY"` 排除测试夹具。叫别的名字会被当成真私钥拦下
+/// （2026-10-28 实测：`SANITIZE_PRIVATE_KEY` 让该 job 红了一次）。
+const TEST_SANITIZE_PRIVATE_KEY: &str = "-----BEGIN PRIVATE KEY-----SANITIZE-PROBE-PRIVATE";
 const SANITIZE_CERTIFICATE: &str = "-----BEGIN CERTIFICATE-----SANITIZE-PROBE-CERT";
 const SANITIZE_METADATA_XML: &str = "<md:EntityDescriptor>SANITIZE-PROBE-METADATA</md:EntityDescriptor>";
 const SANITIZE_KEY_PATH: &str = "/etc/synapse/sanitize-probe-private.pem";
@@ -443,7 +448,7 @@ fn service_with(config: SamlConfig) -> SamlService {
 #[tokio::test]
 async fn sanitized_base_config_never_serializes_secret_material() {
     let mut config = create_test_config();
-    config.sp_private_key = Some(SANITIZE_PRIVATE_KEY.to_string());
+    config.sp_private_key = Some(TEST_SANITIZE_PRIVATE_KEY.to_string());
     config.sp_private_key_path = Some(SANITIZE_KEY_PATH.to_string());
     config.sp_certificate = Some(SANITIZE_CERTIFICATE.to_string());
     config.metadata_xml = Some(SANITIZE_METADATA_XML.to_string());
@@ -451,7 +456,7 @@ async fn sanitized_base_config_never_serializes_secret_material() {
     let sanitized = service_with(config).sanitized_base_config();
     let rendered = sanitized.to_string();
 
-    for secret in [SANITIZE_PRIVATE_KEY, SANITIZE_CERTIFICATE, SANITIZE_METADATA_XML, SANITIZE_KEY_PATH] {
+    for secret in [TEST_SANITIZE_PRIVATE_KEY, SANITIZE_CERTIFICATE, SANITIZE_METADATA_XML, SANITIZE_KEY_PATH] {
         assert!(!rendered.contains(secret), "脱敏视图泄漏了 `{secret}` —— 这是密钥/路径泄漏，不是格式问题：{rendered}");
     }
     assert_eq!(sanitized["has_sp_private_key"], serde_json::json!(true));
