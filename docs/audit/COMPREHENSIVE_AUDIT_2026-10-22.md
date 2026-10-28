@@ -193,7 +193,7 @@
 
 | 度量 | 真值 | 命令 / 来源 |
 |---|---|---|
-| 测试文件 | **404**（`.rs` **316**；unit **136** / integration **169** / e2e **3** / perf **5**） | `python3 scripts/ci/check_doc_metrics.py --print` |
+| 测试文件 | **405**（`.rs` **317**；unit **137** / integration **169** / e2e **3** / perf **5**） | `python3 scripts/ci/check_doc_metrics.py --print` |
 | 基线索引定义 | **344** | 同上 |
 | 活路由 / 派生表行 / `INDEXES.md` 人工表 | **979** / **981** / **134** | 同上（`LIVE_ROUTES` / `DERIVED_TABLE_ROWS` / `INDEXES_DOC_ROWS`） |
 | clippy allow | **160 处 / 111 文件**（扫描 **833** 个 `.rs`）；其中无理由 **0 / 0**（棘轮基线） | `python3 scripts/ci/check_clippy_allow_ratchet.py`（全量站点走其 `scan()`） |

@@ -1284,6 +1284,34 @@ mod tests {
 | 把 census 回退到 HEAD 版本（即不解析 `#[path]`） | 新增用例 `cfg_test_gated_path_submodule_is_excluded_from_production` 红，报出 `src/foo/tests/prune_tests.rs` 被算成生产 |
 | 只改 `test_ddl_allowlist` 的新增两条中任意一条 | `no_unallowlisted_self_built_schema_in_test_regions` 红（恢复后 9/9 绿） |
 
+#### 3.1.7.12 A 组第 4 条已补：`cache/error.rs` 的健康度指标（2026-10-28）
+
+`DegradationMetrics::hit_rate()` / `degradation_rate()` 直接进监控面板与告警阈值，此前零断言。
+补 6 条落在 `tests/unit/degradation_metrics_tests.rs`（**新文件），没有并进
+`synapse-cache/src/error.rs` 的内联 `mod tests` —— 理由同 §3.1.7.10：内联测试代码会进该文件的
+llvm-cov 分母且近 100% 命中，"补测试"就变成给自己刷分。
+
+| 用例 | 断的东西 |
+|---|---|
+| `hit_rate_is_zero_when_nothing_has_been_observed` | `0/0` 收敛成 `0.0`，**且不是 NaN**（NaN 会让告警表达式里的比较全部变 `false` ⇒ 不报错也不告警） |
+| `hit_rate_puts_both_tiers_in_the_same_denominator` | 3 命中 / 4 次查找 = **75.0**（分母少算一层得 50% 或 100%） |
+| `hit_rate_reaches_100_when_every_lookup_hit` | 全命中 = 100.0，上界不被击穿 |
+| `degradation_rate_is_zero_when_no_request_was_degraded` | 有回落但 `total_degraded_requests == 0` ⇒ 0.0，**且 `is_finite()`**（不是 inf/NaN） |
+| `degradation_rate_counts_only_fallback_operations_in_the_numerator` | 1 次回落 / 4 次降级 = **25.0**（把熔断拒绝也算进分子得 75%，分子=分母得 100%） |
+| `degradation_rate_reaches_100_when_every_degraded_request_fell_back` | 全部回落 = 100.0 |
+
+变异自证：把 `hit_rate()` 的分母改成只算本地一层（丢掉两个 Redis 项）⇒ 两条命中率用例红，
+实测得 **150.0 / 200.0**。比"数字偏小"更能说明问题：它直接击穿了函数文档承诺的
+`[0.0, 100.0]` 区间 —— 面板上会显示 200% 的命中率。恢复后 6/6 绿。
+
+⚠️ 连带（实测踩到）：**新增一个测试文件会牵动 5 处镜像数字**，`check_doc_metrics.py`
+一次只报一条，必须逐个跑：
+`docs/audit/COMPREHENSIVE_AUDIT_2026-10-22.md` §0.4 的「测试文件」行（总数 + `.rs` 数两项）、
+`.trae/rules/project_rules.md` 的 `tests/unit` 目录注释、
+`docs/synapse-rust-vs-synapse-comparison.md` 的「测试文件数」「测试分层」两行、
+`TESTING.md` 的 `TEST_FILES_*` 块（`TESTS_DIR` / `TESTS_DIR_RS` / `UNIT` 三个键）；
+外加 `tests/unit/mod.rs` 注册一行。
+
 ### 3.2 性能验收只有报告，没有断言
 
 `tests/performance/appservice_scheduler_perf_tests.rs` 的 **2 条用例全部** `#[ignore]`（`reason` 写明
@@ -2270,3 +2298,108 @@ synapse-common/src/tracing.rs: LH=84/LF=85 = 98.82%
 
 **重开条件**：出现"实现所在包被 `--exclude`、其测试却只存在于其它包、补测试后仍无法记账"的文件时，
 再按 §B 的双向闭式验证法实测该 flag。
+
+### 7.8 S1：补全报告范围，并修掉由此暴露的**分母口径**缺陷（2026-10-28）
+
+#### 7.8.1 三处改动
+
+| 文件 | 改动 | 为什么 |
+|---|---|---|
+| `scripts/ci/run_coverage.sh` | 步骤 2 的报告加 `REST_REPORT_ARGS`，**9 个工作区成员全部显式 `-p`**（含 `synapse-storage`）；测试范围仍是 `--workspace --exclude synapse-storage` | `cargo llvm-cov report` 不带 `-p` 时按"当前包"过滤（实测根 crate 口径只有 18 个文件）。之前 8 个包是逐个手写的，漏一个就静默少覆盖，且 storage 只在 leg 1 出现 |
+| `scripts/merge_lcov.py` | 同一 `SF` 出现在多条腿时，`LF`/`LH` 改为**取输入单腿值与 DA 下界中的较大者**，不再 `LF = len(da)` | 见 7.8.3：旧实现在"同一文件进两条腿"时会**换掉分母定义** |
+| `scripts/check_file_coverage.py` | `[DECL-ONLY]` 豁免从"仅新增文件"放宽到"基线已知且基线值也为 0"的文件 | 见 7.8.4 |
+
+#### 7.8.2 报告范围扩大的实测影响：**非 storage 文件 524/524 逐字节不变**
+
+用磁盘上残留的 22 个 `.profraw` 生成两份报告（同一份 profraw，只改 `-p` 过滤）：
+
+| 报告范围 | 文件数 | 与"9 包"对比 |
+|---|---|---|
+| 旧口径（8 包，无 storage） | 524 | — |
+| 新口径（9 包，含 storage） | 676 | only-in-old = 0，only-in-new = **152（全是 storage）** |
+
+524 个非 storage 文件的记录**完全相同（identical=524, different=0）** ⇒ 这次改动对它们零扰动；
+多出来的 152 条正是 storage。副作用在 7.8.3。
+
+#### 7.8.3 副作用：同一文件进两条腿后，旧 `merge_lcov.py` 会把分母改写
+
+storage 现在在 leg 1（`-p synapse-storage --lib`）和 leg 2 的报告里**都出现**，
+于是 152 个 storage `SF` 全部走"merged"分支，旧实现按 `LF = len(da)` 重算总数。
+
+**llvm-cov 的 `LF` 本就大于 `DA` 行数**（函数定义行等"幽灵行"有覆盖区域但没有执行计数），
+所以这不是四舍五入，而是**换了分母定义**：
+
+| 口径 | `synapse-storage/src/membership/mod.rs` |
+|---|---|
+| llvm-cov 单记录 | LF=1019 / LH=450 = **44.2%**（DA 590 行、命中 403） |
+| 旧 merged 分支 | LF=590 / LH=403 = **68.3%** |
+
+152 个 storage 文件里 **131 个**受影响（LF 被砍掉的幅度 top5：`membership/mod.rs` −429、
+`test_mocks/event.rs` −411、`sliding_sync/repository.rs` −332、`push/mod.rs` −293、
+`application_service/repository.rs` −266）。聚合口径上，旧实现把 storage 的 82.55% **抬高到 87.40%**
+（LF 48400→42010、LH 39955→36715）—— 也就是说：**旧实现不是压低、而是虚高**，
+和"合并只会把值抬高"的直觉相反，因为它的"抬高"来自把没命中的分母整个删掉。
+
+**修法与自证**：`LF = max(各输入 LF, len(merged DA))`、`LH = max(各输入 LH, DA 命中行数)` 并 `min(lh, lf)`；
+真并集的幽灵行无法从 lcov 观测，取 max 是保守下界（不会凭空造出任何输入没报过的覆盖率）。
+
+实测（合成夹具，见 7.8.6 的守卫用例）：A(`DA:1,1 DA:2,0 LF:10 LH:5`) + B(`DA:1,0 DA:2,1 DA:3,0 LF:10 LH:5`)
+→ 合并 `LF:10 LH:5`（旧实现给 `LF:3`）；单来源记录的 LF/LH 原样保留。
+
+实测（真实产物，`/tmp/s1_ab_storage.lcov` + `/tmp/s1_ab_9.lcov` 合并）：
+
+| 指标 | 单腿记录 | 修复后合并 | 差异 |
+|---|---|---|---|
+| 152 个 storage 文件的 LF/LH | LF=48400 LH=39955 | LF=48400 LH=39955 | **0 处不一致** |
+
+⇒ storage 的百分比重新与"单腿记录"（也就是基线记录时的口径）可比。
+
+#### 7.8.4 `[DECL-ONLY]` 放宽：只对"本来就 0"的文件生效
+
+旧条件要求 `prev is None`，于是基线里**已知为 0** 的纯声明文件（只有 `fn …;`）永远拿不到豁免。
+新条件：`coverable ≤ 3` ∧ `cur == 0.0` ∧ (`prev is None` ∨ `prev == 0.0`)。
+基线值 > 0 的文件仍走原来的回归比较（`prev > 0` 时绝不进豁免分支），回归保护没有放松。
+
+本轮命中的只有 2 个：`synapse-services/auth/credential_auth.rs`、`synapse-services/auth/token_auth.rs`
+（各 2 行可覆盖、0 命中）。
+
+#### 7.8.5 完整跑一次的读数（修复前 vs 修复后）
+
+修复前的完整 `bash scripts/ci/run_coverage.sh`（EXIT=1）：
+
+| 指标 | 读数 |
+|---|---|
+| 合并报告 | `files=676, LF=206098, LH=151090, coverage=73.31%` |
+| 棘轮 | **154 红** = 150 `[TOUCHED]` + 4 `[NEW]` |
+
+用同一份 profraw 按修复后的合并逻辑重算：
+
+| 指标 | 修复前 | 修复后 |
+|---|---|---|
+| `files` | 676 | 676 |
+| `LF` | 206098 | **212488**（+6390，正好等于被旧实现砍掉的 storage 幽灵行） |
+| `LH` | 151090 | **154330** |
+| `coverage` | 73.31% | **72.63%**（−0.68 pt） |
+
+4 个 `[NEW]` 全是基线快照之后新增的文件，与 S1 无关：
+`synapse-common/test_database_guard.rs` 14.8%、`synapse-services/builtin_oidc_provider.rs` 0.0%、
+`synapse-services/worker/event_sink.rs` 0.0%、`synapse-services/worker/topology_metrics.rs` 43.6%。
+
+同一轮还有 10 个测试失败、3 个 target 红（`thumbnails.is_animated` 列缺失、`RUST_TEST_THREADS`
+污染、381 个孤儿 test schema），**不是 S1 引入**：`grep "test result:"` 复核为
+**passed=10909 / failed=10**，覆盖率主体确实跑过。
+
+#### 7.8.6 结论
+
+1. **对非 storage 文件零扰动**：524/524 记录逐字节相同（7.8.2）。
+2. **storage 的 DA 行集不变**，变的只是分母记账；修复后 152/152 与单腿记录一致（7.8.3）。
+3. **两批红都不能归因于 S1**：
+   - 非 storage 的红是既有漂移/环境（如 `synapse-common/config/mod.rs` −53.1%、`logging.rs` −43.6%）；
+   - storage 的红在修复分母后与基线才是同一口径，仍然红 ⇒ 是真漂移（基线快照早于当前代码，
+     4 个 `[NEW]` 即为证据）。
+4. **本轮不动基线**：重定基线需单独批准，且禁止 `--update` / `--save-baseline`。
+5. **守卫**：`tests/unit/coverage_leg_resilience_tests.rs` 新增
+   `merging_the_same_file_from_both_legs_keeps_the_lf_denominator`（同一 `SF` 两腿、各自 LF>DA 行数时，
+   合并结果不得塌成 DA 计数）。三个相关模块实测全绿：
+   `coverage_leg_resilience_tests` 11 passed / `coverage_ratchet_exemption_tests` 9 passed /
+   `pr_coverage_lane_tests` 13 passed。

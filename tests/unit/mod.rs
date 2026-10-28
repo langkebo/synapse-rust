@@ -172,3 +172,6 @@ mod server_notification_service_tests;
 mod sync_helpers_tests;
 mod u13_interop_fixture_tests;
 mod user_service_tests;
+
+// 缓存降级指标（命中率 / 降级率）的取数口径
+mod degradation_metrics_tests;
