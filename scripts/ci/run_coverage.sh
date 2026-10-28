@@ -76,6 +76,33 @@ if [ "${template_tables:-0}" -lt 100 ]; then
     exit 1
 fi
 
+# 锁表上限是**环境前置条件**，而且它的缺失会伪装成"上百个测试失败"：
+# 单个 `DROP SCHEMA … CASCADE` 在 v12 基线（227 表 / 707 索引 / 182 序列）上要约
+# 1200 个锁条目，`max_locks_per_transaction=64`（镜像默认）时清理与克隆会以
+# `53200 out of shared memory` 失败（`scripts/cleanup_test_schemas.sh` 头部有同一条结论）。
+# 这里只**报告**、不改配置：CI 的 service container 无法传 `-c max_locks_per_transaction`
+# （ci.yml 已在源码层确认 runner 把 `-c` 当 `--cpu-shares`）。
+max_locks="$(psql "$TEST_DATABASE_URL" -tAc 'SHOW max_locks_per_transaction' 2>/dev/null || true)"
+case "$max_locks" in
+    '' | *[!0-9]*) max_locks='?' ;;
+esac
+log "max_locks_per_transaction = ${max_locks}"
+if [ "$max_locks" != '?' ] && [ "$max_locks" -lt 128 ]; then
+    log "WARNING: 锁表上限 ${max_locks} < 128。DROP/克隆密集路径可能报 53200 out of shared memory，"
+    log "         而它会被表达成**测试失败**而不是环境问题。本地修法：bash scripts/tune_test_db.sh"
+fi
+
+# `cargo llvm-cov report` 只看 target 目录里的 profraw，**不区分是哪一轮写的**。
+# 上一轮被 kill（超时/手动中断）时 profraw 会留在磁盘上，于是本轮报告混进旧数据
+# ⇒ 覆盖率虚高 ⇒ 棘轮**假绿**（比无数据更糟，且事后不可见）。
+# 直接删比 `cargo llvm-cov clean --workspace` 便宜得多：后者会清掉已编译产物、
+# 触发全量重编（CI 上十分钟量级）。路径随 `CARGO_TARGET_DIR` 走，测试才能隔离。
+LLVM_COV_TARGET_DIR="${CARGO_TARGET_DIR:-target}/llvm-cov-target"
+if [ -d "$LLVM_COV_TARGET_DIR" ]; then
+    stale_profraw="$(find "$LLVM_COV_TARGET_DIR" -name '*.profraw' -print -delete 2>/dev/null | wc -l | tr -d ' ')"
+    log "清掉上一轮残留的 profraw: ${stale_profraw} 个"
+fi
+
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 STORAGE_LCOV="$TMP_DIR/storage.lcov"
@@ -95,15 +122,63 @@ log "OUTPUT_DIR              = $OUTPUT_DIR"
 # `Run coverage` exit 101。这里与那条车道保持同一口径（本地跑覆盖率也一并覆盖这些用例）。
 export E2EE_INTEROP=1
 
-log "步骤 1/3: synapse-storage 单独跑（单线程，db_tests 直连 public）"
-RUST_TEST_THREADS=1 cargo llvm-cov -p synapse-storage \
-    --features "$STORAGE_FEATURES" --lib \
-    --lcov --output-path "$STORAGE_LCOV"
+# ── 一条腿的执行：**测试失败也必须留下覆盖率数据** ────────────────────────────
+#
+# 旧实现直接把 `--lcov --output-path` 交给 cargo-llvm-cov，于是"先跑测试再写报告"
+# 被绑成一次调用：**测试失败 ⇒ 报告根本不写**（cargo-llvm-cov 0.8.7 实测，见
+# docs/audit/TEST_QUALITY_FINDINGS_2026-10-28.md §6.1）。在 CI 上的后果不是"少一个
+# 数字"，而是整条车道的产出被抹掉：`Run coverage` 一红 ⇒ `Per-file coverage ratchet`
+# 无数据可比 ⇒ per-file 棘轮**从未真正执行过**，而 §4 里"134 个文件未定性"正是这么来的。
+#
+# 拆成两步即可解耦：`--no-report` 只跑测试（失败也无妨，profraw 已经写到磁盘），
+# 再由 `cargo llvm-cov report` 从 profraw 生成报告。`--no-fail-fast` 让一个测试
+# binary 失败时不至于让后面的 binary 根本不跑（否则数据只覆盖前半截）。
+#
+# 退出码语义**不变**：任何一条腿有失败，脚本最后仍以非零退出（红还是红），
+# 只是数据先落盘、可被下载与定性。
+COVERAGE_LEG_FAILURES=0
+LEG_ARGS=()
 
-log "步骤 2/3: 其余 crate + 集成测试（--exclude synapse-storage）"
-RUST_TEST_THREADS="$TEST_THREADS" cargo llvm-cov --workspace --exclude synapse-storage \
+run_leg() {
+    local label="$1" output="$2" arg inserted=0 test_rc=0
+    shift 2
+    log "$label"
+
+    # `--no-report` / `--no-fail-fast` 是 **cargo** 的参数，必须落在 `--` 之前；
+    # 直接追加到末尾的话（步骤 2 带 `-- --skip …`）会被当成测试 harness 参数，
+    # libtest 不认识 ⇒ 整条腿报 "unexpected argument"。
+    LEG_ARGS=()
+    for arg in "$@"; do
+        if [ "$inserted" -eq 0 ] && [ "$arg" = "--" ]; then
+            LEG_ARGS+=("--no-report" "--no-fail-fast")
+            inserted=1
+        fi
+        LEG_ARGS+=("$arg")
+    done
+    if [ "$inserted" -eq 0 ]; then
+        LEG_ARGS+=("--no-report" "--no-fail-fast")
+    fi
+
+    "${LEG_ARGS[@]}" || test_rc=$?
+
+    if ! cargo llvm-cov report --lcov --output-path "$output"; then
+        log "ERROR: $label 的报告生成失败（profraw 没写出来？编译阶段就挂了？）"
+        COVERAGE_LEG_FAILURES=$((COVERAGE_LEG_FAILURES + 1))
+        return 0
+    fi
+    if [ "$test_rc" -ne 0 ]; then
+        log "WARNING: $label 有测试失败（rc=${test_rc}）；覆盖率数据仍已落盘，红由本步骤的退出码保留"
+        COVERAGE_LEG_FAILURES=$((COVERAGE_LEG_FAILURES + 1))
+    fi
+}
+
+run_leg "步骤 1/3: synapse-storage 单独跑（单线程，db_tests 直连 public）" "$STORAGE_LCOV" \
+    env RUST_TEST_THREADS=1 cargo llvm-cov -p synapse-storage \
+    --features "$STORAGE_FEATURES" --lib
+
+run_leg "步骤 2/3: 其余 crate + 集成测试（--exclude synapse-storage）" "$REST_LCOV" \
+    env RUST_TEST_THREADS="$TEST_THREADS" cargo llvm-cov --workspace --exclude synapse-storage \
     --features "$REST_FEATURES" \
-    --lcov --output-path "$REST_LCOV" \
     -- --skip ledger_export_tests
 
 log "步骤 3/3: 合并 lcov"
@@ -120,3 +195,8 @@ log "棘轮：python3 scripts/check_file_coverage.py --report $OUTPUT_DIR/lcov.i
 log "        --baseline scripts/ci/coverage_baseline.json --global-floor 40 --new-file-floor 50 \\"
 log "        --core-files scripts/ci/core_file_coverage_prefixes.txt --core-threshold 70 \\"
 log "        --non-unit-coverable scripts/ci/non_unit_coverable_prefixes.txt"
+
+if [ "$COVERAGE_LEG_FAILURES" -ne 0 ]; then
+    log "ERROR: ${COVERAGE_LEG_FAILURES} 条腿有失败。报告已生成（供下载与定性），但本步骤按失败退出。"
+    exit 1
+fi

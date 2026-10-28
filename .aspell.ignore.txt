@@ -724,6 +724,7 @@ presencestorage
 prev
 probabilistically
 proc
+profraw
 prometheus
 prometheusql
 promql

@@ -29,6 +29,8 @@ mod captcha_shape_only_tests;
 mod client_push_service_tests;
 mod core_api_tests;
 mod coverage_baseline_lowering_tests;
+// 覆盖率车道的产出必须与「测试是否全绿」解耦：一条假红不许抹掉整份 lcov。
+mod coverage_leg_resilience_tests;
 mod coverage_ratchet_exemption_tests;
 mod e2ee_shape_only_tests;
 mod event_report_shape_only_tests;

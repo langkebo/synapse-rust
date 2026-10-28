@@ -1551,6 +1551,35 @@ jobs:
             --core-threshold 70 \
             --non-unit-coverable scripts/ci/non_unit_coverable_prefixes.txt
 
+      # 定性步骤：把棘轮那一行短落（`19.4% < 74.6%`）翻译成**成因**
+      # （DROP / ZEROED / GONE-NOT-BUILT / GONE-SOURCE）。
+      #
+      # 为什么要单独一步、且 `if: always()`：棘轮**红的时候**才最需要回答
+      # "这是代码退步，还是这次根本没测它"，而失败后的步骤默认全部 skipped。
+      # 本步骤只报告、不判红（判红仍由棘轮负责），所以它不该反过来把 job 弄红。
+      #
+      # 历史：这个 job 的 `Run coverage` 每轮都红（一条测试假红），而 cargo-llvm-cov
+      # 在测试失败时**不写报告** ⇒ `coverage/lcov.info` 不存在 ⇒ 棘轮从未真正执行过，
+      # §4 里「134 个文件未逐条定性」正是这么积起来的。`run_coverage.sh` 已改成
+      # `--no-report` + `report` 兜底（测试失败也写出报告），这里配套把报告下载与
+      # 定性接上，否则那份报告依旧没人看得到。
+      - name: Classify coverage drift (why the ratchet is red)
+        if: always()
+        run: |
+          if [ ! -f coverage/lcov.info ]; then
+            echo "::warning::coverage/lcov.info 不存在（Run coverage 在写报告前就失败了）；跳过定性"
+            exit 0
+          fi
+          if [ ! -f scripts/ci/coverage_baseline.json ]; then
+            echo "::warning::基线缺失（首次引导轮）；跳过定性"
+            exit 0
+          fi
+          python3 scripts/ci/classify_coverage_drift.py \
+            --report coverage/lcov.info \
+            --baseline scripts/ci/coverage_baseline.json \
+            --core-files scripts/ci/core_file_coverage_prefixes.txt \
+            --markdown --only-drops
+
       - name: Upload coverage to Codecov
         # ⚠️ `fail_ci_if_error: false`（2026-09-22 用户裁定）：**门禁是 per-file 棘轮**
         # （上一步 `Per-file coverage ratchet`），Codecov 只是可视化。此前是 `true`，
@@ -1565,11 +1594,19 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Upload coverage artifacts
+        # `if: always()`：此前它排在上游各步之后、没有条件，于是 `Run coverage` 一红
+        # 就被 skipped —— 而"红"正是唯一需要这份数据的时刻（下载下来才能逐条定性）。
+        #
+        # ⚠️ 这与 §4.5 的教训是同一条：裸 `always()` 会让"报告存在"变成假象，
+        # 所以同时钉 `if-no-files-found: ignore`（缺文件只是 warning，不制造一个
+        # 与真实原因无关的失败）。
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
           path: coverage/
           retention-days: 14
+          if-no-files-found: ignore
 
       - name: Commit coverage baseline (auto-ratchet)
         # Only on main push; skip on PRs, schedules, and dispatches.

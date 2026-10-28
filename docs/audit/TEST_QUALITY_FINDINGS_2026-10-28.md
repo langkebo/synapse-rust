@@ -236,6 +236,85 @@ CI 语义，需另立决策。A8 是同一根因的另一面：判据的输入�
 而 policy 的措辞是"核心路径 ≥ 70%"。真要收紧，得先决定那 98 条是补测试还是重新划 core 面，
 **这不是一次 `--update` 能回答的**，所以本轮只记录事实，不动门槛。
 
+**顺手挖出的根因链（比"134 条"重要得多）**：`Code Coverage / Run coverage` 每轮红，
+**红的那一步与覆盖率无关**，而是「一条测试假红」+「一个把数据抹掉的机制」。
+
+证据（`gh api …/jobs/<id>/logs` 全量落盘后逐行核对，`/tmp/cc.log` 第 12120–12175 行）：
+
+1. **步骤 1（synapse-storage 单线程）是绿的**：
+   `test result: ok. 1892 passed; 0 failed; … finished in 1843.90s`。
+   —— 早期把它读成"storage 一片红"是**误判**，本轮已更正。
+2. **步骤 2（`--workspace --exclude synapse-storage`）只红一条**：
+   `test result: FAILED. 15 passed; 1 failed`，失败用例
+   `synapse-test-utils::db_schema_pool_tests::the_orphan_guard_skips_schemas_parked_for_reuse`。
+   它的 stdout 先打：
+
+   ```text
+   test schema guard: failed to drop orphan test_40507_14_…: error returned from database: out of shared memory
+   ```
+
+   然后 `panicked at synapse-test-utils/src/lib.rs:2869: the parked schema must survive the sweep`。
+3. **机制缺陷（真正的放大器）**：`cargo-llvm-cov` 在测试失败时**不写报告**。
+   本地用一个会失败的探针 crate 实测（2026-10-28）：
+
+   | 调用 | 测试结果 | `out.lcov` |
+   |---|---|---|
+   | `cargo llvm-cov --lcov --output-path out.lcov` | 1 passed / 1 failed | **MISSING** |
+   | `cargo llvm-cov --no-report` → `cargo llvm-cov report --lcov -o out.lcov` | 同上（rc=101） | 写出，1 个 `SF:` |
+
+   于是"一条测试红"直接等于"整条车道的产出消失"：`Run coverage` 101 ⇒ `coverage/lcov.info`
+   不存在 ⇒ `Per-file coverage ratchet` **无数据可比** ⇒ per-file 棘轮从未真正执行过。
+   **这才是"134 个文件未逐条定性"的第一因**，而不是数据太多没人看。
+
+**已落地的修法**（`scripts/ci/run_coverage.sh` + `.github/workflows/ci.yml`）：
+
+- 每条腿拆成 `--no-report --no-fail-fast`（只跑测试，失败也把 profraw 落到磁盘）+
+  `cargo llvm-cov report`（从 profraw 生成报告）。`--no-fail-fast` 保证一个 binary 红不让
+  后面的 binary 根本不跑；**退出码语义不变**（有腿失败仍非零退出，红还是红）。
+  ⚠️ 这两个旗标是 **cargo** 参数，必须落在 `--` 之前 —— 步骤 2 以 `-- --skip ledger_export_tests`
+  结尾，追加到末尾会被 libtest 当未知参数，整条腿零产出。
+- `coverage` job 增加 `Classify coverage drift`（`if: always()`，只报告不判红）与
+  `Upload coverage artifacts` 的 `if: always()` + `if-no-files-found: ignore`：
+  红的时候才有数据可下载，而"红"正是唯一需要这份数据的时刻。
+- 守卫：`tests/unit/coverage_leg_resilience_tests.rs`（4 例，假 cargo 断言 argv 与产物）。
+  **变异自证两次**：删掉兜底 `report` 分支 ⇒ `a_failing_leg_still_writes_the_report` FAILED；
+  把两个旗标改成追加到末尾 ⇒ `llvm_cov_flags_land_before_the_harness_separator` FAILED
+  （报错信息里直接打印了被污染的 argv）。还原后 4/4 PASS。
+- `run_coverage.sh` 现在会打印 `max_locks_per_transaction = N`，低于 128 时给出可执行修法
+  （`bash scripts/tune_test_db.sh`）。它**不替人改**配置：CI 的 service container 无法传
+  `-c max_locks_per_transaction`（ci.yml §14.13 ③ 已从源码层确认 runner 把 `-c` 当 `--cpu-shares`）。
+
+**锁表这条根因的边界（别把它当成万能解释）**：`53200 out of shared memory` 在 CI 日志里
+确实存在（同一次运行 13059/13062 行两条 server 端 ERROR），`scripts/cleanup_test_schemas.sh`
+头部也早写了"单个 `DROP SCHEMA … CASCADE` 已接近 `max_locks_per_transaction=64` 上限"。
+但它**解释不了本地的大片失败**：
+
+| 条件 | `synapse-storage --lib`（本地） |
+|---|---|
+| `max_locks_per_transaction=64`（容器默认） | **718 passed / 1174 failed** |
+| `tune_test_db.sh` 调到 256 后重跑同一命令 | **718 passed / 1174 failed**（数量完全相同） |
+| 同一环境下 `-p synapse-storage --lib -- cas::db_tests` | **24 passed / 0 failed** |
+
+三行合起来说明：本地这条腿的失败**不是**锁表造成的（调到 256 不变），也**不是**"连不上库"
+（cas 的 24 条 DB 用例全过、`test_` schema 残留已清零、跑完仍是 0）。它更像某个模块级的
+环境依赖，而**本地环境与 CI 不同款**（CI 同样的 1892 条是 1843.90 s 全绿，本地单条要约 2.7–19 s）。
+所以：CI 的失败模式是「步骤 2 的单条 orphan guard 假红」，本地的是另一件事，
+**两者不可互相佐证**。本轮不宣称本地那条已定位。
+
+**orphan guard 的归因缺陷（登记，未修）**：那条断言把三种情形压成同一句
+`the parked schema must survive the sweep` —— (i) guard 真的删了 parked schema；
+(ii) 并发进程把它删了；(iii) 它压根没建成 / 被别的清理带走。`reclaim_orphan_test_schemas`
+对 parked 名是**跳过**的（`parked.contains` 在 lease 之前），所以 (i) 在代码路径上不成立；
+但断言无法区分 (ii)/(iii)，于是"环境故障"被读成"守卫有 bug"。
+正确修法：让 `OrphanReclaimReport` 带上 `failed: Vec<(name, error)>`，断言改为
+"既不 in `dropped` 也不 in `failed`"，并对 `53200` 单独给出 error title —— 与
+`assert_no_leftover_test_databases.sh` 的三种 title 是同一套归因原则。
+
+> **仍未做**：把 `classify_coverage_drift.py` 跑在**真实** lcov 上给出 134 条与 6 条 core-path
+> 的最终名单。本地跑不通（上表：这条腿本地就不产出报告），所以改成**从 CI 取**：
+> 本轮的 `if: always()` 上传落地后，红的那一轮也会带 `coverage-report` 工件，
+> 下载后跑同一条命令即可。在此之前**禁止** `--update`、也**不**逐条改 `coverage_baseline.json`。
+
 > **仍未做**：把这套分类跑在**真实** lcov 上给出 134 条与 6 条 core-path 的最终名单。
 > 本地 `run_coverage.sh` 全量约 30–60 min，本轮已在后台启动，结论出来前不宣称"已定性"。
 > 在此之前**禁止** `--update`、也**不**逐条改 `coverage_baseline.json`。
