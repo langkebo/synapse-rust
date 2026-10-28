@@ -1064,6 +1064,63 @@ llvm-cov 分母**且几乎 100% 命中 —— 那样做会把 19.4% 直接"提�
 
 实测：9/9 绿（15.7 s）。覆盖率增益不在这里给数字 —— 下一轮完整报告出来才算数。
 
+#### 3.1.7.9 十二条非 core L4 的裁决（2026-10-28，全部不是本轮引入的退化）
+
+§3.1.7.7 处理了 4 条 core，剩下 12 条非 core。判据同前：读 `DA:` 定位缺口 → 对回源码 →
+再问一句"这个函数在 floor 那一刻存在吗"（`git show 4565cecd:<file> | grep -c "fn X"`）。
+**"现在没测"和"本轮变成没测"是两件事**，这一栏决定它是缺口还是噪音。
+
+| 文件 | 基线 → 本次 | 增/删 | LF |
+|---|---|---|---|
+| `synapse-storage/user/storage.rs` | 79.83% → 64.23% | +456/−458 | 710 |
+| `synapse-services/wiring/admin.rs` | 97.36% → 91.63% | +124/−178 | 263 |
+| `synapse-services/e2ee_audit/audit_service.rs` | 81.17% → 75.56% | +8/−87 | 180 |
+| `synapse-services/wiring/federation.rs` | 94.12% → 90.00% | +4/−27 | 20 |
+| `synapse-cache/error.rs` | 33.33% → 30.00% | +5/−5 | 90 |
+| `synapse-services/saml_service.rs` | 40.47% → 37.14% | +120/−157 | 999 |
+| `synapse-services/registration_service.rs` | 92.26% → 89.47% | +1/−7 | 152 |
+| `synapse-storage/media_quota/repository.rs` | 90.62% → 88.20% | +89/−222 | 161 |
+| `src/bin/synapse_ledger_export.rs` | 59.06% → 58.67% | +1/−1 | 150 |
+| `synapse-storage/dehydrated_device.rs` | 97.75% → 97.41% | +115/−124 | 657 |
+| `synapse-services/sliding_sync_service/state.rs` | 95.38% → 95.08% | +6/−12 | 61 |
+| `synapse-services/sms_provider/aliyun.rs` | 98.45% → 98.44% | +1/−3 | 192 |
+
+**结论：12 条没有一条是本轮引入的回归。** 缺的测试在 floor 那一刻就不存在；pct 下降来自
+"分母变大 + 删掉已覆盖的行"的组合。分成两堆：
+
+**A. 有可定位的测试缺口（5 条，值得补）**
+
+| 文件 | 未执行的东西 | floor 时已存在 | 性质 |
+|---|---|---|---|
+| `saml_service.rs` | `sanitized_base_config`（**配置脱敏**，16 行） | 是 | 安全语义没人验：脱敏漏一个字段就是密钥泄漏 |
+| `e2ee_audit/audit_service.rs` | `verify_device` + `DeviceVerificationStatus` 组装（28 行） | 是 | 设备验证审计的主路径 |
+| `user/storage.rs` | `set_deactivation_status_batch`（批量停用，10 行）与 `count_non_deactivated_users_by_app_service`（11 行） | 是 | 管理面批量操作；**有调用方**（`admin_user_service.rs:689`、`user_service.rs`）但无测试 |
+| `cache/error.rs` | `hit_rate()` / `degradation_rate()`（15 行）+ `From<ConnectionTimeout>` | 是 | 缓存健康度指标没断言；文件本身只有 30% |
+| `registration_service.rs` | `login()` 的 6 行 | 是 | 单个错误分支 |
+
+**B. 量化效应 / 口径（7 条，无需动作）**
+
+| 文件 | 为什么不用动 |
+|---|---|
+| `wiring/federation.rs` | 可执行行只有 **18 行**，1 行未命中就是 5.6 个点 —— 比例在这里没有信息量 |
+| `sliding_sync_service/state.rs` | 61 行里 3 行未命中（58/61 = 95.08%），同上 |
+| `sms_provider/aliyun.rs` | 2/186 行（错误日志与 `RequestId` 解析） |
+| `dehydrated_device.rs` | 16/610 行零散 |
+| `media_quota/repository.rs` | 9/142 行 |
+| `src/bin/synapse_ledger_export.rs` | `main()` / stdout 锁 —— 二进制入口，`--non-unit-coverable` 已豁免新文件门槛，回归比较仍保留 |
+| `wiring/admin.rs` | 22/260 行全在**启动装配**（worker topology metrics、push gateway 配置、worker_type 标签），只有端到端起栈才走到 |
+
+**两条方法论备注（都影响过我的结论）**：
+
+- **`DA:` 行是 `LF` 的子集**。`sliding_sync_service/state.rs` 的 `DA` 里 50 行全命中，
+  但记录头是 `LF:61 / LH:58` —— 差的那 3 行没有 `DA` 记录（同一行多实例/映射差异）。
+  所以逐行缺口**只能用来定位，比例一律以 `LF/LH` 为准**。第一版我按 `DA` 算，得出了
+  "这个文件 100% 覆盖但显示 95.08%" 的荒谬对照。
+- **`grep "a\|b"` 在这个 CLI 里会静默返回空**（shim 是 toybox，不支持 BRE 的 `\|`）。
+  我据此先写下"这两个存储函数零调用方"，实际它们在 `admin_user_service.rs:689` 与
+  `user_service.rs` 里都有调用、`user_service_tests.rs` 里还有测试替身。**"搜不到"必须先
+  换成 `grep -E` 或专用检索工具再说。**
+
 ### 3.2 性能验收只有报告，没有断言
 
 `tests/performance/appservice_scheduler_perf_tests.rs` 的 **2 条用例全部** `#[ignore]`（`reason` 写明
