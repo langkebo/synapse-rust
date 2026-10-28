@@ -91,13 +91,60 @@ def get_changed_files() -> list[pathlib.Path]:
     return files
 
 
+def get_added_files() -> set[str]:
+    """相对 HEAD~1 **新增**（added）的路径集合；失败时返回空集。"""
+    try:
+        result = subprocess.run(
+            ["git", "diff", "--name-only", "--diff-filter=A", "HEAD~1"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except subprocess.CalledProcessError:
+        return set()
+    return {line for line in result.stdout.strip().split("\n") if line}
+
+
+# `tests/foo.rs` / `benches/foo.rs`（直接位于目录下）才会各自成一个测试二进制。
+# `tests/unit/foo_tests.rs` 是被 `tests/unit/mod.rs` 用 `mod` 吸纳进去的，**不新建**二进制。
+_DIRECT_TEST_TARGET = re.compile(r"(?:^|/)(?:tests|benches)/[^/]+\.rs$")
+
+
 def count_new_test_files(files: list[pathlib.Path]) -> int:
-    """统计新增的测试文件数量。"""
+    """统计**真的会多出一个测试二进制**的文件数量。
+
+    ## 旧判据与它的假阳（2026-10-28）
+
+    旧实现是「改动的 `.rs` 里出现 `#[test]` 就算一个新增测试二进制」，然后按
+    `TEST_BINARY_RSS_MB`（~200MB）计入预算。这把两类**不新增二进制**的改动也算了进去：
+
+    * 在一个已有的测试模块里**加一个用例**（文件还是那个文件、二进制还是那个二进制）；
+    * 把测试从一个文件**搬到另一个文件** —— 反而会算成 +2。
+
+    实测：把 `db_schema_pool_tests` 拆出 `lib.rs`（纯移动 + 一处新用例）之后，
+    `Check memory budget` 在 `Test & Lint (1.93.0/stale, default-features)` **两条车道同时红**，
+    而那次改动一个二进制都没多出来。一个"防止 OOM"的门禁把重构当成 OOM 风险，
+    结果就是没人再敢拆文件 —— 而拆文件正是 `check_file_size_ratchet.py` 要求的动作。
+
+    现在只认**新增**且**直接位于 `tests/` 或 `benches/` 下**的 `.rs`：
+    那是 cargo 真的会为它建一个 target 的形态（`[[test]]` 在 Cargo.toml 里显式声明的
+    情形本门禁看不到，属于已知的漏报方向，宁可漏报也不误报）。
+    """
+    added = get_added_files()
     count = 0
     for f in files:
+        try:
+            rel = f.relative_to(ROOT).as_posix()
+        except ValueError:
+            continue
+        if rel not in added:
+            continue
+        if not _DIRECT_TEST_TARGET.search(rel):
+            continue
         content = f.read_text(encoding="utf-8", errors="replace")
-        # 检测 #[test] 或 #[tokio::test]
-        if re.search(r"#\[(?:tokio::)?test\]", content):
+        # 检测 #[test] / #[tokio::test] / bench harness
+        if re.search(r"#\[(?:tokio::)?test\]", content) or "harness" in content:
             count += 1
     return count
 
