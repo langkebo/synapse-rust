@@ -27,7 +27,7 @@
 | A5 | 豁免机制自身无校验：缺 `reason`、缺 `rules`、`rules` 为空集、规则编号写错，一律静默生效 | — | ✅ 已修（同 A4 提交，`validate_exemptions()` 在 `main()` 首行调用） |
 | A6 | workflow 注释里写着**不存在**的守卫函数 `ci_test_scope_tests.rs::docker_security_scan_base_images_are_read_from_the_dockerfile` | 该文件无此函数，真实守卫在 `workflow_pipefail_tests.rs` | ✅ 已修 `b900f8c30` |
 | A7 | `Digest Pin Integrity` 把三个 digest **抄一份**写死在 workflow ⇒ Dockerfile 升 pin 后仍验**旧** digest，自证不了"当前 pin 有效" | — | ✅ 已修（`read_base_image_pins.sh` 为唯一读取入口） |
-| A8 | `.githooks/pre-push` 的 `cargo deny check advisories` 把 **advisory-db 拉取失败**当成"代码有漏洞"阻断 push ⇒ 人被逼 `--no-verify`（本轮实测踩到，见 §1.1） | 输出为 `failed to prepare fetch: An IO error occurred when talking to the server`；同一棵树上 `cargo deny check advisories -d`（不 fetch）**`advisories ok`** | ✅ 已修（分层：确认是拉取失败才用本地 db 复核，且显式告警"不含最新公告"，CI 兜底） |
+| A8 | `.githooks/pre-push` 的 `cargo deny check advisories` 把 **advisory-db 拉取失败**当成"代码有漏洞"阻断 push ⇒ 人被逼 `--no-verify`（本轮实测踩到，见 §1.1） | 输出为 `failed to prepare fetch: An IO error occurred when talking to the server`；同一棵树上 `cargo deny check advisories -d`（不 fetch）**`advisories ok`** | ✅ 已修并**两侧实测**（回落放行 / 复核失败仍阻断，见 §1.2） |
 
 共性：A1 与 A2/A3 是**同一个脚本第三次**"判据写死单一合法输出形态"；A8 是**第四种**同型形态，
 但换了个位置——它把**环境故障**也折叠成"代码缺陷"。根因一致：判据的输入是外部世界（日志文本 /
@@ -49,6 +49,29 @@ error sending request for url (.../advisory-db/info/refs?service=git-upload-pack
 同树上加 `--disable-fetch`（用本地已有副本）⇒ `advisories ok`、`EXIT 0`。两条读数的差别只有
 "能不能连上 github.com"，与代码无关。钩子里的注释早就写了代理透传（`HTTPS_PROXY`），但代理本身
 返回 502，"注入代理"救不了"代理不可用"。
+
+### 1.2 A8 的修复做了两侧实测（不是"改完就算"）
+
+回落的**放行侧**：把 `HTTPS_PROXY`/`HTTP_PROXY` 指向 `http://127.0.0.1:9`（必然连不上）后直接跑钩子：
+
+```text
+[ERROR] failed to fetch advisory database ...
+⚠️  advisory-db 拉取失败（网络/代理），改用本地已存在的副本复核：99670cfc 2026-10-27
+advisories ok
+⚠️  advisories ok —— **但这是本地副本的结论，不含最新公告**；
+    以 CI 的 Security Audit 为准（它每次新拉 db）。本次 push 放行。
+```
+
+**阻断侧**（反控）：把回落分支里的 `cargo deny check advisories -d` 改成带一个不存在的参数，
+使本地复核也失败 —— 必须仍然阻断，否则"回落"就变成了"无条件放行"：
+
+```text
+❌ push 被拦下：本地副本复核也失败（不是网络问题，见上方输出）。
+  绕过：git push --no-verify（仅紧急情况）
+```
+
+两条都符合预期：判据只在"确认是网络问题"时降级，且降级**不冒充通过**（输出是 ⚠️ 而不是 ✅，
+并打印本地 db 的 HEAD 与日期，让读者知道这个结论的时效边界）。
 
 ## 2 B 类：判据结构上"看不到"（不是假红，是根本没人看）
 
