@@ -187,6 +187,91 @@ fn llvm_cov_flags_land_before_the_harness_separator() {
     assert!(seen_rest, "步骤 2 必须真的被调用，实得 argv：\n{}", outcome.argv);
 }
 
+/// `cargo llvm-cov report` **不接受 `--workspace`**，缺省按"当前包"过滤。本仓根 crate 是
+/// `synapse-rust`（只有 `src/` 与 `scripts/`），于是 run 40621674176 实测报告从 627 个文件
+/// 缩到 **18 个**（`files=18, coverage=36.46%`），棘轮会把其余文件读成 `GONE-NOT-BUILT`。
+/// 所以每条腿的 `report` 都必须显式带包范围。
+#[test]
+fn every_report_carries_an_explicit_package_scope() {
+    let probe = probe("report_scope");
+    let outcome = run_script(&probe, "0", "256");
+
+    let mut reports = 0;
+    for line in outcome.argv.lines() {
+        if !line.starts_with("llvm-cov report") {
+            continue;
+        }
+        reports += 1;
+        assert!(line.contains("-p "), "report 必须显式给包范围（缺省只有根 crate ⇒ 627 → 18 个文件），实得：{line}");
+        assert!(!line.contains("--workspace"), "report 不接受 --workspace，写上去会直接被 clap 拒绝，实得：{line}");
+    }
+    assert_eq!(reports, 2, "两条腿各应生成一次报告，实得 argv：\n{}", outcome.argv);
+}
+
+/// 步骤 2 的报告范围必须等于「工作区成员 − synapse-storage」，否则新增 crate 会静默
+/// 少覆盖（报告里连它的文件都不会出现，棘轮与定性工具都看不见）。
+#[test]
+fn rest_report_scope_matches_the_workspace() {
+    let script = fs::read_to_string(repo_root().join(SCRIPT)).expect("run_coverage.sh must be readable");
+    let declared = parse_rest_report_scope(&script);
+
+    let mut names: Vec<String> =
+        cargo_workspace_members().into_iter().filter(|name| name != "synapse-storage").collect();
+    names.sort();
+
+    assert_eq!(
+        declared,
+        names,
+        "run_coverage.sh 的 REST_REPORT_ARGS 必须等于「工作区成员 − synapse-storage」。\n\
+         差集（漏了的 crate 会静默不参与覆盖率）：{:?}",
+        names.iter().filter(|name| !declared.contains(name)).collect::<Vec<_>>()
+    );
+}
+
+fn parse_rest_report_scope(script: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut inside = false;
+    for line in script.lines() {
+        if line.starts_with("REST_REPORT_ARGS=(") {
+            inside = true;
+            continue;
+        }
+        if inside {
+            if line.starts_with(')') {
+                break;
+            }
+            if let Some(name) = line.trim().strip_prefix("-p ") {
+                names.push(name.trim().to_string());
+            }
+        }
+    }
+    names.sort();
+    names
+}
+
+fn cargo_workspace_members() -> Vec<String> {
+    let output = Command::new("cargo")
+        .args(["metadata", "--no-deps", "--format-version", "1", "--locked"])
+        .current_dir(repo_root())
+        .output()
+        .expect("cargo metadata must be runnable");
+    assert!(output.status.success(), "cargo metadata failed: {}", String::from_utf8_lossy(&output.stderr));
+    let metadata: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("cargo metadata must be valid JSON");
+
+    // 必须走 `packages[]`，不能对全文扫 `"name":"…"`：`--no-deps` 仍会输出每个包的
+    // `dependencies` 数组，那里面的 `name` 是 serde/tokio 之类，扫全文必然误判。
+    let mut names: Vec<String> = metadata["packages"]
+        .as_array()
+        .expect("cargo metadata must carry a packages array")
+        .iter()
+        .filter_map(|package| package["name"].as_str().map(str::to_string))
+        .collect();
+    names.sort();
+    names.dedup();
+    names
+}
+
 /// 核心断言：一条腿的测试红，不许把整份报告一起抹掉。
 #[test]
 fn a_failing_leg_still_writes_the_report() {

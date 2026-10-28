@@ -52,6 +52,21 @@ STORAGE_FEATURES="test-utils,privacy-ext,voice-extended,voip-tracking,beacons,se
 # 其余 crate + 集成测试的 feature 集必须与 route_ledger 快照一致（见文件头注释）。
 REST_FEATURES="test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications,cas-sso,saml-sso"
 
+# 步骤 2 的**报告范围**：`cargo llvm-cov report` 不支持 `--workspace`，必须逐个 `-p`。
+# 这份名单 = 工作区成员 − synapse-storage（它由步骤 1 单独覆盖）。
+# 漂移守卫：`tests/unit/coverage_leg_resilience_tests.rs::rest_report_scope_matches_the_workspace`
+# 会拿 `cargo metadata` 的成员列表对账 —— 加了 crate 却忘了这里，报告就会静默少覆盖它。
+REST_REPORT_ARGS=(
+    -p synapse-cache
+    -p synapse-common
+    -p synapse-e2ee
+    -p synapse-federation
+    -p synapse-rust
+    -p synapse-services
+    -p synapse-test-utils
+    -p synapse-web
+)
+
 log() { printf '[coverage] %s\n' "$*"; }
 
 if ! command -v cargo-llvm-cov >/dev/null 2>&1; then
@@ -136,6 +151,11 @@ export E2EE_INTEROP=1
 #
 # 退出码语义**不变**：任何一条腿有失败，脚本最后仍以非零退出（红还是红），
 # 只是数据先落盘、可被下载与定性。
+# ⚠️ 报告范围必须显式给（`-p …`，写在 `--` 分隔符之前）：`cargo llvm-cov report`
+# **不接受 `--workspace`**，缺省时它按"当前包"过滤 —— 本仓根 crate 是 `synapse-rust`
+# （只有 `src/` 与 `scripts/`），于是报告从 **627 个文件砍到 18 个**（2026-10-28 实测，
+# run 40621674176：`files=18, coverage=36.46%`），棘轮会把其余 590 个文件读成
+# `GONE-NOT-BUILT`。空范围在这里按失败处理，不让它静默退化成"只有根 crate"。
 COVERAGE_LEG_FAILURES=0
 LEG_ARGS=()
 
@@ -144,9 +164,25 @@ run_leg() {
     shift 2
     log "$label"
 
-    # `--no-report` / `--no-fail-fast` 是 **cargo** 的参数，必须落在 `--` 之前；
-    # 直接追加到末尾的话（步骤 2 带 `-- --skip …`）会被当成测试 harness 参数，
-    # libtest 不认识 ⇒ 整条腿报 "unexpected argument"。
+    # `--` 之前是**报告范围**，之后是要执行的命令。
+    local report_args=()
+    while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do
+        report_args+=("$1")
+        shift
+    done
+    if [ "$#" -gt 0 ]; then
+        shift
+    fi
+    if [ "${#report_args[@]}" -eq 0 ]; then
+        log "ERROR: $label 缺报告范围（-p <crate>）。缺省时 report 只覆盖当前包，"
+        log "       会把报告砍成根 crate 的文件（实测 627 → 18 个）。"
+        COVERAGE_LEG_FAILURES=$((COVERAGE_LEG_FAILURES + 1))
+        return 0
+    fi
+
+    # `--no-report` / `--no-fail-fast` 是 **cargo** 的参数，必须落在测试侧的
+    # `--` 之前；直接追加到末尾的话（步骤 2 带 `-- --skip …`）会被当成测试 harness
+    # 参数，libtest 不认识 ⇒ 整条腿报 "unexpected argument"。
     LEG_ARGS=()
     for arg in "$@"; do
         if [ "$inserted" -eq 0 ] && [ "$arg" = "--" ]; then
@@ -161,7 +197,7 @@ run_leg() {
 
     "${LEG_ARGS[@]}" || test_rc=$?
 
-    if ! cargo llvm-cov report --lcov --output-path "$output"; then
+    if ! cargo llvm-cov report "${report_args[@]}" --lcov --output-path "$output"; then
         log "ERROR: $label 的报告生成失败（profraw 没写出来？编译阶段就挂了？）"
         COVERAGE_LEG_FAILURES=$((COVERAGE_LEG_FAILURES + 1))
         return 0
@@ -173,10 +209,12 @@ run_leg() {
 }
 
 run_leg "步骤 1/3: synapse-storage 单独跑（单线程，db_tests 直连 public）" "$STORAGE_LCOV" \
+    -p synapse-storage -- \
     env RUST_TEST_THREADS=1 cargo llvm-cov -p synapse-storage \
     --features "$STORAGE_FEATURES" --lib
 
 run_leg "步骤 2/3: 其余 crate + 集成测试（--exclude synapse-storage）" "$REST_LCOV" \
+    "${REST_REPORT_ARGS[@]}" -- \
     env RUST_TEST_THREADS="$TEST_THREADS" cargo llvm-cov --workspace --exclude synapse-storage \
     --features "$REST_FEATURES" \
     -- --skip ledger_export_tests

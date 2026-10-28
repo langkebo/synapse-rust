@@ -67,15 +67,27 @@ def classify(
     baseline: dict[str, float],
     core_prefixes: list[str],
     existing_sources: set,
+    is_test_only,
 ) -> list[tuple[str, str, float, float]]:
-    """Return `(kind, path, baseline_pct, current_pct)` for every path either side knows."""
+    """Return `(kind, path, baseline_pct, current_pct)` for every path either side knows.
+
+    `is_test_only` and the `round(cur, 2)` below exist so this tool reaches the **same
+    verdict** as the ratchet it explains. Skipping either one makes the tool report
+    DROPs the ratchet would not: unmeasurable test-support files, and every file whose
+    ratio cannot be written exactly in two decimals (`2/3`, `1/3`, `1/7` …) — the
+    ratchet rounds `cur` to storage precision for exactly that reason (see
+    `check_file_coverage.py`, "与基线**同一精度**比较").
+    """
     rows: list[tuple[str, str, float, float]] = []
     for path in sorted(set(current) | set(baseline)):
         cur = current.get(path)
         prev = baseline.get(path)
 
+        if is_test_only(path):
+            continue
+
         if prev is None and cur is not None:
-            rows.append(("NEW-FILE", path, -1.0, cur))
+            rows.append(("NEW-FILE", path, -1.0, round(cur, 2)))
             continue
 
         if cur is None:
@@ -84,6 +96,7 @@ def classify(
             rows.append((kind, path, prev, -1.0))
             continue
 
+        cur = round(cur, 2)
         if cur == 0.0 and prev > 0.0:
             rows.append(("ZEROED", path, prev, cur))
         elif cur < prev:
@@ -119,7 +132,9 @@ KIND_NOTE = {
 
 
 def fmt(pct: float) -> str:
-    return "—" if pct < 0 else f"{pct:.1f}%"
+    # 两位小数：基线与实测都按 `round(v, 2)` 比较，只显示一位会把
+    # "1.25% → 1.30%" 印成 "1.3% → 1.3%"，读者第一反应是工具坏了。
+    return "—" if pct < 0 else f"{pct:.2f}%"
 
 
 def main() -> int:
@@ -150,7 +165,7 @@ def main() -> int:
     core_prefixes = ratchet.load_prefix_list(args.core_files)
     existing = set(ratchet._normalized_source_paths())
 
-    rows = classify(current, baseline, core_prefixes, existing)
+    rows = classify(current, baseline, core_prefixes, existing, ratchet.is_test_only)
 
     counts: dict[str, int] = {}
     for kind, _, _, _ in rows:

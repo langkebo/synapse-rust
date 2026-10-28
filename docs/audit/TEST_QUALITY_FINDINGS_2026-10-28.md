@@ -224,6 +224,19 @@ CI 语义，需另立决策。A8 是同一根因的另一面：判据的输入�
 工具本身只报告、不判红（判红仍归 `check_file_coverage.py`）；它的价值是把
 "棘轮落红摘要回答不了的为什么"变成可重跑的表格。合成数据四类均验证过。
 
+**工具自己的口径 bug（已修，教训与"口径只能有一份"同源）**：初版复用了解析与路径归一化，
+却漏掉了**比较精度**——棘轮在比较前把实测值 `round(cur, 2)`（否则 `2/3`、`1/3`、`1/7` 这类
+无法用两位小数精确表示的文件会永远 `cur < prev`，见 `check_file_coverage.py` 的注释），
+初版没跟。在 2026-09-22 的旧 lcov 上实测，同一份数据的两种口径差得离谱：
+
+| 口径 | DROP | RISE | EQUAL |
+|---|---|---|---|
+| 未取整（初版） | **216** | 229 | 150 |
+| 取整到存储精度 + 跳过 `is_test_only`（现在） | **21** | 20 | 516 |
+
+216 → 21 不是数据变了，是**分母口径**变了。顺带把显示从 1 位改成 2 位：
+`1.25% → 1.30%` 原先印成 `1.3% → 1.3%`，读者第一反应是工具坏了。
+
 **不需要 lcov 就能看到的静态事实**（2026-10-28 直接从基线算）：
 
 - 基线 608 条，其中 **219 条**落在 `core_file_coverage_prefixes.txt` 的 28 个前缀下；
@@ -273,13 +286,28 @@ CI 语义，需另立决策。A8 是同一根因的另一面：判据的输入�
   后面的 binary 根本不跑；**退出码语义不变**（有腿失败仍非零退出，红还是红）。
   ⚠️ 这两个旗标是 **cargo** 参数，必须落在 `--` 之前 —— 步骤 2 以 `-- --skip ledger_export_tests`
   结尾，追加到末尾会被 libtest 当未知参数，整条腿零产出。
+- **⚠️ 拆开之后暴露的第二个缺陷（同一轮就抓到）**：`cargo llvm-cov report` **不接受
+  `--workspace`**，缺省按"当前包"过滤。本仓根 crate 是 `synapse-rust`（只有 `src/` 与
+  `scripts/`），于是第一版拆分的报告只有 **18 个文件**：
+
+  ```text
+  Merged 2 lcov files -> coverage/lcov.info
+    files=18, LF=3173, LH=1157, coverage=36.46%
+  ```
+
+  627 → 18，棘轮只会拿这 18 个去比。修法是给每条腿显式传包范围（步骤 1 `-p synapse-storage`，
+  步骤 2 用 `REST_REPORT_ARGS` = 工作区 9 个成员 − `synapse-storage`），空范围按失败处理，
+  并加两道守卫（见下）。**这条缺陷以前不可能被看到**：旧实现一条腿都没跑完，报告从来没写出来过。
 - `coverage` job 增加 `Classify coverage drift`（`if: always()`，只报告不判红）与
   `Upload coverage artifacts` 的 `if: always()` + `if-no-files-found: ignore`：
   红的时候才有数据可下载，而"红"正是唯一需要这份数据的时刻。
-- 守卫：`tests/unit/coverage_leg_resilience_tests.rs`（4 例，假 cargo 断言 argv 与产物）。
-  **变异自证两次**：删掉兜底 `report` 分支 ⇒ `a_failing_leg_still_writes_the_report` FAILED；
+- 守卫：`tests/unit/coverage_leg_resilience_tests.rs`（7 例，假 cargo 断言 argv 与产物）。
+  **变异自证四次**：删掉兜底 `report` 分支 ⇒ `a_failing_leg_still_writes_the_report` FAILED；
   把两个旗标改成追加到末尾 ⇒ `llvm_cov_flags_land_before_the_harness_separator` FAILED
-  （报错信息里直接打印了被污染的 argv）。还原后 4/4 PASS。
+  （报错信息里直接打印了被污染的 argv）；去掉步骤 1 的报告范围 ⇒
+  `every_report_carries_an_explicit_package_scope` FAILED；从名单里删掉 `-p synapse-web` ⇒
+  `rest_report_scope_matches_the_workspace` FAILED（拿 `cargo metadata` 的成员列表对账，
+  防"加了 crate 忘了加进报告范围"这种静默少覆盖）。还原后 7/7 PASS。
 - `run_coverage.sh` 现在会打印 `max_locks_per_transaction = N`，低于 128 时给出可执行修法
   （`bash scripts/tune_test_db.sh`）。它**不替人改**配置：CI 的 service container 无法传
   `-c max_locks_per_transaction`（ci.yml §14.13 ③ 已从源码层确认 runner 把 `-c` 当 `--cpu-shares`）。
@@ -325,10 +353,23 @@ CI 语义，需另立决策。A8 是同一根因的另一面：判据的输入�
 > 同一段 stdout 里的两条独立事件（sweep 的 DROP 失败 / 探针拿不到 schema）当成因果。
 > 两者无因果关系：DROP 失败只是**噪音**，探针失败的原因见上表。
 
-> **仍未做**：把 `classify_coverage_drift.py` 跑在**真实** lcov 上给出 134 条与 6 条 core-path
-> 的最终名单。本地跑不通（上表：这条腿本地就不产出报告），所以改成**从 CI 取**：
-> 本轮的 `if: always()` 上传落地后，红的那一轮也会带 `coverage-report` 工件，
-> 下载后跑同一条命令即可。在此之前**禁止** `--update`、也**不**逐条改 `coverage_baseline.json`。
+> **仍未做**：把 `classify_coverage_drift.py` 跑在**完整** lcov 上给出 134 条与 6 条 core-path
+> 的最终名单。本地跑不通（上表：这条腿本地就不产出报告），改成**从 CI 取** —— 已经打通：
+> run 40621674176 的 `Upload coverage artifacts` 在红的那一轮也产出了 `coverage-report` 工件。
+> 同一轮还是**棘轮第一次真正执行**（历史从未跑过一次），结论值得记：
+>
+> ```text
+> === Coverage failures (3 files) ===
+>   [TOUCHED] src/bin/healthcheck.rs: 10.7% < 11% (was 10.9%, delta=-0.2%)
+>   [TOUCHED] src/bin/synapse_ledger_export.rs: 58.7% < 59% (was 59.1%, delta=-0.4%)
+>   [TOUCHED] src/bin/synapse_worker.rs: 34.3% < 38% (was 38.2%, delta=-3.9%)
+> baseline scripts/ci/coverage_baseline.json: 18 个文件本次测量，594 个条目保留自上次
+> ```
+>
+> 这条 `594 个条目保留自上次（未出现在本次报告里，不删）` 是**新的"看起来绿"风险**：
+> 报告缺文件时棘轮不会红，只会静默少比 594 个条目 —— 而这正是 §6.1 那 18 个文件的处境。
+> 下一轮（带报告范围修复）的 627 条读数才是有意义的那一份；在此之前**禁止** `--update`、
+> 也**不**逐条改 `coverage_baseline.json`。
 
 > **仍未做**：把这套分类跑在**真实** lcov 上给出 134 条与 6 条 core-path 的最终名单。
 > 本地 `run_coverage.sh` 全量约 30–60 min，本轮已在后台启动，结论出来前不宣称"已定性"。
@@ -417,6 +458,27 @@ CI 语义，需另立决策。A8 是同一根因的另一面：判据的输入�
 连接层带重试（`out of shared memory` 往往是瞬时的：测试进程刚退出、连接还没回收），
 计数严格校验为整数。本地三场景实测：干净 ⇒ 0；造一个 `test_leftover_probe` ⇒ rc=1 +
 `title=Leftover`；错误端口 ⇒ rc=1 + `title=Cannot determine`。
+
+> **⚠️ 归因分离之后的第一条真实结论（run 40607555992 · `Integration Tests (database)`）**：
+> 那次失败**不是次生噪音，是真残留** —— `##[error]46 leftover test database(s)`，46 个
+> `test_<pid>_1_<nanos>` 库名跨度 02:19–02:41，同一次 job 的服务端日志还有成片
+> `ERROR: out of shared memory`（02:57）。
+>
+> 库级守卫**是有的**（`synapse-common/src/test_database_guard.rs`，
+> `DROP DATABASE … WITH (FORCE)` + "还被占用就 Retry"），所以泄漏不是因为"没人管库"。
+> 真正的问题在它的**放弃语义**与 CI 的一次性环境相撞：
+>
+> | 情形 | 守卫返回 | 注释里的理由 | 在一次性 CI 库上的后果 |
+> |---|---|---|---|
+> | 库还被占用 | `Retry` | "janitor 下一轮再来" | **没有下一轮**（服务容器随 job 销毁） |
+> | DDL 失败（如 `53200`） | `Done` + stderr | "下一轮的 sweep 还能回收" | 同上，永远回收不了 ⇒ 断言必然红 |
+>
+> 所以这条红是"环境压力 + 一次性环境"的乘积，而不是断言写错了 —— 断言正确地指出
+> "这一轮结束时库里确实有 46 个"。修法有三条路（**未做，需决策**）：
+> (a) `DROP` 在 `53200` 上带退避重试到成功（有上限）；
+> (b) 断言区分"守卫报告过放弃"与"守卫没跑"，前者降级为 warning；
+> (c) job 末尾加一次强制 sweep 步骤再断言。
+> 三条各有代价，(b) 最容易变成"永远 warning"，(c) 最贴近 CI 的现实。
 
 ### 6.7 Benchmark：exit 143 的两种可能必须留下不同指纹
 
