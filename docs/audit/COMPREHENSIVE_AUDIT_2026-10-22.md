@@ -93,7 +93,7 @@
 `routes/device.rs::broadcast_device_list_update`（签名事务），死的是 `device_sync` 里那条
 零调用者的重复实现，已删除；更正过程记在[附录 D](#附录-d已关闭条目索引)。
 剩下的 4 条里，**没有一条会造成数据丢失或越权**；2 条 P2 分别是 `events` 未分区（ARCH-04）、
-830 行静默忽略（CODE-10）
+826 行静默忽略（CODE-10）
 —— 全是**长期结构债**：
 不修也不会立刻出错，但每加一个功能都在加利息。2 条 P3 **全部是 §0.2.3 的登记项**
 （N+1 缺 benchmark 支撑 / 索引清单人工不可反推），没有待裁决项。
@@ -163,7 +163,7 @@
 
 | 编号 | 级别 | 一句话 | 为什么不做 |
 |---|---|---|---|
-| **CODE-10** | P2 | 生产 **830 行** `let _ =` / `unwrap_or_default()`（241 文件） | 大部分是合法用法；设下降配额会诱导写 `unwrap()` 来"减少计数"（§10.10） |
+| **CODE-10** | P2 | 生产 **826 行** `let _ =` / `unwrap_or_default()`（241 文件） | 大部分是合法用法；设下降配额会诱导写 `unwrap()` 来"减少计数"（§10.10） |
 | **PERF-11** | P3 | N+1 查询 3 处（风险可控） | 当前数据量下无实测劣化，缺 benchmark 支撑 |
 | **PERF-12 / MAINT-07** | P3 | `INDEXES.md` 人工表无法从 DDL 反推 | 重生成会让"索引治理"退化成"索引清单"；计数已由 `check_doc_metrics.py` 现算 |
 
@@ -196,13 +196,20 @@
 | 测试文件 | **400**（`.rs` **312**；unit **133** / integration **168** / e2e **3** / perf **5**） | `python3 scripts/ci/check_doc_metrics.py --print` |
 | 基线索引定义 | **344** | 同上 |
 | 活路由 / 派生表行 / `INDEXES.md` 人工表 | **979** / **981** / **134** | 同上（`LIVE_ROUTES` / `DERIVED_TABLE_ROWS` / `INDEXES_DOC_ROWS`） |
-| clippy allow | **160 处 / 111 文件**（扫描 **830** 个 `.rs`）；其中无理由 **0 / 0**（棘轮基线） | `python3 scripts/ci/check_clippy_allow_ratchet.py`（全量站点走其 `scan()`） |
-| `let _ =` / `unwrap_or_default()` / `if let Ok(` | 生产 **831** 行 / **241** 文件；全仓 **1614** 行 / **353** 文件 | `git ls-files -z '*.rs' \| xargs -0 grep -cE 'let _ =\|if let Ok\(\|unwrap_or_default\(\)'`；生产口径再剔 `tests/`、`*/tests.rs`、`*_tests.rs` |
+| clippy allow | **160 处 / 111 文件**（扫描 **831** 个 `.rs`）；其中无理由 **0 / 0**（棘轮基线） | `python3 scripts/ci/check_clippy_allow_ratchet.py`（全量站点走其 `scan()`） |
+| `let _ =` / `unwrap_or_default()` / `if let Ok(` | 生产 **826** 行 / **241** 文件；全仓 **1614** 行 / **354** 文件 | `git ls-files -z '*.rs' \| xargs -0 grep -cE 'let _ =\|if let Ok\(\|unwrap_or_default\(\)'`；生产口径再剔 `tests/`、`*/tests.rs`、`*_tests.rs` |
 | `tokio::time::sleep` | **104** 站点（PROD **26** / TEST_INLINE **34** / TEST_FILE **44**） | `python3 scripts/ci/check_sleep_ratchet.py` |
-| `>2000` 行 `.rs` | 生产 **0**（W11 前 7，内联测试外移后最大 1557）；测试基建 **2**（`test_isolation.rs` **3403**、`test-utils/lib.rs` **2974**）；生成 **1**（`derived_route_table_always.inc.rs` **5512**）；测试 **3**（`room_service_tests_migrated.rs` **5248**、`event/db_tests.rs` **3516**、`sync_service/tests.rs` **2510**） | `git ls-files '*.rs' \| xargs wc -l \| awk '$1>2000'` |
+| `>2000` 行 `.rs` | 生产 **0**（W11 前 7，内联测试外移后最大 1557）；测试基建 **2**（`test_isolation.rs` **3403**、`test-utils/lib.rs` **2786**）；生成 **1**（`derived_route_table_always.inc.rs` **5512**）；测试 **3**（`room_service_tests_migrated.rs` **5248**、`event/db_tests.rs` **3516**、`sync_service/tests.rs` **2510**） | `git ls-files '*.rs' \| xargs wc -l \| awk '$1>2000'` |
 | 依赖分裂 | crate 名 **47** / 多版本 **32** / 同版本多来源 **15** | `cargo tree -d --workspace --locked` 按 crate 名聚合 |
 | `check_*` 门禁脚本 | **58 个，全部可达或已登记（豁免 0）** | `python3 scripts/ci/check_gate_reachability.py` |
 | 基线 SQL `updated_ts` 列 | **85 列**：`NOT NULL` **43** / 可空 **42** | `python3 scripts/ci/check_schema_timestamp_convention.py --print` |
+> **生产静默忽略从 831 降到 826（2026-10-28）不是「修掉了 5 处」，是口径纠正**：
+> 那 5 行 `let _ = drop_schema(...)` 本来就在 `#[cfg(test)] mod db_schema_pool_tests` 里，
+> 但这行的剔除规则只看**路径**（`tests/`、`*_tests.rs`），而它们当时躺在 `lib.rs` ——
+> 文件名不像测试文件，于是一直被算成「生产」。把该测试模块拆到
+> `synapse-test-utils/src/db_schema_pool_tests.rs`（同时解决 `lib.rs` 触顶 2995 行棘轮）
+> 之后，它们按文件名归入测试口径。**这条规则的真实盲区是内联 `#[cfg(test)]`**，
+> 不只是这一次：任何「测试写在 lib.rs 里」的仓库都会把测试代码记成生产债务。
 
 > 漂移是正常的（代码在动）。**不要把本表当常量**：下一轮先跑上面这几条命令再引用。
 > 除「依赖分裂」「`check_*` 门禁脚本数」「`>2000` 行明细」三行外，其余数字都由
@@ -350,7 +357,7 @@
 
 ### CODE-10（P2）生产 830 行 `let _ =` / `unwrap_or_default()`，无收敛策略
 
-- **口径**：生产 **830 行 / 241 文件**；全仓 **1607 行 / 350 文件**（命令与门禁见 §0.4 ——
+- **口径**：生产 **826 行 / 241 文件**；全仓 **1614 行 / 354 文件**（命令与门禁见 §0.4 ——
   `grep -c` 计的是**行**，一行里两处只算一次）。
 - **已做**：W0 只加了"危险性扫描"（缓存/存储删除禁止 `let _`）+ 3 个 helper 收敛 19 处缓存失效。
 - **明确不做**：总数下降配额（§10.10：配额会诱导写 `unwrap()` 来"减少计数"）。
@@ -752,7 +759,7 @@ W8 计划的三项（`TEST-05` → `NEW-05` → `FUNC-05`）已全部收口，�
 | 待办 | 前提 |
 |---|---|
 | ARCH-04（`events` 分区） | 需要真实数据量证明收益；本机无生产级数据 |
-| CODE-10（830 行静默忽略） | 只按"错误被吞有无用户可见后果"分类处理，且**不设配额** |
+| CODE-10（826 行静默忽略） | 只按"错误被吞有无用户可见后果"分类处理，且**不设配额** |
 
 其余（`PERF-11/12`、`MAINT-07`）都是随触达顺手做或等外部条件的登记项。
 PERF-01 已于 W10 收口（`to_device_messages` 按龄清理 + 零天关闭开关，判据与变异见附录 D）；
