@@ -172,6 +172,10 @@ C4 是第一个案例。可选方向：基线改为"随改动一起评审的可�
 退出码（`cargo nextest --no-tests=fail`），正则兜底只保留"宽进严出"的最小集合 —— 改机制会动
 CI 语义，需另立决策。A8 是同一根因的另一面：判据的输入是网络可达性，于是断网就被报成漏洞。
 
+> **已处置（2026-10-28 第二轮，提交 `21881328f`）**：机制已改，见 §6.10。当时的顾虑
+> "会动 CI 语义"经核实不成立 —— `--no-tests=fail` 与 `--list` 预检都**只在空集时改变结论**，
+> 对"真的跑了测试"的路径零影响（6 例守卫 + 2 次变异自证）。
+
 ## 5 一条可复用的判据
 
 排查"门禁红"时，先给这条红归类，再决定动手：
@@ -182,3 +186,206 @@ CI 语义，需另立决策。A8 是同一根因的另一面：判据的输入�
 
 跳步的代价本轮全部见过：把 A1 当成"测试真没跑"会去补测试；把 C4 当成"覆盖率真降了"
 会去 `--update` 降地板，把一次合法的死代码删除永久记成欠账。
+
+## 6 §4 十条的逐条处置（2026-10-28 第二轮）
+
+处置原则与 §5 一致：**先判这条红属于哪类，再决定动哪里**。因此下文有的条目是"修代码"，
+有的是"改判据"，还有两条是**推翻原结论**（原诊断不成立或早已修好）。
+
+| # | §4 原诊断 | 结论 | 证据 / 落地 |
+|---|---|---|---|
+| 4.1 | 覆盖率 134 文件 + 6 条 core-path 未逐条定性 | **机制已建，数据待出** | 见 §6.1 |
+| 4.2 | 棘轮 `max(prev, cur)` 把合法重构固化成永久红 | **已修** | 见 §6.2 |
+| 4.3 | 近 12 次 `ci.yml` 零 success，"某 job 失败"失去信息量 | **已收敛为 4 类 + 汇总表可归因** | 见 §6.3 |
+| 4.4 | 门禁拆 job / `if: always()` 汇总未做 | **已做（轻量版）** | 见 §6.4 |
+| 4.5 | `always()` 步骤依赖前置产出（`No files`） | **原诊断有误 + 仍做了精确修复** | 见 §6.5 |
+| 4.6 | 残留库断言在 `out of shared memory` 后次生红 | **已修（归因分离）** | 见 §6.6 |
+| 4.7 | `Benchmark` runner 被回收（exit 143） | **已加超时与归因指纹** | 见 §6.7 |
+| 4.8 | `ROUTE_CONTRACT.md` 日期漂移让契约 gate 粘性 SKIP | **已修（判据改结构性）** | 见 §6.8 |
+| 4.9 | 行数棘轮 `EXCLUDED` 与 worktree 隔离互斥 | **原诊断已过期（10-23 就修了）** | 见 §6.9 |
+| 4.10 | 判据仍建在日志文本上 | **已修（机制判据）** | 见 §6.10 |
+
+### 6.1 覆盖率差异的逐条定性：先建机制，再读数
+
+"134 个文件"这个数字本身不可判 —— 它把三种完全不同的东西混在一起：真的退步、
+"这次没编译它"、以及"文件已经不存在了"。2026-10-27 那次最典型：`run_coverage.sh`
+的 storage 腿不带 `friends,widgets,burn-after-read`，于是三个 1000+ 行的文件**根本不参与编译**，
+报告里恒为 0.0%；补上 feature 后读数从 74.59% 跳到 19.4%，那是"终于被测了"，不是退化。
+
+因此新增 `scripts/ci/classify_coverage_drift.py`，把差异按**成因**分类（复用棘轮自身的
+解析与归一化实现，口径只有一份）：
+
+- `DROP` —— 有实测值且低于基线。**这才是要看的那一类**。
+- `GONE-NOT-BUILT` —— 源文件在磁盘上，但本次报告里没有它 ⇒ 这次没被编译进测试。
+- `ZEROED` —— 报告里有、但是 0.0% 而基线 > 0 ⇒ 这次没有测试执行到它。
+- `GONE-SOURCE` —— 源文件已不在磁盘上（删除/重命名）⇒ 非回归。
+- `NEW-FILE` / `RISE` / `EQUAL`。
+
+工具本身只报告、不判红（判红仍归 `check_file_coverage.py`）；它的价值是把
+"棘轮落红摘要回答不了的为什么"变成可重跑的表格。合成数据四类均验证过。
+
+**不需要 lcov 就能看到的静态事实**（2026-10-28 直接从基线算）：
+
+- 基线 608 条，其中 **219 条**落在 `core_file_coverage_prefixes.txt` 的 28 个前缀下；
+- 这 219 条里有 **98 条低于 core 门槛 70%**，包括 4 条 **0.00%**
+  （`synapse-storage/event/models.rs`、`event/reader.rs`、`event/writer.rs`、`presence/api.rs`）。
+
+这暴露的是比"134 条差异"更该先说清的一件事：**core-path 的 70% 门槛对存量无效**。
+判定优先级是 `baseline-known`（只防回归）高于 `core`（绝对门槛），所以一条文件只要进过
+基线，70% 就再也不会对它生效 —— 它能一路冻在 0.00%。这不是假红，是"门槛只对新文件有效"，
+而 policy 的措辞是"核心路径 ≥ 70%"。真要收紧，得先决定那 98 条是补测试还是重新划 core 面，
+**这不是一次 `--update` 能回答的**，所以本轮只记录事实，不动门槛。
+
+> **仍未做**：把这套分类跑在**真实** lcov 上给出 134 条与 6 条 core-path 的最终名单。
+> 本地 `run_coverage.sh` 全量约 30–60 min，本轮已在后台启动，结论出来前不宣称"已定性"。
+> 在此之前**禁止** `--update`、也**不**逐条改 `coverage_baseline.json`。
+
+### 6.2 棘轮语义：`max` 保留，但给合法重构一条显式出口
+
+`max(prev, cur)` 本身**不能**去掉：改成 `cur`，"先降级、基线跟着降"就成了绕过路径。
+但它确实把合法重构堵死了 —— 把已覆盖逻辑抽到新文件后，原文件剩下的多是不易覆盖的分支，
+覆盖率下降而整体没变差；原文件 floor 仍是历史最高值 ⇒ 永久红，`--save-baseline` 因 `max`
+也救不回，唯一出路是手改 54 KB 的 JSON（在 review 里与"偷偷放宽门禁"无法区分）。
+
+新增 `--allow-lower PATH`（可重复）：只有**逐条点名**的文件才允许把 floor 落到本次实测值，
+其余一律继续 `max`；默认空集 ⇒ CI 路径零变化。三个细节：
+
+1. 下调必须**打印**（`=== Floors lowered on purpose ===`）—— 静默放行与"门禁没在工作"无法区分。
+2. 点名基线里不存在的路径 **fail-closed**（exit 2）—— 打错字不能是静默空操作。
+3. 报错直接给出 normalize 之后的候选 key。**这是真实陷阱**：基线 key 是
+   `crate/<path under src/>`（**不含** `src/` 段），与 lcov 的 `SF:` 写法不同，
+   拿 lcov 写法去点名必然匹配不上。
+
+守卫 `tests/unit/coverage_baseline_lowering_tests.rs`（4 例）：默认仍红且 floor 不降、
+点名后绿且写回实测值并打印、不扩散到未点名的文件、打错路径报错。
+
+### 6.3 大盘无绿：先把它收敛成"4 类"，再逐类处置
+
+"近 12 次零 success"不是一条可修的缺陷，它是一个**汇总症状**。逐次抓失败 job 与失败 step 后，
+真正反复红过的只有 4 类（其余如 `Repo Sanity / SQLx dynamic-static ratio`、
+`Test & Lint / Run unit test target`、`Check memory budget` 只出现在 10-27 更早的两轮里，
+在最新两轮已通过）：
+
+| 失败 step | 出现轮次 | 处置 |
+|---|---|---|
+| `Code Coverage / Run coverage` | 每轮 | 见 §6.1（机制已建，数据待出） |
+| `Integration Tests / Appservice statistics cost gate` | 每轮 | 已修：A1 单复数 + §6.10 机制化 |
+| `Security Audit / Supply-chain gate` | 每轮 | `deny.toml` 加 crate 级 `BSL-1.0` 例外（`xxhash-rust`），待 CI 复核 |
+| `Assert no leftover test databases` | 3 轮（次生） | 见 §6.6 |
+
+同时给 `ci-summary` 补上了"红在哪一步"，见 §6.4。
+
+> **未闭环的判据**：`Supply-chain gate` 的修复只做了本地静态核对，尚未在 CI 上跑过一次；
+> CI 队列当前有 9 个 run 排队、8 个在跑，主行程排不进去（这本身是 §4.3 的另一个成因）。
+
+### 6.4 汇总：从"job 名列表"到"逐门禁结论表"
+
+`ci-summary` 本来就有，但只列失败 job 的**名字**，而它的注释写着
+"one representative error line" —— 注释与实现不符。同一个 job 里往往有 5 个门禁，
+"Security Audit 失败"与"Supply-chain gate 失败"是两件事，光有 job 名没有信息量。
+
+改为逐门禁表：`Job | Conclusion | Failing step`，并把 `skipped` 单列（**skip 不等于通过**），
+`needs` 补上长期缺席的 `feature-matrix` 与 `openapi-artifact`（它们红了原本会显示成一个
+不属于任何门禁的孤立红点）。
+
+至于"拆 job"：本轮没拆，而是用更小的代价解决了它的**实际后果** —— 见 `Security Audit`
+的 4 条独立门禁改 `if: ${{ !cancelled() }}`。实测 run 40513351117：`Supply-chain gate` 一红，
+`rand::rng()` 棘轮 / `Install cargo-geiger` / `Run cargo-geiger` / `cargo-outdated`
+**全部 skipped**，一个门禁失败把另外三个一起遮蔽。改后任一门禁失败仍让 job 变红
+（step 级 failure 就是 job failure），不需要额外聚合步骤。
+
+### 6.5 `always()` 依赖前置产出：原诊断要改判
+
+原文说"`Upload outdated-deps report` 报 `No files`" ⇒ 让人以为步骤失败。查真实日志（run
+40513351117）后改判：`actions/upload-artifact@v4` 的 `if-no-files-found` 默认值就是 `warn`，
+**不失败**，日志是 `##[warning]No files were found with the provided path: …`。
+
+但它确实暴露了一个更值得修的东西：那两个 upload 是**裸 `always()`**，于是上游被 skip 时
+它们照样运行、照样"成功"—— "报告存在"变成假象。实测该 job 里 `Install cargo-geiger` 与
+`Check outdated dependencies` 都是 `skipped`，而两个 upload 是 `success`。
+
+改为 `if: always() && steps.<id>.outcome != 'skipped'` + `if-no-files-found: ignore`：
+前置没跑就不假装上传，前置跑了但确实没产物则不因此叠一次红。
+
+### 6.6 残留库断言：把"查不到"和"有残留"分开
+
+旧实现是 `left="$(psql -tAc ...)"` + `[ "$left" -ne 0 ]`。服务器在 `out of shared memory`
+之后连不上时 `left` 是空串，比较报 `integer expression expected` —— **服务器不可用**被显示成
+一条语法错误，读者会当成"janitor 漏了库"，而真实主因在上一屏。次生噪音掩盖主因。
+
+新增 `scripts/ci/assert_no_leftover_test_databases.sh`，三层结论各自有错误标题：
+
+- `Leftover test databases` —— 真有残留（列出库名）；
+- `Cannot determine leftover test databases` —— 服务器不可达 / 查询异常，结论 UNKNOWN
+  （明说"既不是 leftover 也不是 clean"，并提示去修上一屏的 `out of shared memory`）；
+- 无输出 —— 干净。
+
+连接层带重试（`out of shared memory` 往往是瞬时的：测试进程刚退出、连接还没回收），
+计数严格校验为整数。本地三场景实测：干净 ⇒ 0；造一个 `test_leftover_probe` ⇒ rc=1 +
+`title=Leftover`；错误端口 ⇒ rc=1 + `title=Cannot determine`。
+
+### 6.7 Benchmark：exit 143 的两种可能必须留下不同指纹
+
+run 40603416972 的 `Run benchmarks` 只跑了 11 min 就收到
+`The runner has received a shutdown signal` 并 exit 143 —— 平台回收，不是 benchmark 回归。
+但此前 6 个 job **都没有 `timeout-minutes`**（用的是平台默认 360 min），于是读者无法区分
+"跑太久""runner 被回收""benchmark 崩了"。
+
+按实测正常耗时（`Run benchmarks` ~55 min、两个 perf gate ~22 min）×~1.35 设为
+75 / 40 / 40 / 40 / 40 / 15。设了之后两种情形的日志指纹不同：
+超时是 `has exceeded the maximum execution time of N minutes`，平台回收是
+`received a shutdown signal` + exit 143。
+
+> 说明：这不能"修掉"平台回收（外部条件），只能让它**可归因**。
+
+### 6.8 契约 gate 的粘性 SKIP：判据从"路径出现"改成"差异是结构性的"
+
+`ROUTE_CONTRACT.md` 第一行是「自动生成于 <date>」，每天都变。preflight 的 `changed` 来自
+`git diff --name-only`，于是工作区里躺着一份**仅日期不同**的 ROUTE_CONTRACT.md 就会被算成
+"本次改动了契约链"，gate 随即 SKIP。
+
+关键在于这个 SKIP 是**粘性的**：丢弃那份改动没用（下一次任何生成动作又写回来），只要它还在
+工作区，之后**每一次**提交都命中 SKIP —— 契约链从此再没被校验过，而 SKIP 在输出里看起来
+像通过。
+
+改为 `route_contract_structurally_changed()`：把日期行剥掉后与 `HEAD:<doc>` 比较
+（与 `check_route_contract.sh` 自身的 normalize **同口径**），只日期不同就当它没被改动、
+照常跑 gate。三场景实测（直接调用 preflight 里的同一份函数，非复制）：
+
+| 场景 | `git diff` | 判定 | gate 行为 |
+|---|---|---|---|
+| 无改动 | 空 | 非结构性 | 跑 |
+| 仅日期行 2026-10-28→10-29 | 1 行 | **非结构性** | **跑**（原实现会 SKIP） |
+| 日期 + 追加一行内容 | 2 行 | 结构性 | SKIP（提交后复核） |
+
+### 6.9 行数棘轮与 worktree：原诊断已过期
+
+§4.9 说 `EXCLUDED` 硬编码 `/.worktrees/` ⇒ 在 worktree 里扫零、fail-closed、提交不了。
+**该问题已于 2026-10-23 修好**（`check_file_size_ratchet.py` 改为用 repo-relative 的
+`rel_dir` 匹配，注释里记了当时的实测）。本轮实测复核：
+
+- 在 `.worktrees/rt-probe`（`git worktree add --detach HEAD`）里跑当前实现：
+  `827 files scanned, 222 over 600 (baseline 222)` / `OK` / `rc=0`；
+- 把匹配改回绝对路径 `dirpath`（变异自证）：`FAIL: scanned zero .rs files` / `rc=2`。
+
+两者对照说明修复真实有效。清单里这条应当删除，而不是继续当作待办。
+
+### 6.10 判据机制化：问框架，不问文案
+
+`require_tests_ran.sh` 重写。旧实现用正则匹配人类可读的进度行，已连续假红三次，
+每次只是补正则：ANSI 颜色（2026-09-20）、`strip_ansi | grep -q` 触发 SIGPIPE
+（2026-09-30）、nextest 单数 `Starting 1 test`（2026-10-27，`Appservice statistics cost gate`
+自引入起从未绿过）。把门禁建在别人的排版上，就得跟着别人的改动跑。
+
+现在：
+
+- **nextest**：注入 `--no-tests=fail`，空集由框架返回非零（实测 rc=4，`error: no tests to run`）。
+  调用方若自己传 `--no-tests=pass`，直接 exit 2 —— 那等于关掉本门禁。
+- **libtest**（无等价旗标）：先跑 `--list` 数注册表行（`^<name>: test$`）。用例清单是结构化的，
+  不受颜色/单复数/措辞影响；空集时**连真正的测试都不跑**（对 DB 车道是省掉一次 schema 克隆）。
+  `--exact` 会一并带到探测里，否则"过滤串写短了"会被子串匹配掩盖。
+- 非 cargo 命令：退化为日志兜底并打 `::warning::`，明说这是弱判据。
+
+守卫 `tests/unit/require_tests_ran_mechanism_tests.rs`（6 例，用假 cargo，不嵌套真 cargo
+以免抢 target 锁）。两次变异各证一次红：去掉 `--no-tests=fail` 注入 ⇒ 对应用例 FAILED；
+让空集不再判红 ⇒ 对应用例 FAILED。
