@@ -312,7 +312,7 @@ impl EventBroadcaster {
     ) -> Result<(), FederationBroadcastError> {
         let event_id = event.get("event_id").and_then(|v| v.as_str()).unwrap_or("unknown");
 
-        let destinations = self.get_eligible_destinations(room_id).await;
+        let destinations = self.get_eligible_destinations(room_id).await?;
 
         if destinations.is_empty() {
             return Ok(());
@@ -413,7 +413,7 @@ impl EventBroadcaster {
         edu: &serde_json::Value,
         origin: &str,
     ) -> Result<(), FederationBroadcastError> {
-        let destinations = self.get_eligible_destinations(room_id).await;
+        let destinations = self.get_eligible_destinations(room_id).await?;
 
         if destinations.is_empty() {
             return Ok(());
@@ -460,22 +460,31 @@ impl EventBroadcaster {
         Ok(())
     }
 
-    async fn get_eligible_destinations(&self, room_id: &str) -> Vec<String> {
-        if let Some(membership_storage) = &self.membership_storage {
-            if let Ok(members) = membership_storage.get_joined_members(room_id).await {
-                let mut servers: std::collections::HashSet<String> = std::collections::HashSet::new();
-                for member in &members {
-                    if let Some(pos) = member.user_id.find(':') {
-                        let server = &member.user_id[pos + 1..];
-                        if server != self.server_name {
-                            servers.insert(server.to_string());
-                        }
-                    }
+    /// Resolve the set of remote servers that must receive events for `room_id`.
+    ///
+    /// A membership lookup failure is surfaced instead of degraded to an empty
+    /// set: an empty set means "no remote server joined this room", so
+    /// swallowing the error would silently stop fan-out altogether (CODE-10).
+    async fn get_eligible_destinations(&self, room_id: &str) -> Result<Vec<String>, FederationBroadcastError> {
+        let Some(membership_storage) = &self.membership_storage else {
+            return Ok(Vec::new());
+        };
+
+        let members = membership_storage.get_joined_members(room_id).await.map_err(|e| {
+            ::tracing::error!("Failed to load joined members for room {}: {}", room_id, e);
+            FederationBroadcastError::StorageError(e.to_string())
+        })?;
+
+        let mut servers: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for member in &members {
+            if let Some(pos) = member.user_id.find(':') {
+                let server = &member.user_id[pos + 1..];
+                if server != self.server_name {
+                    servers.insert(server.to_string());
                 }
-                return servers.into_iter().collect();
             }
         }
-        Vec::new()
+        Ok(servers.into_iter().collect())
     }
 
     pub(crate) fn get_backoff_delay(&self, retry_count: u32) -> u64 {
@@ -839,6 +848,9 @@ pub enum FederationBroadcastError {
     /// The `NetworkError` variant.
     #[error("Network error: {0}")]
     NetworkError(String),
+    /// A storage lookup failed while resolving the destinations for an event.
+    #[error("Storage error: {0}")]
+    StorageError(String),
 }
 
 // ---------------------------------------------------------------------------
@@ -882,6 +894,7 @@ impl From<FederationBroadcastError> for synapse_common::traits::BroadcastError {
             FederationBroadcastError::SendFailed(msg) => synapse_common::traits::BroadcastError::Transport(msg),
             FederationBroadcastError::InvalidEvent(msg) => synapse_common::traits::BroadcastError::EncodingFailed(msg),
             FederationBroadcastError::NetworkError(msg) => synapse_common::traits::BroadcastError::Transport(msg),
+            FederationBroadcastError::StorageError(msg) => synapse_common::traits::BroadcastError::Transport(msg),
         }
     }
 }
