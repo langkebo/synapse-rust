@@ -61,6 +61,14 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 # Path fragments that mark a source file as test-only support code. Compared
 # against the *normalized* path the report yields (e.g.
 # `synapse-storage/test_mocks/room.rs`, `synapse-test-utils/lib.rs`).
+# 只有声明、没有函数体的文件（`pub trait X { fn f(&self); }`）在 llvm-cov 里只会留下
+# 宏展开的 1–3 行，而这些行**不可达**（每个 impl 都自带方法体，没人走默认体）。
+# 对它们套"新文件 ≥50% / core ≥70%"是把结构性的 0/2 当成质量缺陷：
+# 实测 2026-10-28 全仓仅 3 个文件命中该形态（`synapse-services/src/auth/{credential_auth,
+# token_auth}.rs` 各 LF:2/LH:0、`synapse-storage/src/stream_positions.rs` LF:2/LH:0）。
+# 只在**新文件**分支生效，且必须 `cur == 0.0`：有 1 行命中（33%）仍是真信号，照常判红。
+DECL_ONLY_MAX_LINES = 3
+
 TEST_ONLY_MARKERS: Tuple[str, ...] = (
     "test_mocks/",
     "synapse-test-utils/",
@@ -260,7 +268,10 @@ def _matches_prefix(path: str, prefixes: List[str]) -> bool:
     return False
 
 
-def parse_lcov(report_path: pathlib.Path) -> Dict[str, float]:
+def parse_lcov(
+    report_path: pathlib.Path,
+    lines_found: Optional[Dict[str, int]] = None,
+) -> Dict[str, float]:
     """Parse an lcov.info report and return {rel_path: line_pct}.
 
     lcov records use ``SF:<path>`` / ``LF:<lines found>`` / ``LH:<lines hit>``,
@@ -281,6 +292,8 @@ def parse_lcov(report_path: pathlib.Path) -> Dict[str, float]:
         rel = _normalize_path(current_path)
         if rel and _is_src_rs(rel):
             result[rel] = (current_lh / current_lf * 100.0) if current_lf > 0 else 0.0
+            if lines_found is not None:
+                lines_found[rel] = current_lf
         current_path = None
         current_lf = 0
         current_lh = 0
@@ -387,11 +400,12 @@ def check_file_coverage(
     non_unit_prefixes: List[str],
     report_path: pathlib.Path,
     allow_lower: Collection[str] = (),
+    lines_found: Optional[Dict[str, int]] = None,
 ) -> int:
     """Enforce per-file coverage thresholds.  Returns exit code.
 
     Priority (highest wins): baseline-known (no regression) > core > new >
-    non-unit-coverable exemption.
+    non-unit-coverable exemption > declaration-only exemption.
 
     The exemption is checked **after** the baseline-known branch on purpose: a
     file the coverage leg cannot execute is still forbidden from regressing below
@@ -430,6 +444,17 @@ def check_file_coverage(
         cur = round(cur, 2)
 
         is_new = prev is None
+
+        # 声明文件（trait/struct/enum 只有签名，没有函数体）在 llvm-cov 里只剩宏展开的
+        # 1–3 行，且不可达 ⇒ 结构性 0%，与"没写测试"无关。详见 `DECL_ONLY_MAX_LINES`。
+        # 只对**新文件**生效：基线已知的仍走下面的回归比较（0.0 不会低于 0.0，天然通过）。
+        coverable = (lines_found or {}).get(path, 0)
+        if is_new and coverable <= DECL_ONLY_MAX_LINES and cur == 0.0:
+            exemptions.append(
+                f"[DECL-ONLY] {path}: {coverable} coverable line(s), none reachable "
+                "(declaration-only file: no function bodies to execute)"
+            )
+            continue
 
         if not is_new:
             # A file the baseline already knows: only regression matters. See the
@@ -733,7 +758,8 @@ def main() -> int:
         print(f"Coverage report not found: {args.report}", file=sys.stderr)
         return 1
 
-    current = parse_lcov(args.report)
+    lines_found: Dict[str, int] = {}
+    current = parse_lcov(args.report, lines_found)
     baseline = load_baseline(args.baseline)
 
     # A ratchet without its baseline cannot enforce anything (see
@@ -880,6 +906,7 @@ def main() -> int:
         non_unit_prefixes=non_unit_prefixes,
         report_path=args.report,
         allow_lower=args.allow_lower,
+        lines_found=lines_found,
     )
 
     # 打印在 save_baseline 之前：本轮收紧后 `[RAISE-DONE]` 的条目会在下一轮变成

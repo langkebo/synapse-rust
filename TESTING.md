@@ -435,12 +435,18 @@ python3 scripts/check_file_coverage.py \
 **覆盖率口径**：
 - 团队质量目标：≥80%
 - 自动门槛：**per-file 棘轮**（`scripts/ci/coverage_baseline.json`）
-  —— 已登记文件不得回退；新文件核心前缀 ≥70%、其余 ≥30% 爬坡；
+  —— 已登记文件不得回退；新文件核心前缀 ≥70%、其余 ≥50%（ramp-up，
+  `.github/workflows/ci.yml` 的 `--new-file-floor 50`）；
   基线缺失/为空时 `check_file_coverage.py` **exit 2（fail-closed）**。
-- 最近一次全量实测：`~68%` 行覆盖（2026-08，`bash scripts/ci/run_coverage.sh`）。
-- ⚠️ **CI 的 Code Coverage job 从未真正跑完过**（它排在 integration 之后）：
-  在它第一次真跑并写出基线之前，上面的棘轮数字只是"协议"而非"已执行的门禁"，
-  见 `docs/archive/GATE_INTEGRITY_FOLLOWUP_2026-09-19_LOG.md` §14.16 A①。
+- 两类**结构性**豁免，都必须打印出来（`[EXEMPT]` / `[DECL-ONLY]`），不是静默跳过：
+  - `--non-unit-coverable`（`src/bin/`、`src/main.rs`）：`cargo llvm-cov --lib` 永远不执行
+    二进制入口；
+  - `[DECL-ONLY]`：只有声明、没有函数体的文件（trait/struct 只有签名）在 llvm-cov 里
+    只剩 1–3 行**不可达**的宏展开行（`#[async_trait]` 的默认体垫片），分母本身没有意义。
+    判定条件写死为「新文件 + `LF ≤ 3` + `LH == 0`」，实测全仓只有 3 个文件命中。
+- 最近一次完整报告：**674 个文件**（2026-10-28，run 40649970973，`bash scripts/ci/run_coverage.sh`
+  的 CI 版）。本地跑之前先看 `docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md` §3.1.6
+  的路径归一化注意事项。
 
 > **为什么不再是 tarpaulin**：tarpaulin 0.35.2 的 `--implicit-test-threads` 会把
 > `--test-threads=<CPU>` 注入测试 argv（本地多核 ⇒ 8+ 并发 DB 集成测试抢共享

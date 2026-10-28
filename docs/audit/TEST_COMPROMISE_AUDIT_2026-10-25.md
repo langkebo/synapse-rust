@@ -731,6 +731,81 @@ python3 scripts/ci/check_changed_line_coverage.py \
 判定的四种形态（含"只有删除"与"文件不在报告里"）、采集器的三条探针（假 cargo：旗标顺序 /
 缺腿降级 / 零腿不写空报告）、车道形状（PR 专属、有超时、不调全量脚本）、以及"不读基线"。
 
+### 3.1.5 两条 `[CORE]` 的定性（2026-10-28）：不是缺测试，是**声明文件**
+
+第一份完整报告（674 个文件）里 132 条失败中有 2 条 `[CORE]`：
+
+```text
+[CORE] synapse-services/auth/credential_auth.rs: 0.0% < 70% (was no baseline)
+[CORE] synapse-services/auth/token_auth.rs:     0.0% < 70% (was no baseline)
+```
+
+「was no baseline」是第一个线索：这两条不是新写的东西，而是**基线里从来没登记过**。
+查 lcov 才看清关键数字 —— 两个文件各 94 / 55 行，却只有 `LF:2 / LH:0`：
+
+| 文件 | 源码行数 | lcov | 内容 |
+|---|---|---|---|
+| `synapse-services/src/auth/credential_auth.rs` | 94 | `LF:2 LH:0` | 只有 `pub trait CredentialAuth` 的方法签名（`#[async_trait]`） |
+| `synapse-services/src/auth/token_auth.rs` | 55 | `LF:2 LH:0` | 只有 `pub trait TokenAuth` 的方法签名 |
+
+那 2 行是 `#[async_trait]` 展开出的**默认体垫片**，而两个 trait 的所有方法都被实现方覆盖
+（`auth/mod.rs` 的 `impl TokenAuth for AuthService` / `impl CredentialAuth for AuthService`，
+以及 `test_mocks.rs` 的 `FakeTokenAuth` / `FakeCredentialAuth`）⇒ 垫片永远不可达。
+**文件里没有函数体，就没有可执行行** —— 这是结构性 0%，与"没写测试"无关。
+
+全仓同形态只有 3 个（`LF ≤ 3` 且 `LH == 0`）：
+
+| 文件 | lcov | 说明 |
+|---|---|---|
+| `synapse-services/…/credential_auth.rs` | `2/0` | trait 声明 |
+| `synapse-services/…/token_auth.rs` | `2/0` | trait 声明 |
+| `synapse-storage/src/stream_positions.rs` | `2/0` | 模块文档 + 常量表，无可执行体（`[NEW] 0.0% < 50%` 那条就是它） |
+
+**修法**：`check_file_coverage.py` 新增 `DECL_ONLY_MAX_LINES = 3`，判据写死为
+「**新文件** + `LF ≤ 3` + `LH == 0`」⇒ 打印 `[DECL-ONLY] <path>: N coverable line(s),
+none reachable` 并跳过新文件/核心地板。三条边界都钉住了：
+
+- 只在 `is_new` 分支生效 —— 基线已知的文件照旧走回归比较（0.0 不会低于 0.0）；
+- `LF ≤ 3` 是硬上限 —— 4 行有函数体的文件仍然 `[NEW]` 判红（`a_tiny_file_with_bodies_still_fails_the_new_file_floor`）；
+- 豁免**必须打印** —— 与 `[EXEMPT]` 同一条规矩：静默放行与"门禁没在工作"无法区分。
+
+**刻意没做的两件事**：
+
+1. **不把这两条加进 `non_unit_coverable_prefixes.txt`**。那个名单的语义是"覆盖率腿
+   **执行不到**的路径"（`src/bin/`、`src/main.rs`），且有
+   `non_unit_coverable_list_is_exactly_bin_and_main` 守着"只许是这两条"；把 trait 声明
+   塞进去会让那个名单变成"所有不想管的文件"。
+2. **不给 trait 补测试**。没有函数体可测；真要提覆盖率，只能测实现方（`AuthService`
+   的方法），那是另一个文件的事，且已经在基线里（`auth/mod.rs` 69.52%）。
+
+结果：`Core-path coverage failures` 整段消失，失败数 132 → **131**（3 条 `[DECL-ONLY]` 全部打印）。
+
+### 3.1.6 本地复跑 CI 报告的坑：`SF:` 是 `/home/runner/…`
+
+`check_file_coverage.py::_normalize_path` 只剥掉**当前** `ROOT` 前缀；CI 工件里的
+`SF:` 是 `/home/runner/work/synapse-rust/synapse-rust/…`，在本地 `ROOT`
+（`/Users/…/synapse-rust`）下匹配不上，于是落进「绝对路径但在仓外」分支
+（`return p.lstrip("/")`）⇒ 每个文件都成了基线里没有的**新文件**。实测后果：
+
+| 做法 | 读数 |
+|---|---|
+| 直接跑 CI 工件 | `97 条 [NEW]`（0.0% 的 `src/bin/*` 等）、`608 个条目保留自上次` |
+| 先改写前缀 | `132 条`真实失败、`674 测量 / 8 保留` |
+
+```bash
+sed 's#^SF:/home/runner/work/synapse-rust/synapse-rust/#SF:#' \
+    /tmp/cov_full/lcov.info > /tmp/cov_rel/lcov.info
+python3 scripts/check_file_coverage.py --report /tmp/cov_rel/lcov.info \
+    --baseline /tmp/baseline_before.json --save-baseline /tmp/baseline_after.json \
+    --global-floor 40 --new-file-floor 50 \
+    --core-files scripts/ci/core_file_coverage_prefixes.txt --core-threshold 70 \
+    --non-unit-coverable scripts/ci/non_unit_coverable_prefixes.txt \
+    --raise-queue scripts/ci/coverage_raise_queue.json
+```
+
+⚠️ 一定要把 `--save-baseline` 指到 `/tmp`：默认会写回 `--baseline` 指的文件，
+拿一份**没归一化**的报告去跑就会把基线改坏。
+
 ### 3.2 性能验收只有报告，没有断言
 
 `tests/performance/appservice_scheduler_perf_tests.rs` 的 **2 条用例全部** `#[ignore]`（`reason` 写明

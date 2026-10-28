@@ -214,3 +214,43 @@ fn non_unit_coverable_list_fails_closed_when_missing_empty_or_stale() {
         "the stale-prefix failure must say what is wrong\noutput:\n{output}"
     );
 }
+
+/// (f) 声明文件（只有 trait/struct 签名、没有函数体）不该被"新文件地板"判红。
+///
+/// 实测依据（run 40649970973，第一份完整报告 674 个文件）：`synapse-services/src/auth/
+/// {credential_auth,token_auth}.rs` 各是 94/55 行的**纯 trait 声明**，在 llvm-cov 里只剩
+/// `LF:2 / LH:0` —— 那两行是 `#[async_trait]` 展开的、**不可达**的默认体垫片
+/// （每个 impl 都自带方法体）。把它们按"新文件 core ≥70%"判红，是把结构性 0/2 当成
+/// 质量缺陷；而这两条曾让 `Core-path coverage failures` 整段变红。
+#[test]
+fn a_declaration_only_file_is_exempt_from_the_new_file_floor() {
+    let (code, output) =
+        run_ratchet(&list_path(), &[("synapse-services/src/auth/probe_trait.rs", 2, 0)], &[("src/lib.rs", 50.0)]);
+
+    assert_eq!(code, 0, "a declaration-only file must not fail the new-file floor:\n{output}");
+    assert!(
+        output.contains("[DECL-ONLY] synapse-services/auth/probe_trait.rs"),
+        "the exemption must be printed with its reason, never silent:\n{output}"
+    );
+    assert!(
+        !output.contains("[NEW] synapse-services/auth/probe_trait.rs"),
+        "a declared exemption must not also be reported as a floor failure:\n{output}"
+    );
+}
+
+/// (g) 边界：豁免只覆盖 `LF <= 3`，也不能吞掉"小文件但真的没测试"。
+///
+/// 4 行可执行、0 命中 ⇒ 仍然是 `[NEW]` 红。放宽这条会让"只写 4 行没人调用"的模块
+/// 白拿走豁免，而它和声明文件在语义上完全不同（有函数体 = 可以被测）。
+#[test]
+fn a_tiny_file_with_bodies_still_fails_the_new_file_floor() {
+    let (code, output) =
+        run_ratchet(&list_path(), &[("synapse-services/src/auth/probe_tiny.rs", 4, 0)], &[("src/lib.rs", 50.0)]);
+
+    assert_eq!(code, 1, "a four-line file with bodies must still be judged:\n{output}");
+    assert!(output.contains("[NEW] synapse-services/auth/probe_tiny.rs"), "expected a [NEW] failure:\n{output}");
+    assert!(
+        !output.contains("[DECL-ONLY] synapse-services/auth/probe_tiny.rs"),
+        "the declaration-only exemption must not cover files with function bodies:\n{output}"
+    );
+}
