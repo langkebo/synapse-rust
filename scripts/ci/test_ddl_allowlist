@@ -43,7 +43,13 @@ synapse-common/src/test_isolation.rs::tests::concurrent_pruning_does_not_drop_a_
 synapse-common/src/test_isolation.rs::tests::fingerprint_is_stable_and_content_sensitive
 synapse-common/src/test_isolation.rs::tests::incomplete_template_is_rebuilt
 synapse-common/src/test_isolation.rs::tests::make_validated_clone
-synapse-common/src/test_isolation.rs::tests::prune_backfills_legacy_zero_row_marker_and_spares_it
+# 2026-10-28：prune 回归整体搬到 `test_isolation/tests/prune_tests.rs`（`#[path]` 子模块），
+# 键随之变化。该拆分同时暴露了 `vanished_candidate_is_skipped_not_a_prune_failure` ——
+# 它要先 `CREATE SCHEMA` 再删掉，才能构造"候选已消失"（42P01）那条分支，属同一类
+# 「隔离机制自身的测试」。此前它被 census 的 `#[path]` 分区缺陷算进生产区，DDL 守卫
+# （只扫 test 区）根本看不见它；修好分区后必须显式收录，不得让它裸奔。
+synapse-common/src/test_isolation/tests/prune_tests.rs::prune_backfills_legacy_zero_row_marker_and_spares_it
+synapse-common/src/test_isolation/tests/prune_tests.rs::vanished_candidate_is_skipped_not_a_prune_failure
 synapse-common/src/test_isolation.rs::tests::reusing_a_schema_reseeds_its_sequences
 synapse-common/src/test_isolation.rs::tests::seed_where_clause_selects_the_requested_tables
 synapse-common/src/test_isolation.rs::tests::template_is_built_complete_and_reused

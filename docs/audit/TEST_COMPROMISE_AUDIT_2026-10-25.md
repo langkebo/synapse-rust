@@ -1165,6 +1165,125 @@ llvm-cov 分母**且几乎 100% 命中 —— 那样做会把 19.4% 直接"提�
 llvm-cov 分母，所以 `saml_service.rs` 的 pct 会明显上升 —— 那是**口径回归到正确**，
 不是新增覆盖；真正的收益是那 39 行生产代码第一次被断言。
 
+#### 3.1.7.11 A 组第 2、3 条（2026-10-28）：一条是**死代码**，一条真补了 5 条
+
+##### 第 2 条改判：`verify_device` 不是"主路径没人测"，是 N+1 消除留下的尸体
+
+§3.1.7.9 把它记成「设备验证审计的主路径（28 行，值得补）」。**这条假设是错的**，
+四次核验依次否掉它：
+
+1. **谁写的**：`git log -S "pub async fn verify_device("` → `eaf733c0f`（`query!` 迁移批）。
+2. **谁把它变成孤儿的**：`git log -S "Batch the read queries"` → `a5fbae44b`
+   （P2-09 N+1 消除）。该提交在同一文件的 diff 里有一行
+   `- let status = self.verify_device(device).await?;` —— 那**就是它唯一的调用点**，
+   被内联的批量逻辑替换掉了。此后 `verify_user_devices` 不再经过它。
+3. **现在有人调吗**：全仓 `\.verify_device\(` **零命中**（含 `.worktrees/gate-test`、
+   `.worktrees/w6b5` 两个 worktree）。`CrossSigningVerificationService` 除本文件之外
+   只有 `tests/integration/e2ee_audit_service_tests.rs` 在构造 —— 也就是说**整个类型
+   都没有生产消费方**（`E2eeAuditService` 有：`routes/e2ee/backup.rs:198`；
+   但 `CrossSigningVerificationService` 从未接线到任何路由或 wiring）。
+4. **就算接线也调不了**：入参 `DeviceInfo` 的 3 个字段**全私有**、没有 `pub fn new`、
+   也没有 `Default` ⇒ 本模块之外**构造不出来**。它在设计上只是
+   `get_user_devices()` → `verify_device()` 的中间类型。
+
+所以那 28 行未执行是**不可达**，不是缺测试。从这里补测试只有一条路：用
+`use super::*` 从模块内部开后门 —— 那测的是自己写的桩，正是本审计（§3.1.7.9 两条备注、
+§3.1.7.6 否掉的行数外推估计器）反复拒绝的"把数字做上去"。**A 组因此从 5 条降为 4 条。**
+
+处置二选一，需产品决策（本轮不做）：
+
+| 方案 | 内容 | 代价 |
+|---|---|---|
+| **删除**（推荐） | 删 `verify_device` + `verify_device_signature` + `check_cross_signing`（−28 行），`DeviceInfo` 收为私有并撤 `mod.rs` 的 re-export | 零调用方 ⇒ 零行为变化；`DeviceInfo` 仍被 `get_user_devices()` 内部使用 |
+| 接线 | 给 admin 加「单设备验证」端点 | 功能新增，超出本轮；且要同时给 `DeviceInfo` 加构造函数 |
+
+##### 第 3 条已补：`user/storage.rs` 两个管理面函数（5 条用例）
+
+两个函数都有**真实调用方**，但此前零测试（`grep -rln "batch_deactivate_users\|set_deactivation_status" tests/`
+返回空）：`set_deactivation_status_batch`（`admin_user_service.rs:689`）与
+`count_non_deactivated_users_by_app_service`（`user_service.rs:434`）。补在
+`tests/integration/user_storage_tests_migrated.rs`：
+
+| 用例 | 断的东西 |
+|---|---|
+| `…batch_returns_only_existing_users` | 返回集合**恰好**是库里存在的 id（幽灵 id 不能回写）；**反向**：不在入参里的用户必须毫发无损 |
+| `…batch_empty_input_touches_nothing` | 空入参返回空集；**反向**：不得退化成"全库停用" |
+| `…batch_is_symmetric_for_reactivation` | `is_deactivated=false` 那一半真的生效（防参数被硬编码成 `TRUE`） |
+| `…count_groups_and_excludes_deactivated` | 唯一 appservice 分组计数 = 3（2 个 `FALSE` + 1 个 `NULL` 都算未停用、1 个已停用不计）；**整组停用的键必须消失**而不是报 0；不存在的键不得凭空出现 |
+| `…count_maps_local_users_to_empty_string` | `appservice_id IS NULL` 落在空串键下 |
+
+两处口径说明：
+
+- **`is_deactivated` 是 NULL 时算未停用**（`COALESCE(is_deactivated, FALSE)`）——这一支只有
+  显式写 NULL 才走得到，所以用直接 SQL 播种（`create_user` 只写 `FALSE`）。
+- **空串组只能断言"存在且 ≥1"**：`""` 是全局分组，并行跑的其它用例也在建本地用户，
+  断言精确值会变成 flaky。唯一可确定断言的是**本次唯一 appservice_id** 那个分组。
+
+变异自证（1 处，Rust 侧改逻辑、不动 SQL 文本，因为 `SQLX_OFFLINE=true` 下改
+`query_scalar!` 的 SQL 会直接编译报 `no cached data`，那不是"测试变红"）：
+
+| 变异 | 结果 |
+|---|---|
+| `set_deactivation_status_batch` 返回 `user_ids` 而非 DB 回的 `rows`（= 幽灵 id 当成成功） | 只有第 1 条红，报 `batch update must return exactly the ids that exist` |
+
+##### 顺带修掉的真缺陷：census 认不出 `#[path]` 子模块 ⇒ 同一次误判让两个棘轮**一红一绿**
+
+补测过程中撞到 CI 的存量红：`check_sqlx_dynamic_ratio.sh` 报
+「生产动态 SQL 增加 **14** 处（106 → 120）」。逐文件对称差（`--list-production-dynamic`
+取 `f45128efe^` 与 HEAD 各跑一次）显示**全仓只有一个文件变化**：
+`synapse-common/src/test_isolation/tests/prune_tests.rs` 0 → **15**，其余一处未动。
+
+根因是 census 的一个已知弱点被新写法踩到：`f45128efe` 把 `test_isolation.rs` 内联测试里的
+prune 回归挪进独立文件，声明写成
+
+```rust
+#[cfg(test)]
+mod tests {
+    #[path = "prune_tests.rs"]   // 实际文件在 test_isolation/tests/prune_tests.rs
+    mod prune_tests;
+}
+```
+
+`collect_test_gated_files()` 只会**从模块名推文件名**（`prune_tests.rs` / `prune_tests/mod.rs`），
+推不出带 `tests/` 的目录，于是整份文件落进生产区。失效形态是**双向**的：
+
+- 生产棘轮虚高 15（真实 105 报成 120）⇒ 假红；
+- 测试区棘轮同时虚低 15（真实 842 报成 827）⇒ **报"未增加"，把 8 点真实增长洗成绿**。
+
+修法（`scripts/ci/sqlx_query_census.py`）：新增 `enclosing_inline_modules()` 与
+`PATH_MOD_DECL_RE`，按 Rust 参考解析 `#[path]` 的基准目录（非 mod-rs 文件从同名目录起算，
+`mod.rs`/`lib.rs`/`main.rs` 从同目录起算，属性位于内联模块块内时再逐级拼模块名），
+并且**只在 `iter_region_lines()` 判定为 test 区的行上生效**（注释里的 `#[path]` 已被
+`strip_code` 抹掉，不会误命中）。
+
+修完的实测与归因（`--list-test-dynamic` 在 `e1379be27` 与 HEAD 的对称差，全仓只有 4 个文件动）：
+
+| 文件 | 变化 | 性质 |
+|---|---|---|
+| `test_isolation.rs` | 133 → 126 | −7，prune 回归挪出 |
+| `test_isolation/tests/prune_tests.rs` | 0 → 15 | +15，同上 |
+| `synapse-test-utils/src/lib.rs` | 8 → 4 | −4，建库夹具挪出 |
+| `synapse-test-utils/src/db_schema_pool_tests.rs` | 0 → 4 | +4，同上 |
+
+净 **+8** 是上一批真新增的测试用例，其余 11 处只是换文件。基线因此同批调整并就地登记
+（见 `scripts/ci/sqlx_dynamic_ratio_baseline` 2026-10-28 两条）：`production 106 → 105`
+（用修好的 census 回测 `e1379be27` 实测**本来就是 105** —— 10-26 那条"已收紧到零余量"
+多留了 1 个静默额度）、`test_infra 834 → 842`。
+
+连带效应（必须一起收）：census 修好后 `prune_tests.rs` 才第一次进"test 区"，而
+`test_ddl_guard` 只扫 test 区 ⇒ 立刻浮出两条此前**完全不可见**的自建 schema DDL
+（`prune_backfills_legacy_zero_row_marker_and_spares_it:31:CREATE TABLE`、
+`vanished_candidate_is_skipped_not_a_prune_failure:106:DROP SCHEMA`）。两者都属于
+`test_ddl_allowlist` 明确收录的"隔离机制自身的测试"，已按新路径登记（旧条目
+`test_isolation.rs::tests::prune_backfills…` 随改名同步更新，否则它自己会变成 stale 条目）。
+
+红证明（两条，都是真跑）：
+
+| 变异 | 结果 |
+|---|---|
+| 把 census 回退到 HEAD 版本（即不解析 `#[path]`） | 新增用例 `cfg_test_gated_path_submodule_is_excluded_from_production` 红，报出 `src/foo/tests/prune_tests.rs` 被算成生产 |
+| 只改 `test_ddl_allowlist` 的新增两条中任意一条 | `no_unallowlisted_self_built_schema_in_test_regions` 红（恢复后 9/9 绿） |
+
 ### 3.2 性能验收只有报告，没有断言
 
 `tests/performance/appservice_scheduler_perf_tests.rs` 的 **2 条用例全部** `#[ignore]`（`reason` 写明

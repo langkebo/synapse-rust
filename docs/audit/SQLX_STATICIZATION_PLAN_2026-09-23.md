@@ -2190,12 +2190,23 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 
 <!-- sqlx-plan-numbers:start -->
 <!-- 以下数字由 `scripts/ci/check_plan_numbers_fresh.sh` 与基线/实测现算比对；改基线必须同步改这里。 -->
-BASELINE_DYNAMIC_PRODUCTION=106
-BASELINE_DYNAMIC_TEST_INFRA=834
+BASELINE_DYNAMIC_PRODUCTION=105
+BASELINE_DYNAMIC_TEST_INFRA=842
 BASELINE_STATIC=1360
 BASELINE_QUERY_BUILDER=17
 SQLX_CACHE_ENTRIES=1322
 <!-- sqlx-plan-numbers:end -->
+
+> **2026-10-28 更新（census 分区缺陷修复，`check_sqlx_dynamic_ratio` 由红转绿）**，两项数字：
+> - `BASELINE_DYNAMIC_PRODUCTION` **106 → 105**（−1）：10-26 那条"已按实测收紧到零余量（106）"
+>   多留了 1 个静默额度 —— 用修好的 census 回测 `e1379be27`（钉 106 的那次）实测**本来就是 105**。
+> - `BASELINE_DYNAMIC_TEST_INFRA` **834 → 842**（+8）：`f45128efe` / `a2d9337ad` 的新用例带来的
+>   **真新增**测试夹具（4 个文件逐条归因见 `scripts/ci/sqlx_dynamic_ratio_baseline` 的 2026-10-28 注记）。
+> - 为什么会同时动两项：`sqlx_query_census.py` 此前认不出 `#[path = "…"] mod x;`（声明写在
+>   `#[cfg(test)] mod tests { … }` 内联块内、目标文件在 `tests/` 子目录）⇒
+>   `test_isolation/tests/prune_tests.rs` 的 15 处**测试区**动态 SQL 被算进生产区。
+>   一次误判同时造成生产侧**假红 +15**、测试侧**假绿 −15**（842 报成 827）。
+> - 静态 1360 / QueryBuilder 17 / `SQLX_CACHE_ENTRIES` 均不变。
 
 > **2026-10-27 更新（`73917d19b` 的 related/cascade 存储用例跟手）**，数字块一项：
 > - `BASELINE_DYNAMIC_TEST_INFRA` **832 → 834**（+2）：`synapse-storage/src/event/db_tests.rs`

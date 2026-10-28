@@ -598,6 +598,49 @@ mod db_tests;
     );
 }
 
+/// `#[path = "…"] mod x;` 引入的整份文件必须排除 —— **包括它写在
+/// `#[cfg(test)] mod tests { … }` 这种内联模块块内的情形**。
+///
+/// 这是 2026-10-28 实测踩到的失效形态：`f45128efe` 把 `test_isolation.rs` 内联测试里的
+/// prune 回归挪到 `test_isolation/tests/prune_tests.rs`，声明写成
+/// `#[cfg(test)] mod tests { #[path = "prune_tests.rs"] mod prune_tests; }`。
+/// 旧实现只能从**模块名**推文件名（`prune_tests.rs` / `prune_tests/mod.rs`），推不出
+/// `tests/prune_tests.rs` ⇒ 那 15 处测试区动态 SQL 被算成生产区，生产棘轮虚高 15
+/// （真实 105 报成 120）、测试区棘轮同时虚低 15（真实 842 报成 827）。
+///
+/// 夹具按 Rust 参考复刻路径基准：`foo.rs` 是**非 mod-rs 文件**且属性在**内联模块块内**
+/// ⇒ 基准是 `foo/`，再拼内联模块名 `tests`，最后才是属性里的相对路径。
+#[test]
+fn cfg_test_gated_path_submodule_is_excluded_from_production() {
+    let sites = scan_temp_tree(&[
+        (
+            "src/foo.rs",
+            r#"
+fn production() {
+    let _ = sqlx::query("SELECT prod");
+}
+
+#[cfg(test)]
+mod tests {
+    #[path = "tests/prune_tests.rs"]
+    mod prune_tests;
+}
+"#,
+        ),
+        ("src/foo/tests/prune_tests.rs", "fn helper() { let _ = sqlx::query(\"SELECT test file\"); }\n"),
+    ]);
+    assert_eq!(
+        kinds_for(&sites, "src/foo.rs"),
+        vec![SiteKind::Literal],
+        "生产区应只计 1 处（`src/foo.rs` 自己那条）：{sites:?}"
+    );
+    assert!(
+        sites.iter().all(|s| s.path != "src/foo/tests/prune_tests.rs"),
+        "`#[path]` + `#[cfg(test)]` 引入的整份文件必须排除：{sites:?}"
+    );
+    assert_eq!(sites.len(), 1, "全树只有 1 处生产动态 SQL：{sites:?}");
+}
+
 // =============================================================================
 // 棘轮语义：新增即红，运行期拼装永远绿
 // =============================================================================

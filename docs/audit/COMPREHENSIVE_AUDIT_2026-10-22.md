@@ -197,7 +197,7 @@
 | 基线索引定义 | **344** | 同上 |
 | 活路由 / 派生表行 / `INDEXES.md` 人工表 | **979** / **981** / **134** | 同上（`LIVE_ROUTES` / `DERIVED_TABLE_ROWS` / `INDEXES_DOC_ROWS`） |
 | clippy allow | **160 处 / 111 文件**（扫描 **833** 个 `.rs`）；其中无理由 **0 / 0**（棘轮基线） | `python3 scripts/ci/check_clippy_allow_ratchet.py`（全量站点走其 `scan()`） |
-| `let _ =` / `unwrap_or_default()` / `if let Ok(` | 生产 **517** 行 / **193** 文件；全仓 **1612** 行 / **357** 文件 | 全仓 = `git ls-files -z '*.rs' \| xargs -0 grep -cE 'let _ =\|if let Ok\(\|unwrap_or_default\(\)'` 求和；生产口径 = 8 个 crate 根（`PRODUCTION_ROOTS`）且剔 `tests/`、`*/tests.rs`、`*_tests.rs`、测试基建文件（`test*.rs`）与内联 `#[cfg(test)]` 块，由 `check_doc_metrics.py` 现算 |
+| `let _ =` / `unwrap_or_default()` / `if let Ok(` | 生产 **517** 行 / **193** 文件；全仓 **1614** 行 / **357** 文件 | 全仓 = `git ls-files -z '*.rs' \| xargs -0 grep -cE 'let _ =\|if let Ok\(\|unwrap_or_default\(\)'` 求和；生产口径 = 8 个 crate 根（`PRODUCTION_ROOTS`）且剔 `tests/`、`*/tests.rs`、`*_tests.rs`、测试基建文件（`test*.rs`）与内联 `#[cfg(test)]` 块，由 `check_doc_metrics.py` 现算 |
 | `tokio::time::sleep` | **104** 站点（PROD **26** / TEST_INLINE **34** / TEST_FILE **44**） | `python3 scripts/ci/check_sleep_ratchet.py` |
 | `>2000` 行 `.rs` | 生产 **0**（W11 前 7，内联测试外移后最大 1557）；测试基建 **2**（`test_isolation.rs` **3375**、`test-utils/lib.rs` **2786**）；生成 **1**（`derived_route_table_always.inc.rs` **5512**）；测试 **3**（`room_service_tests_migrated.rs` **5248**、`event/db_tests.rs` **3516**、`sync_service/tests.rs` **2510**） | `git ls-files '*.rs' \| xargs wc -l \| awk '$1>2000'` |
 | 依赖分裂 | crate 名 **47** / 多版本 **32** / 同版本多来源 **15** | `cargo tree -d --workspace --locked` 按 crate 名聚合 |
@@ -221,12 +221,18 @@
 > | 生产根内测试基建文件（`test*.rs`） | 61 | 6 | `synapse-common/src/test_isolation.rs` |
 > | 非生产根（`benches/` 30、`synapse-test-utils/` 13、`scripts/` 9、`vendor/` 5） | 57 | 7 | bench 夹具的 `let _ =` |
 >
-> 全仓 1612 行 / 357 文件（文件数 +1：2026-10-28 把两条 prune 回归测试从
+> 全仓 1614 行 / 357 文件（文件数 +1：2026-10-28 把两条 prune 回归测试从
 > `test_isolation.rs` 拆到 `synapse-common/src/test_isolation/tests/prune_tests.rs`，
 > 同时让该文件回落到行数棘轮上限之内）。**任何「测试写在生产文件里」的仓库
 > 都会把测试代码记成生产债务**，所以 `check_doc_metrics.py` 现在按花括号配对屏蔽
 > `#[cfg(test)]` / `#[cfg(all(test, …))]` 整块，而 `#[cfg(any(test, feature = "test-utils"))]`
 > 仍算生产 —— 带该 feature 构建时它确实进产物。
+>
+> 行数 **1612 → 1614（+2）**：新增的守卫用例
+> `sqlx_dynamic_literal_guard_tests::cfg_test_gated_path_submodule_is_excluded_from_production`
+> 里有两行**夹具字符串** `let _ = sqlx::query("…")`（与同文件既有夹具同一写法）。
+> 这一项是**行正则**，字符串里的也照计 ⇒ 属**已知过宽**的口径；它不改变任何真实债务，
+> 但会随夹具数量漂移，所以每次动夹具都要同批更新本块。
 >
 > **517 / 193（2026-10-28 晚）**：工作区里有另一个会话未提交的 `.rs` 改动
 > （`synapse-e2ee/src/{cross_signing,device_keys}/service.rs`、

@@ -3475,7 +3475,18 @@ BASELINE_QUERY_BUILDER=17
 #      运行时形态只动 census 计数，`.sqlx` 条目数与 `SQLX_CACHE_ENTRIES` 不变。
 #   **收紧方向**：已按实测收紧到零余量（106）。①的 36 处应稳定留在 test 区；
 #   若将来 census 的 `test_gated` 口径变化，须同批重算本项与下面 TEST_INFRA 项。
-BASELINE_DYNAMIC_PRODUCTION=106
+# 2026-10-28: 106 → **105**（−1，与同批的 census `#[path]` 修复一起按实测收紧）。
+#   ① 修复：`sqlx_query_census.py` 的 `collect_test_gated_files` 现在解析
+#      `#[path = "…"] mod x;`。`f45128efe` 把 `test_isolation.rs` 内联测试里的 prune 回归
+#      挪到 `test_isolation/tests/prune_tests.rs`（`#[cfg(test)] mod tests { #[path = …] mod
+#      prune_tests; }`，非 mod-rs 文件的**内联模块块内**），旧实现推不出该文件名 ⇒
+#      那 **15 处测试区**动态 SQL 被算进生产区：门禁报「生产 106 → 120，+14」，
+#      而真实生产是 105、测试区是 842。**逐文件对称差**（`--list-production-dynamic`
+#      取 `f45128efe^` 与 HEAD 各跑一次）：全仓只有 `…/tests/prune_tests.rs`
+#      0 → 15，其余文件一处未变 ⇒ +15 全是分区漂移，不是新增生产站点。
+#   ② 基线修正：用修好的 census 回测 `e1379be27`（钉住 106 的那次）实测**本来就是 105**
+#      —— 2026-10-26 那条「已按实测收紧到零余量（106）」多留了 1 个静默额度。本次收到 105。
+BASELINE_DYNAMIC_PRODUCTION=105
 # 2026-10-15: 769 → 768（按实测收紧；棘轮是**上限**，留着 1 个空位等于允许一次静默回归）。
 #   本批（方案 B4.3）只新增了**静态**查询，这一项是复核实测时发现的既有余量。
 # 2026-10-16: 768 → **769**（+1，B1/UG-5 lazy-load 位置列）。
@@ -3618,7 +3629,23 @@ BASELINE_DYNAMIC_PRODUCTION=106
 #   不进 `cargo sqlx prepare`（默认 target 集），`--all-targets` 会 E0432 —— 同上方各条。
 #   **收紧方向**：若把"播种一条已撤回事件"补进 `insert_soft_fail_event_row`
 #   的参数（加一个 `is_redacted` 形参），①可回收 1 点；届时必须同批下调并就地登记。
-BASELINE_DYNAMIC_TEST_INFRA=834
+# 2026-10-28: 834 → **842**（+8，全部可逐文件归因；同批的 census 修复让 15 处**回归**测试区）。
+#   用修好的 census 回测 `e1379be27`（钉 834 的那次）与 HEAD，`--list-test-dynamic` 取
+#   对称差，全仓只有 4 个文件变动：
+#     · `synapse-common/src/test_isolation.rs`             133 → 126（−7，prune 回归挪出）
+#     · `synapse-common/src/test_isolation/tests/prune_tests.rs`  0 → 15（+15，同上）
+#     · `synapse-test-utils/src/lib.rs`                      8 → 4（−4，建库夹具挪出）
+#     · `synapse-test-utils/src/db_schema_pool_tests.rs`     0 → 4（+4，同上）
+#   净 +8 = 上一批新增的 8 条测试用例（`f45128efe` 的 prune 42P01 分支 + `a2d9337ad`
+#   的模板标记行事务化各占一半），其余 11 处只是**换文件**、不是新增。
+#   为什么这一项此前是"绿的"却没被发现：旧 census 认不出 `#[path]` 子模块，
+#   把这 15 处算进生产区，于是 test 侧报 827 ≤ 834 判"未增加"、生产侧报 120 > 106
+#   判红 —— **同一次误判让 test 棘轮少报了 8 点增长**，正是它的失效形态。
+#   两处新文件的 4/15 处都是测试数据播种与断言读回；`#[cfg(test)]` 内的 `query!`
+#   不进 `cargo sqlx prepare`（默认 target 集），`--all-targets` 会 E0432 —— 同上方各条。
+#   **收紧方向**：`db_schema_pool_tests.rs` 的 4 处与 `test_isolation` 的建库 DDL 若抽成
+#   单点夹具可回落；届时必须同批下调并就地登记。
+BASELINE_DYNAMIC_TEST_INFRA=842
 # 2026-10-15: 1353 → 1354（+1，方案 B4.3）。新增
 #   `synapse-storage/src/schema_health_check.rs` 的 `check_invalid_indexes()` —— 它让
 #   **半建索引**（`pg_index.indisvalid = false`）可见；此前只查"缺表/缺列/缺索引名"，

@@ -80,6 +80,13 @@ TEST_MOD_DECL_RE = re.compile(
     r"(?:pub(?:\s*\([^)]*\))?\s+)?mod\s+([A-Za-z_][A-Za-z0-9_]*)\s*;",
     re.DOTALL,
 )
+# 内联模块开头 `mod x {`（用于算 `#[path]` 的相对基准，见 `collect_test_gated_files`）。
+INLINE_MOD_OPEN_RE = re.compile(r"\bmod\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{")
+# `#[path = "…"] mod x;` —— 子模块文件名由属性显式给出，不再能从模块名推出来。
+PATH_MOD_DECL_RE = re.compile(
+    r'#\s*\[\s*path\s*=\s*"([^"]+)"\s*\]\s*'
+    r"(?:pub(?:\s*\([^)]*\))?\s+)?mod\s+([A-Za-z_][A-Za-z0-9_]*)\s*;"
+)
 
 
 def strip_code(text: str, pad_comments: bool = False) -> list[str]:
@@ -210,6 +217,26 @@ def strip_code(text: str, pad_comments: bool = False) -> list[str]:
     return lines
 
 
+def enclosing_inline_modules(code: list[str]) -> list[tuple[str, ...]]:
+    """逐行给出「该行**开始时**仍在内的内联模块名链」。
+
+    "内联模块"指 `mod x { … }` 这种带块体的声明（与 `mod x;` 的文件模块相对）。
+    只为 `#[path = "…"]` 的相对路径解析服务：Rust 参考规定，写在**内联模块块内**的
+    `#[path]` 要把这些模块名当成逐级目录拼到基准目录后面。
+    """
+    stack: list[tuple[int, str]] = []
+    depth = 0
+    out: list[tuple[str, ...]] = []
+    for line in code:
+        out.append(tuple(name for _, name in stack))
+        for match in INLINE_MOD_OPEN_RE.finditer(line):
+            stack.append((depth, match.group(1)))
+        depth += line.count("{") - line.count("}")
+        while stack and depth <= stack[-1][0]:
+            stack.pop()
+    return out
+
+
 def collect_test_gated_files(sources: list[Path]) -> set[Path]:
     """解析 `#[cfg(test)] mod x;`（含 `pub(crate)`、跨行）声明的文件。
 
@@ -235,7 +262,8 @@ def collect_test_gated_files(sources: list[Path]) -> set[Path]:
         text = path.read_text(encoding="utf-8", errors="ignore")
         if "cfg(" not in text or "mod " not in text:
             continue
-        code = "\n".join(strip_code(text))
+        code_lines = strip_code(text)
+        code = "\n".join(code_lines)
         for name in TEST_MOD_DECL_RE.findall(code):
             for candidate in (
                 # 布局 ①：声明方是模块根（`foo/mod.rs`）⇒ 子模块在同目录
@@ -247,6 +275,40 @@ def collect_test_gated_files(sources: list[Path]) -> set[Path]:
             ):
                 if candidate.is_file():
                     gated.add(candidate.resolve())
+
+        # 布局 ③：`#[path = "…"] mod x;` —— 文件名由属性显式给出，推不出来。
+        # 2026-10-28 补：拆文件时（`test_isolation.rs` 的 prune 回归挪到
+        # `test_isolation/tests/prune_tests.rs`）这条路径没被解析，15 处**测试区**
+        # 动态 SQL 被算进生产区 ⇒ 生产棘轮虚高 15（真实 105，门禁报 120）、
+        # 测试区棘轮虚低 15。基准目录按 Rust 参考：非 mod-rs 文件（`foo.rs`）从
+        # `foo/` 起算，`mod.rs`/`lib.rs`/`main.rs` 从同目录起算；属性位于内联模块块内时
+        # 再把内联模块名逐级拼上。
+        if "path" not in text:
+            continue
+        inline_chain = enclosing_inline_modules(code_lines)
+        test_lines = {
+            idx
+            for idx, (_, in_test) in enumerate(iter_region_lines(code_lines))
+            if in_test
+        }
+        bases = [path.parent]
+        if path.stem not in ("mod", "lib", "main"):
+            bases.insert(0, path.with_suffix(""))
+        # 属性与 `mod x;` 常分两行，必须按全文匹配后换算行号（逐行扫会漏）。
+        for match in PATH_MOD_DECL_RE.finditer(text):
+            lineno = text.count("\n", 0, match.start())
+            if lineno not in test_lines:
+                continue
+            # 注释里的 `#[path]` 已被 `strip_code` 抹掉，该行不再含 `path`。
+            if lineno >= len(code_lines) or "path" not in code_lines[lineno]:
+                continue
+            rel = match.group(1)
+            names = inline_chain[lineno] if lineno < len(inline_chain) else ()
+            for base in bases:
+                for depth in (len(names), 0):
+                    candidate = base.joinpath(*names[:depth], rel)
+                    if candidate.is_file():
+                        gated.add(candidate.resolve())
     return gated
 
 
