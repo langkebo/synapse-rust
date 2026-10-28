@@ -2697,12 +2697,22 @@ mod db_schema_pool_tests {
             .unwrap_or_else(|error| panic!("could not create scratch schema {schema_name}: {error}"));
     }
 
-    async fn pool_rows(pool: &PgPool, schema_name: &str) -> i64 {
-        sqlx::query_scalar(&format!("SELECT count(*) FROM {DB_SCHEMA_POOL_TABLE} WHERE schema_name = $1"))
-            .bind(schema_name)
-            .fetch_one(pool)
-            .await
-            .expect("count pool rows")
+    /// 停靠表里 `schema_name` 的行数；`min_parked_ts` 给定时只数 `parked_ts >= ` 的那些。
+    ///
+    /// 收成一个 helper 而不是让每个用例各写一条 SQL：`#[cfg(test)]` 里的宏不进
+    /// `cargo sqlx prepare`，每多一处 `query_scalar(&format!(…))` 都会顶高
+    /// `scripts/ci/check_sqlx_dynamic_ratio.sh` 的 **dynamic_test** 棘轮
+    /// （`dynamic_test 不得增加`）—— 而"多一条只差一个谓词的查询"纯粹是重复。
+    async fn pool_rows(pool: &PgPool, schema_name: &str, min_parked_ts: Option<i64>) -> i64 {
+        sqlx::query_scalar(&format!(
+            "SELECT count(*) FROM {DB_SCHEMA_POOL_TABLE} \
+             WHERE schema_name = $1 AND ($2::bigint IS NULL OR parked_ts >= $2)"
+        ))
+        .bind(schema_name)
+        .bind(min_parked_ts)
+        .fetch_one(pool)
+        .await
+        .expect("count pool rows")
     }
 
     /// The happy path the whole optimization rests on: park, claim once, and the
@@ -2769,7 +2779,7 @@ mod db_schema_pool_tests {
         let claimed = claim_schema_from_db_pool(&pool, &template_name).await.expect("claim");
         assert_eq!(claimed, None, "a name whose schema no longer exists must never reach a test pool");
         assert_eq!(
-            pool_rows(&pool, &schema_name).await,
+            pool_rows(&pool, &schema_name, None).await,
             0,
             "the stale row must be deleted, not retried on every acquisition"
         );
@@ -2797,7 +2807,7 @@ mod db_schema_pool_tests {
             .await
             .expect("reap expired entries");
 
-        assert_eq!(pool_rows(&pool, &schema_name).await, 0, "an entry parked past the TTL must be deleted");
+        assert_eq!(pool_rows(&pool, &schema_name, None).await, 0, "an entry parked past the TTL must be deleted");
         let remaining: Option<String> = sqlx::query_scalar("SELECT to_regnamespace($1)::text")
             .bind(&schema_name)
             .fetch_one(&pool)
@@ -2871,14 +2881,7 @@ mod db_schema_pool_tests {
         // `parked_ts < now - ttl` 对我们的行在"两分钟后的 now"下是否仍为假。
         let slow_run_now = current_timestamp_millis().saturating_add(121_000);
         let cutoff = slow_run_now.saturating_sub(i64::try_from(DB_SCHEMA_POOL_TTL.as_millis()).unwrap_or(i64::MAX));
-        let survivors: i64 = sqlx::query_scalar(&format!(
-            "SELECT count(*) FROM {DB_SCHEMA_POOL_TABLE} WHERE schema_name = $1 AND parked_ts >= $2"
-        ))
-        .bind(&schema_name)
-        .bind(cutoff)
-        .fetch_one(&pool)
-        .await
-        .expect("probe the parked row against a slow run's reaper cutoff");
+        let survivors = pool_rows(&pool, &schema_name, Some(cutoff)).await;
         assert_eq!(
             survivors, 1,
             "a run lasting past DB_SCHEMA_POOL_TTL must not have its own park reaped (that is what killed this \

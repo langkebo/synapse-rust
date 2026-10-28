@@ -429,6 +429,52 @@ CI 语义，需另立决策。A8 是同一根因的另一面：判据的输入�
 **全部 skipped**，一个门禁失败把另外三个一起遮蔽。改后任一门禁失败仍让 job 变红
 （step 级 failure 就是 job failure），不需要额外聚合步骤。
 
+#### 6.4.1 汇总里的哨兵曾经把一条车道短路掉（2026-10-28 第二轮修正）
+
+逐门禁表回答"谁红了"，但"这条车道到底跑没跑"是另一个问题 —— 由同一 job 里的
+`Sentinel — required lanes actually ran` 负责：它读 `needs.<job>.result`，逐个
+`require_lane "<显示名>" "$X_RESULT"`。这一层有一个**只有读 YAML 才看得见**的错：
+
+```
+case "$INTEGRATION_RESULT" in
+  success) require_lane "Code Coverage" "$COVERAGE_RESULT" ;;
+  *) echo "info: Code Coverage depends on Integration Tests ('$INTEGRATION_RESULT'); not requiring it" ;;
+esac
+```
+
+依据是一条注释写着"`Code Coverage` needs: integration-test"。但 `coverage.needs`
+早就只剩 `['changes']`（`gh api` / `yaml.safe_load` 都能一眼确认）—— **coverage 并不
+依赖 integration-test**，integration 失败时它照常执行。真实的后果是反的：
+
+| integration-test | coverage 实际行为 | 旧哨兵 | 应然 |
+|---|---|---|---|
+| success | 跑 | 要求它 success | 同 |
+| **failure** | **照常跑** | 打印 `not requiring it` 放行 | 要求它 success |
+| failure | 被 skip / cancelled | **放行，无人报** | 报"该跑的没跑" |
+
+也就是说"integration 一红"恰好让**唯一会检查 coverage 的人闭眼** —— 与 §6.4 里
+`Security Audit` 那次"一个失败遮蔽另外三个"是同一个形态，只是这次是**判据**遮蔽，
+不是 step 遮蔽。
+
+修法两面：
+
+1. `require_lane "Code Coverage" "$COVERAGE_RESULT"` **无条件**放进
+   `need_slow_tier = 1` 分支（`coverage.if` 与 `need_slow_tier` 的条件本就是同一组）；
+2. 新增 `scripts/ci/check_ci_summary_dependencies.py`，把"注释里声明的依赖"换成
+   **解析 `ci.yml` 得到的真实 `needs` 图**：哨兵读的每个 `needs.X.result` 必须在
+   `ci-summary.needs` 里；任何 `case "$<VAR>" in` 门控内出现的 `require_lane`，其
+   目标 job 必须真的 `needs` 门控变量对应的 job；`require_lane` 的显示名必须能对上
+   真实 job 的 `name:`（矩阵 job 按 `name (` 前缀匹配）。
+
+自证分两层：`--mutation-check` 在内存里注入"把 coverage 包回 `case "$INTEGRATION_RESULT"`"
+与"把 `needs.test.result` 改成不存在的 job"，各报一次红；更硬的一层是拿 **修复前** 的
+`ci.yml`（`git show HEAD:.github/workflows/ci.yml`）直接跑 —— 只报 1 条，且正是上表
+那一行。接在 `repo-sanity`（`check_workflow_steps.py` 之后）与 `preflight.sh`（~30 ms）。
+
+> 这一条的方法论意义大于它自己：`needs` 是 GitHub 的唯一真相，**注释是第三方的说法**。
+> 把判据写在注释里，等于让"注释与 YAML 谁新"去决定门禁是否生效 —— 而这两者从来不会
+> 一起更新。
+
 ### 6.5 `always()` 依赖前置产出：原诊断要改判
 
 原文说"`Upload outdated-deps report` 报 `No files`" ⇒ 让人以为步骤失败。查真实日志（run

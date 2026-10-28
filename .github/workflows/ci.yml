@@ -51,14 +51,23 @@ jobs:
   # Fast Tier — runs on every PR and push (~5 min)
   # ──────────────────────────────────────────────
 
+  # ⚠️ 本 job 的每一步都带 `if: ${{ !cancelled() }}`：GitHub 默认「前一步失败 ⇒
+  # 后面全部 skipped」，而这些是 29 个互不依赖的独立门禁（每步 <2 s）。实测
+  # run 40633362339：`SQLx dynamic/static ratio ratchet` 一红，它后面 12 个门禁
+  # （.sqlx 缓存 / ts 决胜键 / web 分层 / sleep 棘轮 / 门禁可达性 / 路由分层 /
+  # 连接预算 / promtool / trait 棘轮 / 行数棘轮 / clippy-allow / deny_unknown_fields）
+  # **全部 skipped** —— 那些门禁那一次等于不存在，日志里只剩一条红。
+  # 判据由 `scripts/ci/check_ci_summary_dependencies.py` 守着（少一条就红）。
   repo-sanity:
     name: Repo Sanity
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
+        if: ${{ !cancelled() }}
         uses: actions/checkout@v4
 
       - name: No private keys (key files)
+        if: ${{ !cancelled() }}
         run: |
           # Scan key/cert file extensions for private key markers.
           # *.pem is NOT included — docker/ssl/fullchain.pem is a public cert chain.
@@ -71,6 +80,7 @@ jobs:
           fi
 
       - name: No private keys in source
+        if: ${{ !cancelled() }}
         run: |
           # Catch hardcoded private keys in source/config files (git tracked only).
           # Searches for PEM headers with dashes to match real key content only.
@@ -95,6 +105,7 @@ jobs:
           fi
 
       - name: No key files tracked
+        if: ${{ !cancelled() }}
         run: |
           # *.pem excluded — docker/ssl/fullchain.pem is a public cert chain.
           # If you must track a private .pem, add an exception in .gitignore
@@ -107,14 +118,17 @@ jobs:
           fi
 
       - name: No root artifacts
+        if: ${{ !cancelled() }}
         run: |
           ! ls axum_test.rs 2>/dev/null
           ! ls *.db 2>/dev/null
 
       - name: Schema table coverage
+        if: ${{ !cancelled() }}
         run: python3 scripts/check_schema_table_coverage.py
 
       - name: Schema contract coverage (static)
+        if: ${{ !cancelled() }}
         run: |
           mkdir -p artifacts
           python3 scripts/check_schema_contract_coverage.py \
@@ -122,6 +136,7 @@ jobs:
             --report artifacts/contract_coverage_report.md
 
       - name: Migration consistency
+        if: ${{ !cancelled() }}
         run: |
           mkdir -p artifacts
           python3 scripts/check_migration_consistency.py \
@@ -132,9 +147,11 @@ jobs:
       # 它认两种语法（`CREATE TABLE` 内联 + `ALTER TABLE … ADD COLUMN`）——
       # 后者一漏就会放过"后加的列随手写成可空"这一最常见的漂移形态（实测漏了 room_directory）。
       - name: updated_ts nullability ratchet
+        if: ${{ !cancelled() }}
         run: python3 scripts/ci/check_schema_timestamp_convention.py
 
       - name: Route ↔ storage boundary gate
+        if: ${{ !cancelled() }}
         run: bash scripts/ci/check_route_storage_boundary.sh
 
       # CODE-02: `CacheManager::delete` returns `()` (a failed L2 DEL is handled
@@ -143,6 +160,7 @@ jobs:
       # Each key now has a single invalidation helper; this gate keeps it that way.
       # Red-proved 2026-10-22: reinstating one `let _ =` line → exit 1; removing it → exit 0.
       - name: No silent cache invalidation
+        if: ${{ !cancelled() }}
         run: bash scripts/ci/check_no_silent_cache_delete.sh
 
       # SEC-02: helper scripts used to fall back to a working admin password
@@ -152,6 +170,7 @@ jobs:
       # back into `scripts/` or `docker/`.
       # Red-proved 2026-10-22: restoring the fallback → exit 1; removing it → exit 0.
       - name: No default admin credential
+        if: ${{ !cancelled() }}
         run: bash scripts/ci/check_no_default_admin_credential.sh
 
       # Workflow 自身的健全性：每个 Actions step 必须有 `run:` 或 `uses:`。
@@ -160,16 +179,29 @@ jobs:
       # `run: echo "..."` 占位却留下 `- name:` 骨架）。纯注释在 YAML 里合法，
       # 所以仅靠 yaml.safe_load 发现不了，必须按 Actions 的 step schema 检。
       - name: Workflow step schema (every step needs run/uses)
+        if: ${{ !cancelled() }}
         run: |
           mkdir -p artifacts
           python3 scripts/ci/check_workflow_steps.py \
             --json-report artifacts/workflow_steps.json
+
+      # `ci-summary` 的哨兵把"某条车道必须真的跑过"变成退出码，但它自己读
+      # `needs.<job>.result`。2026-10-28 实测：Code Coverage 那一行被包在
+      # `case "$INTEGRATION_RESULT" in success)` 里，依据是一条注释说
+      # "coverage needs: integration-test" —— 而 `coverage.needs` 只有 `changes`。
+      # 于是 integration 红 ⇒ 哨兵放行，coverage 被 skip 也没人报。
+      # 判据不写在注释里：本步解析 ci.yml，把"注释里声明的依赖"与真实 `needs`
+      # 逐条对上（--mutation-check 自证两处缺陷各报一次红）。
+      - name: CI summary must not gate a lane on an undeclared dependency
+        if: ${{ !cancelled() }}
+        run: python3 scripts/ci/check_ci_summary_dependencies.py --mutation-check
 
       # SQLx 棘轮：动态查询不得增加、编译期校验（query!/query_as!）不得减少。
       # 基线见 scripts/ci/sqlx_dynamic_ratio_baseline。
       # 历史：本脚本此前只扫 src/（漏掉 synapse-storage 等 crate 的 97% 调用）、
       # 硬编码不可达的 max=0.30、引用不存在的计划文档，且从未接入 CI —— 故从未生效。
       - name: SQLx dynamic/static ratio ratchet
+        if: ${{ !cancelled() }}
         run: bash scripts/ci/check_sqlx_dynamic_ratio.sh
 
       # `.sqlx/` 离线缓存是**版本控制产物**（不是构建缓存）：CI 的 SQLX_OFFLINE=true
@@ -177,6 +209,7 @@ jobs:
       # SQLX_OFFLINE 构建证明（SQL 文本变化 → 哈希变化 → 缺条目 → 编译失败，
       # 见脚本 --compile 模式），**过期性**需在有已迁移数据库的环境用 --full 核对。
       - name: SQLx offline cache present and tracked
+        if: ${{ !cancelled() }}
         run: bash scripts/ci/check_sqlx_cache_fresh.sh
 
       # `ORDER BY <x>_ts` 单键站点的逐文件计数棘轮（页边界会重/漏的那一类）。
@@ -186,23 +219,27 @@ jobs:
       # "门禁存在"与"门禁在跑"读起来一样，这条把后者钉住（由
       # `scripts/ci/check_gate_reachability.py` 反向守着：删掉本步它立刻报 DEAD）。
       - name: Timestamp tie-break ratchet (ORDER BY <x>_ts)
+        if: ${{ !cancelled() }}
         run: python3 scripts/ci/check_ts_order_tiebreak.py
 
       # A2 / B4-4: the HTTP layer must reach persistence only through
       # `synapse-services`. The allowlist may only shrink; the gate fails on a new
       # offender AND on a stale entry, so it cannot be silenced by editing a number.
       - name: Web layer must not use synapse_storage directly (ratchet)
+        if: ${{ !cancelled() }}
         run: python3 scripts/ci/check_web_layering.py
 
       # TEST-05：`sleep` 站点只许减少（分桶：生产 / 生产文件里的 cfg(test) / tests）。
       # 逐处"是等事件还是等窗口"判不出意图，所以门禁只做能被证明的"总量不增长"。
       - name: Sleep-site ratchet (no new fixed windows)
+        if: ${{ !cancelled() }}
         run: python3 scripts/ci/check_sleep_ratchet.py
 
       # 元门禁：每个 `check_*` 脚本都必须真的被某条车道调用，或显式登记为手动入口。
       # 没有它，"新增一道门禁"与"新增一个永远不跑的文件"在外观上完全一致 ——
       # TEST-04 记的正是这一类（本条自己也是被它约束的对象之一）。
       - name: Every gate script is reachable or declared opt-in
+        if: ${{ !cancelled() }}
         run: python3 scripts/ci/check_gate_reachability.py
 
       # Same invariant, wider net: no `crate::storage` import, `sqlx::query` or
@@ -210,11 +247,13 @@ jobs:
       # since before the crate extraction but was never wired into CI, so the
       # `Arc<PgPool>` on the route state went unnoticed (B4-5c — now removed).
       - name: Route layer must not touch storage or the pool directly
+        if: ${{ !cancelled() }}
         run: bash scripts/quality/check_route_layering.sh
 
       # DB review 优先级 7：PostgreSQL max_connections 是全局资源，池上限 × 进程数
       # 必须有成文预算并被校验，否则连接耗尽会表现为随机的测试/部署失败。
       - name: Connection budget invariant
+        if: ${{ !cancelled() }}
         run: python3 scripts/ci/check_connection_budget.py
 
       # 告警规则是"只有出事才有反应"的代码：指标名打错、标签集不一致导致向量运算
@@ -226,6 +265,7 @@ jobs:
       # 这里刻意也派生镜像、不硬编码 —— 硬编码会让门禁工具与部署版本静默分叉，
       # 而 promtool 的行为**确实随版本变化**：v2.47 不校验 annotation 模板，v2.48 校验。
       - name: Prometheus alert unit tests (promtool)
+        if: ${{ !cancelled() }}
         run: |
           IMG=$(grep -oE 'prom/prometheus:v[0-9.]+' docker/deploy/docker-compose.monitoring.yml | head -1)
           echo "promtool image: $IMG"
@@ -239,6 +279,7 @@ jobs:
       # Red-proved 2026-09-19: injecting one `pub trait` probe → exit 1
       # (`65 -> 66`); removing it → exit 0.
       - name: Trait-count ratchet (no new pub trait / StoreApi)
+        if: ${{ !cancelled() }}
         run: python3 scripts/ci/check_trait_ratchet.py
 
       # CQ-04: `.clippy.toml`'s `too-many-lines-threshold = 600` is consumed only
@@ -249,6 +290,7 @@ jobs:
       # 2026-10-06: new 600-line probe → exit 1; ceiling downgrade → exit 1;
       # stale entry → exit 1; baseline → exit 0.
       - name: File-size ratchet (no new file over 600 lines)
+        if: ${{ !cancelled() }}
         run: python3 scripts/ci/check_file_size_ratchet.py
 
       # Observability: Prometheus 配置此前从未被任何门禁校验，2026-10-10 巡检
@@ -268,6 +310,7 @@ jobs:
       # 端口级死目标（synapse-rust:9187）→ exit 1；变体多出非 mock-* job → exit 1；
       # 恢复 → exit 0。
       - name: Prometheus config gate (promtool + dead targets + variant drift)
+        if: ${{ !cancelled() }}
         run: python3 scripts/ci/check_prometheus_config.py
 
       # CQ-01: ~250 `#[allow(clippy::…)]` sites existed with no notion of *why*
@@ -280,6 +323,7 @@ jobs:
       # reasonless allow → exit 1; unlisted lint kind → exit 1; blanket group →
       # exit 1; allowlist entry without a reason → exit 1; baseline → exit 0.
       - name: Clippy-allow ratchet (allowlist + reason-required)
+        if: ${{ !cancelled() }}
         run: python3 scripts/ci/check_clippy_allow_ratchet.py
 
       # N-1 的修复路径（admin/vendor body 一律 deny）只解决"这一次"，不解决"以后会掉"。
@@ -289,6 +333,7 @@ jobs:
       # Red-proved 2026-10-21：删掉 `admin/cleanup.rs` 的唯一一个属性 → exit 1
       # （178/56 → 177/55），还原 → exit 0；`--self-test` 另含正/负样本与临时树端到端。
       - name: deny_unknown_fields ratchet (guards may only be added)
+        if: ${{ !cancelled() }}
         run: python3 scripts/ci/check_deny_unknown_fields_ratchet.py
 
       # RD-14：feature 能力矩阵的静态层。旧版脚本有两处"只 print 不比较"的伪断言
@@ -298,6 +343,7 @@ jobs:
       # 零 cargo、<1s，因此放在 fast tier 每次 PR 都跑。
       # 编译车道（C1–C4）要 Rust 工具链，见下方独立的 `feature-matrix` job。
       - name: Feature capability matrix (static)
+        if: ${{ !cancelled() }}
         run: python3 scripts/ci/check_feature_matrix.py
 
       # Supply-chain hardening (cargo-deny + cargo-audit) runs in the
@@ -1789,12 +1835,17 @@ jobs:
           if [ "$need_slow_tier" = "1" ]; then
             require_lane "Integration Tests" "$INTEGRATION_RESULT"
             require_lane "Build Check" "$BUILD_RESULT"
-            # Code Coverage `needs: integration-test`：只有上游**成功**时才要求它也跑过；
-            # 上游失败时它被 skip 是正确行为（错误已经由上游报了，不该在这里重复归因）。
-            case "$INTEGRATION_RESULT" in
-              success) require_lane "Code Coverage" "$COVERAGE_RESULT" ;;
-              *) echo "info: Code Coverage depends on Integration Tests ('$INTEGRATION_RESULT'); not requiring it" ;;
-            esac
+            # Code Coverage 的 `needs` 只有 `changes`（**不**依赖 Integration Tests），
+            # 它的 `if` 与上面 `need_slow_tier` 的条件是同一组 ⇒ 这里必须无条件要求它跑过。
+            #
+            # 此处曾按 "`needs: integration-test`" 的旧注释把要求包在
+            # `case "$INTEGRATION_RESULT" in success)` 里（2026-10-28 修正）。那行注释与
+            # `coverage.needs` 早已不符：integration **失败**时 coverage 照常执行，而
+            # 哨兵却打印 "not requiring it" 放行 —— 于是 "coverage 被 skip/cancel"
+            # 这种最该报的形态恰好落在唯一不检查它的人手里，又是"空跑看起来像验证"。
+            # 判据不许写在注释里：`tests/unit/ci_summary_dependency_tests.rs` 会解析
+            # 本文件，要求这类 `case "$<job>_RESULT"` 门控的每个 lane 都真的 `needs` 它。
+            require_lane "Code Coverage" "$COVERAGE_RESULT"
           else
             echo "info: this event does not require the slow tier (fast tier will still be checked above)"
           fi

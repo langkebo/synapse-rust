@@ -144,6 +144,13 @@ run "check_ts_order_tiebreak.py" python3 scripts/ci/check_ts_order_tiebreak.py
 step "门禁可达性（每个 check_* 都要有人调用，或显式登记）"
 run "check_gate_reachability.py" python3 scripts/ci/check_gate_reachability.py
 
+# `ci-summary` 哨兵把"车道必须真的跑过"变成退出码，但它自己读 `needs.<job>.result`。
+# 2026-10-28 实测：Code Coverage 那一行被包在 `case "$INTEGRATION_RESULT" in success)`
+# 里，而 `coverage.needs` 只有 `changes` —— integration 一红，coverage 被 skip 也没人报。
+# 每次都跑（~30ms，只读 ci.yml）：故障形态是"改工作流"和"改别人的 job 依赖"，与改动集无关。
+step "CI 汇总哨兵的依赖一致性"
+run "check_ci_summary_dependencies.py" python3 scripts/ci/check_ci_summary_dependencies.py --mutation-check
+
 # `updated_ts` 可空性棘轮（ARCH-06）：两种形态并存是现状，规则已改口为"新表必须显式选"，
 # 本步只是不让计数悄悄朝可空方向漂。~20ms，且只读基线 SQL，与改动集无关。
 # `sleep` 站点棘轮（TEST-05）：分三桶计数，只许下降。~0.3s，只读 .rs 源码。
