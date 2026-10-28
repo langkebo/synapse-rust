@@ -1748,7 +1748,11 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
+        # 与主车道（`code-coverage`）**同一个版本**，理由也一样：不钉版本 ⇒ 同一条命令在
+        # 不同日期可能给出不同覆盖率，PR 车道的数字会随上游发版漂移，"这次改动让覆盖率掉了
+        # 0.3%" 就成了一句不可复现的话。这里用 `cargo install` 而不是 install-action：
+        # 少一个需要核对的 action 语义，代价是 ~1–2 分钟的编译（在 20 分钟预算内）。
+        run: cargo install cargo-llvm-cov --locked --version 0.8.7
 
       - name: Resolve affected crates
         id: affected
