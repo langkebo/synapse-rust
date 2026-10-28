@@ -220,7 +220,36 @@ run_leg "步骤 2/3: 其余 crate + 集成测试（--exclude synapse-storage）"
     -- --skip ledger_export_tests
 
 log "步骤 3/3: 合并 lcov"
-python3 scripts/merge_lcov.py "$STORAGE_LCOV" "$REST_LCOV" -o "$OUTPUT_DIR/lcov.info"
+# 一条腿没产出 lcov 是**已发生过的现实**（run 40637601681：rsproxy 返回 504，
+# storage 腿在下载依赖阶段就死了，profraw 一行没写）。旧实现在这里无条件调
+# `merge_lcov.py`，于是 FileNotFoundError traceback 把**整轮**数据一起抹掉 ——
+# 明明 `rest.lcov` 已经在磁盘上（覆盖 600+ 文件），结果 coverage/lcov.info 不存在，
+# 棘轮跳过，覆盖率车道再次"跑了但没产出"。
+#
+# 取舍口径：**能合并就合并，缺腿要大声说**。少一条腿的报告仍然可用（缺的文件会被
+# 棘轮读成 GONE-NOT-BUILT 并保留旧地板，不会把 0% 写进基线），而"零文件"比"少一条腿"
+# 危险得多 —— 后者会被下游误读成"这些文件覆盖率掉了"。
+existing_legs=()
+if [ -f "$STORAGE_LCOV" ]; then
+    existing_legs+=("$STORAGE_LCOV")
+else
+    log "WARNING: storage 腿没有产出 lcov（见上一条 ERROR）"
+fi
+if [ -f "$REST_LCOV" ]; then
+    existing_legs+=("$REST_LCOV")
+else
+    log "WARNING: rest 腿没有产出 lcov（见上一条 ERROR）"
+fi
+
+if [ "${#existing_legs[@]}" -eq 0 ]; then
+    log "ERROR: 两条腿都没有产出 lcov —— 不写空报告（空的 coverage/lcov.info 会让棘轮把"
+    log "       608 个文件全部读成 GONE-NOT-BUILT，比没有报告更难归因）"
+    exit 1
+fi
+if [ "${#existing_legs[@]}" -eq 1 ]; then
+    log "WARNING: 只有 1 条腿有数据，做降级合并 —— 缺失腿覆盖的文件本轮不参与棘轮比较"
+fi
+python3 scripts/merge_lcov.py "${existing_legs[@]}" -o "$OUTPUT_DIR/lcov.info"
 
 # 兜底清理累积的隔离 schema（若已改用 schema pool 复用则是 no-op）。
 if [ "${SKIP_CLEANUP:-0}" != "1" ] && [ -f scripts/cleanup_test_schemas.sh ]; then

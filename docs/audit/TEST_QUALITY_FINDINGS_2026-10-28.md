@@ -371,9 +371,35 @@ CI 语义，需另立决策。A8 是同一根因的另一面：判据的输入�
 > 下一轮（带报告范围修复）的 627 条读数才是有意义的那一份；在此之前**禁止** `--update`、
 > 也**不**逐条改 `coverage_baseline.json`。
 
-> **仍未做**：把这套分类跑在**真实** lcov 上给出 134 条与 6 条 core-path 的最终名单。
-> 本地 `run_coverage.sh` 全量约 30–60 min，本轮已在后台启动，结论出来前不宣称"已定性"。
-> 在此之前**禁止** `--update`、也**不**逐条改 `coverage_baseline.json`。
+#### 6.1.1 第三次空手而归（run 40637601681，2026-10-28）：缺一条腿把整轮数据抹掉
+
+同一句"跑了但没产出"已经连续三轮出现，每轮的主因都不同 —— 这轮两条腿各有各的死法：
+
+| 对象 | 现象 | 成因 | 性质 |
+|---|---|---|---|
+| storage 腿 | 65 s 后 `报告生成失败（profraw 没写出来？）` | 下载依赖时镜像返回 `504 Gateway Time-out`（`arcstr 1.2.0`），cargo 重试一次仍失败 ⇒ 测试一条没跑 | 基础设施抖动 |
+| rest 腿 | 67 min 后 `1 target failed: -p synapse-rust --test unit` | **真实回归**：`c43f005b5` 拆 `lib.rs` 让 D-36 豁免键漂移，`test_ddl_guard_tests` 两条同时红（已修） | 自己的改动 |
+| 合并步 | `FileNotFoundError: '/tmp/…/storage.lcov'` traceback | 旧实现无条件 `merge_lcov.py storage.lcov rest.lcov` | **结构性缺陷**（已修） |
+
+第三行才是这轮真正的教训：**`rest.lcov` 当时已经躺在磁盘上（覆盖 600+ 文件），却因为另一条腿
+缺席而一行都没被用上**。上一轮把"没数据"归因到"报告范围只有 18 个文件"，上上轮归因到
+"测试失败不写报告"—— 两处都修对了，但"合并步骤会自己把整轮抹掉"这条一直没人看。
+
+修法分两层，职责分开：
+
+1. **编排层（`run_coverage.sh`）降级合并**：只合并**存在**的腿，并把"本轮少了一条腿"写进日志；
+   两条腿都空手时**不写空报告**（空的 `coverage/lcov.info` 会让棘轮把 608 个文件读成
+   `GONE-NOT-BUILT`，比没有报告更难归因）。
+2. **工具层（`merge_lcov.py`）fail-closed**：缺输入 exit 2 并点名文件，**不**静默丢弃 ——
+   半份报告在产物层面与完整报告无法区分，静默合并等于把"少 3800 行"藏起来。
+
+守卫 `tests/unit/coverage_leg_resilience_tests.rs` 加了 3 例（缺一条腿仍写出另一条的数据 /
+两条腿全缺则失败且不写空报告 / `merge_lcov.py` 拒绝静默丢输入），7 → **10** 例全绿。
+
+> **顺带记一条"假成功"**：那次 `Upload coverage artifacts` 是 **success**（`if-no-files-found:
+> ignore`），看上去"工件已上传"，但 `gh api …/artifacts` 里只有 `openapi-*` 两个 ——
+> `coverage-report` 根本不存在。**上传步骤的成功不等于工件存在**，判断只能查工件列表
+> （与 §4.5 的 `always()` 教训同族：`always()` 能让步骤跑到，却证明不了它拿到了东西）。
 
 ### 6.2 棘轮语义：`max` 保留，但给合法重构一条显式出口
 

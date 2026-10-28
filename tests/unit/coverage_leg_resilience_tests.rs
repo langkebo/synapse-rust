@@ -74,6 +74,14 @@ printf '%s\n' "$*" >> "$PROBE_ARGV"
 
 # 只有 `cargo llvm-cov report …` 会写报告：这正是被守卫的那条「兜底」路径。
 if [ "$1" = "llvm-cov" ] && [ "$2" = "report" ]; then
+    # `FAKE_REPORT_FAIL_FOR=<substring>` 让指定的那条腿**生成不出 lcov**，
+    # 复刻 run 40637601681 的真实故障（rsproxy 504 ⇒ storage 腿无 profraw）。
+    case " $* " in
+        *"${FAKE_REPORT_FAIL_FOR:-__never__}"*)
+            echo "fake cargo: report failed for $*" >&2
+            exit 1
+            ;;
+    esac
     out=""
     prev=""
     for arg in "$@"; do
@@ -116,8 +124,13 @@ struct Outcome {
 }
 
 fn run_script(probe: &Probe, test_rc: &str, max_locks: &str) -> Outcome {
+    run_script_with(probe, test_rc, max_locks, &[])
+}
+
+fn run_script_with(probe: &Probe, test_rc: &str, max_locks: &str, extra_env: &[(&str, &str)]) -> Outcome {
     let inherited = std::env::var("PATH").unwrap_or_else(|_| String::new());
-    let output = Command::new("bash")
+    let mut command = Command::new("bash");
+    command
         .arg(SCRIPT)
         .current_dir(repo_root())
         .env("PATH", format!("{}:{}", probe.bin.display(), inherited))
@@ -135,9 +148,11 @@ fn run_script(probe: &Probe, test_rc: &str, max_locks: &str) -> Outcome {
         .env("SKIP_CLEANUP", "1")
         // `BASH_ENV` 会把外层 shell 的 shim 目录重新前置到 PATH（WorkBuddy CLI 的行为），
         // 那会让假 cargo 被真 cargo 覆盖 —— 本用例就变成"什么也没证明"。
-        .env_remove("BASH_ENV")
-        .output()
-        .expect("run_coverage.sh must be runnable");
+        .env_remove("BASH_ENV");
+    for (key, value) in extra_env {
+        command.env(key, value);
+    }
+    let output = command.output().expect("run_coverage.sh must be runnable");
 
     Outcome {
         code: output.status.code().unwrap_or(-1),
@@ -320,6 +335,81 @@ fn stale_profraw_from_a_killed_run_is_purged() {
         "清理数量要打印出来（静默清理等于无法判断是否真的清过）。输出：\n{}",
         outcome.stderr
     );
+}
+
+/// 一条腿连 lcov 都没产出时，**另一条腿的数据必须活下来**。
+///
+/// 这根钉子来自一次真实的空手而归（run 40637601681，2026-10-28）：storage 腿在下载依赖时
+/// 撞上 rsproxy 的 `504 Gateway Time-out`，tests 没跑、profraw 一行没写；而 `rest.lcov`
+/// 其实已经在磁盘上（覆盖 600+ 文件）。旧实现无条件 `merge_lcov.py storage.lcov rest.lcov`，
+/// 于是 `FileNotFoundError` traceback 把整轮数据一起抹掉 —— 棘轮跳过，覆盖率车道再次
+/// "跑了但没产出"，与 §6.1 里"134 个文件待定性"是同一个机制。
+#[test]
+fn a_missing_leg_does_not_wipe_the_other_legs_data() {
+    let probe = probe("missing_leg");
+    let outcome = run_script_with(&probe, "0", "256", &[("FAKE_REPORT_FAIL_FOR", "-p synapse-storage")]);
+
+    assert!(outcome.report_written, "一条腿没产出 lcov 时，另一条腿的数据必须被合并写出。输出：\n{}", outcome.stderr);
+    assert!(
+        !outcome.stderr.contains("Traceback"),
+        "缺输入要给出可归因的报错，不是 Python traceback。输出：\n{}",
+        outcome.stderr
+    );
+    assert!(
+        outcome.stderr.contains("只有 1 条腿有数据"),
+        "降级合并必须在日志里说明「本轮少了一条腿」。输出：\n{}",
+        outcome.stderr
+    );
+    assert_ne!(outcome.code, 0, "缺腿仍然是失败（红还是红），只是数据不再一起丢。输出：\n{}", outcome.stderr);
+}
+
+/// 反面：两条腿都空手时，**不写空报告**，而是明确失败。
+///
+/// 空的 `coverage/lcov.info` 会被棘轮读成"608 个文件全部 GONE-NOT-BUILT"，
+/// 比"没有报告"更难归因 —— 前者看起来像覆盖率全掉，后者一眼就知道是采集失败。
+#[test]
+fn no_legs_at_all_fails_loudly_instead_of_writing_an_empty_report() {
+    let probe = probe("no_legs");
+    let outcome = run_script_with(&probe, "0", "256", &[("FAKE_REPORT_FAIL_FOR", "llvm-cov")]);
+
+    assert!(!outcome.report_written, "两条腿都没数据时不许写空报告。输出：\n{}", outcome.stderr);
+    assert!(outcome.stderr.contains("两条腿都没有产出 lcov"), "必须点明两条腿都没数据。输出：\n{}", outcome.stderr);
+    assert_ne!(outcome.code, 0, "无数据必须非零退出。输出：\n{}", outcome.stderr);
+}
+
+/// `merge_lcov.py` **自己不替调用方做取舍**：缺一个输入就 fail-closed。
+///
+/// 理由与上一条互补：脚本（编排者）可以明确决定"只合并存在的腿并把它写进日志"，
+/// 而工具层如果**静默丢弃**缺失输入，半份报告看起来就和完整报告一模一样 ——
+/// 缺的文件被下游读成 0% / GONE-NOT-BUILT，比直接失败更难发现。
+#[test]
+fn merge_lcov_refuses_to_silently_drop_a_missing_input() {
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("merge_lcov_missing_input");
+    fs::create_dir_all(&dir).expect("probe dir");
+    let present = dir.join("present.lcov");
+    fs::write(&present, "SF:synapse-common/src/probe.rs\nDA:1,1\nLF:1\nLH:1\nend_of_record\n").expect("fixture lcov");
+    let absent = dir.join("absent.lcov");
+    let output_path = dir.join("merged.lcov");
+    for stale in [&absent, &output_path] {
+        if stale.exists() {
+            fs::remove_file(stale).expect("stale fixture must be removable");
+        }
+    }
+
+    let output = Command::new("python3")
+        .arg(repo_root().join("scripts/merge_lcov.py"))
+        .arg(&present)
+        .arg(&absent)
+        .arg("-o")
+        .arg(&output_path)
+        .current_dir(repo_root())
+        .output()
+        .expect("merge_lcov.py must be runnable");
+    let text = String::from_utf8_lossy(&output.stderr).into_owned();
+
+    assert_eq!(output.status.code(), Some(2), "缺输入必须 fail-closed。输出：\n{text}");
+    assert!(text.contains("not found"), "must name the missing input, got:\n{text}");
+    assert!(!output_path.exists(), "缺输入时不许写出半份报告");
 }
 
 /// 锁表上限是环境前置条件，且它的缺失会被表达成"上百个测试失败"。

@@ -23,6 +23,7 @@ Rationale (方案 B):
 """
 
 import argparse
+import pathlib
 import sys
 from collections import OrderedDict
 
@@ -70,6 +71,20 @@ def main():
     ap.add_argument("inputs", nargs="+", help="lcov.info files to merge")
     ap.add_argument("-o", "--output", default="coverage/lcov.info")
     args = ap.parse_args()
+
+    # 缺一个输入时**不替调用方做取舍**：少一条腿可能意味着"半份报告"，而半份报告在
+    # 下游看起来和完整报告一模一样（缺的文件被读成 0% / GONE-NOT-BUILT）。
+    # 所以这里 fail-closed，由 `scripts/ci/run_coverage.sh` 明确决定"只合并存在的那几条腿"
+    # 并把它写进日志（run 40637601681 实测：rsproxy 504 让 storage 腿没产出 lcov，
+    # 旧实现的 FileNotFoundError traceback 直接抹掉了整轮覆盖率数据）。
+    missing = [name for name in args.inputs if not pathlib.Path(name).is_file()]
+    if missing:
+        print(f"merge_lcov: input(s) not found: {', '.join(missing)}", file=sys.stderr)
+        print(
+            "  该由调用方决定是否降级合并；本工具不静默丢弃输入。",
+            file=sys.stderr,
+        )
+        return 2
 
     merged = OrderedDict()  # sf -> {block, da, is_merged}
     for path in args.inputs:
