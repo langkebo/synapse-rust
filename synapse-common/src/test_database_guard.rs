@@ -92,11 +92,31 @@ pub fn drop_database_blocking(database_url: &str, database: &str) {
 
 /// Drop `database` only when no session is connected to it.
 ///
-/// `Retry` means a connection is still open — normally the test's own pool that
-/// is being torn down — so the janitor should try again on a later pass. A
-/// connection or DDL failure returns `Done` (reported on stderr): retrying a
+/// `Retry` means "this database is still here, someone should try again later".
+/// Two different situations produce it:
+///
+/// * a connection is still open — normally the test's own pool that is being
+///   torn down — so a later pass can simply succeed; and
+/// * the maintenance connection or the `DROP DATABASE` itself **failed**.
+///
+/// ## Why failures are `Retry` and not `Done` (2026-10-28)
+///
+/// This used to return `Done` for both failure paths, justified by "retrying a
 /// database outage forever would turn the janitor into a hot loop, and the next
-/// run's sweep can still reclaim the database.
+/// run's sweep can still reclaim the database". Two things are wrong with that:
+///
+/// 1. `Retry` is **not** a hot loop: `run_release_cleanups_requeueing` puts the
+///    entry back with `LEASE_RETRY_BACKOFF` before the next pass can claim it;
+///    2. "the next run's sweep" does not exist on a one-shot CI runner. The
+///    container is destroyed with the job, so a `Done` here is silently the
+///    **last** word on a database that never got dropped.
+///
+/// Falling back to `Retry` costs nothing and buys two things: the in-run
+/// janitor keeps trying (which is what actually helps after a transient
+/// `out of shared memory` / `too many clients`), and the process-exit drain
+/// runs the **unconditional** [`drop_database_blocking`] (`WITH (FORCE)`) as a
+/// last resort — `Done` removes the entry from the registry, so that drain never
+/// saw it.
 pub fn drop_database_if_unused_blocking(database_url: &str, database: &str) -> CleanupOutcome {
     let maintenance = with_database_name(database_url, "postgres");
     let database = database.to_string();
@@ -110,7 +130,7 @@ pub fn drop_database_if_unused_blocking(database_url: &str, database: &str) -> C
             Ok(pool) => pool,
             Err(error) => {
                 eprintln!("test database cleanup: could not connect to drop {database}: {error}");
-                return CleanupOutcome::Done;
+                return CleanupOutcome::Retry;
             }
         };
         let in_use: Result<i64, _> =
@@ -125,14 +145,14 @@ pub fn drop_database_if_unused_blocking(database_url: &str, database: &str) -> C
                     Ok(_) => CleanupOutcome::Done,
                     Err(error) => {
                         eprintln!("test database cleanup: failed to drop {database}: {error}");
-                        CleanupOutcome::Done
+                        CleanupOutcome::Retry
                     }
                 }
             }
             Ok(_) => CleanupOutcome::Retry,
             Err(error) => {
                 eprintln!("test database cleanup: could not check sessions on {database}: {error}");
-                CleanupOutcome::Done
+                CleanupOutcome::Retry
             }
         };
         pool.close().await;

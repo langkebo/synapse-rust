@@ -2903,6 +2903,34 @@ mod db_schema_pool_tests {
         let _ = drop_schema(&pool, &schema_name).await;
         pool.close().await;
     }
+
+    /// 一次**真失败**的 `DROP DATABASE` 必须报 `Retry`，不能报 `Done`。
+    ///
+    /// 为什么这条断言值钱：`Done` 会把该条目从 janitor 的注册表里摘掉，于是进程退出时
+    /// 那次**无条件** `WITH (FORCE)` 的兜底 drop 根本看不到它 —— 库就这么成了永久孤儿。
+    /// 一次性 CI runner 上"下一轮的 sweep 会收"这句话不成立（容器随 job 一起销毁），
+    /// 实测 run 40607555992 的 `46 leftover test database(s)` 就是这条语义的产物。
+    ///
+    /// 不 mock sqlx：`template0` 是 PostgreSQL **拒绝**删除的库名
+    /// （`cannot drop a template database`），正好把 DDL 失败那条分支真的走一遍，
+    /// 而且这个操作按定义不可能成功，不存在"测试把库删掉了"的风险。
+    #[tokio::test]
+    async fn a_failed_drop_reports_retry_so_the_exit_drain_gets_another_shot() {
+        if std::env::var("TEST_DATABASE_URL").is_err() {
+            eprintln!(
+                "SKIPPING a_failed_drop_reports_retry_so_the_exit_drain_gets_another_shot: \
+                 TEST_DATABASE_URL is unset, so this proves nothing."
+            );
+            return;
+        }
+        let database_url = crate::resolve_test_database_url().await.expect("database url");
+        let outcome = synapse_common::test_database_guard::drop_database_if_unused_blocking(&database_url, "template0");
+        assert_eq!(
+            outcome,
+            synapse_common::test_schema_guard::CleanupOutcome::Retry,
+            "a refused DROP DATABASE must stay registered for the exit drain, not report Done"
+        );
+    }
 }
 
 /// Tests for the `SCHEMA_POOL` idle-TTL reclaimer (sweep A10).

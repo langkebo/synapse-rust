@@ -520,11 +520,24 @@ esac
 > | DDL 失败（如 `53200`） | `Done` + stderr | "下一轮的 sweep 还能回收" | 同上，永远回收不了 ⇒ 断言必然红 |
 >
 > 所以这条红是"环境压力 + 一次性环境"的乘积，而不是断言写错了 —— 断言正确地指出
-> "这一轮结束时库里确实有 46 个"。修法有三条路（**未做，需决策**）：
-> (a) `DROP` 在 `53200` 上带退避重试到成功（有上限）；
-> (b) 断言区分"守卫报告过放弃"与"守卫没跑"，前者降级为 warning；
-> (c) job 末尾加一次强制 sweep 步骤再断言。
-> 三条各有代价，(b) 最容易变成"永远 warning"，(c) 最贴近 CI 的现实。
+> "这一轮结束时库里确实有 46 个"。
+>
+> **2026-10-28 第二轮：选了 (a) 的一个变体，代价最小且可自证。** 关键发现是 `Done` 不只是
+> "放弃重试"，它还**把条目从 janitor 的注册表里摘掉** —— 于是进程退出时那次
+> **无条件** `WITH (FORCE)` 的兜底 drop（`drop_database_blocking`，即 `on_exit`）根本看不到
+> 它。也就是说 `Done` 是"既不在跑内重试、也放弃了退出兜底"，这比注释里写的
+> "下一轮的 sweep 还能回收"严重得多（一次性 runner 上根本没有下一轮）。
+>
+> 两个失败分支（维护连接失败 / `DROP` 本身报错）改回 `Retry`：`run_release_cleanups_requeueing`
+> 会以 `LEASE_RETRY_BACKOFF` 重新登记，**不是**注释担心的"hot loop"；而退出时 drain 走的
+> `on_exit` 是 `WITH (FORCE)`，正好是 `out of shared memory` 之后最可能成功的那一次。
+>
+> 自证（不 mock sqlx）：`template0` 是 PostgreSQL **按定义拒绝**删除的库名
+> （`cannot drop a template database`），拿它把 DDL 失败分支真的走一遍 ——
+> 新用例 `a_failed_drop_reports_retry_so_the_exit_drain_gets_another_shot`
+> 0.10 s PASS；把那一行改回 `Done` ⇒ 失败信息精确为
+> `left: Done / right: Retry`（变异自证），还原后 `-p synapse-test-utils --lib` 17/17 PASS。
+> 仍未做：job 末尾的强制 sweep（(c)）—— 若下一轮 CI 仍见残留库，再上它。
 
 ### 6.7 Benchmark：exit 143 的两种可能必须留下不同指纹
 
