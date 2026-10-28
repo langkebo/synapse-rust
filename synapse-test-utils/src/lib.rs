@@ -2666,6 +2666,7 @@ mod db_schema_pool_tests {
     use super::{
         claim_schema_from_db_pool, connect_schema_pool_admin, current_timestamp_millis, drop_schema,
         ensure_db_schema_pool_table, park_schema_in_db_pool, reap_expired_db_pool_entries, DB_SCHEMA_POOL_TABLE,
+        DB_SCHEMA_POOL_TTL,
     };
     use sqlx::PgPool;
     use std::time::Duration;
@@ -2851,10 +2852,38 @@ mod db_schema_pool_tests {
         // it — which is exactly how this fixture flaked in the full `--workspace
         // --lib` lane. Parking first closes the window: any guard that can see
         // the schema also sees it parked.
-        park_schema_in_db_pool(&pool, &schema_name, &template_name, current_timestamp_millis())
-            .await
-            .expect("park the scratch schema");
+        // 时间戳刻意取**未来**（停靠与"先停靠后创建"是两件事，两者都不能省）：
+        // `DB_SCHEMA_POOL_TTL` 是 120 s，而本用例在满载的覆盖率库里会跑 >60 s（按生产阈值
+        // 遍历 ~100 条遗留 schema，每条 `DROP SCHEMA … CASCADE` ~1 s）。同一个测试 binary
+        // 里任何一次 pool 准备都会跑 120 s TTL 的 reaper（`reap_expired_db_pool_entries`，
+        // 见本文件 :470），于是这条"停靠行"可能在断言之前就被删掉、连带 schema 被 DROP ——
+        // 断言 `the parked schema must survive the sweep` 报出来的其实是 reaper 干的，
+        // 与 sweep 无关。让回收谓词（`parked_ts < now - ttl`）恒假即可；orphan guard 的
+        // "跳过 parked"按**名字**判断、不看时间，语义不变。
+        let parked_ts = current_timestamp_millis().saturating_add(3_600_000);
+        park_schema_in_db_pool(&pool, &schema_name, &template_name, parked_ts).await.expect("park the scratch schema");
         create_scratch_schema(&pool, &schema_name).await;
+
+        // 把「跑得慢」这件事变成**确定性断言**：本用例在满载的覆盖率库里会跑过 120 s
+        // （CI 日志打了 `has been running for over 60 seconds`），而同一个 binary 的任何
+        // 一次 pool 准备都会跑一次 `DB_SCHEMA_POOL_TTL`（120 s）的 reaper。
+        // 这里**不真跑** reaper（那会连带回收并发用例的停靠行），只检查它用的谓词
+        // `parked_ts < now - ttl` 对我们的行在"两分钟后的 now"下是否仍为假。
+        let slow_run_now = current_timestamp_millis().saturating_add(121_000);
+        let cutoff = slow_run_now.saturating_sub(i64::try_from(DB_SCHEMA_POOL_TTL.as_millis()).unwrap_or(i64::MAX));
+        let survivors: i64 = sqlx::query_scalar(&format!(
+            "SELECT count(*) FROM {DB_SCHEMA_POOL_TABLE} WHERE schema_name = $1 AND parked_ts >= $2"
+        ))
+        .bind(&schema_name)
+        .bind(cutoff)
+        .fetch_one(&pool)
+        .await
+        .expect("probe the parked row against a slow run's reaper cutoff");
+        assert_eq!(
+            survivors, 1,
+            "a run lasting past DB_SCHEMA_POOL_TTL must not have its own park reaped (that is what killed this \
+             fixture in CI: the reaper dropped the schema, and the sweep got the blame)"
+        );
 
         let report =
             reclaim_orphan_test_schemas(&pool, now_nanos, min_age, usize::MAX).await.expect("sweep orphaned schemas");

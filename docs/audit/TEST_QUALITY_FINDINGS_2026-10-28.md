@@ -301,14 +301,29 @@ CI 语义，需另立决策。A8 是同一根因的另一面：判据的输入�
 所以：CI 的失败模式是「步骤 2 的单条 orphan guard 假红」，本地的是另一件事，
 **两者不可互相佐证**。本轮不宣称本地那条已定位。
 
-**orphan guard 的归因缺陷（登记，未修）**：那条断言把三种情形压成同一句
-`the parked schema must survive the sweep` —— (i) guard 真的删了 parked schema；
-(ii) 并发进程把它删了；(iii) 它压根没建成 / 被别的清理带走。`reclaim_orphan_test_schemas`
-对 parked 名是**跳过**的（`parked.contains` 在 lease 之前），所以 (i) 在代码路径上不成立；
-但断言无法区分 (ii)/(iii)，于是"环境故障"被读成"守卫有 bug"。
-正确修法：让 `OrphanReclaimReport` 带上 `failed: Vec<(name, error)>`，断言改为
-"既不 in `dropped` 也不 in `failed`"，并对 `53200` 单独给出 error title —— 与
-`assert_no_leftover_test_databases.sh` 的三种 title 是同一套归因原则。
+**orphan guard 的归因缺陷（已定位并修，`synapse-test-utils/src/lib.rs`）**：那条断言把三种情形
+压成同一句 `the parked schema must survive the sweep` —— (i) 守卫删了 parked schema；
+(ii) 并发进程删了；(iii) 它压根没建成。断言看不出是哪一种，于是"环境故障"被读成"守卫有 bug"。
+
+本轮把 (i) 追到底了，结论与第一直觉相反：**schema 确实是被删的，但不是 sweep 删的**。
+`reclaim_orphan_test_schemas` 对 parked 名是跳过的（`parked.contains` 在 lease 之前），
+真正动手的是 **parked 行的 TTL 回收器**：
+
+| 事实 | 值 |
+|---|---|
+| `DB_SCHEMA_POOL_TTL` | **120 s** |
+| reaper 触发点 | 每次 pool 准备（`reap_expired_db_pool_entries`，lib.rs:470），**同 binary 的其它用例也会跑** |
+| 该用例耗时 | CI 日志明确打了 `has been running for over 60 seconds`；按生产阈值要遍历 ~100 条遗留 schema、每条 `DROP … CASCADE` ~1 s |
+| 回收谓词 | `parked_ts < now - ttl` ⇒ 一旦用例跑过 120 s，**自己停靠的那行就被回收，schema 一起被 DROP** |
+
+于是"parked schema 必须存活"的探针在 120 s 后必然拿不到它 —— 断言报警的对象与真凶无关。
+**修法**：停靠时间戳取**未来**（`now + 1h`），让回收谓词恒假；"跳过 parked"按**名字**判断、
+不看时间，所以 orphan guard 的语义不受影响。这是"判据归因"同一主题的第三个实例：
+不是把断言写得更硬，而是让**被断言的状态**不再被无关机制改掉。
+
+> 顺带更正：本文件早前写"步骤 2 的红是锁表耗尽 ⇒ DROP 失败 ⇒ 断言被打红"，那是把
+> 同一段 stdout 里的两条独立事件（sweep 的 DROP 失败 / 探针拿不到 schema）当成因果。
+> 两者无因果关系：DROP 失败只是**噪音**，探针失败的原因见上表。
 
 > **仍未做**：把 `classify_coverage_drift.py` 跑在**真实** lcov 上给出 134 条与 6 条 core-path
 > 的最终名单。本地跑不通（上表：这条腿本地就不产出报告），所以改成**从 CI 取**：
