@@ -121,7 +121,14 @@ jobs:
       # 这些基准不需要 server/DB，因此在 CI 中总能真正运行；
       # 阈值写在脚本内（约 10× 实测基线），目标是数量级退化而非 10% 漂移。
       # 回归保护见 tests/unit/perf_gate_honesty_tests.rs。
+      #
+      # ⚠️ `if: ${{ !cancelled() }}`：本步**不读** `benchmark.txt`（它自己跑
+      # `cargo bench --bench …` 并写 `artifacts/compute_perf_*.log`），所以
+      # "criterion 那一步红了"没有理由把它一起 skip 掉。实测 run 40633362404：
+      # `Run benchmarks` 一红，本步与它后面 5 步全部 skipped —— 而它恰恰是
+      # 注释里那句"不需要 server/DB，因此在 CI 中总能真正运行"的唯一兑现者。
       - name: Compute performance regression gate
+        if: ${{ !cancelled() }}
         env:
           RUSTFLAGS: "-Ccodegen-units=16"
         run: bash scripts/ci/compute_perf_gate.sh

@@ -191,7 +191,7 @@ jobs:
       # "coverage needs: integration-test" —— 而 `coverage.needs` 只有 `changes`。
       # 于是 integration 红 ⇒ 哨兵放行，coverage 被 skip 也没人报。
       # 判据不写在注释里：本步解析 ci.yml，把"注释里声明的依赖"与真实 `needs`
-      # 逐条对上（--mutation-check 自证两处缺陷各报一次红）。
+      # 逐条对上（--mutation-check 自证三处缺陷各报一次红）。
       - name: CI summary must not gate a lane on an undeclared dependency
         if: ${{ !cancelled() }}
         run: python3 scripts/ci/check_ci_summary_dependencies.py --mutation-check
