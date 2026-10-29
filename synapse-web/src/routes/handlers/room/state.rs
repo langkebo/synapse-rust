@@ -212,7 +212,6 @@ pub(crate) async fn send_state_event(
     let now = current_timestamp_millis();
 
     let final_event_type = normalize_room_event_type(&event_type);
-    ensure_room_state_write_access(&ctx, &auth_user, &room_id, &final_event_type, &body).await?;
 
     // State events with empty state_key per Matrix spec (global room state)
     const EMPTY_STATE_KEY_TYPES: &[&str] = &[
@@ -228,11 +227,15 @@ pub(crate) async fn send_state_event(
         "m.room.server_acl",
     ];
 
+    // Computed *before* the gate: `m.room.member` authorization is per-target,
+    // so the gate needs the key this route will write under.
     let state_key = if EMPTY_STATE_KEY_TYPES.contains(&final_event_type.as_str()) {
         Some("".to_string())
     } else {
         Some(auth_user.user_id.clone())
     };
+
+    ensure_room_state_write_access(&ctx, &auth_user, &room_id, &final_event_type, state_key.as_deref(), &body).await?;
 
     // MSC4140: schedule as a delayed state event when the body carries a delay
     // hint, preserving the computed `state_key` for the dispatcher's state path.
@@ -326,7 +329,7 @@ pub(crate) async fn put_state_event(
     let now = current_timestamp_millis();
 
     let final_event_type = normalize_room_event_type(&event_type);
-    ensure_room_state_write_access(&ctx, &auth_user, &room_id, &final_event_type, &body).await?;
+    ensure_room_state_write_access(&ctx, &auth_user, &room_id, &final_event_type, Some(&state_key), &body).await?;
 
     if is_beacon_info_event(&final_event_type) && state_key != auth_user.user_id {
         return Err(ApiError::forbidden("beacon_info stateKey must match sender".to_string()));
@@ -485,7 +488,7 @@ pub(crate) async fn put_state_event_empty_key(
     let now = current_timestamp_millis();
 
     let final_event_type = normalize_room_event_type(&event_type);
-    ensure_room_state_write_access(&ctx, &auth_user, &room_id, &final_event_type, &body).await?;
+    ensure_room_state_write_access(&ctx, &auth_user, &room_id, &final_event_type, Some(""), &body).await?;
 
     // MSC4140: schedule as a delayed state event (empty `state_key`) when the
     // body carries a delay hint.
@@ -554,7 +557,7 @@ pub(crate) async fn put_state_event_no_key(
     let now = current_timestamp_millis();
 
     let final_event_type = normalize_room_event_type(&event_type);
-    ensure_room_state_write_access(&ctx, &auth_user, &room_id, &final_event_type, &body).await?;
+    ensure_room_state_write_access(&ctx, &auth_user, &room_id, &final_event_type, Some(""), &body).await?;
 
     // MSC4140: schedule as a delayed state event (empty `state_key`) when the
     // body carries a delay hint.

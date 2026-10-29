@@ -237,6 +237,16 @@ impl crate::auth::RoomAuth for FakeRoomAuth {
         Ok(())
     }
 
+    async fn verify_membership_state_write(
+        &self,
+        _room_id: &str,
+        _actor_user_id: &str,
+        _target_user_id: &str,
+        _content: &serde_json::Value,
+    ) -> ApiResult<()> {
+        Ok(())
+    }
+
     async fn verify_power_levels_change(
         &self,
         _room_id: &str,

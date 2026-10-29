@@ -18,7 +18,8 @@ pub(crate) async fn upgrade_room(
 ) -> Result<Json<UpgradeRoomResponse>, ApiError> {
     validate_room_id(&room_id)?;
 
-    ensure_room_state_write_access(&ctx, &auth_user, &room_id, "m.room.tombstone", &serde_json::Value::Null).await?;
+    ensure_room_state_write_access(&ctx, &auth_user, &room_id, "m.room.tombstone", Some(""), &serde_json::Value::Null)
+        .await?;
 
     // MSC4289: `additional_creators` are new creators of the replacement room,
     // so they must be syntactically valid user IDs before anything is created.

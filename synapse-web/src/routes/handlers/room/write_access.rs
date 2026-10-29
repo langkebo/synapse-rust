@@ -23,16 +23,38 @@ use crate::routes::{ensure_room_member_ctx, AuthenticatedUser};
 use synapse_common::{ApiError, ContentSanitizer};
 
 /// See [`ensure_room_state_write_access`].
+///
+/// `state_key` is the key the event will actually be written under — the caller
+/// must pass it whenever it knows it. It exists because `m.room.member`'s
+/// authorization depends on **who the target is**, not just on the sender's
+/// power level: `PUT .../state/m.room.member/{userId}` and the MSC4140 delay
+/// endpoint (whose `state_key` comes from the body) both let a client name
+/// another user, and the sender's `state_default` level says nothing about
+/// whether they may ban, kick or invite *that* user. `None` is therefore
+/// rejected for `m.room.member` rather than silently treated as "no target
+/// check": a fail-open default here is exactly the escalation this gate exists
+/// to stop.
 pub(crate) async fn ensure_room_state_write_access(
     ctx: &RoomContext,
     auth_user: &AuthenticatedUser,
     room_id: &str,
     event_type: &str,
+    state_key: Option<&str>,
     content: &serde_json::Value,
 ) -> Result<(), ApiError> {
     ensure_room_member_ctx(ctx, auth_user, room_id, "You must be a member of this room to send state events").await?;
 
     ctx.room_auth.verify_state_event_write(room_id, &auth_user.user_id, event_type).await?;
+
+    // `m.room.member` is not authorized by `power_levels.events` /
+    // `state_default` alone — those only say the sender outranks the *event
+    // type*. The membership rules (`invite`/`kick`/`ban` thresholds, target
+    // power, creator protection) additionally gate *the target*.
+    if event_type == "m.room.member" {
+        let target = state_key
+            .ok_or_else(|| ApiError::bad_request("m.room.member requires an explicit state_key".to_string()))?;
+        ctx.room_auth.verify_membership_state_write(room_id, &auth_user.user_id, target, content).await?;
+    }
 
     // A power-levels event must also satisfy the power-levels *change* rules
     // (cannot elevate above yourself, cannot touch an equal-or-higher level, and

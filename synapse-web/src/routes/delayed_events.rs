@@ -78,7 +78,20 @@ pub(crate) async fn schedule_delayed_event(
     let event_type = normalize_room_event_type(&event_type);
 
     if parsed.state_key.is_some() {
-        ensure_room_state_write_access(&ctx, &auth_user, &room_id, &event_type, &parsed.content).await?;
+        // `state_key` comes from the request body here, so it is the one place
+        // besides `PUT .../state/{type}/{key}` where a client can name another
+        // user — pass it to the gate so `m.room.member` is authorized against
+        // the real target. The background dispatcher replays this row with no
+        // further checks, so anything the gate lets through lands later.
+        ensure_room_state_write_access(
+            &ctx,
+            &auth_user,
+            &room_id,
+            &event_type,
+            parsed.state_key.as_deref(),
+            &parsed.content,
+        )
+        .await?;
 
         return schedule_delayed_event_core(
             &ctx,

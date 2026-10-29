@@ -390,3 +390,79 @@ async fn test_absent_delay_hint_still_sends_immediately() {
     assert!(body.get("delay_id").is_none(), "nothing may be scheduled without a hint: {body}");
     assert!(body["event_id"].is_string(), "the event must be sent now: {body}");
 }
+
+// ============================================================================
+// The delayed surface is a *second door* to the same write — and it is the
+// sharpest one, because the background dispatcher replays the event later with
+// no further authorization. The `m.room.member` target check therefore has to
+// run at *scheduling* time, not only on the immediate `/state` write.
+// ============================================================================
+
+/// A PL-50 moderator schedules a delayed `ban` of the room creator. The
+/// scheduling request itself must be refused: if it were accepted, the ban
+/// would land minutes later, from a task nobody is watching, and the target
+/// check on the immediate path would never see it.
+#[tokio::test]
+async fn test_delayed_membership_write_is_authorized_before_scheduling() {
+    let Some((app, _pool)) = setup_test_app_with_pool().await else {
+        eprintln!("Skipping test: database not available");
+        return;
+    };
+
+    let owner_token = super::create_test_user(&app).await;
+    let owner_id = whoami(&app, &owner_token).await;
+    let mod_token = super::create_test_user(&app).await;
+    let mod_id = whoami(&app, &mod_token).await;
+    let room_id = create_room(&app, &owner_token).await;
+
+    let invite = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/v3/rooms/{room_id}/invite"))
+        .header("Authorization", format!("Bearer {owner_token}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "user_id": mod_id }).to_string()))
+        .unwrap();
+    let response = app.clone().oneshot(super::with_local_connect_info(invite)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let join = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/v3/rooms/{room_id}/join"))
+        .header("Authorization", format!("Bearer {mod_token}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({}).to_string()))
+        .unwrap();
+    let response = app.clone().oneshot(super::with_local_connect_info(join)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "the invited moderator must be able to join");
+
+    // Give the moderator exactly `state_default` (50): the plain power-level gate
+    // lets them write member state, so only the target check can stop them.
+    let mut users = serde_json::Map::new();
+    users.insert(mod_id.clone(), json!(50));
+    let (status, body) = put_state(
+        &app,
+        &owner_token,
+        format!("/_matrix/client/v3/rooms/{room_id}/state/m.room.power_levels/"),
+        json!({
+            "users": users,
+            "state_default": 50,
+            "ban": 50,
+            "kick": 50,
+            "invite": 0
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "granting the moderator 50 must succeed: {body}");
+
+    let (status, body) = put_state(
+        &app,
+        &mod_token,
+        format!("/_matrix/client/v3/rooms/{room_id}/state/m.room.member/{owner_id}?org.matrix.msc4140.delay=60000"),
+        json!({ "membership": "ban" }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::FORBIDDEN, "a delayed ban of the creator must be refused up front: {body}");
+    assert_eq!(body["errcode"], json!("M_FORBIDDEN"), "error code: {body}");
+    assert!(body.get("delay_id").is_none(), "nothing may be queued for the dispatcher: {body}");
+}

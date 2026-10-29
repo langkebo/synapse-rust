@@ -249,3 +249,113 @@ async fn initial_state_power_levels_does_not_name_the_creator() {
     assert_eq!(users.get(&peer_id), Some(&json!(50)), "非创建者条目必须保留：{content}");
     assert_eq!(content["state_default"], json!(50), "initial_state 的其它键必须照旧生效：{content}");
 }
+
+// ── m.room.member 直写不得绕过成员关系规则 ─────────────────────────────
+
+/// `@user:server` 在路径段里必须百分号编码，否则 `:` 会被当成别的分隔符。
+fn encode_user_id(user_id: &str) -> String {
+    user_id.replace('@', "%40").replace(':', "%3A")
+}
+
+/// 把 `userId` 的成员关系直接当成状态事件写进去。
+async fn put_membership(
+    app: &axum::Router,
+    token: &str,
+    room_id: &str,
+    target_user_id: &str,
+    membership: &str,
+) -> (StatusCode, Value) {
+    let uri = format!("/_matrix/client/v3/rooms/{room_id}/state/m.room.member/{}", encode_user_id(target_user_id));
+    call(app, put_json(&uri, token, &json!({ "membership": membership }))).await
+}
+
+/// `PUT /rooms/{id}/state/m.room.member/{target}` 曾经只校验 `state_default`，
+/// 不看目标是谁：一个刚好 50 分的版主可以 `ban` 掉创建者，或者 `leave`（踢）掉
+/// 任何比自己高分的人。这扇门现在必须落到 kick/ban 阈值 + 「严格高于目标」 +
+/// 创建者保护上，且不能把正常情况下本来就该允许的封禁一起误杀。
+#[tokio::test]
+async fn membership_state_write_cannot_ban_or_kick_a_higher_powered_user() {
+    let Some(ctx) = super::TestContext::new().await else {
+        super::skip_or_fail_without_db();
+        return;
+    };
+    let app = &ctx.app;
+    let (owner_token, owner_id) = register(app, "member_pl_owner").await;
+    let (mod_token, mod_id) = register(app, "member_pl_mod").await;
+    let (low_token, low_id) = register(app, "member_pl_low").await;
+    let room_id = create_room(app, &owner_token, json!({})).await;
+
+    for (token, user_id) in [(&mod_token, &mod_id), (&low_token, &low_id)] {
+        let invite_uri = format!("/_matrix/client/v3/rooms/{room_id}/invite");
+        let (status, value) =
+            call(app, post_json(&invite_uri, Some(&owner_token), &json!({ "user_id": user_id }))).await;
+        assert_eq!(status, StatusCode::OK, "邀请必须 200：{value}");
+        let join_uri = format!("/_matrix/client/v3/rooms/{room_id}/join");
+        let (status, value) = call(app, post_json(&join_uri, Some(token), &json!({}))).await;
+        assert_eq!(status, StatusCode::OK, "入房必须 200：{value}");
+    }
+
+    // 版主拿到 50 —— 恰好等于 `state_default`，所以纯阈值门会放他过去。
+    let mut content = current_power_levels(app, &owner_token, &room_id).await;
+    content["users"][mod_id.as_str()] = json!(50);
+    let (status, value) = put_power_levels(app, &owner_token, &room_id, &content).await;
+    assert_eq!(status, StatusCode::OK, "提升版主 power level 必须 200：{value}");
+
+    // ① 封创建者：目标权力无上限（i64::MAX），必须被「严格高于目标」挡住。
+    let (status, value) = put_membership(app, &mod_token, &room_id, &owner_id, "ban").await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "版主不得 ban 创建者：{value}");
+    assert_eq!(value["errcode"], json!("M_FORBIDDEN"), "错误码必须是 M_FORBIDDEN：{value}");
+
+    // ② 踢创建者：即使 actor 权力高于目标，创建者保护也必须拒绝。
+    let (status, value) = put_membership(app, &mod_token, &room_id, &owner_id, "leave").await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "版主不得踢创建者：{value}");
+    assert_eq!(value["errcode"], json!("M_FORBIDDEN"), "错误码必须是 M_FORBIDDEN：{value}");
+
+    // ③ 正向对照：比自己低的人照样可以封 —— 门是精准的，不是一律拒绝。
+    let (status, value) = put_membership(app, &mod_token, &room_id, &low_id, "ban").await;
+    assert_eq!(status, StatusCode::OK, "版主应当能 ban 低权力成员：{value}");
+
+    // ④ 创建者本人仍然有效（前两次被拒的写入没有把房间搞坏）。
+    let (status, value) = put_membership(app, &owner_token, &room_id, &mod_id, "ban").await;
+    assert_eq!(status, StatusCode::OK, "创建者必须仍能管理房间：{value}");
+}
+
+/// `join` / `knock` 只能由目标自己产生。允许别人代写，等于绕开 invite
+/// 直接把人塞进房间（或替别人排队敲门）。
+#[tokio::test]
+async fn membership_state_write_cannot_forge_another_users_join() {
+    let Some(ctx) = super::TestContext::new().await else {
+        super::skip_or_fail_without_db();
+        return;
+    };
+    let app = &ctx.app;
+    let (owner_token, _) = register(app, "member_join_owner").await;
+    let (mod_token, mod_id) = register(app, "member_join_mod").await;
+    let (_, outsider_id) = register(app, "member_join_outsider").await;
+    let room_id = create_room(app, &owner_token, json!({})).await;
+
+    let invite_uri = format!("/_matrix/client/v3/rooms/{room_id}/invite");
+    let (status, value) = call(app, post_json(&invite_uri, Some(&owner_token), &json!({ "user_id": mod_id }))).await;
+    assert_eq!(status, StatusCode::OK, "邀请必须 200：{value}");
+    let join_uri = format!("/_matrix/client/v3/rooms/{room_id}/join");
+    let (status, value) = call(app, post_json(&join_uri, Some(&mod_token), &json!({}))).await;
+    assert_eq!(status, StatusCode::OK, "入房必须 200：{value}");
+
+    let mut content = current_power_levels(app, &owner_token, &room_id).await;
+    content["users"][mod_id.as_str()] = json!(50);
+    let (status, value) = put_power_levels(app, &owner_token, &room_id, &content).await;
+    assert_eq!(status, StatusCode::OK, "提升版主 power level 必须 200：{value}");
+
+    let (status, value) = put_membership(app, &mod_token, &room_id, &outsider_id, "join").await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "不得代他人写 join：{value}");
+    assert_eq!(value["errcode"], json!("M_FORBIDDEN"), "错误码必须是 M_FORBIDDEN：{value}");
+
+    let (status, value) = put_membership(app, &mod_token, &room_id, &outsider_id, "knock").await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "不得代他人写 knock：{value}");
+    assert_eq!(value["errcode"], json!("M_FORBIDDEN"), "错误码必须是 M_FORBIDDEN：{value}");
+
+    // 正向对照：同一个状态事件里的 invite 走的是 `can_invite_user`（默认阈值 0），
+    // 所以 50 分的版主必须能邀请 —— 证明上面的拒绝来自"代写 join"而不是"不许写 member"。
+    let (status, value) = put_membership(app, &mod_token, &room_id, &outsider_id, "invite").await;
+    assert_eq!(status, StatusCode::OK, "版主应当能邀请新成员：{value}");
+}

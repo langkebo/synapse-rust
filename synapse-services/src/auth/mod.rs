@@ -500,6 +500,16 @@ impl crate::auth::RoomAuth for AuthService {
         self.verify_state_event_write(room_id, user_id, event_type).await
     }
 
+    async fn verify_membership_state_write(
+        &self,
+        room_id: &str,
+        actor_user_id: &str,
+        target_user_id: &str,
+        content: &serde_json::Value,
+    ) -> ApiResult<()> {
+        self.verify_membership_state_write(room_id, actor_user_id, target_user_id, content).await
+    }
+
     async fn verify_power_levels_change(
         &self,
         room_id: &str,
