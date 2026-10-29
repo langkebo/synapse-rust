@@ -624,8 +624,10 @@ impl ServiceContainer {
                 admin.modules.delayed_event_service.clone(),
                 Arc::new(synapse_storage::push::PushStorage::new(infra.infra.pool.clone()))
                     as Arc<dyn synapse_storage::push::PushStoreApi>,
-                Arc::new(crate::account_deactivation_service::StorageUserDataPurger::new(&infra.infra.pool))
-                    as Arc<dyn crate::account_deactivation_service::UserDataPurger>,
+                Arc::new(crate::account_deactivation_service::StorageUserDataPurger::new(
+                    &infra.infra.pool,
+                    infra.infra.cache.clone(),
+                )) as Arc<dyn crate::account_deactivation_service::UserDataPurger>,
                 Arc::new(synapse_storage::user_deactivation::UserDeactivationStorage::new(infra.infra.pool.clone()))
                     as Arc<dyn crate::account_deactivation_service::PendingDeactivations>,
             ));

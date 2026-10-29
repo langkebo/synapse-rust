@@ -1515,6 +1515,29 @@ impl RoomStorage {
         .await
     }
 
+    /// 注销清理：删除该用户在所有房间的回执。
+    ///
+    /// 两张表必须同事务：`event_receipts` 是当前态，`event_receipts_stream` 是
+    /// MSC2409 的递增日志；只删前者会让 appservice 继续从日志里读到已注销用户的
+    /// 回执。返回 `(event_receipts, event_receipts_stream)` 分表计数，供审计日志
+    /// 指出是哪张表仍有残留。
+    pub async fn delete_all_receipts_for_user(&self, user_id: &str) -> Result<(u64, u64), sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
+
+        let receipts = sqlx::query!("DELETE FROM event_receipts WHERE user_id = $1", user_id)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
+
+        let stream = sqlx::query!("DELETE FROM event_receipts_stream WHERE user_id = $1", user_id)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
+
+        tx.commit().await?;
+        Ok((receipts, stream))
+    }
+
     /// See [`get_rooms_map`].
     pub async fn get_rooms_map(
         &self,

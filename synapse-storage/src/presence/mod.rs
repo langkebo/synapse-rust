@@ -461,6 +461,19 @@ impl PresenceStorage {
         Ok(())
     }
 
+    /// 注销清理：删除该用户的 presence 行并使其缓存条目失效。
+    ///
+    /// 缓存必须一起清：`get_presence` / `get_presence_with_meta` 先读
+    /// `CacheKeyBuilder::user_presence`，只删库不留一次失效会让已注销账号继续以
+    /// "在线"出现在订阅者的 presence 结果里，直到 TTL 到期。
+    pub async fn delete_all_presence_for_user(&self, user_id: &str) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query!(r"DELETE FROM presence WHERE user_id = $1", user_id).execute(&*self.pool).await?;
+
+        self.cache.delete(&CacheKeyBuilder::user_presence(user_id)).await;
+
+        Ok(result.rows_affected())
+    }
+
     /// See [`get_subscriptions`].
     pub async fn get_subscriptions(&self, subscriber_id: &str) -> Result<Vec<String>, sqlx::Error> {
         let rows = sqlx::query_scalar!(

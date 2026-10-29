@@ -111,6 +111,13 @@ impl RoomTagStorage {
             .await?;
         Ok(())
     }
+
+    /// 注销清理：删除该用户在**所有房间**上的标签（`room_tags` 无 `users` 外键，
+    /// 注销流程只置 `deactivated` 而不删 `users` 行，CASCADE 永远不会触发）。
+    pub async fn delete_all_tags_for_user(&self, user_id: &str) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query!("DELETE FROM room_tags WHERE user_id = $1", user_id).execute(&*self.pool).await?;
+        Ok(result.rows_affected())
+    }
 }
 
 // ── Trait delegation ────────────────────────────────────────────────────

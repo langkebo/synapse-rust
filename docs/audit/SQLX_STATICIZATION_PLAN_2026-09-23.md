@@ -2194,8 +2194,18 @@ BASELINE_DYNAMIC_PRODUCTION=105
 BASELINE_DYNAMIC_TEST_INFRA=846
 BASELINE_STATIC=1360
 BASELINE_QUERY_BUILDER=17
-SQLX_CACHE_ENTRIES=1328
+SQLX_CACHE_ENTRIES=1333
 <!-- sqlx-plan-numbers:end -->
+
+> **2026-10-29 更新（审计 #1：注销数据清理补齐 5 张表）**，数字块一项：
+> - `SQLX_CACHE_ENTRIES` **1328 → 1333**（净 +5，与新增的 5 条静态宏一一对应）：
+>   `room_tag/mod.rs::delete_all_tags_for_user`（`DELETE FROM room_tags`）、
+>   `room/mod.rs::delete_all_receipts_for_user` 的两条（`event_receipts` /
+>   `event_receipts_stream`，同一事务内分表删除）、
+>   `thread/storage.rs::delete_all_read_receipts_for_user`（`thread_read_receipts`）、
+>   `presence/mod.rs::delete_all_presence_for_user`（`presence`）。
+>   生产 105 / 测试 846 / 静态 1360 / QueryBuilder 17 不变（静态实测 1371 仍 ≥ 下限；
+>   新语句全部在 `synapse-storage`，不计入动态棘轮）。
 
 > **2026-10-29 更新（UG-7 catch-up：per-destination 增量补发 + 新成员定向补发）**，两项数字：
 > - `BASELINE_DYNAMIC_TEST_INFRA` **842 → 846**：+2 是本批

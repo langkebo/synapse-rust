@@ -473,6 +473,25 @@ impl ThreadStorage {
         Ok(result.rows_affected())
     }
 
+    /// 注销清理：删除该用户在**所有房间、所有线程**上的已读回执。
+    ///
+    /// 与 [`Self::delete_all_subscriptions_for_user`] 分开：`thread_read_receipts`
+    /// 虽有 `users` 外键且带 `ON DELETE CASCADE`，但注销流程只把 `users` 行置
+    /// `deactivated`、从不删行，因此 CASCADE 永不触发。
+    pub async fn delete_all_read_receipts_for_user(&self, user_id: &str) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query!(
+            r#"
+            DELETE FROM thread_read_receipts
+            WHERE user_id = $1
+            "#,
+            user_id
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    }
+
     /// See [`unsubscribe_from_thread`].
     pub async fn unsubscribe_from_thread(
         &self,

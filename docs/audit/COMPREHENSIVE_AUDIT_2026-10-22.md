@@ -193,7 +193,7 @@
 
 | 度量 | 真值 | 命令 / 来源 |
 |---|---|---|
-| 测试文件 | **405**（`.rs` **317**；unit **137** / integration **169** / e2e **3** / perf **5**） | `python3 scripts/ci/check_doc_metrics.py --print` |
+| 测试文件 | **406**（`.rs` **318**；unit **137** / integration **170** / e2e **3** / perf **5**） | `python3 scripts/ci/check_doc_metrics.py --print` |
 | 基线索引定义 | **345** | 同上 |
 | 活路由 / 派生表行 / `INDEXES.md` 人工表 | **980** / **982** / **134** | 同上（`LIVE_ROUTES` / `DERIVED_TABLE_ROWS` / `INDEXES_DOC_ROWS`） |
 | clippy allow | **160 处 / 111 文件**（扫描 **841** 个 `.rs`）；其中无理由 **0 / 0**（棘轮基线） | `python3 scripts/ci/check_clippy_allow_ratchet.py`（全量站点走其 `scan()`） |
@@ -396,7 +396,7 @@
 
 ### CODE-10（P2）生产 517 行 `let _ =` / `unwrap_or_default()`，无收敛策略
 
-- **口径**：生产 **517 行 / 193 文件**；全仓 **1610 行 / 356 文件**（命令与门禁见 §0.4 ——
+- **口径**：生产 **517 行 / 193 文件**；全仓 **1615 行 / 358 文件**（命令与门禁见 §0.4 ——
   `grep -c` 计的是**行**，一行里两处只算一次）。生产口径 = 8 个 crate 根且剔 `tests/`、
   `*_tests.rs`、测试基建文件（`test*.rs`）与内联 `#[cfg(test)]` 块。
 - **826 → 517 是口径纠正，不是修了 306 行**：原数字把生产文件里的内联测试模块（184 行 / 48 文件，
@@ -833,6 +833,7 @@ TEST_INLINE 34 / TEST_FILE 47 = 107**；测试域合计 81。此后 NEW-10 把 4
 | W12 | P3 `#[allow]` 无理由存量清零（CODE-11）：157 处 / 94 文件逐个补 `// reason:`，基线 157/94 → 0/0；顺带把 fmt 棘轮从 9 清到 0 | ✅ 本笔（见附录 D；含"空基线 = 失败"的自相矛盾修正） |
 | W13 | P2 文件行数棘轮（NEW-20）：按拍板走**整表 `--update` 一次性批准**，基线 220 → 222 条（67 条增长 + 2 个新增 >600 行文件全部入册），同时收紧 19 条已缩小的 ceiling | ✅ 本笔（见附录 D；闸门 `file_size: 825 files scanned, 222 over 600 (baseline 222) → OK`） |
 | W14 | P3 审计 §0.4「数字真值」失真：7 组数字按脚本/基线现算重写（含「84 列」与 43 + 42 的自相矛盾 → **85**、「clippy allow 无理由」160/96 → **0/0** 与 CODE-11 对齐、门禁 47 → **58**）；27 个内联锚点并入 `check_doc_metrics.py`（内联 12 → **39**） | ✅ 本笔（判据：改 §0.4 数字 ⇒ 红；改 `sleep_baseline` 的 `PROD` ⇒ 红；两条均为实测后还原） |
+| W15 | P0 注销数据清理漏 5 张表（`room_tags` / `event_receipts` / `event_receipts_stream` / `thread_read_receipts` / `presence`）：登记常量 `ACCOUNT_DEACTIVATION_PURGED_TABLES` + 三条守卫用例（表集合自检 / 逐表清空且不误删他人 / 幂等），`.sqlx` 1328 → **1333** | ✅ 本笔（见 `REMAINING_ISSUES_SWEEP_2026-10-17.md` §9.4；变异自证：注释 `presence` 删除 ⇒ 用例 2 红，还原后 3/3 绿） |
 
 ### 10.2 下一批建议
 
