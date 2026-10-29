@@ -420,7 +420,11 @@ fn the_admin_section_of_the_map_is_exactly_the_writers() {
     // time, and a bulk re-generation that flips a column shows up here rather than in a
     // production incident.
     let rows: Vec<Row> = load_map().into_iter().filter(|row| row.path.starts_with("/_synapse/admin/")).collect();
-    assert_eq!(rows.len(), 156, "the admin write surface changed; re-decide every new row");
+    // 157 而不是 156：2026-10-29 新增
+    // `POST /_synapse/admin/v1/users/{user_id}/devices/{device_id}/verify`，
+    // 归属记 `-`（只写 `e2ee_audit_log`，不动 `device_lists_stream`）⇒
+    // 总数 +1，但下面 `attributed` 仍是 16、events 12 / device_lists 4 不变。
+    assert_eq!(rows.len(), 157, "the admin write surface changed; re-decide every new row");
     let attributed: Vec<&Row> = rows.iter().filter(|row| row.stream.is_some()).collect();
     assert_eq!(attributed.len(), 16, "admin rows attributed to a stream: {attributed:?}");
     assert_eq!(attributed.iter().filter(|row| row.stream.as_deref() == Some("events")).count(), 12);

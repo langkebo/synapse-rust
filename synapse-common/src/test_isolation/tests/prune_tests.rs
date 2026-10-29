@@ -85,16 +85,31 @@ async fn vanished_candidate_is_skipped_not_a_prune_failure() {
 
     // 一个"看起来像模板"的候选：marker 表零行 ⇒ prune 只会回填并豁免，
     // 所以并发 prune 不会把它删掉，下面的 DROP 完全由本测试控制。
+    //
+    // ⚠️ schema 与 marker 表必须**在同一个事务里**建（2026-10-29 实测两次 CI 红）：
+    // `prune_isolation_templates` 对候选的判定是
+    //   ① 列 `pg_namespace` 得到候选 → ② `to_regclass(marker)` 为 NULL ⇒ `eligible_to_drop = true` → ③ `DROP SCHEMA`
+    // ①②③ 是三条独立语句。若本测试分两次 DDL 建（① 见 schema、② 见空），中间那段
+    // **"schema 已存在但没有 marker 表"的窗口**会被并发 prune 判成"不完整构建，可删"，
+    // 于是：窗口内被删 ⇒ 下面 `CREATE TABLE` 报 schema 不存在；
+    // 或 ② 读到 NULL 而 ③ 的 DROP 落在 `CREATE TABLE` 之后 ⇒ 第 104 行探针或第 106 行 DROP 撞 3F000。
+    // 两种交错在 CI 都出现过（`prune_tests.rs:104` 与 `:106`）。
+    // PostgreSQL 的 DDL 是事务性的 ⇒ 放进一个事务后，schema 与 marker 表**同时可见**，
+    // 并发 prune 要么看不到候选、要么看到 marker 表（零行 ⇒ 回填并豁免），窗口消失。
     let schema = format!("test_isolation_template_{:016x}", 0x0bad_c0de_0bad_c0deu64);
     let marker = format!("{schema}.{TEMPLATE_READY_TABLE}");
     sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{schema}" CASCADE"#)).execute(&admin).await.expect("cleanup");
-    sqlx::query(&format!(r#"CREATE SCHEMA "{schema}""#)).execute(&admin).await.expect("create schema");
-    sqlx::query(&format!(
-        r#"CREATE TABLE "{schema}"."{TEMPLATE_READY_TABLE}" (built_at timestamptz NOT NULL DEFAULT now())"#
-    ))
-    .execute(&admin)
-    .await
-    .expect("create marker table");
+    {
+        let mut tx = admin.begin().await.expect("begin create transaction");
+        sqlx::query(&format!(r#"CREATE SCHEMA "{schema}""#)).execute(&mut *tx).await.expect("create schema");
+        sqlx::query(&format!(
+            r#"CREATE TABLE "{schema}"."{TEMPLATE_READY_TABLE}" (built_at timestamptz NOT NULL DEFAULT now())"#
+        ))
+        .execute(&mut *tx)
+        .await
+        .expect("create marker table");
+        tx.commit().await.expect("commit create transaction");
+    }
 
     let table_exists: bool = sqlx::query_scalar("SELECT to_regclass($1) IS NOT NULL")
         .bind(&marker)

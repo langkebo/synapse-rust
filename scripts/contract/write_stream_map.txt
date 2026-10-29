@@ -499,6 +499,11 @@ PUT	/_synapse/admin/v1/users/{user_id}/admin	-
 POST	/_synapse/admin/v1/users/{user_id}/deactivate	-
 DELETE	/_synapse/admin/v1/users/{user_id}/devices/{device_id}	device_lists
 POST	/_synapse/admin/v1/users/{user_id}/devices/{device_id}/delete	device_lists
+# 交叉签名单设备验证：只往 `e2ee_audit_log` 写一行审计，**不动** `device_lists_stream`，
+# 也不 fan out `m.device_list_update`。`admin_stream()` 对它返回 `None`（五段的精确模式
+# 不匹配 `…/verify`），所以这里记 `-`。别顺手写成 `device_lists` —— 那会让一次纯读取
+# 触发跨实例的设备列表转发。
+POST	/_synapse/admin/v1/users/{user_id}/devices/{device_id}/verify	-
 POST	/_synapse/admin/v1/users/{user_id}/evict	-
 POST	/_synapse/admin/v1/users/{user_id}/login	-
 POST	/_synapse/admin/v1/users/{user_id}/logout	device_lists

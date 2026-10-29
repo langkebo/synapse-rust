@@ -1,5 +1,5 @@
 # route-ledger snapshot: default
-count: 960
+count: 961
 
 DELETE /_matrix/app/v1/proxy/{as_id}/{*path} [app_service]
 DELETE /_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device [dehydrated_device]
@@ -849,6 +849,7 @@ POST /_synapse/admin/v1/users/batch [admin::user]
 POST /_synapse/admin/v1/users/batch_deactivate [admin::user]
 POST /_synapse/admin/v1/users/{user_id}/deactivate [admin::user]
 POST /_synapse/admin/v1/users/{user_id}/devices/{device_id}/delete [admin::user]
+POST /_synapse/admin/v1/users/{user_id}/devices/{device_id}/verify [admin::device_verify]
 POST /_synapse/admin/v1/users/{user_id}/evict [admin::user]
 POST /_synapse/admin/v1/users/{user_id}/login [admin::user]
 POST /_synapse/admin/v1/users/{user_id}/logout [admin::user]
