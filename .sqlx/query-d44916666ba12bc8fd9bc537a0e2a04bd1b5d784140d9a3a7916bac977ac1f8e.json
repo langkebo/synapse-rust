@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE room_sticky_events\n            SET is_sticky = false,\n                updated_ts = $4,\n                revision = nextval('room_sticky_events_revision_seq')\n            WHERE room_id = $1 AND user_id = $2 AND event_type = $3\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d44916666ba12bc8fd9bc537a0e2a04bd1b5d784140d9a3a7916bac977ac1f8e"
+}

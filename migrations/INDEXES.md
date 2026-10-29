@@ -28,7 +28,7 @@
 <!-- doc-metrics:start -->
 <!-- 本块由 scripts/ci/check_doc_metrics.py --print 生成；手改必红。 -->
 
-BASELINE_INDEXES=344
+BASELINE_INDEXES=345
 INDEXES_DOC_ROWS=134
 
 <!-- doc-metrics:end -->

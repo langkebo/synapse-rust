@@ -603,6 +603,7 @@ impl SynapseServer {
             let bg_service = self.app_state.services.admin.modules.background_update_service.clone();
             let retention_service = self.app_state.services.admin.modules.retention_service.clone();
             let media_service = self.app_state.services.core.media_service.clone();
+            let room_service = self.app_state.services.rooms.room_service.clone();
             let event_broadcaster = self.app_state.services.core.event_broadcaster.clone();
             let remote_media_lifetime = self.app_state.services.core.config.server.remote_media_lifetime;
             let local_media_lifetime = self.app_state.services.core.config.server.local_media_lifetime;
@@ -637,19 +638,18 @@ impl SynapseServer {
                             if let Err(e) = retention_service.run_scheduled_cleanups().await {
                                 ::tracing::warn!("Retention cleanup failed: {}", e);
                             }
+                            room_service.run_sticky_catch_up_tick().await;
                             media_cleanup_counter += 1;
                             if media_cleanup_counter >= 60 {
                                 media_cleanup_counter = 0;
                                 if remote_media_lifetime > 0 {
-                                    let cutoff_ts = current_timestamp_millis()
-                                        - (remote_media_lifetime as i64 * 1000);
+                                    let cutoff_ts = current_timestamp_millis() - (remote_media_lifetime as i64 * 1000);
                                     if let Err(e) = media_service.purge_media_cache(cutoff_ts).await {
                                         ::tracing::warn!("Remote media cleanup failed: {}", e);
                                     }
                                 }
                                 if local_media_lifetime > 0 {
-                                    let cutoff_ts = current_timestamp_millis()
-                                        - (local_media_lifetime as i64 * 1000);
+                                    let cutoff_ts = current_timestamp_millis() - (local_media_lifetime as i64 * 1000);
                                     if let Err(e) = media_service.purge_media_cache(cutoff_ts).await {
                                         ::tracing::warn!("Local media cleanup failed: {}", e);
                                     }

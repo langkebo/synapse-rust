@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO room_sticky_event_destinations\n                (room_id, destination, last_revision, created_ts, updated_ts)\n            VALUES ($1, $2, 0, $3, $3)\n            ON CONFLICT (room_id, destination)\n            DO UPDATE SET last_revision = 0, updated_ts = EXCLUDED.updated_ts\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e6e142239f3df91f4096b314547e1140ebb90bf339f43b5b6301ef88012e3f7b"
+}

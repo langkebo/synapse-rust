@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO room_sticky_event_destinations\n                (room_id, destination, last_revision, created_ts, updated_ts)\n            SELECT DISTINCT e.room_id,\n                   substring(m.user_id FROM strpos(m.user_id, ':') + 1),\n                   0, $1::bigint, $1::bigint\n            FROM room_sticky_events e\n            JOIN room_memberships m\n              ON m.room_id = e.room_id\n             AND m.membership = 'join'\n             AND m.user_id LIKE '@%:%'\n            WHERE e.is_sticky = true\n              AND (e.user_id = $2 OR e.user_id LIKE '%:' || $2)\n              AND substring(m.user_id FROM strpos(m.user_id, ':') + 1) <> $2\n            ON CONFLICT (room_id, destination) DO NOTHING\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e5e3ae6bd6f6798aef96eae382e93cd149bba4c1d9ea00bd837474c4be18c811"
+}

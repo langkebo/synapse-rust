@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO room_sticky_events\n                (room_id, user_id, event_id, event_type, is_sticky, sticky_duration_ms, expires_at,\n                 created_ts, updated_ts, revision)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,\n                    nextval('room_sticky_events_revision_seq'))\n            ON CONFLICT (room_id, user_id, event_type)\n            DO UPDATE SET event_id = EXCLUDED.event_id,\n                          is_sticky = EXCLUDED.is_sticky,\n                          sticky_duration_ms = EXCLUDED.sticky_duration_ms,\n                          expires_at = EXCLUDED.expires_at,\n                          updated_ts = EXCLUDED.updated_ts,\n                          revision = nextval('room_sticky_events_revision_seq')\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Bool",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "26ce74f0f5089367d6ed4e3246aa6783edbb908d3ed4aa9e8d5ef66cbdfef15f"
+}

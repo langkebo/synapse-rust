@@ -6,6 +6,10 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 
+/// 联邦补发游标（UG-7 catch-up：#20165 增量补发 / #20233 新成员补发）。
+mod destinations;
+pub use destinations::{PendingStickyDelivery, StickyDeliveryRow};
+
 /// MSC4354's upper bound on a sticky duration: **1 hour**.
 ///
 /// Mirrors upstream `synapse/api/constants.py::StickyEvent.MAX_DURATION`
@@ -171,17 +175,21 @@ impl StickyEventStorage {
             None => (None, None),
         };
 
+        // 每次写入（含 `ON CONFLICT` 更新）都换一个新位点，联邦补发才能看出这行变过。
         sqlx::query!(
             r"
             INSERT INTO room_sticky_events
-                (room_id, user_id, event_id, event_type, is_sticky, sticky_duration_ms, expires_at, created_ts, updated_ts)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                (room_id, user_id, event_id, event_type, is_sticky, sticky_duration_ms, expires_at,
+                 created_ts, updated_ts, revision)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+                    nextval('room_sticky_events_revision_seq'))
             ON CONFLICT (room_id, user_id, event_type)
             DO UPDATE SET event_id = EXCLUDED.event_id,
                           is_sticky = EXCLUDED.is_sticky,
                           sticky_duration_ms = EXCLUDED.sticky_duration_ms,
                           expires_at = EXCLUDED.expires_at,
-                          updated_ts = EXCLUDED.updated_ts
+                          updated_ts = EXCLUDED.updated_ts,
+                          revision = nextval('room_sticky_events_revision_seq')
             ",
             room_id,
             user_id,
@@ -278,6 +286,10 @@ impl StickyEventStorage {
     }
 
     /// Clear is_sticky event for a room, user, and event type
+    ///
+    /// 行**不删除**，只置 `is_sticky = false`：这就是联邦补发要用的墓碑 ——
+    /// `room_sticky_events.revision` 随之递增，远端断连恢复后能拿到"已清除"这一变更，
+    /// 否则那条置顶会永远留在对方界面上。
     pub async fn clear_is_sticky_event(
         &self,
         room_id: &str,
@@ -289,7 +301,9 @@ impl StickyEventStorage {
         sqlx::query!(
             r"
             UPDATE room_sticky_events
-            SET is_sticky = false, updated_ts = $4
+            SET is_sticky = false,
+                updated_ts = $4,
+                revision = nextval('room_sticky_events_revision_seq')
             WHERE room_id = $1 AND user_id = $2 AND event_type = $3
             ",
             room_id,
@@ -454,10 +468,15 @@ mod tests {
     }
 }
 
+// `sticky_event.rs` 是非 mod-rs 文件，子模块按 Rust 2018 目录模块解析到
+// `sticky_event/<name>.rs` ⇒ 不要再写 `#[path]`：多出来的那行属性会把
+// `#[cfg(test)] mod x;` 的相邻关系打断，使 `sqlx_query_census.py` 认不出
+// 这些整份测试文件、把其中的运行时 SQL 错算进生产区（UG-7 catch-up 批实测 11 处）。
 #[cfg(test)]
-#[path = "sticky_event/db_tests.rs"]
 mod db_tests;
 
 #[cfg(test)]
-#[path = "sticky_event/db_tests_room_level.rs"]
 mod db_tests_room_level;
+
+#[cfg(test)]
+mod db_tests_destinations;

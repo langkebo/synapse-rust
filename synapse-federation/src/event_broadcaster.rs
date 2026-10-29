@@ -10,12 +10,12 @@ use synapse_storage::membership::MemberStoreApi;
 use tokio::sync::{mpsc, RwLock};
 use tracing::{info_span, warn};
 
+mod direct;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 /// The `FederationEvent` type.
 pub struct FederationEvent {
     /// The `event_id` field.
-    /// The `room_id` field.
-    /// The `sender` field.
     /// The `event_type` field.
     /// The `content` field.
     /// The `origin` field.

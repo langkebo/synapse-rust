@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT d.room_id, d.destination, d.last_revision\n            FROM room_sticky_event_destinations d\n            WHERE EXISTS (\n                      SELECT 1 FROM room_sticky_events e\n                      WHERE e.room_id = d.room_id\n                        AND e.revision > d.last_revision\n                        AND (e.user_id = $1 OR e.user_id LIKE '%:' || $1)\n                  )\n              AND EXISTS (\n                      SELECT 1 FROM room_memberships m\n                      WHERE m.room_id = d.room_id\n                        AND m.membership = 'join'\n                        AND m.user_id LIKE '%:' || d.destination\n                  )\n            ORDER BY d.room_id, d.destination\n            LIMIT $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "destination",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "last_revision",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "90b88d5872fd040b32553b930d908fc383731ac0aefdd5a83913c47b07503ce7"
+}

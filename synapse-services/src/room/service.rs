@@ -746,24 +746,17 @@ impl RoomService {
             return Ok(());
         };
 
-        // Construct MSC4354 sticky event EDU
-        // Based on receipts.rs pattern but adapted for sticky events
-        //
-        // `sticky_duration_ms` (nullable) is carried so peers can track the same
-        // expiry. Each server resolves the absolute deadline from its own clock, so
-        // skew across peers is bounded by the 1h cap rather than unbounded.
-        let sticky_edu = serde_json::json!({
-            "edu_type": "org.matrix.msc4354.sticky_event",
-            "room_id": room_id,
-            "sender": self.server_name,
-            "content": {
-                "event_type": event_type,
-                "event_id": event_id,
-                "is_sticky": is_sticky,
-                "sticky_duration_ms": sticky_duration_ms,
-                "ts": current_timestamp_millis()
-            }
-        });
+        // Construct MSC4354 sticky event EDU. 与补发路径共用同一份构造，见
+        // `sticky_catch_up::build_sticky_edu`（字段一旦分叉，对端会把同一条置顶
+        // 看成两种变更）。
+        let sticky_edu = super::sticky_catch_up::build_sticky_edu(
+            &self.server_name,
+            room_id,
+            event_id,
+            event_type,
+            is_sticky,
+            sticky_duration_ms,
+        );
 
         tracing::info!(
             room_id = %room_id,

@@ -205,6 +205,10 @@ pub(crate) async fn send_join(
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to update membership", e))?;
 
+        // UG-7 catch-up（#20233）：join 响应里没有房间已有的置顶，加入方只能靠这条补发
+        // 才能看到它们。best-effort：补发失败不能让 join 失败。
+        ctx.room_service.backfill_sticky_events_to_destination(&room_id, &auth.origin).await;
+
         ::tracing::info!(
             request_id = %request_id,
             origin = %auth.origin,
@@ -352,6 +356,9 @@ pub(crate) async fn send_join_v2(
             .add_member(&room_id, sender, "join", display_name, None, None)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to update membership", e))?;
+
+        // UG-7 catch-up（#20233）：同 `send_join`，加入方需要房间已有的置顶。
+        ctx.room_service.backfill_sticky_events_to_destination(&room_id, &auth.origin).await;
 
         ::tracing::info!(
             target: "federation",

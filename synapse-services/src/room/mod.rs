@@ -62,6 +62,8 @@ pub mod space;
 pub mod state;
 /// The room's resolved-state record (MSC4297 v2.1 wiring, F-1 write half).
 pub(crate) mod state_record;
+/// MSC4354 联邦 sticky 事件的补发（UG-7 catch-up）。
+pub mod sticky_catch_up;
 pub use state::service::RoomStateService;
 pub use state_record::ResolutionCache;
 /// The `summary` module.

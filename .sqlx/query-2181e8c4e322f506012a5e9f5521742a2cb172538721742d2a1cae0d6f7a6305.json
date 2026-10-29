@@ -1,0 +1,55 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT e.revision, e.event_id, e.event_type, e.is_sticky,\n                   e.sticky_duration_ms, e.expires_at\n            FROM room_sticky_events e\n            WHERE e.room_id = $1\n              AND e.revision > $2\n              AND (e.user_id = $3 OR e.user_id LIKE '%:' || $3)\n            ORDER BY e.revision ASC\n            LIMIT $4\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "revision",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "event_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "is_sticky",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "sticky_duration_ms",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "expires_at",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "2181e8c4e322f506012a5e9f5521742a2cb172538721742d2a1cae0d6f7a6305"
+}

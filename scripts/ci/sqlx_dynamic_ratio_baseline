@@ -3645,7 +3645,30 @@ BASELINE_DYNAMIC_PRODUCTION=105
 #   不进 `cargo sqlx prepare`（默认 target 集），`--all-targets` 会 E0432 —— 同上方各条。
 #   **收紧方向**：`db_schema_pool_tests.rs` 的 4 处与 `test_isolation` 的建库 DDL 若抽成
 #   单点夹具可回落；届时必须同批下调并就地登记。
-BASELINE_DYNAMIC_TEST_INFRA=842
+# 2026-10-29: 842 → **846**（UG-7 catch-up；+2 本批、+2 属 HEAD 上的基线滞后）。
+#   本批新增 `synapse-storage/src/sticky_event/db_tests_destinations.rs` 的 4 个 DB 用例，
+#   带来 2 处动态 SQL：
+#     ① `join_member` 的 `INSERT INTO room_memberships … ON CONFLICT (room_id, user_id)
+#        DO UPDATE SET membership = 'join'`；
+#     ② `test_departed_member_is_not_a_catch_up_target` 的
+#        `UPDATE room_memberships SET membership = 'leave'`。
+#   两处都是**测试数据播种**：这组用例钉的是"该给谁补 / 补什么 / 游标只进不退"，
+#   不造出远端成员与退房状态就无法区分"确实没有待补发"与"筛选逻辑写错了"。
+#   另 +2 **不是本批**：`50ae32afb`（UG-7 前半）新增的
+#   `synapse-storage/src/sticky_event/db_tests_room_level.rs` 的两处动态 SQL 从未登记 ——
+#   该提交给三个测试子模块补了 `#[path = "…"]` 属性（Rust 2018 目录模块本就能解析到
+#   `sticky_event/<name>.rs`，属冗余），而 census 的 `#[cfg(test)] mod x;` 匹要求两者紧邻，
+#   于是 `db_tests.rs`(7) + `db_tests_room_level.rs`(2) 的 9 处被整体算进生产区：
+#   生产侧**假红**虚高 9（114 > 105），测试区**假绿**停在 842。
+#   删掉那三行冗余 `#[path]` 后的实测（同一 census）：
+#     · HEAD（干净 worktree `/tmp/syn_head_check`）：production=105 / test=844；
+#     · 本树：production=105 / test=846。
+#   ⇒ 生产侧回到与基线**精确相等**（不是放宽），测试侧把潜伏的 +2 与本批的 +2 一并入册。
+#   为什么不能改静态宏：`#[cfg(test)]` 内的 `query!` 不进 `cargo sqlx prepare`（默认 target 集），
+#   `--all-targets` 会 E0432 —— 同上方各条。
+#   **收紧方向**：若把"确保某人已在房 / 已退房"抽成 `sticky_event/db_tests.rs` 里与
+#   `ensure_test_room` 并列的公共夹具并被两侧共用，本项可回落 2 点；届时必须同批下调并就地登记。
+BASELINE_DYNAMIC_TEST_INFRA=846
 # 2026-10-15: 1353 → 1354（+1，方案 B4.3）。新增
 #   `synapse-storage/src/schema_health_check.rs` 的 `check_invalid_indexes()` —— 它让
 #   **半建索引**（`pg_index.indisvalid = false`）可见；此前只查"缺表/缺列/缺索引名"，
@@ -3770,7 +3793,10 @@ BASELINE_STATIC=1360
 #   （106 + 832 = 938；生产侧基线未动，实测 105 仍在门禁内）。
 # 2026-10-27: 938 → **939**，随 `BASELINE_DYNAMIC_TEST_INFRA` 的 +2 同步
 #   （105 + 834 = 939；来源见上方同批条目）。
-BASELINE_DYNAMIC=939
+# 2026-10-29: 939 → **951**，随 `BASELINE_DYNAMIC_TEST_INFRA` 842 → 846（105 + 846 = 951；
+#   其中 2 处是本批 UG-7 catch-up 的存储层夹具、2 处是 HEAD 上因 `#[path]` 误判而潜伏的
+#   基线滞后，逐条归因见上方同名条目）。生产侧基线未动，实测 105 与之精确相等。
+BASELINE_DYNAMIC=951
 
 # ── 2026-09-15 基线调整（+6，1478 → 1484）────────────────────────────────
 #

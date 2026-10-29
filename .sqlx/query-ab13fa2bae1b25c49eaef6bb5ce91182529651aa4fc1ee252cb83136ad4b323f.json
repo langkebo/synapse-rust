@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE room_sticky_event_destinations\n            SET last_revision = GREATEST(last_revision, $3),\n                updated_ts = $4\n            WHERE room_id = $1 AND destination = $2\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ab13fa2bae1b25c49eaef6bb5ce91182529651aa4fc1ee252cb83136ad4b323f"
+}

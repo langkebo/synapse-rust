@@ -295,7 +295,12 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // `04fe5b9e7cd338c7` 那个版本（250174 字节）时，测试模板名实测即为
 // `test_isolation_template_04fe5b9e7cd338c7`（运行期证据）；另复算 `HEAD`（248615
 // 字节）得 `5abd723ba9424fd6`，与上一轮记录吻合。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "927f107dfec99a29";
+// 2026-10-29（UG-7 catch-up：`room_sticky_events.revision` + 新表
+// `room_sticky_event_destinations` 承载 per-destination 补发游标，尾部补幂等
+// ALTER/回填/索引）：基线 251100 → 254571 字节 ⇒ FNV-1a 64 = `5693201fe10bed35`。
+// 自检：复算改动前的 `HEAD:migrations/…v12.sql`（251100 字节）得 `927f107dfec99a29`，
+// 与改动前常量逐字节吻合，证明哈希实现未变后才取新值。
+const EXPECTED_BASELINE_FINGERPRINT: &str = "5693201fe10bed35";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))

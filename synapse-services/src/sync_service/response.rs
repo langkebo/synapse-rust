@@ -271,8 +271,8 @@ impl SyncService {
             //
             // UG-7（2026-10-29）：该读取现为「本人行 ∪ 房级行」，故新加入的成员也能看到远端置顶；
             // 旧注释「sticky 是 per-user 的 ⇒ 加入路径无需补发」只在「只写本人行」时成立，已改判。
-            // **仍未做**：per-destination catch-up（#20165）与加入时定向补发（#20233），二者都需要
-            // sticky EDU 位点，而 `synapse-federation/src/edu.rs` 尚无该位点索引。
+            // catch-up（2026-10-29）：#20165 per-destination 游标 + #20233 join 后定向补发均已落地，
+            // 见 `room/sticky_catch_up.rs`；二者走 EDU/后台对账，不改变本处 `/sync` 读取的结论。
             if let Some(storage) = self.sticky_event_storage.as_ref() {
                 if sticky_rooms.iter().any(|r| r == room_id) {
                     if let Ok(events) = storage.get_all_is_sticky_events(room_id, user_id).await {

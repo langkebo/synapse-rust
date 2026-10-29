@@ -89,6 +89,10 @@ $$ LANGUAGE plpgsql;
 CREATE SEQUENCE IF NOT EXISTS sliding_sync_pos_seq;
 CREATE SEQUENCE IF NOT EXISTS to_device_stream_id_seq;
 CREATE SEQUENCE IF NOT EXISTS events_stream_ordering_seq;
+-- 2026-10-29（UG-7 catch-up）：`room_sticky_events.revision` 的单调序列。
+-- 用它而不是挂钟 `updated_ts` 作联邦补发位点：同一毫秒内的两次置顶、以及回拨的时钟
+-- 都会让 `updated_ts` 并列或倒退，位点因此会漏发（详见 `StickyEventStorage` 的注释）。
+CREATE SEQUENCE IF NOT EXISTS room_sticky_events_revision_seq;
 
 -- ============================================================================
 -- Part 1: Core User Tables
@@ -637,6 +641,9 @@ CREATE TABLE IF NOT EXISTS room_sticky_events (
     expires_at BIGINT,
     created_ts BIGINT NOT NULL,
     updated_ts BIGINT NOT NULL,
+    -- 联邦补发位点（UG-7 catch-up #20165）：每次写入（含清除）都递增，配对
+    -- `room_sticky_event_destinations.last_revision` 构成 per-destination 游标。
+    revision BIGINT NOT NULL DEFAULT nextval('room_sticky_events_revision_seq'),
     CONSTRAINT uq_room_sticky_events_room_user_type UNIQUE (room_id, user_id, event_type),
     CONSTRAINT ck_room_sticky_events_expiry_pair CHECK (
         (sticky_duration_ms IS NULL) = (expires_at IS NULL)
@@ -651,6 +658,32 @@ CREATE TABLE IF NOT EXISTS room_sticky_events (
     --   判据：`user_id LIKE '@%'` ⇒ 用户行；否则 ⇒ 房级行（见 `StickyEventStorage` 读路径）。
     --   代价：删用户不再级联清理其置顶行，改由 `UserStorage::delete_user` 显式删。
     CONSTRAINT fk_room_sticky_events_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE
+);
+
+-- 2026-10-29（UG-7 catch-up #20165 / #20233）：per-destination 补发游标。
+--
+-- 为什么需要一张表：sticky 置顶靠**增量 EDU 推送**传播，而 EDU 本身没有位点 ——
+-- 远端断连期间或新成员入房时漏掉的置顶没有任何东西能补。`federation_queue` 只保住
+-- 「发送失败且没被 10k 上限淘汰」的事务，既不知道"对方到底收到了哪些"，也不覆盖
+-- 「当时还没加入」的服务器。
+--
+-- 契约：
+--   * `last_revision = 0` ⇒ 该 destination 需要**全量补发**（新入房、或首次建游标）；
+--   * 对账取 `room_sticky_events.revision > last_revision` 的行（含 `is_sticky = false`
+--     的墓碑，否则远端会把已清除的置顶留在原处）；
+--   * 只有**确实同步发出**才推进游标；batch 模式 / 未配置联邦 client 时返回
+--     "未发送"，游标不动，留给下一轮。
+CREATE TABLE IF NOT EXISTS room_sticky_event_destinations (
+    room_id TEXT NOT NULL,
+    -- 远端 server name（不带 `@`），与 `room_memberships.user_id` 的服务器段对齐。
+    destination TEXT NOT NULL,
+    -- 已确认送达的最高 `room_sticky_events.revision`；0 表示"要全量补发"。
+    last_revision BIGINT NOT NULL DEFAULT 0,
+    created_ts BIGINT NOT NULL,
+    updated_ts BIGINT NOT NULL,
+    CONSTRAINT pk_room_sticky_event_destinations PRIMARY KEY (room_id, destination),
+    CONSTRAINT fk_room_sticky_event_destinations_room
+        FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE
 );
 
 
@@ -5591,6 +5624,27 @@ ALTER TABLE room_sticky_events DROP CONSTRAINT IF EXISTS fk_room_sticky_events_u
 ALTER TABLE room_sticky_events DROP CONSTRAINT IF EXISTS ck_room_sticky_events_user_id_format;
 ALTER TABLE room_sticky_events ADD CONSTRAINT ck_room_sticky_events_user_id_format
     CHECK (user_id ~ '^@[a-zA-Z0-9._=+./-]+:[a-zA-Z0-9.-]+$' OR user_id ~ '^[a-zA-Z0-9.-]+$');
+
+-- 2026-10-29（UG-7 catch-up #20165 / #20233）：存量库补 `revision` 与补发游标表。
+--
+-- 上面的 `CREATE TABLE IF NOT EXISTS room_sticky_events` 只对**新库**生效；存量库已存在，
+-- 因此新列必须由幂等 ALTER 补上（与 `sticky_duration_ms` / `expires_at` 同构）。
+-- 分四步是为了不重写表：加可空列 → 回填 → 建默认 → 收紧 NOT NULL。
+CREATE SEQUENCE IF NOT EXISTS room_sticky_events_revision_seq;
+ALTER TABLE room_sticky_events ADD COLUMN IF NOT EXISTS revision BIGINT;
+UPDATE room_sticky_events
+   SET revision = nextval('room_sticky_events_revision_seq')
+ WHERE revision IS NULL;
+ALTER TABLE room_sticky_events ALTER COLUMN revision SET DEFAULT nextval('room_sticky_events_revision_seq');
+ALTER TABLE room_sticky_events ALTER COLUMN revision SET NOT NULL;
+
+-- 游标表 `room_sticky_event_destinations` 是**整张新表**，上面的
+-- `CREATE TABLE IF NOT EXISTS` 对新库与存量库都会执行 ⇒ 不需要在这里重复建表
+-- （重复写两份定义只会让两边漂移）。
+
+-- 补发扫描 = `WHERE room_id = $1 AND revision > $2 ORDER BY revision`，走复合索引。
+CREATE INDEX IF NOT EXISTS idx_room_sticky_events_room_revision
+    ON room_sticky_events(room_id, revision);
 
 -- ============================================================
 -- 废弃表清理：让老库与新库收敛（2026-10-15，方案 B5.3）
