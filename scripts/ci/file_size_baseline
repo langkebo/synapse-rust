@@ -132,10 +132,10 @@
 967 synapse-storage/src/room/db_tests.rs
 965 synapse-services/src/admin_user_service.rs
 963 synapse-web/src/routes/key_backup.rs
+962 synapse-services/src/room/service.rs
 961 synapse-storage/src/privacy.rs
 959 synapse-common/src/config/tests.rs
 958 synapse-services/src/room/messaging/messages.rs
-956 synapse-services/src/room/service.rs
 956 synapse-web/src/routes/directory_reporting.rs
 954 synapse-storage/src/state_groups.rs
 953 synapse-storage/src/saml/db_tests.rs

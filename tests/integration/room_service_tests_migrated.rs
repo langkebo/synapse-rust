@@ -120,6 +120,7 @@ fn build_room_service(
         room_summary_service,
         validator: Arc::new(Validator::default()),
         server_name: "localhost".to_string(),
+        worker: Default::default(),
         task_queue: None,
         relations_storage: Arc::new(RelationsStorage::new(pool)),
         event_broadcaster: Some(Arc::new(EventBroadcaster::new("localhost".to_string()))),

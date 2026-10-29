@@ -157,6 +157,9 @@ impl RoomSyncServices {
             room_summary_service: room_summary_service.clone(),
             validator: validator.clone(),
             server_name: infra.config.server.name.clone(),
+            // Single-writer gate for the MSC4354 catch-up tick: only the `events` write
+            // owner may run it (duplicate runs race on the shared per-destination cursors).
+            worker: infra.config.worker.clone(),
             task_queue: infra.task_queue.clone(),
             relations_storage: relations_storage.clone(),
             event_broadcaster: Some(event_broadcaster),

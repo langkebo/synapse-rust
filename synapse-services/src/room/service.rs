@@ -109,6 +109,9 @@ pub struct RoomServiceConfig {
     pub validator: Arc<Validator>,
     /// The `server_name` field.
     pub server_name: String,
+    /// Worker topology of this instance, consulted once in [`RoomService::new`] to derive
+    /// [`RoomService::is_events_writer`]. Tests pass `WorkerConfig::default()` (no workers).
+    pub worker: synapse_common::config::worker::WorkerConfig,
     /// The `task_queue` field.
     pub task_queue: Option<Arc<RedisTaskQueue>>,
     /// The `relations_storage` field.
@@ -169,6 +172,8 @@ pub struct RoomService {
     pub validator: Arc<Validator>,
     /// The `server_name` field.
     pub server_name: String,
+    /// Whether this instance owns the `events` write stream — see [`RoomServiceConfig::worker`].
+    pub(crate) owns_events: bool,
     /// The `task_queue` field.
     pub task_queue: Option<Arc<RedisTaskQueue>>,
     /// The `room_summary_service` field.
@@ -284,6 +289,7 @@ impl RoomService {
             room_summary_service: config.room_summary_service,
             validator: config.validator,
             server_name: config.server_name,
+            owns_events: crate::worker::write_streams::owns_events_dispatch(&config.worker),
             task_queue: config.task_queue,
             infra,
             sticky_event_storage: config.sticky_event_storage,

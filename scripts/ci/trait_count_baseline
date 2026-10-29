@@ -1,7 +1,23 @@
 # Trait-count ratchet baseline (A5 / B4-1). See scripts/ci/check_trait_ratchet.py.
 # The numbers may only go DOWN. Bump them deliberately and say why.
-TOTAL=75
+TOTAL=76
 STORE_API=33
+#
+# 2026-10-29  TOTAL 75 -> 76 (+1) —— sticky 补发循环的 mock 接缝（审计 P1-4 / 清单 #5）
+#   来源：synapse-services/src/room/sticky_catch_up.rs
+#         `pub trait StickyCatchUpIo: Send + Sync`（`is_events_writer` / `seed_cursors` /
+#         `pending_destinations` / `pending_rows` / `send_edu` / `advance_cursor` / `reset_cursor`）。
+#   为什么放行（与既有"为可测性而存在的接缝"同一判据）：
+#     · 生产实现只有一条：`impl StickyCatchUpIo for LiveStickyCatchUpIo`（同文件），
+#       包住 `StickyEventStorage` + `EventBroadcaster::send_edu_directly`；
+#     · 测试替身一条：`tests::FakeIo`，正是接缝存在的理由 —— 三项契约（未确认不推进 /
+#       墓碑与过期投影 / 批次边界）以及契约 4（非 `events` 写所有者零 io 调用）
+#       在真存储 + 真联邦客户端下无法确定性复现（需要"第 2 条发送返回 Ok(false)"
+#       这类脚本化边界）；
+#     · 注入点：自由函数 `run_catch_up_tick(&dyn StickyCatchUpIo)`，`RoomService`
+#       两个入口只做薄适配。
+#   即：删掉它就得让循环直吃 `StickyEventStorage`，那 10 条用例全部退化为必须连库。
+#   `*StoreApi` 未增加（33 == 33），存储抽象棘轮没有被放宽。
 #
 # 2026-10-26  TOTAL 73 -> 75 (+2) —— 棘轮回填（两个已合入但漏同步基线的接缝 trait）
 #   发现方式：审计 NEW-15/16 收尾跑门禁时 `check_trait_ratchet.py` 报 TOTAL=75 (baseline 73)；
