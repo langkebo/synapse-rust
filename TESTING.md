@@ -146,7 +146,7 @@ TEST_FILES_UNIT=137
 
 | 类型 | 位置 | 目的 | 覆盖率要求 |
 |-----|------|------|-----------|
-| 单元测试 | `tests/unit/*.rs` | 验证独立组件逻辑 | 目标 ≥80%；自动门槛是 **per-file 棘轮**（`scripts/ci/coverage_baseline.json` + `scripts/check_file_coverage.py`）：已登记文件不得回退，新文件核心前缀 ≥70%、其余 30% 爬坡 |
+| 单元测试 | `tests/unit/*.rs` | 验证独立组件逻辑 | 目标 ≥80%；自动门槛是 **per-file 棘轮**（`scripts/ci/coverage_baseline.json` + `scripts/check_file_coverage.py`）：已登记文件不得回退（core 前缀另加 `[CORE-KNOWN]` 分档目标），新文件核心前缀 ≥70%、其余 ≥50% |
 | 集成测试 | `tests/integration/*.rs` | 验证 API 完整流程与高风险契约 | 主链与高风险能力域必覆盖 |
 | 端到端测试 | `tests/e2e/*.rs` | ⚠️ **默认不验证端到端行为**（见下方注） | 真实 E2E 需 `E2E_RUN=1` + 运行中的服务 |
 
@@ -429,15 +429,37 @@ python3 scripts/check_file_coverage.py \
   --report coverage/lcov.info \
   --baseline scripts/ci/coverage_baseline.json \
   --global-floor 40 --new-file-floor 50 \
-  --core-files scripts/ci/core_file_coverage_prefixes.txt
+  --core-files scripts/ci/core_file_coverage_prefixes.txt \
+  --core-threshold 70 \
+  --non-unit-coverable scripts/ci/non_unit_coverable_prefixes.txt \
+  --raise-queue scripts/ci/coverage_raise_queue.json
 ```
 
 **覆盖率口径**：
 - 团队质量目标：≥80%
-- 自动门槛：**per-file 棘轮**（`scripts/ci/coverage_baseline.json`）
-  —— 已登记文件不得回退；新文件核心前缀 ≥70%、其余 ≥50%（ramp-up，
-  `.github/workflows/ci.yml` 的 `--new-file-floor 50`）；
+- 自动门槛：**per-file 棘轮**（`scripts/ci/coverage_baseline.json`）；
   基线缺失/为空时 `check_file_coverage.py` **exit 2（fail-closed）**。
+  三条规则按「文件是否已登记 × 是否 core 前缀」分工，**互不重叠**：
+
+| 文件 | 判据 | 谁在读 |
+|---|---|---|
+| 已登记 + core 前缀 | `[CORE-KNOWN]`：`cur >= min(target, prev)` | 主车道棘轮 |
+| 已登记 + 非 core | 仅 no-regression（`cur >= prev`） | 主车道棘轮 |
+| **新**文件 + core 前缀 | `--core-threshold 70` | 主车道棘轮 |
+| **新**文件 + 非 core | `--new-file-floor 50`（ramp-up） | 主车道棘轮 |
+| core 前缀的**变更行** | `--core-min-percent 30` | PR 车道（§2.2.1） |
+
+- ⚠️ **`--core-threshold 70` 只约束新文件**（2026-10-29 明确写死）。它**不**对已登记的
+  core 老文件重放 70% 地板 —— 老 core 文件靠 `[CORE-KNOWN]`
+  （`cur >= min(target, prev)`，`target` 分档播种、只升不降、持久化在基线 `target` 字段）
+  加 no-regression 推进。看到 `--core-threshold 70` 就以为"所有 core 文件必须 ≥70%"是
+  误读，语义以 `docs/coverage_policy.md` §1 为准。
+- `--global-floor 40` 只用于 ramp-up 提示，**不**重放给已登记文件（重放会让首批基线里
+  188 个未回退的文件集体变红，实测 2026-09-19）。
+- P2 的 30% 是 `--raise-queue` 的**目标**不是下限：只打印 `[RAISE]` / `[RAISE-DONE]` /
+  `[RAISE-NODATA]`，**不参与退出码**；它的强制力在同 job 的
+  "Coverage raise-queue ledger" 一步。
+
 - 两类**结构性**豁免，都必须打印出来（`[EXEMPT]` / `[DECL-ONLY]`），不是静默跳过：
   - `--non-unit-coverable`（`src/bin/`、`src/main.rs`）：`cargo llvm-cov --lib` 永远不执行
     二进制入口；

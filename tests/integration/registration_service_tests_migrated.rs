@@ -250,10 +250,9 @@ fn build_service(pool: &Arc<sqlx::PgPool>) -> (RegistrationService, Arc<MetricsC
         ..Default::default()
     };
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-    let canonical_cache = cache.clone();
     let metrics = Arc::new(MetricsCollector::new());
-    let auth_service = AuthService::new(pool, canonical_cache.clone(), metrics.clone(), &security, "localhost");
-    let user_store: Arc<dyn UserStore> = Arc::new(UserStorage::new(pool, canonical_cache));
+    let auth_service = AuthService::new(pool, cache.clone(), metrics.clone(), &security, "localhost");
+    let user_store: Arc<dyn UserStore> = Arc::new(UserStorage::new(pool, cache));
     let user_service = Arc::new(UserService::new(user_store));
     let auth_arc = Arc::new(auth_service);
     let token_auth: Arc<dyn TokenAuth> = auth_arc.clone();

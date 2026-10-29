@@ -1616,6 +1616,13 @@ jobs:
         # floors are deliberately not re-applied to baseline-known files, because
         # doing so made the first committed baseline red on 188 files that had not
         # regressed at all (measured 2026-09-19).
+        # 唯一例外是 `[CORE-KNOWN]`（2026-10-29）：`--core-files` 命中的**基线已知**
+        # 文件，floor 取 `min(target, recorded)`。`target` 按档位播种（0–10% → 30、
+        # 10–30% → 40、30–50% → 55、50–70% → 70）并持久化在本文件里，只升不降
+        # （`cur > target` 时抬到 `floor(cur/5)*5`），不需要人手改数字。
+        # `min()` 是关键的诚实性来源：一个记录在 3% 的 core 文件**不会**一夜之间因为
+        # 没到 30% 而变红（那正是上面那次 188 红），而是被钉在 3%，直到它自己的覆盖率
+        # 爬过 target 之后，target 才成为真正的下限。
         # `--raise-queue` 只打印进度（[RAISE] / [RAISE-DONE] / [RAISE-NODATA]），
         # **不参与退出码**：P2 的 30% 是目标不是下限，重贴下限就是上面那次 188 红。
         # 它的强制力在同 job 的 "Coverage raise-queue ledger" 一步。
@@ -1813,11 +1820,19 @@ jobs:
           # `--min-percent 0` 是**显式决定**：单腿读数是下界，按固定阈值判红会在
           # "改动由集成测试覆盖"的 PR 上常态假红。真正带牙齿的是：未知路径红、
           # 变更文件不在报告里红（NODATA）、任一腿失败红。
-          # 抬阈值的路径（0 → 30 → 50）要求先攒够样本，见该脚本 docstring。
+          #
+          # core 前缀单独一档（`--core-min-percent 30`，2026-10-29）：认证 / E2EE /
+          # 联邦签名 / 路由与中间件这些路径的 lib 测试就在受影响 crate 自己身上，
+          # 不需要集成测试才跑得到；新增行连 30% 的单腿命中都没有，说明这次改动
+          # 完全没带测试，不该合。非 core 仍是 0（只报数），抬阈值（0 → 30 → 50）
+          # 仍需先攒样本 —— core 这一档就是那第一步。
+          # 清单与主车道是**同一份文件**（同一个 git 版本），两处不会分叉。
           python3 scripts/ci/check_changed_line_coverage.py \
             --report coverage/lcov.info \
             --base "$BASE_SHA" \
-            --min-percent 0
+            --min-percent 0 \
+            --core-files scripts/ci/core_file_coverage_prefixes.txt \
+            --core-min-percent 30
 
       - name: Upload PR coverage artifact
         # `always()`：数据在这条车道**红的时候**才有归因价值（同主车道的教训）。

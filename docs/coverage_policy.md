@@ -9,6 +9,12 @@
 
 - **已记录在 baseline 中的文件**：只检查**不回退**（值不得低于 baseline 记录值），
   不再重放绝对阈值。
+- **已记录 + core 前缀**（`[CORE-KNOWN]`）：判据 `cur >= min(target, prev)`，
+  即"不许跌，且到点必须达标"。`target` 持久化在基线条目（字段 `target`），
+  首次出现时按档位播种：<10% → 30，<30% → 40，<50% → 55，<70% → 70，≥70% → 70；
+  其后当 `cur > target` 时抬到 `floor(cur/5)*5`，**只升不降**，自动收敛，
+  不需人手改数字。`min()` 允许最多 `prev - target` 个百分点的回落，这是分档过渡的
+  设计代价（否则 75 个 core 老文件会在切换当天集体变红）。
 - **新文件**（baseline 中没有）：
   - 核心路径（`core_file_coverage_prefixes.txt` 前缀）：≥ 70%
   - 其余：≥ 50%（ramp-up 底线；2026-10-25 由 30% 上调）
@@ -33,7 +39,8 @@ CI 用 `cargo llvm-cov --workspace --lib`（+ `-p synapse-storage --lib`）。
 
 **已知 111 个文件 <30%**（2026-09-22 测量）：
 - 6 个 `src/bin/*` + `src/main.rs`：按上表豁免
-- 105 个生产代码：按"只管不回退"语义不再红；**重命名/移动会触发 70% core 地板或 50% ramp-up**（这是有意的棘轮压力）
+- 105 个生产代码：按"只管不回退"语义不再红；其中 core 前缀的按 `[CORE-KNOWN]`
+  分档推进（见 §1，首轮不因档位目标而变红）；**重命名/移动会触发 70% core 地板或 50% ramp-up**（这是有意的棘轮压力）
 
 ---
 
@@ -81,6 +88,9 @@ python3 scripts/check_file_coverage.py \
 
 - SQLx 动态/静态查询棘轮：`scripts/ci/check_sqlx_dynamic_ratio.sh`
   （动态 ≤ 2146 / 静态 ≥ 61，2026-09-22 修正注释误算 + turbofish 计数后重测）
+- PR 车道变更行门槛：`scripts/ci/check_changed_line_coverage.py`
+  （`--min-percent 0` 叠加 `--core-files ... --core-min-percent 30`：core 前缀的
+  新增行须 ≥30% 命中，非 core 仍为 0；后续逐级抬升路径 0 → 30 → 50）
 - 覆盖率 <30% 文件：本文档 §2 已说明政策，不再单独设门禁
 - 新文件 ramp-up 拦截：`check_file_coverage.py` 的 new-file-floor 参数
 
@@ -90,8 +100,8 @@ python3 scripts/check_file_coverage.py \
 
 | 文件 | 用途 |
 |---|---|
-| `scripts/ci/coverage_baseline.json` | 每文件覆盖率快照（623 文件） |
-| `scripts/ci/core_file_coverage_prefixes.txt` | 核心路径前缀（≥70%） |
+| `scripts/ci/coverage_baseline.json` | 每文件覆盖率快照（core 前缀条目在首次 `--save-baseline` 播种后带 `target` 字段） |
+| `scripts/ci/core_file_coverage_prefixes.txt` | 核心路径前缀（**新**文件 ≥70%；已登记 core 文件走 `[CORE-KNOWN]`，见 §1） |
 | `scripts/ci/non_unit_coverable_prefixes.txt` | 覆盖率腿盲区前缀（ramp-up 豁免） |
 | `scripts/check_file_coverage.py` | 棘轮执行脚本 |
 | `docs/audit/GATE_INTEGRITY_FOLLOWUP_2026-09-19.md` | 门禁诚实性与工程债（现存问题） |

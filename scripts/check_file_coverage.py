@@ -4,9 +4,19 @@
 Reads a coverage report, compares per-file line coverage against the committed
 baseline, and exits non-zero when a file falls below its floor.
 
-Policy (revised 2026-09-19; see docs/audit/GATE_INTEGRITY_SWEEP_2026-09-19.md §6):
+Policy (revised 2026-10-29; see docs/audit/GATE_INTEGRITY_SWEEP_2026-09-19.md §6):
   - A file the baseline already records: **must not regress** below its recorded
     value. Absolute floors are NOT re-applied to it.
+  - A file the baseline already records **and that matches `--core-files`**: the
+    floor becomes `min(target, prev)` (`[CORE-KNOWN]`) — still "must not
+    regress", plus an absolute target that only ratchets **up**: `target` is
+    seeded from the recorded value by tier (0–10% → 30, 10–30% → 40,
+    30–50% → 55, 50–70% → 70) and re-raised to `floor(cur/5)*5` whenever
+    `cur > target`; it is persisted in the baseline entry (`target` field).
+    `min()` is what keeps the bootstrap honest: a core file recorded at 3% is
+    **not** red overnight for missing 30% (that is the 2026-09-19 `188 files
+    red` shape again); it is pinned at 3% until its own coverage climbs past
+    the target, after which the target is the real floor.
   - A file seen for the first time (new): core ≥ 70%, otherwise the new-file
     ramp-up floor (30%) — **unless** it matches a `--non-unit-coverable` prefix.
   - Test-support sources (`test_mocks/`, `synapse-test-utils/`, `*test_utils.rs`,
@@ -52,6 +62,7 @@ Usage:
 import argparse
 import functools
 import json
+import os
 import pathlib
 import sys
 from typing import Collection, Dict, List, Optional, Tuple
@@ -79,6 +90,31 @@ TEST_ONLY_MARKERS: Tuple[str, ...] = (
     "scripts/bench_harness.rs",
 )
 
+# `[CORE-KNOWN]` 的分档目标（见模块 docstring）。`target` **必须持久化**在基线条目里，
+# 不能每轮从 `prev` 重新推导：那样 `target >= prev` 恒成立，`min(target, prev)` 就永远
+# 退化成 `prev`，"到点必须达标"那一半规则永远不生效。
+CORE_TARGET_TIERS: Tuple[Tuple[float, float], ...] = (
+    (10.0, 30.0),
+    (30.0, 40.0),
+    (50.0, 55.0),
+    (70.0, 70.0),
+)
+
+
+def core_target_floor(line_pct: float) -> float:
+    """Seed a core file's target from its currently recorded coverage.
+
+    0–10% → 30, 10–30% → 40, 30–50% → 55, 50–70% → 70, ≥70% → 70.
+
+    The tier is a **seed only**: once written to the baseline, `target` can only
+    go up (see `save_baseline`), so the ladder converges on its own without
+    anyone hand-editing numbers.
+    """
+    for upper, target in CORE_TARGET_TIERS:
+        if line_pct < upper:
+            return target
+    return CORE_TARGET_TIERS[-1][1]
+
 
 def is_test_only(path: str) -> bool:
     """True for test-support sources the coverage ratchet must ignore."""
@@ -89,6 +125,7 @@ def is_test_only(path: str) -> bool:
 def load_baseline(
     path: pathlib.Path,
     lines_found: Optional[Dict[str, int]] = None,
+    targets: Optional[Dict[str, float]] = None,
 ) -> Dict[str, float]:
     """Load prior coverage baseline (file_path -> line_pct).
 
@@ -96,6 +133,12 @@ def load_baseline(
     (executeable line count) so callers can tell **"分母变大"** from
     **"覆盖到的行变少"** — see `save_baseline` for why the pair matters and why a
     legacy entry (written before 2026-10-28) has **no** `lines_found` key.
+
+    `targets`, when given, is filled with each entry's persisted `[CORE-KNOWN]`
+    target. Entries written before 2026-10-29 have no `target` key; those files
+    are seeded by tier on the next `--save-baseline` run (see
+    `core_target_floor`), which is why "missing" and "0" must stay distinct here
+    too — a 0 default would look like "target reached long ago".
 
     老条目没有该字段 ⇒ **不回填、不猜**。`lines_found[p] = 0` 之类的默认值会让
     "未知"读成"零行"，而那正好是分类器最需要区分的两种处境之一。
@@ -120,11 +163,16 @@ def load_baseline(
         )
         return {}
     if isinstance(data, dict) and "files" in data:
-        if lines_found is not None:
+        if lines_found is not None or targets is not None:
             for item in data["files"]:
-                lf = item.get("lines_found")
-                if isinstance(lf, int) and lf > 0:
-                    lines_found[item["path"]] = lf
+                if lines_found is not None:
+                    lf = item.get("lines_found")
+                    if isinstance(lf, int) and lf > 0:
+                        lines_found[item["path"]] = lf
+                if targets is not None:
+                    target = item.get("target")
+                    if isinstance(target, (int, float)) and target > 0:
+                        targets[item["path"]] = float(target)
         return {item["path"]: item["line_pct"] for item in data["files"]}
     if isinstance(data, dict):
         return data
@@ -165,11 +213,18 @@ def require_baseline(path: pathlib.Path, baseline: Dict[str, float]) -> Optional
     return None
 
 
-def _baseline_entry(path_key: str, line_pct: float, lines_found: Optional[int]) -> dict:
-    """One `files[]` row. `lines_found` 只在**已知且与 line_pct 同源**时写出。"""
+def _baseline_entry(
+    path_key: str,
+    line_pct: float,
+    lines_found: Optional[int],
+    target: Optional[float] = None,
+) -> dict:
+    """One `files[]` row. `lines_found`/`target` 只在**已知且与 line_pct 同源**时写出。"""
     entry = {"path": path_key, "line_pct": round(line_pct, 2)}
     if lines_found is not None:
         entry["lines_found"] = int(lines_found)
+    if target is not None:
+        entry["target"] = round(float(target), 2)
     return entry
 
 
@@ -180,6 +235,8 @@ def save_baseline(
     allow_lower: Collection[str] = (),
     lines_found: Optional[Dict[str, int]] = None,
     previous_lines: Optional[Dict[str, int]] = None,
+    targets: Optional[Dict[str, float]] = None,
+    core_prefixes: Optional[List[str]] = None,
 ) -> int:
     """Save the coverage snapshot, never LOWERING a recorded floor — unless told to.
 
@@ -248,12 +305,27 @@ def save_baseline(
     分母永远补不上 —— 除非哪天被 `--allow-lower` 点名或覆盖率回到 floor 之上。
     这类条目在 `classify_coverage_drift.py` 里会标成 `LF-UNKNOWN`，不会被当成回归。
 
+    ## `target`：`[CORE-KNOWN]` 的绝对目标，只升不降（2026-10-29）
+
+    匹配 `core_prefixes` 的条目多存一个 `target`，供 `check_file_coverage` 计算
+    `floor = min(target, prev)`（"不许跌" + "到点必须达标"）。规则：
+
+    * 首次（条目里没有 `target`）⇒ 用 `core_target_floor(prev)` 按档位播种；
+    * 之后每轮 ⇒ `cur > target` 时抬到 `floor(cur/5)*5`，否则保持；
+    * 本次报告里没有它 ⇒ 保留旧 `target`（与 `line_pct` 同一条不删规则）；
+    * 不匹配 core 前缀的条目**不写**该字段（清单是唯一真源，移出清单即移出规则）。
+
+    `floor()` 而不是 `ceil()`：目标往"整 5%"上靠，不为了多 1 个百分点把下一条阶梯
+    提前拉满；`max()` 保证它单调，没人需要手改数字。
+
     返回被下调的条目数。
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     previous = previous or {}
     lines_found = lines_found or {}
     previous_lines = previous_lines or {}
+    targets = targets or {}
+    core_prefixes = core_prefixes or []
     lower_set = set(allow_lower)
     merged: Dict[str, float] = {}
     merged_lines: Dict[str, int] = {}
@@ -282,9 +354,25 @@ def save_baseline(
         merged[path_key] = prev_value
         if prev_lf is not None:
             merged_lines[path_key] = prev_lf
+    merged_targets: Dict[str, float] = {}
+    for path_key in merged:
+        if not core_prefixes or not _matches_prefix(path_key, core_prefixes):
+            continue
+        recorded = targets.get(path_key)
+        target = (
+            float(recorded)
+            if recorded is not None
+            else core_target_floor(float(previous.get(path_key, 0.0)))
+        )
+        cur_value = files.get(path_key)
+        if cur_value is not None and float(cur_value) > target:
+            # Only raise, and only to the 5% grid: the ladder converges on its own.
+            target = max(target, (float(cur_value) // 5.0) * 5.0)
+        merged_targets[path_key] = target
     payload = {
         "files": [
-            _baseline_entry(p, merged[p], merged_lines.get(p)) for p in sorted(merged)
+            _baseline_entry(p, merged[p], merged_lines.get(p), merged_targets.get(p))
+            for p in sorted(merged)
         ]
     }
     with open(path, "w") as f:
@@ -307,13 +395,21 @@ def load_prefix_list(path: Optional[pathlib.Path]) -> List[str]:
 
 @functools.lru_cache(maxsize=1)
 def _normalized_source_paths() -> List[str]:
-    """Normalized paths of every .rs file in the repo (excluding build/vendor)."""
+    """Normalized paths of every .rs file in the repo (excluding build/vendor).
+
+    Skipped directories are pruned *before* descending. The previous
+    `ROOT.rglob("*.rs")` walked `target/` first (hundreds of thousands of files)
+    and only filtered afterwards, so a concurrent cargo build rotating a
+    `target/**/*.rmeta*` file mid-walk raised a bare `FileNotFoundError` — the
+    guard went red for a filesystem race instead of a coverage verdict.
+    """
     skip = {"target", "vendor", ".git", ".claude", "node_modules"}
     out: List[str] = []
-    for path in ROOT.rglob("*.rs"):
-        if any(part in skip for part in path.parts):
-            continue
-        out.append(_normalize_path(str(path)))
+    for dirpath, dirnames, filenames in os.walk(str(ROOT)):
+        dirnames[:] = [d for d in dirnames if d not in skip]
+        for name in filenames:
+            if name.endswith(".rs"):
+                out.append(_normalize_path(f"{dirpath}/{name}"))
     return out
 
 
@@ -472,6 +568,7 @@ def check_file_coverage(
     report_path: pathlib.Path,
     allow_lower: Collection[str] = (),
     lines_found: Optional[Dict[str, int]] = None,
+    core_targets: Optional[Dict[str, float]] = None,
 ) -> int:
     """Enforce per-file coverage thresholds.  Returns exit code.
 
@@ -485,12 +582,19 @@ def check_file_coverage(
     `allow_lower` is the explicit escape hatch for a deliberately lowered floor
     (see `save_baseline`). A path listed there is still reported — as
     `[LOWERED]`, not as a silent pass — so the drop stays visible in the log.
+
+    A baseline-known file under `--core-files` gets `[CORE-KNOWN]`:
+    `floor = min(target, prev)` with `target` read from `core_targets` (persisted
+    by `save_baseline`). See the module docstring for why `min()` and not
+    `target` alone — a core file recorded at 3% must not go red overnight.
     """
     failures: List[str] = []
     warnings: List[str] = []
     core_failures: List[str] = []
     exemptions: List[str] = []
     lowered: List[str] = []
+    core_known_total = 0
+    core_known_met = 0
     lower_set = set(allow_lower)
     all_paths = sorted(set(current.keys()) | set(baseline.keys()))
 
@@ -539,8 +643,19 @@ def check_file_coverage(
         if not is_new:
             # A file the baseline already knows: only regression matters. See the
             # module docstring for why `max(prev, global_threshold)` was wrong.
-            floor = prev
-            tag = "TOUCHED"
+            #
+            # core 例外：[CORE-KNOWN] 在"不许跌"之外再挂一个只升不降的绝对目标，
+            # floor 取 `min(target, prev)` —— 见模块 docstring 与 `core_target_floor`。
+            if _matches_prefix(path, core_prefixes):
+                target = (core_targets or {}).get(path, core_target_floor(prev))
+                floor = min(target, prev)
+                tag = "CORE-KNOWN"
+                core_known_total += 1
+                if cur + 1e-9 >= target:
+                    core_known_met += 1
+            else:
+                floor = prev
+                tag = "TOUCHED"
         elif _matches_prefix(path, non_unit_prefixes):
             # Paths the coverage leg cannot execute (`cargo llvm-cov --lib` never
             # runs a binary entry point, see the module docstring). No floor can
@@ -566,8 +681,9 @@ def check_file_coverage(
             # it directly raised TypeError and crashed the gate instead of
             # reporting the shortfall.
             prev_txt = f"{prev:.1f}%" if prev is not None else "no baseline"
+            target_txt = f", target {target:.0f}%" if tag == "CORE-KNOWN" else ""
             msg = (
-                f"[{tag}] {path}: {cur:.1f}% < {floor:.0f}% "
+                f"[{tag}] {path}: {cur:.1f}% < {floor:.0f}%{target_txt} "
                 f"(was {prev_txt}, delta={delta:+.1f}%)"
             )
             # 显式授权的下调不判红，但**必须打印**：静默放行与"门禁没在工作"
@@ -575,7 +691,7 @@ def check_file_coverage(
             if path in lower_set:
                 lowered.append(f"{msg} — floor lowered on purpose (--allow-lower)")
                 continue
-            if tag == "CORE":
+            if tag in ("CORE", "CORE-KNOWN"):
                 core_failures.append(msg)
             else:
                 failures.append(msg)
@@ -584,6 +700,13 @@ def check_file_coverage(
                 f"[{tag}] {path}: {cur:.1f}% (below global {global_threshold:.0f}% "
                 f"but above new-file ramp-up {new_file_threshold:.0f}%)"
             )
+
+    if core_known_total:
+        print(
+            f"Core-known guard: {core_known_total} baseline-known core file(s), "
+            f"{core_known_met} already at/above target "
+            "(floor = min(target, recorded); target only ratchets up)."
+        )
 
     if lowered:
         print(
@@ -619,7 +742,8 @@ def check_file_coverage(
 
     if failures or core_failures:
         print(
-            f"Thresholds: baseline-known files must not regress; "
+            f"Thresholds: baseline-known files must not regress "
+            f"(core ones: floor = min(target, recorded)); "
             f"new files: core ≥{core_threshold:.0f}%, "
             f"otherwise ≥{new_file_threshold:.0f}% (ramp-up); "
             f"global ≥{global_threshold:.0f}% is a warning only."
@@ -628,7 +752,8 @@ def check_file_coverage(
 
     print(
         f"All {len(current)} source files meet coverage thresholds "
-        f"(baseline-known: no regression; new: core≥{core_threshold:.0f}%, "
+        f"(baseline-known: no regression, core ones also ≥ min(target, recorded); "
+        f"new: core≥{core_threshold:.0f}%, "
         f"otherwise≥{new_file_threshold:.0f}%; "
         f"non-unit-coverable exempted: {len(exemptions)})."
     )
@@ -789,7 +914,13 @@ def main() -> int:
         "--core-threshold",
         type=float,
         default=70.0,
-        help="Core-path coverage floor (default: 70).",
+        help=(
+            "Coverage floor for NEW files under a core prefix (default: 70). "
+            "Does NOT re-apply a 70%% floor to core files already in the "
+            "baseline — those are governed by [CORE-KNOWN] "
+            "(cur >= min(target, prev)), where `target` is seeded per band, "
+            "only ratchets up, and is persisted in the baseline."
+        ),
     )
     parser.add_argument(
         "--non-unit-coverable",
@@ -841,7 +972,8 @@ def main() -> int:
     lines_found: Dict[str, int] = {}
     current = parse_lcov(args.report, lines_found)
     baseline_lines: Dict[str, int] = {}
-    baseline = load_baseline(args.baseline, baseline_lines)
+    baseline_targets: Dict[str, float] = {}
+    baseline = load_baseline(args.baseline, baseline_lines, baseline_targets)
 
     # A ratchet without its baseline cannot enforce anything (see
     # `require_baseline`). Checked before the expensive per-file loop so the
@@ -988,6 +1120,7 @@ def main() -> int:
         report_path=args.report,
         allow_lower=args.allow_lower,
         lines_found=lines_found,
+        core_targets=baseline_targets,
     )
 
     # 打印在 save_baseline 之前：本轮收紧后 `[RAISE-DONE]` 的条目会在下一轮变成
@@ -1002,6 +1135,8 @@ def main() -> int:
         allow_lower=args.allow_lower,
         lines_found=lines_found,
         previous_lines=baseline_lines,
+        targets=baseline_targets,
+        core_prefixes=core_prefixes,
     )
     # 把"这次报告里没有、但基线保留下来"的条目数打出来：不打印的话，一份不完整的 lcov
     # 会**静默**让基线缩水（曾经的故障形态，见 `save_baseline` 的 docstring）。
