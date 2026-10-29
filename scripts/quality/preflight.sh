@@ -132,6 +132,13 @@ run "check_doc_metrics.py" python3 scripts/ci/check_doc_metrics.py
 step "部署隐私：服务端不得持有房间密钥（B-7）"
 run "check_deploy_privacy.sh" bash scripts/check_deploy_privacy.sh
 
+# 状态决议的逃生开关（A1 / P1-1 残余）：`SYNAPSE_ALLOW_STATE_TS_FALLBACK` 只在
+# 回填窗口内可用，不得进部署清单。它一旦留下，整进程永久回到 origin_server_ts
+# 推导（fail-closed 形同虚设），而运行时**完全静默** —— 只能靠静态检查守。
+# 与上一条同理每次都跑（~50ms，只扫部署配置的四个扩展名）。
+step "状态决议：时间戳兜底开关不得进部署配置（A1）"
+run "check_state_ts_fallback_absent.sh" bash scripts/ci/check_state_ts_fallback_absent.sh
+
 # 时序列决胜键棘轮：`ORDER BY <x>_ts` 单键会让同毫秒事件在页边界重复/漏掉。
 # 每次都跑（~30ms）：故障形态是"新写了一条按 ts 排序的查询"，与改动集无关。
 # 此前它只存在于脚本自身 —— CI 与 preflight 都没调用，等于没有门禁（审计 TEST-04）。
