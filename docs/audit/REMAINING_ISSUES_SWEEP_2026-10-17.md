@@ -400,6 +400,28 @@ join 后定向补发 `synapse-web/src/routes/federation/membership/join.rs`，�
 归零触发全量重放 / 已离开的成员不是补发目标）与
 `tests/integration/api_sticky_event_tests.rs::room_level_pins_are_visible_to_members_and_yield_to_own_pins`。
 
+**服务层判据（2026-10-29 补，`67ffd19bc`）**：上述四条都只测**存储层**，调度层（tick 的游标推进、
+失败不推进、分页续页、墓碑投影、seed 失败、backfill 归零重放）此前**零测试**。本轮在
+`run_catch_up_tick` / `backfill_to_destination` 与 io 之间抽出 `StickyCatchUpIo`（8 方法，
+生产实现 `LiveStickyCatchUpIo` 只做薄适配），用例外移到兄弟文件 `synapse-services/src/room/sticky_catch_up/tests.rs`：
+
+| 用例 | 钉住的契约 |
+| --- | --- |
+| `tick_advances_cursor_to_last_confirmed_row` | 游标推进到最新已确认行 |
+| `unconfirmed_send_stops_before_advancing` / `send_error_does_not_advance` | `Ok(false)` / `Err` 都不推进 |
+| `full_batch_continues_to_the_next_page` | 整批 128 行续页（`row_fetches == [0, 128]`） |
+| `tombstones_and_expired_rows_are_replayed_as_removals` | 墓碑与过期行投影为移除 |
+| `seed_failure_skips_the_whole_tick` / `destination_listing_failure_sends_nothing` | 前置失败整轮零发送 |
+| `non_writer_instance_is_inert` | **单写者运行时门**：非所有者零 io 调用（`calls() == []`） |
+| `backfill_resets_then_replays_the_whole_room` | join 补发归零后全量重放 |
+| `backfill_short_circuits_on_self_and_on_reset_failure` | 本机短路 + reset 失败短路 |
+
+跑法：`cargo test -p synapse-services --lib --features test-utils sticky_catch_up` ⇒ 10 passed；
+变异自证 5 条（删归属门、两条分支误推进游标、去掉过期投影、seed 失败不 return），每次仅 1 条红。
+其中 `non_writer_instance_is_inert` 同时是 §9.1 `L-5` 单写者约束的**行为维度**判据 ——
+归属判定 `owns_events_dispatch(&WorkerConfig)` 只在构造期算一次，门在 tick 首行执行。
+**残余**：跨 destination 的轮转公平性（destination 数超每 tick 上限 LIMIT 32 后多轮收敛）仍无用例。
+
 ### 9.3 未复核（保持原判）
 
 L-1（MSC4242 残留）、L-2（`worker_app`）、L-3（`stream_writers`）、L-6（`/{keyName}` 稳定路由）、

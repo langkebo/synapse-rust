@@ -19,8 +19,8 @@
 |---|---|---|---|
 | **P1-1** | P1 | 状态决议仍保留 `origin_server_ts` 兜底路径 | 未解决 |
 | **P1-2** | P1 | 无 Redis 时拓扑校验只 `warn!`，不阻断启动 | 未解决 |
-| **P1-3** | P1 | 写归属守卫不校验 handler 行为，只看路由集合与 stream 归属 | 未解决 |
-| **P1-4** | P1 | sticky catch-up 的**服务层零测试** | 未解决 |
+| **P1-3** | P1 | 写归属守卫不校验 handler 行为，只看路由集合与 stream 归属 | **行为维度已补（`67ffd19bc`）**：sticky 补发 tick 的归属改为运行时门 |
+| **P1-4** | P1 | sticky catch-up 的**服务层零测试** | **已关闭（`67ffd19bc`）**：`StickyCatchUpIo` 接缝 + 10 条用例 |
 | **P2-1** | P2 | 写转发链路没有两进程 e2e | 未解决 |
 | **P2-2** | P2 | sliding_sync 逐房 3 次查询（required_state / timeline / sticky） | 未解决 |
 | **P2-3** | P2 | `events` 未分区、`room_memberships` 无归档（等量级） | 未解决（登记项） |
@@ -41,6 +41,18 @@
   与"加入即补发"（接在两个联邦 join handler 上）。
 - **R-3 行数棘轮红 → 基线 `--update` 到 222。**
   注意这条是**被基线吸收**而不是被拆分消除的，机制缺口仍见 P3-1。
+- **R-4 P1-4 sticky catch-up 服务层零测试 → `67ffd19bc`。**
+  `run_catch_up_tick` / `backfill_to_destination` 与 io 之间插入 `StickyCatchUpIo`（8 方法，
+  生产实现 `LiveStickyCatchUpIo` 只做薄适配），10 条用例：游标推进到最新 / `Ok(false)` 与 `Err`
+  都不推进 / 整批 128 行续页（`row_fetches == [0, 128]`）/ 墓碑与过期行投影为移除 / seed 失败
+  整轮跳过 / destination 列举失败零发送 / **非所有者零 io 调用** / backfill 归零重放 /
+  backfill 本机短路与 reset 失败短路。内联测试按仓库惯例外移为 `sticky_catch_up/tests.rs`。
+  变异自证 5 条（删归属门、两条分支误推进游标、去掉过期投影、seed 失败不 return），
+  每次仅 1 条红、还原后 10/10 绿。
+- **R-5 P1-3 单写者判据从静态改运行时 → `67ffd19bc`（仅 sticky tick 这一段）。**
+  门放在共享自由函数 `run_catch_up_tick` 首行，`RoomServiceConfig.worker` 注入拓扑、
+  `RoomService` 只存派生 `owns_events: bool`（判定仍委托 `owns_events_dispatch`）。
+  守卫本身（`write_stream_map.txt` 双向棘轮）仍是静态的，缺口见 §3 P1-3 的"残余"。
 
 ## 3. 仍存在的问题
 
@@ -72,18 +84,27 @@
 **证据**：`tests/unit/worker_write_stream_tests.rs` 的模块文档自述 "The ratchet is **bidirectional**"。
 **影响**：一个 handler 若**行为上**开始写事件表而没有新增路由，守卫不会红 ⇒ 多写者部署下"单写者"前提被悄悄打破，
 症状是跨实例重复 fan-out（不是错误，是重复推送/顺序错乱）。
-**建议方向**：把"调用造事件入口"纳入静态扫描（见 §4-A3）。
+**已补（`67ffd19bc`，仅 sticky 补发这一段）**：周期 tick 的归属判据从"构造时读配置、静态可信"改为
+**运行时门** —— 门在共享自由函数 `run_catch_up_tick` 首行（`if !io.is_events_writer() { return; }`），
+非所有者实例连 seed 都不会调用，由 `non_writer_instance_is_inert` 断言 `calls() == []` 钉住。
+判定本体仍委托唯一实现 `owns_events_dispatch(&WorkerConfig)`；`RoomService` 只存构造期派生的 `owns_events: bool`。
+**残余（仍成立）**：① 守卫本体（`write_stream_map.txt` 双向棘轮）仍是**静态**的，一个 handler 行为上新增事件写
+而路由不变，门禁依旧不会红 —— 见 §4-A3；② 运行时门目前只覆盖 sticky tick **一处**，
+其余"该只由 events owner 跑"的路径尚无同款断言，需逐个补。
 
-### P1-4 sticky catch-up 的服务层零测试
+### P1-4 sticky catch-up 的服务层零测试 —— **已关闭（`67ffd19bc`）**
 
-**现象**：对账循环与"加入即补发"没有任何测试。
-**证据**：`synapse-services/src/room/sticky_catch_up.rs` 内 `#[cfg(test)]` 计数为 **0**；
-`tests/` 下检索 `sticky_catch_up` / `run_sticky_catch_up_tick` / `backfill_sticky_events` **无命中**。
-存储层有 4 条（`synapse-storage/src/sticky_event/db_tests_destinations.rs`：游标播种幂等与跳过自身、
-墓碑与游标只前进、重置即全量重放、离房不算补发目标）。
-**影响**：存储层正确但**调度层**错（轮转饥饿、水位推进错、join 时不重置游标）时，症状是"偶发丢置顶"，
-而现有测试永远绿 —— 典型的覆盖错位。
-**建议方向**：见 §4-A4。
+**原现象**：对账循环与"加入即补发"没有任何测试；`sticky_catch_up.rs` 内 `#[cfg(test)]` 计数为 0，
+`tests/` 下检索三个入口名无命中。存储层另有 4 条（`synapse-storage/src/sticky_event/db_tests_destinations.rs`）。
+**落地**：`run_catch_up_tick` / `backfill_to_destination` 与 io 之间插入 `StickyCatchUpIo`（8 方法），
+生产实现 `LiveStickyCatchUpIo` 只做薄适配；内联测试按仓库惯例外移为 `sticky_catch_up/tests.rs`（10 条）。
+覆盖：游标推进到最新 / `Ok(false)` 与 `Err` 都不推进 / 整批 128 行续页（`row_fetches == [0, 128]`）/
+墓碑与过期行投影为移除 / seed 失败整轮跳过 / destination 列举失败零发送 / 非所有者零 io 调用 /
+backfill 归零重放 / backfill 本机短路与 reset 失败短路。
+**判据**：`cargo test -p synapse-services --lib --features test-utils sticky_catch_up` ⇒ 10 passed；
+变异自证 5 条（删归属门、两条分支误推进游标、去掉过期投影、seed 失败不 return），每次仅 1 条红、还原后 10/10 绿。
+**残余**：§4-A4 原列的"轮转饥饿"（destination 数超每 tick 上限后多轮收敛）尚未有专门用例 —— 现有
+`full_batch_continues_to_the_next_page` 只覆盖**单 destination 的分页**，不覆盖**跨 destination 的公平性**。
 
 ### P2-1 写转发链路没有两进程 e2e
 
@@ -154,12 +175,16 @@
   admin 的 membership 写入）的处理函数，要求其所在 `(method, path)` 已在 `write_stream_map.txt` 登记；
   白名单只放"确属本地写"的例外。
 - 判据：变异自证 —— 给某个 admin handler 加一次事件写入但不登记 ⇒ 门禁必红；还原 ⇒ 绿。
+- **状态：未做（静态扫描这部分）**。`67ffd19bc` 只落了"运行时归属门"这一半（见 §3 P1-3 的已补/残余），
+  与 A3 的静态扫描是两条独立补法：运行时门证明"非所有者不跑"，静态扫描证明"该登记的没漏登记"。
 
 **A4 catch-up 补三条服务层测试（对应 P1-4）**
-- ① 单 destination 有积压 ⇒ 一轮 tick 后游标推进到最新；
-- ② destination 数超过每 tick 上限 ⇒ 按 `ORDER BY room_id, destination` 轮转、无饥饿（跑多轮后全部收敛）；
-- ③ join 补发把 `last_revision` 重置为 0 ⇒ 下一轮全量重放、且不会重复消费同一条。
-- 判据：三条都不需要真联邦（用 fake broadcaster），断言游标值与广播次数。
+- ① 单 destination 有积压 ⇒ 一轮 tick 后游标推进到最新；✅ `tick_advances_cursor_to_last_confirmed_row`
+- ② destination 数超过每 tick 上限 ⇒ 按 `ORDER BY room_id, destination` 轮转、无饥饿（跑多轮后全部收敛）；❌ 未覆盖
+- ③ join 补发把 `last_revision` 重置为 0 ⇒ 下一轮全量重放、且不会重复消费同一条；
+  ✅ `backfill_resets_then_replays_the_whole_room`（③ 的重放部分）+ `backfill_short_circuits_on_self_and_on_reset_failure`
+- 判据：三条都不需要真联邦（用 fake io），断言游标值与广播次数 —— 已按此实现（`FakeIo` 记录 `Call` 序列）。
+- **状态：`67ffd19bc` 落了 10 条，其中 ①③ 已覆盖，②（跨 destination 公平性）仍缺**，见 §3 P1-4 残余。
 
 ### 批次 B（需要一套多进程夹具，合并做）
 
@@ -201,12 +226,15 @@ grep -c STATE_GROUP_REQUIRED synapse-storage/src/event/state.rs
 grep -n "config.topology.strict" synapse-services/src/worker/topology_gate.rs
 sed -n '210,226p' src/server/mod.rs
 
-# 写归属守卫校验了什么
-sed -n '16,22p' tests/unit/worker_write_stream_tests.rs
+# catch-up 服务层用例（`67ffd19bc` 后：外移为兄弟文件，应为 10）
+grep -c '#\[tokio::test\]' synapse-services/src/room/sticky_catch_up/tests.rs
+cargo test -p synapse-services --lib --features test-utils sticky_catch_up
 
-# catch-up 服务层测试是否仍为零
-grep -c '#\[cfg(test)\]' synapse-services/src/room/sticky_catch_up.rs
-grep -rln "run_sticky_catch_up_tick|backfill_sticky_events" tests/ || echo "no tests"
+# 运行时归属门是否仍在 tick 首行（应命中 `if !io.is_events_writer()`）
+grep -n "is_events_writer" synapse-services/src/room/sticky_catch_up.rs
+
+# 守卫本体是否仍是静态的（仍命中 ⇒ §4-A3 未做）
+sed -n '16,22p' tests/unit/worker_write_stream_tests.rs
 
 # 两进程 e2e 缺口
 grep -n "two OS processes" tests/unit/worker_write_forwarding_two_instance_tests.rs

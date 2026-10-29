@@ -196,7 +196,7 @@
 | 测试文件 | **406**（`.rs` **318**；unit **137** / integration **170** / e2e **3** / perf **5**） | `python3 scripts/ci/check_doc_metrics.py --print` |
 | 基线索引定义 | **345** | 同上 |
 | 活路由 / 派生表行 / `INDEXES.md` 人工表 | **980** / **982** / **134** | 同上（`LIVE_ROUTES` / `DERIVED_TABLE_ROWS` / `INDEXES_DOC_ROWS`） |
-| clippy allow | **160 处 / 111 文件**（扫描 **841** 个 `.rs`）；其中无理由 **0 / 0**（棘轮基线） | `python3 scripts/ci/check_clippy_allow_ratchet.py`（全量站点走其 `scan()`） |
+| clippy allow | **160 处 / 111 文件**（扫描 **842** 个 `.rs`）；其中无理由 **0 / 0**（棘轮基线） | `python3 scripts/ci/check_clippy_allow_ratchet.py`（全量站点走其 `scan()`） |
 | `let _ =` / `unwrap_or_default()` / `if let Ok(` | 生产 **517** 行 / **193** 文件；全仓 **1615** 行 / **358** 文件 | 全仓 = `git ls-files -z '*.rs' \| xargs -0 grep -cE 'let _ =\|if let Ok\(\|unwrap_or_default\(\)'` 求和；生产口径 = 8 个 crate 根（`PRODUCTION_ROOTS`）且剔 `tests/`、`*/tests.rs`、`*_tests.rs`、测试基建文件（`test*.rs`）与内联 `#[cfg(test)]` 块，由 `check_doc_metrics.py` 现算 |
 | `tokio::time::sleep` | **104** 站点（PROD **26** / TEST_INLINE **34** / TEST_FILE **44**） | `python3 scripts/ci/check_sleep_ratchet.py` |
 | `>2000` 行 `.rs` | 生产 **0**（W11 前 7，内联测试外移后最大 1557）；测试基建 **2**（`test_isolation.rs` **3375**、`test-utils/lib.rs` **2786**）；生成 **1**（`derived_route_table_always.inc.rs` **5512**）；测试 **3**（`room_service_tests_migrated.rs` **5248**、`event/db_tests.rs` **3516**、`sync_service/tests.rs` **2510**） | `git ls-files '*.rs' \| xargs wc -l \| awk '$1>2000'` |
@@ -834,6 +834,7 @@ TEST_INLINE 34 / TEST_FILE 47 = 107**；测试域合计 81。此后 NEW-10 把 4
 | W13 | P2 文件行数棘轮（NEW-20）：按拍板走**整表 `--update` 一次性批准**，基线 220 → 222 条（67 条增长 + 2 个新增 >600 行文件全部入册），同时收紧 19 条已缩小的 ceiling | ✅ 本笔（见附录 D；闸门 `file_size: 825 files scanned, 222 over 600 (baseline 222) → OK`） |
 | W14 | P3 审计 §0.4「数字真值」失真：7 组数字按脚本/基线现算重写（含「84 列」与 43 + 42 的自相矛盾 → **85**、「clippy allow 无理由」160/96 → **0/0** 与 CODE-11 对齐、门禁 47 → **58**）；27 个内联锚点并入 `check_doc_metrics.py`（内联 12 → **39**） | ✅ 本笔（判据：改 §0.4 数字 ⇒ 红；改 `sleep_baseline` 的 `PROD` ⇒ 红；两条均为实测后还原） |
 | W15 | P0 注销数据清理漏 5 张表（`room_tags` / `event_receipts` / `event_receipts_stream` / `thread_read_receipts` / `presence`）：登记常量 `ACCOUNT_DEACTIVATION_PURGED_TABLES` + 三条守卫用例（表集合自检 / 逐表清空且不误删他人 / 幂等），`.sqlx` 1328 → **1333** | ✅ 本笔（见 `REMAINING_ISSUES_SWEEP_2026-10-17.md` §9.4；变异自证：注释 `presence` 删除 ⇒ 用例 2 红，还原后 3/3 绿） |
+| W16 | P1 守卫可信度（第八轮 P1-3 / P1-4）：sticky 补发抽出 `StickyCatchUpIo` 接缝 + **10 条**服务层用例；单写者判据从调用点静态声明改为**运行时行为门**（非所有者零 io 调用），`RoomServiceConfig` 注入 `worker`、`RoomService` 只存派生 `owns_events` | ✅ `67ffd19bc`（判据：变异自证 5 条，每次仅 1 条红；trait 基线 75 → 76、`file_size` 单条 956 → 962，理由见各自基线） |
 
 ### 10.2 下一批建议
 
