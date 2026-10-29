@@ -10,6 +10,7 @@
 | 文档 | 描述 | 更新日期 |
 |------|------|----------|
 | **[COMPREHENSIVE_AUDIT_2026-10-22.md](COMPREHENSIVE_AUDIT_2026-10-22.md)** | **未解决问题清单（living audit，逐轮更新；已关闭条目正文在 `archive/` 的 closed-detail）** | 2026-10-24（第七轮） |
+| **[REMAINING_PROBLEMS_AND_OPTIMIZATION_2026-10-29.md](REMAINING_PROBLEMS_AND_OPTIMIZATION_2026-10-29.md)** | **剩余问题与优化建议（第八轮复核，快照 96d64c34d）**：10 条未解决（P1×4 / P2×3 / P3×3）+ 8 条被证伪的旧结论 + 对照上游 v1.163.0 的三批方案；含"工作区函数型门禁"方法论备注 | 2026-10-29 |
 | **[UNRESOLVED_ISSUES_SUMMARY.md](UNRESOLVED_ISSUES_SUMMARY.md)** | 当前仍存问题总结（权威来源） | 2026-10-06 |
 | **[INDEX.md](INDEX.md)** | 本索引文档 | 2026-10-06 |
 | **[COMPREHENSIVE_LEGACY_ISSUES_REPORT_20261006.md](COMPREHENSIVE_LEGACY_ISSUES_REPORT_20261006.md)** | **全面系统遗留问题排查报告（当前权威）** | 2026-10-06 |
