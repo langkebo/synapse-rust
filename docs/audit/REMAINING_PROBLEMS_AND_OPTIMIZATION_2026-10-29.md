@@ -22,11 +22,11 @@
 | **P1-3** | P1 | 写归属守卫不校验 handler 行为，只看路由集合与 stream 归属 | **行为维度已补（`67ffd19bc`）**：sticky 补发 tick 的归属改为运行时门；**静态扫描已补**：`check_event_writer_routes.py`（52 条事件写路由 / 18 条约一条理由的例外） |
 | **P1-4** | P1 | sticky catch-up 的**服务层零测试** | **已关闭（`67ffd19bc` + 本轮）**：`StickyCatchUpIo` 接缝 + 11 条用例（含跨 destination 轮转公平性） |
 | **P2-1** | P2 | 写转发链路没有两进程 e2e | 未解决 |
-| **P2-2** | P2 | sliding_sync 逐房 3 次查询（required_state / timeline / sticky） | 未解决 |
-| **P2-3** | P2 | `events` 未分区、`room_memberships` 无归档（等量级） | 未解决（登记项） |
-| **P3-1** | P3 | 行数棘轮只报不压：`--update` 会把**新文件**直接纳入基线 | 未解决（机制） |
+| **P2-2** | P2 | sliding_sync 逐房 3 次查询（required_state / timeline / sticky） | **bench 已就位**：分档 [10,100,1000] + 6 项 `required_state`；基线数字需种子库（见 §4-C1） |
+| **P2-3** | P2 | `events` 未分区、`room_memberships` 无归档（等量级） | **判据已落地**：`events-partition-trigger` 两条告警 + 两个面板（见 §4-C2）；分区本身仍等量级 |
+| **P3-1** | P3 | 行数棘轮只报不压：`--update` 会把**新文件**直接纳入基线 | **已关闭（`92504e69f`）**：缩小即自动下压、条目消失自动删；`--update` 默认拒绝从未登记的新文件（`--allow-new` 为显式例外） |
 | **P3-2** | P3 | 生产 517 行 `let _ =` / `unwrap_or_default()`（193 文件） | 未解决（登记项） |
-| **P3-3** | P3 | 覆盖率基线存在**两代数字**（608 已过时 / 683 现行） | 未解决（口径） |
+| **P3-3** | P3 | 覆盖率基线存在**两代数字**（608 已过时 / 683 现行） | **已关闭**：`docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md` 的 608 已就地标注为"bootstrap 时代、现行 683" |
 
 ## 2. 本轮（同日）已关闭
 
@@ -172,12 +172,27 @@ backfill 归零重放 / backfill 本机短路与 reset 失败短路。
 其内部依次查 required_state、timeline、sticky ⇒ 每房 3 次查询。
 **影响**：房间数线性放大查询数；属"逐房装配"的性能特征，不是单行查询的病态 N+1。
 **前置**：动手前必须先有带 `required_state` 的分档 bench 基线，否则无法证明改进。
+**前置已就位（2026-10-30）**：`benches/performance_sliding_sync_benchmarks.rs` 的分档改为
+`[10, 100, 1000]`，且 initial-sync 请求带 6 项 `required_state`（`m.room.{name,topic,avatar,canonical_alias,join_rules}` + `m.room.member/$ME`）。
+此前 `required_state: None` 会让每房最贵的那次查询直接消失在测量里 —— 这也是"逐房 3 次"一直没被量化的原因。
+**仍未做**：基线**数字**。bench 只在 `BENCHMARK_DATABASE_URL` 可达时跑，本地默认库 `synapse_bench` 不存在
+（CI 的 `benchmark.yml` 才 provision），而 bench 本身不造房间数据 ⇒ 空库跑出来的数字没有意义。
+取数方式：在 CI job 里带 artifact，或本地建迁移后的 `synapse_bench` 并灌 N 房 fixture。
 
 ### P2-3 `events` 未分区、`room_memberships` 无归档
 
 **证据**：`migrations/00000000_unified_schema_v12.sql` 里 `events` 是普通 `CREATE TABLE`；
 全文 `PARTITION` 仅 1 处（注释/待办）；`room_memberships` 为普通表，无归档表或分区。
 **定性**：**等外部条件**（需要真实数据量判断收益）。上游对应做法本轮**未取证**，不写入方案依据。
+**判据已落地（2026-10-30）**：`docker/deploy/prometheus/alerting-rules.yml` 新增
+`events-partition-trigger` 组，两条告警 —— `EventsTablePartitionDue`（warning：`events` 行数 > 1e7
+或体积 > 20 GiB）与 `EventsTablePartitionOverdue`（critical：> 5e7 行或 > 100 GiB），均 `for: 1h`；
+数据源是 postgres_exporter 默认的 `pg_stat_user_tables`（Prometheus 的 `postgres` job 已在抓）。
+面板加在 `docker/deploy/grafana/dashboards/postgresql.json`（行数 / 体积各一个），
+指标名登记进 `scripts/ci/dashboard_metrics_allowlist`。
+**阈值是 provisional**：依据是"单表还进得了 page cache、autovacuum 能在维护窗口内跑完"的量级上限，
+按真实负载校准；**分区本身仍不排期**。
+实测（2026-10-30，dev 库）：`events` = **1,356 行 / 89 MiB**，距 warn 线还有约 4 个数量级。
 
 ### P3-1 行数棘轮只报不压
 
@@ -187,6 +202,10 @@ backfill 归零重放 / backfill 本机短路与 reset 失败短路。
 一个 813 行的**新文件**被直接纳入基线（`222 over 600 (baseline 222)`）。
 **影响**：棘轮方向单一 —— 只挡新增，不逼收敛；"新文件超 600"这道门槛可被一次 `--update` 抹平。
 **建议方向**：`over[p] < baseline[p]` 时自动下压；新文件（不在基线且在本次提交新增）禁止走 `--update`。
+**已关闭（`92504e69f`）**：无硬违规时 gate **就地重写基线** —— 缩小下压（打印 `tightened <path>: was -> now`）、
+条目消失或降到阈值以下自动删除；`--update` 默认**拒绝**"从未登记过"的超限文件（`--allow-new` 是显式例外并打 WARNING）。
+判据：抽出 `plan_tightening` / `new_offenders_of` 两个纯函数做 6 条离线断言；真实树上首次运行即自动下压 2 条
+（`container.rs` 769→767、`presence/mod.rs` 1450→1448）；造 601 行临时文件后 `--update` 退出 2 并列出该文件。
 
 ### P3-2 生产 517 行静默吞错
 
@@ -201,6 +220,8 @@ backfill 归零重放 / backfill 本机短路与 reset 失败短路。
 "608 条砍成 1 条"），`683` 是**现行**基线条目数（`docs/audit/REMAINING_ISSUES_SWEEP_2026-10-17.md` 的
 "677 文件 / 683 基线"）。两者是**两代**，不是两套口径。
 **建议方向**：历史数字加"（已过时，现行 683）"标注，或直接删掉只留现行值 + 脚本输出。
+**已关闭**：`docs/audit/TEST_COMPROMISE_AUDIT_2026-10-25.md` §3.1.1 基线分布处首次出现的 608 已就地标注为
+"**bootstrap 时代 608 个文件**；现行基线条目数为 **683**"，两个数字不再并列出现而无解释。
 
 ## 4. 优化建议（对照 Synapse v1.163.0）
 
@@ -261,9 +282,14 @@ backfill 归零重放 / backfill 本机短路与 reset 失败短路。
 
 **C1 sliding_sync 查询收敛（对应 P2-2）**：先建带 `required_state` 的分档 bench（10/100/1000 房），
 再考虑把 required_state 与 sticky 改成按房列表批量取。
-**C2 `events` 分区 / 归档（对应 P2-3）**：先加"何时该分区"的判据（单表行数与 `pg_total_relation_size` 阈值 + 面板），
+**状态**：bench 已改（`[10, 100, 1000]` + 6 项 `required_state`）；**基线数字仍缺**，
+需种子库（见 §3 P2-2 的取数方式）。**查询收敛未动** —— 没有基线就不改。
+**C2 `events` 分区 / 归档（对应 P2-3）**：先加"何时该分区"的判据（单表行数与表体积阈值 + 面板），
 到阈值再立项。
+**状态**：判据已落地（`events-partition-trigger` 两条告警 + 两个面板 + allowlist）；
+**分区本身仍不排期**，等告警触发。
 **C3 行数棘轮自收紧（对应 P3-1）**：`over[p] < baseline[p]` 自动下压；新增文件禁止 `--update` 纳入。
+**状态**：已关闭（`92504e69f`）。
 
 ## 5. 本轮被证伪 / 撤回的旧结论
 

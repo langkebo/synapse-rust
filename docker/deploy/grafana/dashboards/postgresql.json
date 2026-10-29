@@ -575,6 +575,72 @@
           "instant": true
         }
       ]
+    },
+    {
+      "id": 21,
+      "title": "events 行数（分区判据）",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 42
+      },
+      "description": "ARCH-04 分区判据。warn = 10M 行 / 20 GiB；critical = 50M 行 / 100 GiB。阈值 provisional，按真实负载校准。",
+      "targets": [
+        {
+          "expr": "pg_stat_user_tables_n_live_tup{relname=\"events\"}",
+          "refId": "A",
+          "legendFormat": "events 行数"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 2
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 22,
+      "title": "events 表大小（分区判据）",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 42
+      },
+      "description": "ARCH-04 分区判据。warn = 10M 行 / 20 GiB；critical = 50M 行 / 100 GiB。阈值 provisional，按真实负载校准。",
+      "targets": [
+        {
+          "expr": "pg_stat_user_tables_size_bytes{relname=\"events\"}",
+          "refId": "A",
+          "legendFormat": "events 字节"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 2
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
     }
   ],
   "templating": {

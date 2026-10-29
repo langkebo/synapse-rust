@@ -266,7 +266,7 @@ if let Some(last_rotation) = rotations.first() { /* 重放处理 */ }           
 | **新文件只需 30%** → **✅ 已改为 50%**（2026-10-25） | `ci.yml:1522` `--new-file-floor 50`（原为 30）（脚本默认 60，被显式下调）。已上调到 50，同步 `run_coverage.sh` 提示、`coverage_policy.md` §1/§2/§3、`TESTING.md` | 用 40% 的假 lcov 喂脚本 ⇒ **exit 1**；50% ⇒ exit 0（不误伤） |
 | **已入库文件无绝对下限** | `scripts/check_file_coverage.py:8` 只判 `must not regress`；`ci.yml:1509-1512` 注释写明"absolute floors are deliberately not re-applied to baseline-known files, because…188 files red" | `coverage_baseline.json` 里 **59 个文件 0.0%、109 个 ≤30%** 被永久冻结，再差也不会红 |
 
-基线分布（实测 `coverage_baseline.json`，608 个文件）：中位数 **81.5%**、均值 68.1%，
+基线分布（实测 `coverage_baseline.json`，**bootstrap 时代 608 个文件**；现行基线条目数为 **683**，见 `docs/audit/REMAINING_ISSUES_SWEEP_2026-10-17.md`）：中位数 **81.5%**、均值 68.1%，
 所以**不是"全仓覆盖率低"**，而是"**差的那批被冻结了，且新代码门槛低**"。
 
 补：

@@ -58,3 +58,5 @@ pg_scrape_collector_success         postgres_exporter：各采集器成功率（
 # ⚠️ 这条**不由 postgres_exporter 产生**，来源是 `scripts/backup_database.sh` 成功后的
 # `curl --data-binary` 上报。面板用它算"备份新鲜度"，与告警 PostgresBackupStale 同源。
 synapse_backup_last_success_timestamp_seconds  pushgateway：上次备份成功的时间戳（scripts/backup_database.sh 上报）
+pg_stat_user_tables_n_live_tup     postgres_exporter 默认 collector pg_stat_user_tables（events 行数 / ARCH-04 分区判据，见 alerting-rules.yml 的 events-partition-trigger）
+pg_stat_user_tables_size_bytes     postgres_exporter 默认 collector pg_stat_user_tables（events 表体积 / 同上）

@@ -7,7 +7,10 @@
 //!
 //! ## What is measured
 //!
-//! * **Sync response latency** for different room counts (10, 100, 500).
+//! * **Sync response latency** for different room counts (10, 100, 1000).
+//!   Every tier requests a realistic `required_state` set, because the per-room
+//!   cost this bench exists to measure (required_state + timeline + sticky, one
+//!   query each) only shows up when `required_state` is not `None`.
 //!   Criterion reports p50/p95/p99 automatically; a manual p95/p99
 //!   collector is also included for ad-hoc reporting.
 //! * **Subscription change latency** (adding/removing rooms from a sync
@@ -53,7 +56,7 @@ use synapse_storage::membership::RoomMemberStorage;
 use synapse_storage::sliding_sync::{SlidingSyncListData, SlidingSyncRequest, SlidingSyncStorage};
 
 /// Room counts used to parameterise the sync response time benchmark.
-const SYNC_ROOM_COUNTS: [usize; 3] = [10, 100, 500];
+const SYNC_ROOM_COUNTS: [usize; 3] = [10, 100, 1000];
 
 /// Number of iterations used by the manual p95/p99 latency collector.
 const LATENCY_SAMPLE_SIZE: usize = 50;
@@ -209,7 +212,17 @@ fn build_initial_sync_request(room_count: usize) -> SlidingSyncRequest {
             sort: vec!["by_recency".to_string()],
             filters: None,
             timeline_limit: Some(10),
-            required_state: None,
+            // A realistic client default. `None` would make the per-room
+            // required-state query disappear from the measurement, which is
+            // exactly the cost tiering here is meant to expose.
+            required_state: Some(vec![
+                vec!["m.room.name".to_string(), String::new()],
+                vec!["m.room.topic".to_string(), String::new()],
+                vec!["m.room.avatar".to_string(), String::new()],
+                vec!["m.room.canonical_alias".to_string(), String::new()],
+                vec!["m.room.join_rules".to_string(), String::new()],
+                vec!["m.room.member".to_string(), "$ME".to_string()],
+            ]),
             slow_by: None,
             bump_event_types: None,
         },

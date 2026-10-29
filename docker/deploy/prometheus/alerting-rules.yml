@@ -598,3 +598,39 @@ groups:
             注意基线的含义：长期零失败时基线为 0，此时**任何**认证失败都会触发，靠 `for: 10m`
             兜底过滤偶发单次失败。若确认这是噪音而不是在被打，应调 `for` 或给表达式加绝对下限，
             不要直接把整条告警删掉 —— 认证失败激增是凭据填充攻击的第一个可观测信号。
+
+  # === events 表分区判据（ARCH-04）=== 2026-10-30
+  # ARCH-04 的处置是"等真实量级"，但"等"必须有一个可观测的触发条件，否则这条登记项
+  # 永远不会被重新拾起。所以把判据做成告警：达到阈值 = 该立项分区，而不是靠人记得。
+  #
+  # 阈值依据（provisional，按真实负载校准）：
+  #   * 10M 行 / 20 GiB —— 单表还进得了 page cache、一次 autovacuum 能在维护窗口内跑完的量级上限；
+  #   * 50M 行 / 100 GiB —— 单表扫描与 vacuum 成本开始主导（典型 32–64 GiB 主机）。
+  # 2026-10-30 实测（dev 库，postgres_exporter）：events = 1,356 行 / 89 MiB，远未到触发线。
+  - name: events-partition-trigger
+    rules:
+      - alert: EventsTablePartitionDue
+        expr: |
+          pg_stat_user_tables_n_live_tup{relname="events"} > 1e7
+          or
+          pg_stat_user_tables_size_bytes{relname="events"} > 2e10
+        for: 1h
+        labels:
+          severity: warning
+          category: database
+        annotations:
+          summary: "⚠️ events 表达到分区判据（{{ $value | humanize }}）—— ARCH-04 该立项了"
+          description: "判据见 docs/audit/REMAINING_PROBLEMS_AND_OPTIMIZATION_2026-10-29.md §4-C2。触发后不要直接分区：先按真实查询形态确认分区键（stream_ordering）与保留窗口，再单独立项。"
+
+      - alert: EventsTablePartitionOverdue
+        expr: |
+          pg_stat_user_tables_n_live_tup{relname="events"} > 5e7
+          or
+          pg_stat_user_tables_size_bytes{relname="events"} > 1e11
+        for: 1h
+        labels:
+          severity: critical
+          category: database
+        annotations:
+          summary: "🚨 events 表已远超分区判据（{{ $value | humanize }}）—— vacuum/扫描成本已主导"
+          description: "处置同 EventsTablePartitionDue，但优先级升为 P1。在此之前先查 autovacuum 参数与索引膨胀（pg_stat_user_tables 的 dead tuples），别把分区当成唯一的止血手段。"
