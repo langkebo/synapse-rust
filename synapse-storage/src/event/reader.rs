@@ -79,6 +79,13 @@ pub trait EventReader: Send + Sync {
     /// See [`get_state_events`].
     async fn get_state_events(&self, room_id: &str) -> Result<Vec<StateEvent>, sqlx::Error>;
 
+    /// See [`EventStorage::derive_state_from_event_log`]: the `origin_server_ts`
+    /// derivation, which has **no DAG guarantee** and therefore must not be used
+    /// as "the current state" — only the write path's one-time seeding
+    /// (`seed_from_current_state`) and the `SYNAPSE_ALLOW_STATE_TS_FALLBACK`
+    /// escape hatch call it.
+    async fn derive_state_from_event_log(&self, room_id: &str) -> Result<Vec<StateEvent>, sqlx::Error>;
+
     /// See [`get_state_events_by_type`].
     async fn get_state_events_by_type(&self, room_id: &str, event_type: &str) -> Result<Vec<StateEvent>, sqlx::Error>;
 
@@ -419,6 +426,10 @@ impl crate::event::reader::EventReader for super::EventStorage {
 
     async fn get_state_events(&self, room_id: &str) -> Result<Vec<StateEvent>, sqlx::Error> {
         self.get_state_events(room_id).await
+    }
+
+    async fn derive_state_from_event_log(&self, room_id: &str) -> Result<Vec<StateEvent>, sqlx::Error> {
+        self.derive_state_from_event_log(room_id).await
     }
 
     async fn get_state_events_by_type(&self, room_id: &str, event_type: &str) -> Result<Vec<StateEvent>, sqlx::Error> {

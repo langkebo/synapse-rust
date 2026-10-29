@@ -573,6 +573,29 @@ impl LifecycleService {
 
         tx.commit().await.map_err(|e| ApiError::internal_with_cause("Failed to commit transaction", e))?;
 
+        // A1：建房把整段初始状态直接写进事务（`write_creation_event`），绕过了
+        // `MessagingService` 那条维护状态记录的缝。A1 之后当前状态读是 fail-closed 的，
+        // 所以新房间必须在返回给客户端之前拿到记录，否则在首次「状态写」之前读不出状态
+        // （`/state`、`/messages`、`/event`、`/context` 都会失败）。
+        //
+        // 必须在下方的 appservice 派发**之前** —— 那一步自己就要读房间状态。
+        // best-effort：房间已经提交，这里失败不能回滚，只能告警；下一次状态写仍会播种。
+        let state_groups = synapse_storage::state_groups::StateGroupStorage::new(self.room_storage.pool());
+        let resolution_cache = crate::room::state_record::ResolutionCache::default();
+        let record = crate::room::state_record::StateRecord {
+            event_reader: self.event_reader.as_ref(),
+            room_storage: self.room_storage.as_ref(),
+            state_groups: &state_groups,
+            resolution_cache: &resolution_cache,
+        };
+        if let Err(error) = record.seed_new_room(&room_id).await {
+            ::tracing::warn!(
+                error = %error,
+                room_id = %room_id,
+                "Failed to seed the freshly created room's state record"
+            );
+        }
+
         let summary_request = synapse_storage::room_summary::CreateRoomSummaryRequest {
             room_id: room_id.clone(),
             room_type: config.room_type.clone(),

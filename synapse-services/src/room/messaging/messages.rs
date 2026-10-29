@@ -886,8 +886,19 @@ mod txn_dedup_compensation_tests {
     /// B9：`send_message_with_txn` 先提交事件、后写 `room_event_txn_dedup` 去重标记。
     /// 标记写失败时事件已存在但去重表无记录 ⇒ 客户端重试会再建一条可见重复事件。
     /// 修复后：标记失败必须先 soft-fail 刚创建的事件，再返回错误。
+    ///
+    /// 与 A1 的关系：本用例只关心去重补偿，与状态决议无关，夹具因此用裸 SQL 造房间
+    /// （没有任何事件、也没有 `state_groups`）。A1 之后 `persist_event` 构造
+    /// `auth_events` 时读当前状态是 fail-closed 的，这类房间会让事件**根本写不进去**，
+    /// 断言就撞在 `Failed to send message` 上而不是目标路径。用逃生开关把这条用例
+    /// 放回旧推导（房间无状态事件 ⇒ 空状态，正是夹具的本意）；开关是进程级的，
+    /// 所以与存储层 A1 用例共用 `state_ts_fallback` 这把 serial 锁。
     #[tokio::test]
+    #[serial_test::serial(state_ts_fallback)]
     async fn dedup_marker_failure_soft_fails_the_created_event() {
+        let mut env = crate::test_utils::EnvGuard::new();
+        env.set("SYNAPSE_ALLOW_STATE_TS_FALLBACK", "1");
+
         let pool = match crate::test_utils::prepare_isolated_test_pool().await {
             Ok(pool) => pool,
             Err(error) => {

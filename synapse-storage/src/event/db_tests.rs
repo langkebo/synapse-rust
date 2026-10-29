@@ -738,9 +738,11 @@ async fn inbound_pdu_signature_material_round_trips() {
 
     // The projection path reads the pair back off the row.
     let stored = storage
-        .get_state_event(&room_id, "m.room.name", "")
+        .get_state_events_by_type(&room_id, "m.room.name")
         .await
         .expect("read back")
+        .into_iter()
+        .next()
         .expect("the event row must exist");
     assert_eq!(stored.hashes, Some(hashes), "the origin's hashes must round-trip");
     assert_eq!(stored.signatures, Some(signatures), "the origin's signatures must round-trip");
@@ -3038,6 +3040,7 @@ async fn test_count_room_events_by_status_scopes_room_and_status() {
 /// branches conflict, and from then on it — not the timestamp — names the
 /// winner for each `(event_type, state_key)`.
 #[tokio::test]
+#[serial_test::serial(state_ts_fallback)]
 async fn test_current_state_prefers_the_resolved_state_record() {
     use crate::state_groups::StateGroupStorage;
 
@@ -3090,14 +3093,26 @@ async fn test_current_state_prefers_the_resolved_state_record() {
         .await
         .expect("log-only key");
 
-    // No resolved record yet → the event-log derivation decides.
-    let by_log = storage
+    // A1：没有记录 ⇒ 两条"当前状态"读路径都 fail-closed。推导仍可显式取得（写路径播种用的
+    // 就是它），而它给出的正是**错误**的赢家（发送方时钟）。
+    let error = storage
         .get_state_event(&room_id, "m.room.topic", "")
         .await
-        .expect("get_state_event")
-        .expect("a topic event exists");
-    assert_eq!(by_log.event_id, by_timestamp, "without a resolved record the newest timestamp wins");
-    assert_eq!(storage.get_state_events(&room_id).await.expect("get_state_events").len(), 2);
+        .expect_err("a room with no record must not answer a current-state read");
+    assert!(matches!(error, sqlx::Error::Protocol(_)), "{error:?}");
+    assert!(error.to_string().contains("no state group record"), "{error}");
+    let error = storage
+        .get_state_events(&room_id)
+        .await
+        .expect_err("a room with no record must not answer a current-state read");
+    assert!(matches!(error, sqlx::Error::Protocol(_)), "{error:?}");
+
+    let by_log = storage.derive_state_from_event_log(&room_id).await.expect("explicit derivation");
+    assert_eq!(by_log.len(), 2, "{by_log:?}");
+    assert!(
+        by_log.iter().any(|event| event.event_id == by_timestamp),
+        "the explicit derivation is timestamp-ordered: {by_log:?}"
+    );
 
     // Resolve: the record names `by_resolution` — the *older* event.
     let group_id = groups
@@ -3152,6 +3167,87 @@ async fn test_current_state_prefers_the_resolved_state_record() {
         vec![by_resolution.as_str()],
         "a type-scoped read must not fall back to the losing branch"
     );
+}
+
+/// A1 的逃生开关：`SYNAPSE_ALLOW_STATE_TS_FALLBACK` 存在时，无记录的房间回落到旧推导；
+/// 不存在时同一房间直接 `Err`。
+///
+/// 上面的用例钉住"默认必须失败"，这一条钉住"回填期间开关真的救得回存量房" —— 两者缺一，
+/// A1 就退化成"要么永远红、要么永远绿"。开关是进程级环境变量，所以两条用例都带
+/// `serial(state_ts_fallback)`，且本条自带"关 → 开"两段断言，不依赖执行顺序。
+#[tokio::test]
+#[serial_test::serial(state_ts_fallback)]
+async fn test_state_ts_fallback_env_var_restores_the_derivation() {
+    let (_isolated, pool) = test_pool().await;
+    let storage = EventStorage::new(&pool, test_server_name());
+    let room_id = format!("!ts_fallback_{}:example.com", uuid::Uuid::new_v4());
+    let user_id = "@fallback:example.com";
+    ensure_test_room(&pool, &room_id).await;
+    ensure_test_user(&pool, user_id).await;
+
+    let event_id = format!("$fallback_{}:example.com", uuid::Uuid::new_v4());
+    storage
+        .create_event_with_graph(
+            CreateEventParams {
+                event_id: event_id.clone(),
+                room_id: room_id.clone(),
+                user_id: user_id.to_string(),
+                event_type: "m.room.name".to_string(),
+                content: serde_json::json!({"name": "fallback"}),
+                state_key: Some(String::new()),
+                origin_server_ts: current_timestamp_millis(),
+                redacts: None,
+            },
+            &[],
+            &[],
+            1,
+            None,
+        )
+        .await
+        .expect("persist the state event");
+
+    // 开关关闭（默认）：无记录 ⇒ fail-closed。
+    let error = storage
+        .get_state_event(&room_id, "m.room.name", "")
+        .await
+        .expect_err("without the escape hatch a room with no record must fail closed");
+    assert!(matches!(error, sqlx::Error::Protocol(_)), "{error:?}");
+    assert!(storage.get_state_events(&room_id).await.is_err(), "get_state_events must fail closed too");
+
+    let _restore = EnvVarRestore::set(super::state::STATE_TS_FALLBACK_ENV, "1");
+
+    let restored = storage
+        .get_state_event(&room_id, "m.room.name", "")
+        .await
+        .expect("with the escape hatch the derivation answers")
+        .expect("the state event exists");
+    assert_eq!(restored.event_id, event_id);
+    let all = storage.get_state_events(&room_id).await.expect("with the escape hatch the derivation answers");
+    assert_eq!(all.len(), 1, "{all:?}");
+    assert_eq!(all[0].event_id, event_id);
+}
+
+/// Save/restore one environment variable around a test (the process shares it).
+struct EnvVarRestore {
+    key: &'static str,
+    previous: Option<std::ffi::OsString>,
+}
+
+impl EnvVarRestore {
+    fn set(key: &'static str, value: &str) -> Self {
+        let previous = std::env::var_os(key);
+        std::env::set_var(key, value);
+        Self { key, previous }
+    }
+}
+
+impl Drop for EnvVarRestore {
+    fn drop(&mut self) {
+        match self.previous.take() {
+            Some(value) => std::env::set_var(self.key, value),
+            None => std::env::remove_var(self.key),
+        }
+    }
 }
 
 // =============================================================================

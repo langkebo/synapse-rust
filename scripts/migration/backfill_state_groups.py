@@ -7,6 +7,7 @@ computes their current state using timestamp derivation (one-time),
 and creates initial state groups for them.
 
 Usage:
+    export DATABASE_URL=postgresql://user:pass@host:port/db
     python3 scripts/migration/backfill_state_groups.py --dry-run  # preview
     python3 scripts/migration/backfill_state_groups.py          # execute
     python3 scripts/migration/backfill_state_groups.py --verify  # verify completion
@@ -23,6 +24,8 @@ Example output:
 
 import argparse
 import asyncio
+import hashlib
+import os
 import sys
 from datetime import datetime, timezone
 from typing import Optional
@@ -32,14 +35,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Database configuration
-DB_HOST = "localhost"
-DB_PORT = 15432
-TEST_DB = "synapse_test"
-DB_USER = "synapse"
-DB_PASSWORD = "synapse"
-
-TEST_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{TEST_DB}"
+# Target database: no hard-coded credentials. `--database-url` wins over
+# `DATABASE_URL`, matching `scripts/generate_logical_checksum_report.py`.
+DEFAULT_DATABASE_URL = os.getenv("DATABASE_URL")
 
 
 async def find_unbackfilled_rooms(pool: asyncpg.Pool) -> list:
@@ -72,6 +70,28 @@ async def compute_current_state_via_timestamp(pool: asyncpg.Pool, room_id: str) 
     return await pool.fetch(query, room_id)
 
 
+def compute_state_hash(room_id: str, state_events: list) -> str:
+    """
+    The record's content hash, byte-for-byte identical to
+    `synapse-services/src/room/state_record.rs::state_hash`.
+
+    `state_groups.state_hash` is globally unique, so `room_id` must be part of
+    it (two rooms with identical state must not share a group). Entries are
+    sorted by `(event_type, state_key)`; each is appended as
+    `\\n` + type + `\\x1f` + state_key + `\\x1f` + event_id.
+    """
+    digest = hashlib.sha256()
+    digest.update(room_id.encode())
+    for event in sorted(state_events, key=lambda e: (e["event_type"], e["state_key"])):
+        digest.update(b"\n")
+        digest.update(event["event_type"].encode())
+        digest.update(b"\x1f")
+        digest.update(event["state_key"].encode())
+        digest.update(b"\x1f")
+        digest.update(event["event_id"].encode())
+    return digest.hexdigest()
+
+
 async def create_initial_state_group(
     pool: asyncpg.Pool,
     room_id: str,
@@ -86,24 +106,28 @@ async def create_initial_state_group(
     if not state_events:
         return None
 
-    # Use the most recent event as the anchor
+    # The group's anchor is the event the record is "current as of". The
+    # derivation returns one row per (event_type, state_key) sorted by type, so
+    # `state_events[0]` is just the alphabetically-first type — the newest state
+    # event is the closest analogue to the newest state group.
     if last_event_id is None:
-        last_event_id = state_events[0]["event_id"]
+        newest = max(state_events, key=lambda e: (e["origin_server_ts"], e["event_id"]))
+        last_event_id = newest["event_id"]
 
-    # Compute state hash (simplified - just hash the state entries)
-    state_hash_input = str(
-        [(e["event_type"], e["state_key"], e["event_id"]) for e in state_events]
-    ).encode()
-    state_hash = state_hash_input.hex()[:64]  # Simple hash for demo
+    state_hash = compute_state_hash(room_id, state_events)
 
     # Create state group in a transaction
     async with pool.acquire() as conn:
         async with conn.transaction():
-            # Insert state_group
+            # Insert state_group. `state_hash` is globally unique
+            # (`uq_state_groups_hash`) and already includes `room_id`, so a
+            # conflict can only be this script re-running for the same room ⇒
+            # reuse the row instead of failing.
             group_id = await conn.fetchval(
                 """
                 INSERT INTO state_groups (room_id, event_id, state_hash, created_ts)
                 VALUES ($1, $2, $3, $4)
+                ON CONFLICT (state_hash) DO UPDATE SET state_hash = EXCLUDED.state_hash
                 RETURNING id
             """,
                 room_id,
@@ -112,7 +136,6 @@ async def create_initial_state_group(
                 int(datetime.now(timezone.utc).timestamp() * 1000),
             )
 
-            # Insert state_group_state and bind events
             for event in state_events:
                 await conn.execute(
                     """
@@ -126,16 +149,19 @@ async def create_initial_state_group(
                     event["event_id"],
                 )
 
-                # Bind event to state group
-                await conn.execute(
-                    """
-                    INSERT INTO event_to_state_groups (event_id, state_group_id)
-                    VALUES ($1, $2)
-                    ON CONFLICT (event_id) DO UPDATE SET state_group_id = $2
-                """,
-                    event["event_id"],
-                    group_id,
-                )
+            # `event_to_state_groups` records **which event the group was
+            # resolved at** — one row per event, and only the anchor event has
+            # this group. Binding every state event here would claim each of them
+            # was resolved at the same (newer) state, which is false.
+            await conn.execute(
+                """
+                INSERT INTO event_to_state_groups (event_id, state_group_id)
+                VALUES ($1, $2)
+                ON CONFLICT (event_id) DO UPDATE SET state_group_id = $2
+            """,
+                last_event_id,
+                group_id,
+            )
 
             return group_id
 
@@ -205,10 +231,22 @@ async def main():
     parser.add_argument(
         "--verify", action="store_true", help="Verify backfill completion"
     )
+    parser.add_argument(
+        "--database-url",
+        default=DEFAULT_DATABASE_URL,
+        help="Target database (defaults to $DATABASE_URL)",
+    )
     args = parser.parse_args()
 
+    if not args.database_url:
+        print(
+            "❌ No target database: pass --database-url or set DATABASE_URL.",
+            file=sys.stderr,
+        )
+        return 2
+
     try:
-        pool = await asyncpg.create_pool(TEST_URL, min_size=1)
+        pool = await asyncpg.create_pool(args.database_url, min_size=1)
 
         if args.verify:
             result = await verify_backfill(pool)

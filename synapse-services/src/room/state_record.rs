@@ -297,6 +297,48 @@ impl StateRecord<'_> {
         self.persist(room_id, event_id, &entries, &[current.id]).await
     }
 
+    /// Seed a freshly created room's record.
+    ///
+    /// Room creation writes its whole initial state through
+    /// `EventWriter::create_event_with_pdu` inside one transaction (see
+    /// `lifecycle::create_events::write_creation_event`), so it never reaches
+    /// [`Self::after_state_event`] — the seam that seeds every other room. Without
+    /// this call the room has state events but no record, and (A1) every
+    /// current-state read fails closed until the room's first post-creation
+    /// **state** write: `GET /rooms/{id}/state`, `/messages`, `/event` and
+    /// `/context` (via the history-visibility lookup) would all error on a brand
+    /// new room.
+    ///
+    /// Idempotent: a room that already has a record (a retried creation, or the
+    /// room whose first state write won the race) is left alone.
+    pub(crate) async fn seed_new_room(&self, room_id: &str) -> ApiResult<()> {
+        let already_seeded = !self
+            .state_groups
+            .get_room_state_groups(room_id, 1)
+            .await
+            .map_err(|error| ApiError::internal_with_cause("Failed to read the room's state record", error))?
+            .is_empty();
+        if already_seeded {
+            return Ok(());
+        }
+
+        // The creation sequence is linear, so the single forward extremity is the
+        // room's newest event — the anchor the record is bound to.
+        let Some(tip) = self
+            .event_reader
+            .get_forward_extremities_in_room(room_id, 1)
+            .await
+            .map_err(|error| ApiError::internal_with_cause("Failed to read the room's forward extremities", error))?
+            .into_iter()
+            .next()
+        else {
+            // No events at all: nothing to record, same as an empty derivation.
+            return Ok(());
+        };
+
+        self.seed_from_current_state(room_id, &tip).await
+    }
+
     /// Seed the room's record from the state the event-log derivation currently
     /// returns (A4).
     ///
@@ -304,11 +346,15 @@ impl StateRecord<'_> {
     /// state write takes the [`Self::copy_forward`] branch and the seed never runs
     /// again.
     ///
-    /// **为什么用 `get_state_events` 而不是 `StateWalker::state_at`**：后者要沿
+    /// **为什么用 `derive_state_from_event_log` 而不是 `get_state_events`**：后者是
+    /// **fail-closed** 的读路径（A1）—— 房间没有记录时直接 `Err`，而这里恰恰就是"没有记录"
+    /// 的那一次写入。若改调 `get_state_events`，新房间的首个状态写会永远失败（死锁式回归）。
+    /// 推导入口保留的唯一理由就是播种本身："把推导的结果固化成记录"，之后所有变更由
+    /// copy-forward 维护，推导不再被读。
+    ///
+    /// **为什么不用 `StateWalker::state_at`**：后者要沿
     /// `prev_events` 递归整条历史（大房间是 O(历史长度) 次查询），而这里只需要"当前状态"
-    /// 这一张快照 —— `get_state_events` 是一条按房间状态集大小的查询，与历史长度无关。
-    /// 代价是它读到的正是**要被替换掉的那条推导**；这是可接受的：播种的语义就是
-    /// "把推导的结果固化成记录"，之后的所有变更由 copy-forward 维护，推导不再被读。
+    /// 这一张快照 —— 推导是一条按房间状态集大小的查询，与历史长度无关。
     ///
     /// **已知竞态（与 copy-forward 同类，不新增类别）**：两个并发的首个状态写都看不到记录
     /// 时，会各自播种一份；`create_state_group` 按 `state_hash` upsert、读路径取 `id` 最大的
@@ -317,7 +363,7 @@ impl StateRecord<'_> {
     async fn seed_from_current_state(&self, room_id: &str, event_id: &str) -> ApiResult<()> {
         let derived = self
             .event_reader
-            .get_state_events(room_id)
+            .derive_state_from_event_log(room_id)
             .await
             .map_err(|error| ApiError::internal_with_cause("Failed to read the room's current state", error))?;
 
@@ -844,6 +890,19 @@ mod db_tests {
         storage.get_state_event(room_id, "m.room.topic", "").await.expect("read topic").map(|event| event.event_id)
     }
 
+    /// The topic according to the raw event-log derivation — what the read path
+    /// answered before the record existed (and what `SYNAPSE_ALLOW_STATE_TS_FALLBACK`
+    /// restores). Used to show *why* the DAG order and the sender clock disagree.
+    async fn derived_topic_id(storage: &EventStorage, room_id: &str) -> Option<String> {
+        storage
+            .derive_state_from_event_log(room_id)
+            .await
+            .expect("derive")
+            .into_iter()
+            .find(|event| event.event_type.as_deref() == Some("m.room.topic") && event.state_key.as_deref() == Some(""))
+            .map(|event| event.event_id)
+    }
+
     /// M-5: 决议**结果缓存**。键覆盖全部输入（房间版本 + 状态集合投影 + 已加载事件集合），
     /// 因此：同一冲突集合第二次必须命中且**返回同一状态图**；输入变化必须 MISS。
     ///
@@ -918,7 +977,12 @@ mod db_tests {
 
     /// A fork is resolved with v2.1: the **authorised** branch wins even though the
     /// rejected one is newer, and the read path then serves the record.
+    ///
+    /// `serial(state_ts_fallback)`：本用例断言"无记录 ⇒ 当前状态读必须失败"，
+    /// 而 `txn_dedup_compensation_tests` 会临时设置 `SYNAPSE_ALLOW_STATE_TS_FALLBACK`
+    /// （进程级环境变量）。两条用例必须互斥，否则开关期间本断言会被"推导回退"答出来。
     #[tokio::test]
+    #[serial_test::serial(state_ts_fallback)]
     async fn forked_state_is_resolved_and_served() {
         let Some(pool) = test_pool().await else {
             return;
@@ -931,9 +995,18 @@ mod db_tests {
 
         let (topic_a, topic_b) = build_forked_room(&storage, &room_id).await;
 
-        // Before the record exists the timestamp derivation wins — and picks the
+        // Before the record exists the read path fails closed (A1), so the only
+        // thing that can answer is the explicit derivation — which picks the
         // branch the auth rules reject. This is the behaviour the wiring replaces.
-        assert_eq!(topic_id(&storage, &room_id).await, Some(topic_b.clone()), "no record ⇒ timestamp derivation");
+        assert!(
+            storage.get_state_event(&room_id, "m.room.topic", "").await.is_err(),
+            "no record ⇒ the current-state read must fail closed"
+        );
+        assert_eq!(
+            derived_topic_id(&storage, &room_id).await,
+            Some(topic_b.clone()),
+            "no record ⇒ the derivation still prefers the newer sender clock"
+        );
 
         assert_eq!(
             storage.get_forward_extremities_in_room(&room_id, 64).await.expect("extremities").len(),
@@ -1223,7 +1296,11 @@ mod db_tests {
             state_groups.get_room_state_groups(&room_id, 1).await.expect("groups").is_empty(),
             "前提：这条房间路径没有分叉，写状态事件之前也没有任何记录"
         );
-        assert_eq!(topic_id(&storage, &room_id).await, Some(topic_1.to_string()), "播种前读路径走时间戳推导");
+        assert_eq!(
+            derived_topic_id(&storage, &room_id).await,
+            Some(topic_1.to_string()),
+            "播种前读路径没有记录可用（A1 失败关闭），推导给出的仍是这条 topic"
+        );
 
         record(&storage, &room_storage, &state_groups, &ResolutionCache::new())
             .after_state_event(&room_id, topic_1, "m.room.topic", "")
@@ -1279,6 +1356,16 @@ mod db_tests {
             "读路径必须返回 DAG 上更晚的那条 topic —— 时间戳更旧也一样。\
              若仍返回 `{}`，说明读路径还在走时间戳推导（A4 未生效）",
             topic_1
+        );
+
+        // A1 判据 ②（可变异自证）：同一次写入之后，推导**仍然**指向 topic_1，而记录
+        // 指向 topic_2。两条路径给出相反答案 ⇒ 上面的断言确实来自记录，而不是
+        // 因为推导恰好也选中了 topic_2。删掉记录读路径（或让读路径回落到推导），
+        // 这条对照就会失败。
+        assert_eq!(
+            derived_topic_id(&storage, &room_id).await,
+            Some(topic_1.to_string()),
+            "推导必须仍按发送方时钟选 topic_1；记录与推导在此分歧，结论只能来自记录"
         );
     }
 }

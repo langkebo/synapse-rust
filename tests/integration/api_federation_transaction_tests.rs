@@ -19,7 +19,7 @@ use synapse_common::pdu::{build_pdu, PduParts};
 use synapse_common::test_isolation::IsolatedTestPool;
 use synapse_federation::event_finalize::finalize_local_pdu;
 use synapse_federation::signing::{compute_event_content_hash, sign_and_hash_event};
-use synapse_storage::event::EventStorage;
+use synapse_storage::event::{EventStorage, StateEvent};
 use synapse_web::federation::signing::canonical_federation_request_bytes;
 use tower::ServiceExt;
 
@@ -28,6 +28,21 @@ use tower::ServiceExt;
 /// building its own schema (R9). The constant must be byte-identical to the other
 /// callers' copies — `tests/unit/test_isolation_unification_tests.rs` pins it.
 const BASELINE_SQL: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql");
+
+/// Read a persisted state event straight from the event log.
+///
+/// `EventStorage::get_state_event` answers "the room's **current** state" and
+/// fails closed when the room has no resolved-state record (A1). These
+/// assertions are about **persistence** — "did this PDU land in `events`" — so
+/// they use the explicit derivation entry point instead.
+async fn persisted_state_event(storage: &EventStorage, room_id: &str, event_type: &str) -> Option<StateEvent> {
+    storage
+        .derive_state_from_event_log(room_id)
+        .await
+        .expect("the events table must be readable")
+        .into_iter()
+        .find(|event| event.event_type.as_deref() == Some(event_type) && event.state_key.as_deref() == Some(""))
+}
 
 async fn setup_federation_txn_test_app(
     key_id: &str,
@@ -526,10 +541,8 @@ async fn test_send_transaction_with_signed_pdu_accepted() {
 
     // Read the persisted row back through the storage layer.
     let storage = EventStorage::new(&fixture.pool, "localhost".to_string());
-    let stored = storage
-        .get_state_event(&fixture.room_id, "m.room.topic", "")
+    let stored = persisted_state_event(&storage, &fixture.room_id, "m.room.topic")
         .await
-        .expect("the events table must be readable")
         .expect("the accepted PDU must be persisted");
     assert_eq!(
         stored.event_id, fixture.derived_event_id,
@@ -598,11 +611,7 @@ async fn test_send_transaction_rejects_pdu_with_tampered_retained_field() {
 
     let storage = EventStorage::new(&fixture.pool, "localhost".to_string());
     assert!(
-        storage
-            .get_state_event(&fixture.room_id, "m.room.topic", "")
-            .await
-            .expect("the events table must be readable")
-            .is_none(),
+        persisted_state_event(&storage, &fixture.room_id, "m.room.topic").await.is_none(),
         "a rejected PDU must not be persisted"
     );
 }
@@ -646,11 +655,7 @@ async fn test_send_transaction_rejects_v3_pdu_carrying_explicit_event_id() {
         "the fabricated event_id must not be persisted"
     );
     assert!(
-        storage
-            .get_state_event(&fixture.room_id, "m.room.topic", "")
-            .await
-            .expect("the events table must be readable")
-            .is_none(),
+        persisted_state_event(&storage, &fixture.room_id, "m.room.topic").await.is_none(),
         "the rejected PDU must not be persisted"
     );
 }
@@ -1058,11 +1063,8 @@ impl CrossRoomAuthEventsFixture {
     }
 
     async fn topic_persisted(&self) -> bool {
-        EventStorage::new(&self.pool, "localhost".to_string())
-            .get_state_event(&self.room_a, "m.room.topic", "")
-            .await
-            .expect("the events table must be readable")
-            .is_some()
+        let storage = EventStorage::new(&self.pool, "localhost".to_string());
+        persisted_state_event(&storage, &self.room_a, "m.room.topic").await.is_some()
     }
 }
 

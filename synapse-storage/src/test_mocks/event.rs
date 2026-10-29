@@ -472,6 +472,12 @@ impl crate::event::reader::EventReader for InMemoryEventStore {
     }
 
     async fn get_state_events(&self, room_id: &str) -> Result<Vec<crate::event::StateEvent>, sqlx::Error> {
+        // The in-memory store has no `state_groups` at all, so its "current state"
+        // *is* the derivation — which is what the seeding write path reads.
+        self.derive_state_from_event_log(room_id).await
+    }
+
+    async fn derive_state_from_event_log(&self, room_id: &str) -> Result<Vec<crate::event::StateEvent>, sqlx::Error> {
         let events = self.events.read().await;
         let matched: Vec<_> = events
             .values()

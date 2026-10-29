@@ -33,15 +33,44 @@ pub(crate) const STATE_EVENT_INNER_COLS: &str =
 /// operators can spot the anomaly.
 const STATE_BATCH_MAX_ROWS: usize = 50_000;
 
+/// Temporary escape hatch for deployments that still have rooms without a
+/// resolved-state record (A4/A1, 2026-10-30).
+///
+/// Current-state reads are **fail-closed** by default: a room with no
+/// `state_groups` row yields an error instead of silently deriving a state whose
+/// order is the sender's clock (`origin_server_ts`), which federated events can
+/// contradict. Two supported ways to make a room readable — the write path seeds
+/// a record on the room's first state event, and
+/// `scripts/migration/backfill_state_groups.py` does it in bulk for pre-existing
+/// rooms. This variable is the third: set it (any value) to keep the old
+/// timestamp derivation while the backfill runs.
+/// `pub(crate)` 只为 `event::db_tests` 的 A1 用例引用同一个字面量（避免名字漂移）。
+pub(crate) const STATE_TS_FALLBACK_ENV: &str = "SYNAPSE_ALLOW_STATE_TS_FALLBACK";
+
+/// Whether the timestamp derivation is allowed for a room without a record.
+fn state_ts_fallback_allowed() -> bool {
+    std::env::var_os(STATE_TS_FALLBACK_ENV).is_some()
+}
+
+/// The fail-closed error for a current-state read of a room with no record.
+fn missing_state_group(room_id: &str, method: &str) -> sqlx::Error {
+    sqlx::Error::Protocol(format!(
+        "Room {room_id} has no state group record, so its current state has no DAG-ordered source \
+         ({method}); the write path seeds one on the room's first state event, pre-existing rooms \
+         need `scripts/migration/backfill_state_groups.py`, and {STATE_TS_FALLBACK_ENV}=1 restores \
+         the origin_server_ts derivation (A4/A1)"
+    ))
+}
+
 impl EventStorage {
     /// The room's **resolved-state group**, if its state has ever been resolved.
     ///
     /// `state_groups` is the resolved-state record maintained by
     /// `synapse_services::room::state_resolution`: the newest group for a room is
     /// its current state once a conflict has been resolved (MSC4297 v2.1).
-    /// `None` means the room has no resolved record, and current state is derived
-    /// from the event log (the `DISTINCT ON … origin_server_ts DESC` derivation
-    /// used by the read paths below).
+    /// `None` means the room has no resolved record yet — current-state reads are
+    /// then fail-closed (see [`missing_state_group`]) unless
+    /// [`STATE_TS_FALLBACK_ENV`] is set.
     async fn current_state_group_id(&self, room_id: &str) -> Result<Option<i64>, sqlx::Error> {
         sqlx::query_scalar!(r#"SELECT id FROM state_groups WHERE room_id = $1 ORDER BY id DESC LIMIT 1"#, room_id,)
             .fetch_optional(&*self.pool)
@@ -98,13 +127,30 @@ impl EventStorage {
                 .next());
         }
 
-        // A4-ii: If STATE_GROUP_REQUIRED is set, fail instead of falling back
-        if std::env::var("STATE_GROUP_REQUIRED").is_ok() {
-            return Err(sqlx::Error::Protocol(format!(
-                "Room {room_id} has no state group record (A4-ii: backfill required)"
-            )));
+        // A4/A1: fail closed. A room without a record has no DAG-ordered current
+        // state; deriving one from `origin_server_ts` (the sender's clock) can
+        // name the losing branch. The seeding write path and the backfill script
+        // are the fixes; the env var is the temporary escape hatch.
+        if !state_ts_fallback_allowed() {
+            return Err(missing_state_group(room_id, "get_state_event"));
         }
+        tracing::warn!(
+            room_id,
+            method = "get_state_event",
+            env = STATE_TS_FALLBACK_ENV,
+            "room has no resolved-state record; deriving current state from origin_server_ts"
+        );
+        self.derive_state_event(room_id, event_type, state_key).await
+    }
 
+    /// The `origin_server_ts` derivation for **one** key — the pre-A4 current-state
+    /// source. Only reachable through the [`STATE_TS_FALLBACK_ENV`] escape hatch.
+    async fn derive_state_event(
+        &self,
+        room_id: &str,
+        event_type: &str,
+        state_key: &str,
+    ) -> Result<Option<StateEvent>, sqlx::Error> {
         sqlx::query_as::<_, StateEvent>(&format!(
             "SELECT {STATE_EVENT_OUTER_COLS} \
              FROM events \
@@ -128,13 +174,36 @@ impl EventStorage {
             return self.state_events_of_group(state_group_id, None, None).await;
         }
 
-        // A4-ii: If STATE_GROUP_REQUIRED is set, fail instead of falling back
-        if std::env::var("STATE_GROUP_REQUIRED").is_ok() {
-            return Err(sqlx::Error::Protocol(format!(
-                "Room {room_id} has no state group record (A4-ii: backfill required)"
-            )));
+        // A4/A1: fail closed, same as [`Self::get_state_event`].
+        if !state_ts_fallback_allowed() {
+            return Err(missing_state_group(room_id, "get_state_events"));
         }
+        tracing::warn!(
+            room_id,
+            method = "get_state_events",
+            env = STATE_TS_FALLBACK_ENV,
+            "room has no resolved-state record; deriving current state from origin_server_ts"
+        );
+        self.derive_state_from_event_log(room_id).await
+    }
 
+    /// The room's current state **derived from the event log alone**
+    /// (`DISTINCT ON (event_type, state_key) … origin_server_ts DESC`).
+    ///
+    /// This is *not* the room's current state whenever a resolved-state record
+    /// exists — `origin_server_ts` is the sender's clock, and a federated state
+    /// event may arrive late with an older stamp and still win the DAG. Two
+    /// callers may use it:
+    ///
+    /// * the write path's one-time seeding (`seed_from_current_state`), whose
+    ///   whole purpose is to freeze this derivation into a record before the read
+    ///   path is switched over to it;
+    /// * the [`STATE_TS_FALLBACK_ENV`] escape hatch, while a deployment backfills
+    ///   its pre-existing rooms.
+    ///
+    /// Every other caller must go through [`Self::get_state_events`], which
+    /// serves the record and fails closed when there is none.
+    pub async fn derive_state_from_event_log(&self, room_id: &str) -> Result<Vec<StateEvent>, sqlx::Error> {
         sqlx::query_as::<_, StateEvent>(&format!(
             "SELECT {STATE_EVENT_OUTER_COLS} \
              FROM ( \
@@ -187,6 +256,11 @@ impl EventStorage {
         // covers, so a type-scoped read must serve it too — otherwise a conflicted
         // singleton type (`m.room.join_rules`, `m.room.encryption`, …) could still
         // be read from the losing branch through this method.
+        //
+        // Deliberately **not** part of the A4/A1 fail-closed set: this method stays
+        // derivation-based for a room with no record, because the sync/join paths
+        // call it for rooms the record has not covered yet. Registered as the
+        // remaining half of P1-1 in `docs/audit/REMAINING_PROBLEMS_AND_OPTIMIZATION_2026-10-29.md`.
         if let Some(state_group_id) = self.current_state_group_id(room_id).await? {
             return self.state_events_of_group(state_group_id, Some(event_type), None).await;
         }

@@ -4,7 +4,7 @@
 # Regenerate: python3 scripts/ci/check_file_size_ratchet.py --update
 # Threshold: 600 lines.
 
-3754 synapse-storage/src/event/db_tests.rs
+3850 synapse-storage/src/event/db_tests.rs
 3375 synapse-common/src/test_isolation.rs
 2786 synapse-test-utils/src/lib.rs
 2510 synapse-services/src/sync_service/tests.rs
@@ -22,17 +22,17 @@
 1620 synapse-services/src/media_service.rs
 1599 synapse-common/src/metrics.rs
 1599 synapse-storage/src/space/db_tests.rs
+1594 synapse-services/src/room/messaging/events.rs
 1588 synapse-storage/src/thread/storage.rs
 1583 synapse-storage/src/room/mod.rs
 1573 synapse-services/src/builtin_oidc_provider.rs
-1560 synapse-services/src/room/messaging/events.rs
 1549 synapse-services/src/thread_service.rs
 1538 synapse-storage/src/captcha.rs
 1527 synapse-storage/src/push_notification.rs
 1521 synapse-storage/src/federation_blacklist.rs
 1519 synapse-storage/src/room_summary/db_tests.rs
 1476 synapse-services/src/auth/tests.rs
-1466 synapse-storage/src/test_mocks/event.rs
+1472 synapse-storage/src/test_mocks/event.rs
 1464 synapse-storage/src/admin_media.rs
 1448 synapse-federation/src/client.rs
 1448 synapse-storage/src/presence/mod.rs
@@ -45,6 +45,7 @@
 1387 synapse-services/src/search_service.rs
 1383 synapse-federation/src/signing.rs
 1373 synapse-storage/src/device/mod.rs
+1371 synapse-services/src/room/state_record.rs
 1362 synapse-web/src/routes/auth_compat.rs
 1357 synapse-services/src/room/membership/mod.rs
 1356 synapse-services/src/capability_governance.rs
@@ -59,7 +60,6 @@
 1297 synapse-storage/src/threepid.rs
 1297 synapse-web/src/routes/federation/keys.rs
 1288 synapse-services/src/application_service/scheduler.rs
-1284 synapse-services/src/room/state_record.rs
 1268 synapse-storage/src/sliding_sync/db_tests.rs
 1267 synapse-cache/src/manager.rs
 1267 synapse-services/src/room/membership/actions.rs
@@ -128,6 +128,7 @@
 994 synapse-storage/src/sliding_sync/repository.rs
 985 synapse-storage/src/server_notification/repository.rs
 979 synapse-storage/src/cas/db_tests.rs
+969 synapse-services/src/room/messaging/messages.rs
 967 synapse-services/src/telemetry_service.rs
 967 synapse-storage/src/room/db_tests.rs
 965 synapse-services/src/admin_user_service.rs
@@ -135,13 +136,13 @@
 962 synapse-services/src/room/service.rs
 961 synapse-storage/src/privacy.rs
 959 synapse-common/src/config/tests.rs
-958 synapse-services/src/room/messaging/messages.rs
 956 synapse-web/src/routes/directory_reporting.rs
 954 synapse-storage/src/state_groups.rs
 953 synapse-storage/src/saml/db_tests.rs
 950 synapse-storage/src/room_summary/repository.rs
 949 synapse-services/src/relations_service.rs
 948 synapse-cache/src/tests.rs
+941 synapse-services/src/room/lifecycle/create.rs
 941 synapse-storage/src/retention.rs
 939 synapse-services/src/graph_metadata.rs
 931 synapse-common/src/password_hash_pool.rs
@@ -150,7 +151,6 @@
 927 synapse-web/src/routes/room_summary.rs
 926 synapse-common/src/security.rs
 925 synapse-storage/src/pruning.rs
-918 synapse-services/src/room/lifecycle/create.rs
 915 synapse-web/src/routes/friend_room.rs
 906 synapse-web/src/routes/admin/room/mod.rs
 884 synapse-web/src/routes/module.rs
@@ -193,11 +193,11 @@
 689 synapse-storage/src/openid_token.rs
 688 synapse-storage/src/migration_checks.rs
 686 synapse-web/src/routes/device.rs
+680 synapse-storage/src/event/reader.rs
 675 src/bin/synapse_worker.rs
 674 synapse-web/src/routes/handlers/room/mod.rs
 673 synapse-federation/src/client/tests.rs
 672 synapse-services/src/notifying_event_writer.rs
-669 synapse-storage/src/event/reader.rs
 652 synapse-services/src/user_service.rs
 650 synapse-services/src/room/state/info.rs
 646 synapse-services/src/media/tests.rs

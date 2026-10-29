@@ -738,9 +738,12 @@ async fn invite_v2_stored_signature_covers_the_projected_pdu() {
     .await
     .expect("the invite row must be persisted");
 
-    // Read the persisted row back the same way the federation emitters do.
+    // Read the persisted row back from the event log. `get_state_events` answers
+    // "the room's *current* state" and fails closed without a resolved-state
+    // record (A1); this assertion is about persistence, so use the explicit
+    // derivation entry point.
     let storage = EventStorage::new(&pool, "localhost".to_string());
-    let records = storage.get_state_events(&room_id).await.expect("state rows must be readable");
+    let records = storage.derive_state_from_event_log(&room_id).await.expect("state rows must be readable");
     let record = records.iter().find(|r| r.event_id == event_id).expect("the invite row must be persisted");
 
     // The material must cover exactly the projected PDU a peer will receive.
@@ -1142,8 +1145,9 @@ async fn send_join_v2_in_v12_room_persists_graph_metadata_and_signs_the_member_e
         "FED-01: the echoed join PDU must carry a non-empty `signatures`, got {echoed_event}"
     );
 
+    // Event-log derivation, not "current state": see the note in the invite test above.
     let storage = EventStorage::new(&pool, "localhost".to_string());
-    let records = storage.get_state_events(&room_id).await.expect("state rows must be readable");
+    let records = storage.derive_state_from_event_log(&room_id).await.expect("state rows must be readable");
     let record = records
         .iter()
         .find(|candidate| candidate.state_key.as_deref() == Some(joiner))

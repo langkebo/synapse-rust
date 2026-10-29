@@ -364,6 +364,40 @@ impl MessagingService {
             crate::room_state_cache::invalidate_room_state(&self.cache, room_id).await;
         }
 
+        // Maintain the room's resolved-state record (MSC4297 v2.1, F-1) for
+        // **local** state writes.
+        //
+        // 这是本地写的唯一接缝：`create_event_with_graph` / `create_outlier_event`
+        // 只覆盖联邦入站，房间创建走 `write_creation_event`（自带事务、事后播种）。
+        // 漏掉这里，房间的记录会**冻结在建房播种的那一刻**，而 A1 之后当前状态读是
+        // fail-closed 的 —— 读到的就是陈旧的 `m.room.history_visibility`、
+        // `m.room.join_rules` 等，历史可见性判定随之失效（实测：`joined` 策略下
+        // 仍能看到入群前的消息）。
+        //
+        // 只在 `should_update_summary`（即没有调用方自带事务）时做：记录维护要读
+        // 已提交的 DAG，未提交的行看不见。Best-effort，理由同上方注释。
+        if should_update_summary {
+            if let Some(state_key) = state_key {
+                let state_groups = synapse_storage::state_groups::StateGroupStorage::new(self.event_writer.pool());
+                let record = crate::room::state_record::StateRecord {
+                    event_reader: self.event_reader.as_ref(),
+                    room_storage: self.room_storage.as_ref(),
+                    state_groups: &state_groups,
+                    resolution_cache: &self.resolution_cache,
+                };
+                if let Err(error) = record.after_state_event(room_id, &event.event_id, event_type, state_key).await {
+                    ::tracing::warn!(
+                        error = %error,
+                        room_id = %room_id,
+                        event_id = %event.event_id,
+                        event_type = %event_type,
+                        state_key = %state_key,
+                        "Failed to maintain the room's resolved-state record"
+                    );
+                }
+            }
+        }
+
         if should_update_summary && event_type == "m.room.canonical_alias" && state_key == Some("") {
             let canonical_alias = event.content.get("alias").and_then(|value| value.as_str());
             if let Err(error) = self.room_storage.set_canonical_alias(room_id, canonical_alias).await {
