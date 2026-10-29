@@ -405,3 +405,52 @@ join 后定向补发 `synapse-web/src/routes/federation/membership/join.rs`，�
 L-1（MSC4242 残留）、L-2（`worker_app`）、L-3（`stream_writers`）、L-6（`/{keyName}` 稳定路由）、
 L-7（全量集成套件）、L-8（`#[ignore]`）、A5（live 联邦互操作）本轮**未重新取证**，结论沿用
 §3 与 §8。若要动它们，需按 §9 的方法重新出证据再改判。
+
+### 9.4 本轮新发现并修复（2026-10-29）：注销数据清理漏 5 张表
+
+**问题**。注销在本仓是「置 `users.is_deactivated = TRUE`」，**不删 `users` 行**。因此所有
+指向 `users(user_id)` 的 `ON DELETE CASCADE` 在注销路径上**永不触发**，account-scoped 数据
+只能显式 `DELETE`。§8 的注销管道（见 §9.1 `R8 / UG-11`）当时覆盖了
+`account_data` / `room_account_data` / `push_rules` / `thread_subscriptions` / `user_threepids` /
+`key_backups` / `secure_key_backups` 七张表，漏掉五张：
+
+| 漏掉的表 | 后果 |
+| --- | --- |
+| `room_tags` | 注销账号的房间标签残留，重新启用同名账号会看到别人的旧标签 |
+| `event_receipts` | 已读位点残留 ⇒ 他人可见的已读计数/回执仍计入该账号 |
+| `event_receipts_stream` | 回执日志残留（该表由 `0063f09ff` 新增，见 §2 R-1）；日志表最容易在"漏表"里被忘掉 |
+| `thread_read_receipts` | 线程已读位点残留，同上 |
+| `presence` | 在线状态残留，且**缓存不失效** ⇒ 注销账号在 `presence` 视图里继续"在线" |
+
+**修法**（不用 5 段 ad-hoc `DELETE`，用「登记表清单常量 + 守卫用例」）：
+
+- 存储层各加一个 account-scoped 删除方法（全部静态宏，进 `.sqlx` 缓存）：
+  `RoomTagStorage::delete_all_tags_for_user`（`synapse-storage/src/room_tag/mod.rs:117`，`room_tags`）、
+  `RoomStorage::delete_all_receipts_for_user`（`synapse-storage/src/room/mod.rs:1524`，单事务内删
+  `event_receipts` + `event_receipts_stream` 并返回两个计数）、
+  `ThreadStorage::delete_all_read_receipts_for_user`（`synapse-storage/src/thread/storage.rs:481`）、
+  `PresenceStorage::delete_all_presence_for_user`（`synapse-storage/src/presence/mod.rs:469`，
+  删库同时失效 `CacheKeyBuilder::user_presence`——这也是 `StorageUserDataPurger::new` 必须接
+  进程级 `CacheManager` 的原因，见 `synapse-services/src/container.rs:627`）。
+- 服务层把这些表**登记成常量** `ACCOUNT_DEACTIVATION_PURGED_TABLES`
+  （`synapse-services/src/account_deactivation_service.rs:271`，12 张表），`purge()` 按同一份清单
+  返回 12 个计数（`PurgedUserData` 第 8–12 个字段），`tracing` span 同步。
+  ⇒ 清单与实现是同一份真相，下一张漏表会让守卫用例直接变红，而不是等线上发现。
+- 判据（`tests/integration/account_deactivation_purge_tests.rs`，三条）：
+  1. `test_every_registered_purge_target_is_a_real_user_scoped_table`（无 DB）：常量里每张表在
+     基线 migration 中确实存在、DDL 内确实声明了 `user_id` 列、且无重复 ⇒ 防止把「按 user 删」
+     的表登记成「按 room/其它键」的表（那会删错行）。
+  2. `test_purge_empties_every_registered_table_for_that_user_only`（真库）：target/control 两用户
+     各 seed 12 表各 1 行，purge 后逐表断言 target=0、control=1、返回计数=1；末尾断言 `users` 行仍在
+     （注销不等于删号）。
+  3. `test_purge_is_idempotent_and_reports_zero_the_second_time`（真库）：二次 purge 全 0。
+- **变异自证**（可复现）：注释掉 `presence_deleted` 那一行调用后，
+  用例 2 报 `presence still holds rows for the deactivated account … left: 1, right: 0`；
+  还原后 3/3 通过。⇒ 守卫可以失败，不是"永远绿的装饰"。
+- `.sqlx`：`SQLX_CACHE_ENTRIES` **1328 → 1333**（净 +5，与五条静态宏一一对应；
+  生产 105 / 测试 846 / 静态 1360 / QueryBuilder 17 四个棘轮不变——新语句全在 `synapse-storage`，
+  不计入动态棘轮）。
+
+**未纳入本项的相邻缺口**（保持原判，不在本轮）：`user_directory` 仍不删（该表全仓无读写的
+死 schema，`is_deactivated` 过滤已提供等效行为，理由见
+`account_deactivation_service.rs` 模块文档「What "purge" does **not** touch」）。
