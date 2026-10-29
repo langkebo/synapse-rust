@@ -49,6 +49,18 @@ POST /_synapse/admin/v1/cleanup/tokens
 # 上游 Element Admin 仍在用这条路径。
 POST /_synapse/admin/v1/deactivate/{user_id}
 
+# --- device_verify ---
+# 交叉签名单设备验证。**登记为可执行是刻意的**：`allowlist.rs` 的
+# `AdminRoute::UserDevices` 规则本来就把「/users/<id>/devices… 下的单设备操作」
+# 整体划给普通 admin（只排除 `…/delete` 批量删除），所以这条路由一落地就对普通
+# admin 开放，本清单要求把它显式记下来。
+#
+# 为什么不该收紧成超管专属：同一前缀下普通 admin **已经可以** `DELETE …/devices/{id}`
+# （直接销毁设备及其密钥），而这条只读取设备与签名表、算出一个布尔结论，外加一行
+# 审计记录 —— 权限严格低于它已经拥有的那个。允许删设备却不允许看它是否已签名背书
+# 说不通。真正的破坏性批量删除 `…/devices/{id}/delete` 仍由 `privileged.rs` 挡住。
+POST /_synapse/admin/v1/users/{user_id}/devices/{device_id}/verify
+
 # --- event_reports ---
 DELETE /_synapse/admin/v1/event_reports/{id}
 POST /_synapse/admin/v1/event_reports

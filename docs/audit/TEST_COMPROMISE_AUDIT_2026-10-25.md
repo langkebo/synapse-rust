@@ -1429,6 +1429,46 @@ llvm-cov 分母且近 100% 命中，"补测试"就变成给自己刷分。
 它们与 `verify_device` 同类 —— 不是"缺测试"，是"没有生产入口"。
 删还是保留（当公共 API 留着）需要决策，本轮不动。
 
+#### 3.1.7.14 新 admin 端点的 RBAC 表态（2026-10-29）
+
+§3.1.7.11 接线的 `POST /_synapse/admin/v1/users/{user_id}/devices/{device_id}/verify`
+漏了一步：**新写路由落进现有前缀就要显式表态**。`synapse-web` 的 lib 测试
+`utils::admin_auth::admin_rbac_tests` 把它抓了出来（CI `Test & Lint` 4 条车道里 2 条红）：
+
+```
+reachable by a plain admin but **not** registered in test-support/admin_rbac_write_allowlist.txt:
+[("POST", "/_synapse/admin/v1/users/{user_id}/devices/{device_id}/verify")]
+Decide explicitly: register them (deliberate) or add them to `is_super_admin_only_endpoint` (restrict).
+```
+
+为什么本地全绿而 CI 红：这条守卫是 **`synapse-web` 的 lib 测试**，
+pre-commit 的 preflight 不跑 lib 车道；`check_route_auth.py` 也只看"有没有鉴权",
+不看"普通 admin 是否该拿到它"。
+
+**判定：登记为普通 admin 可执行（不是收紧）。** 依据在 `utils/admin_auth/allowlist.rs`：
+
+```rust
+/// 单个设备操作：`/users/{id}/devices...`，但**批量删除** `…/delete` 除外。
+Self::UserDevices => path.contains("/users/") && path.contains("/devices") && !path.ends_with("/delete"),
+```
+
+即这条路由一落地就落在 `UserDevices` 允许面上 —— 清单的存在就是要求把它写成显式声明。
+权限上也说得通：同一前缀下普通 admin **已经可以** `DELETE …/devices/{device_id}`
+（直接销毁设备与密钥），而 verify 只读设备与签名表算一个布尔结论 + 一行审计，
+权限严格更低。真正的批量删除 `…/devices/{id}/delete` 仍由 `privileged.rs` 挡住。
+
+同批重生成 `test-support/admin_rbac_decision_matrix.txt`（`regenerate_role_decision_matrix`
+是 `#[ignore]` 的，需 `--run-ignored only`）。差异是 **7 行纯新增、0 删除**，
+即只有这条新路由的判定，没有任何既有路由的权限发生变化：
+
+| 角色 | 判定 |
+|---|---|
+| super_admin / admin / user_admin | allow |
+| auditor / security_admin / media_admin / none | deny |
+
+守卫复跑 5/5 绿（`plain_admin_write_surface` / `plain_admin_read_surface` /
+`role_decision_matrix` / `rbac_switch_*` 两条）。
+
 ### 3.2 性能验收只有报告，没有断言
 
 `tests/performance/appservice_scheduler_perf_tests.rs` 的 **2 条用例全部** `#[ignore]`（`reason` 写明

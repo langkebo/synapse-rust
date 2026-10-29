@@ -268,6 +268,7 @@ super_admin	POST	/_synapse/admin/v1/users/{user_id}/deactivate	allow
 super_admin	GET	/_synapse/admin/v1/users/{user_id}/devices	allow
 super_admin	DELETE	/_synapse/admin/v1/users/{user_id}/devices/{device_id}	allow
 super_admin	POST	/_synapse/admin/v1/users/{user_id}/devices/{device_id}/delete	allow
+super_admin	POST	/_synapse/admin/v1/users/{user_id}/devices/{device_id}/verify	allow
 super_admin	POST	/_synapse/admin/v1/users/{user_id}/evict	allow
 super_admin	POST	/_synapse/admin/v1/users/{user_id}/login	allow
 super_admin	POST	/_synapse/admin/v1/users/{user_id}/logout	allow
@@ -567,6 +568,7 @@ admin	POST	/_synapse/admin/v1/users/{user_id}/deactivate	allow
 admin	GET	/_synapse/admin/v1/users/{user_id}/devices	allow
 admin	DELETE	/_synapse/admin/v1/users/{user_id}/devices/{device_id}	allow
 admin	POST	/_synapse/admin/v1/users/{user_id}/devices/{device_id}/delete	deny
+admin	POST	/_synapse/admin/v1/users/{user_id}/devices/{device_id}/verify	allow
 admin	POST	/_synapse/admin/v1/users/{user_id}/evict	allow
 admin	POST	/_synapse/admin/v1/users/{user_id}/login	allow
 admin	POST	/_synapse/admin/v1/users/{user_id}/logout	allow
@@ -866,6 +868,7 @@ auditor	POST	/_synapse/admin/v1/users/{user_id}/deactivate	deny
 auditor	GET	/_synapse/admin/v1/users/{user_id}/devices	deny
 auditor	DELETE	/_synapse/admin/v1/users/{user_id}/devices/{device_id}	deny
 auditor	POST	/_synapse/admin/v1/users/{user_id}/devices/{device_id}/delete	deny
+auditor	POST	/_synapse/admin/v1/users/{user_id}/devices/{device_id}/verify	deny
 auditor	POST	/_synapse/admin/v1/users/{user_id}/evict	deny
 auditor	POST	/_synapse/admin/v1/users/{user_id}/login	deny
 auditor	POST	/_synapse/admin/v1/users/{user_id}/logout	deny
@@ -1165,6 +1168,7 @@ security_admin	POST	/_synapse/admin/v1/users/{user_id}/deactivate	deny
 security_admin	GET	/_synapse/admin/v1/users/{user_id}/devices	deny
 security_admin	DELETE	/_synapse/admin/v1/users/{user_id}/devices/{device_id}	deny
 security_admin	POST	/_synapse/admin/v1/users/{user_id}/devices/{device_id}/delete	deny
+security_admin	POST	/_synapse/admin/v1/users/{user_id}/devices/{device_id}/verify	deny
 security_admin	POST	/_synapse/admin/v1/users/{user_id}/evict	deny
 security_admin	POST	/_synapse/admin/v1/users/{user_id}/login	deny
 security_admin	POST	/_synapse/admin/v1/users/{user_id}/logout	deny
@@ -1464,6 +1468,7 @@ user_admin	POST	/_synapse/admin/v1/users/{user_id}/deactivate	allow
 user_admin	GET	/_synapse/admin/v1/users/{user_id}/devices	allow
 user_admin	DELETE	/_synapse/admin/v1/users/{user_id}/devices/{device_id}	allow
 user_admin	POST	/_synapse/admin/v1/users/{user_id}/devices/{device_id}/delete	deny
+user_admin	POST	/_synapse/admin/v1/users/{user_id}/devices/{device_id}/verify	allow
 user_admin	POST	/_synapse/admin/v1/users/{user_id}/evict	allow
 user_admin	POST	/_synapse/admin/v1/users/{user_id}/login	allow
 user_admin	POST	/_synapse/admin/v1/users/{user_id}/logout	allow
@@ -1763,6 +1768,7 @@ media_admin	POST	/_synapse/admin/v1/users/{user_id}/deactivate	deny
 media_admin	GET	/_synapse/admin/v1/users/{user_id}/devices	deny
 media_admin	DELETE	/_synapse/admin/v1/users/{user_id}/devices/{device_id}	deny
 media_admin	POST	/_synapse/admin/v1/users/{user_id}/devices/{device_id}/delete	deny
+media_admin	POST	/_synapse/admin/v1/users/{user_id}/devices/{device_id}/verify	deny
 media_admin	POST	/_synapse/admin/v1/users/{user_id}/evict	deny
 media_admin	POST	/_synapse/admin/v1/users/{user_id}/login	deny
 media_admin	POST	/_synapse/admin/v1/users/{user_id}/logout	deny
@@ -2062,6 +2068,7 @@ none	POST	/_synapse/admin/v1/users/{user_id}/deactivate	deny
 none	GET	/_synapse/admin/v1/users/{user_id}/devices	deny
 none	DELETE	/_synapse/admin/v1/users/{user_id}/devices/{device_id}	deny
 none	POST	/_synapse/admin/v1/users/{user_id}/devices/{device_id}/delete	deny
+none	POST	/_synapse/admin/v1/users/{user_id}/devices/{device_id}/verify	deny
 none	POST	/_synapse/admin/v1/users/{user_id}/evict	deny
 none	POST	/_synapse/admin/v1/users/{user_id}/login	deny
 none	POST	/_synapse/admin/v1/users/{user_id}/logout	deny
