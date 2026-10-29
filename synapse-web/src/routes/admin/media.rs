@@ -23,7 +23,9 @@ pub struct QuarantineRoomMediaRequest {
 
 /// Request body for `POST /_synapse/admin/v1/media/delete`.
 ///
-/// Either or both of `before_ts` and `max_size` may be provided.
+/// Either or both of `before_ts` and `max_size` may be provided, but at least one of them
+/// must be positive: leaving both unset (or `0`) is rejected with 400 as a caller mistake
+/// (each dimension only gates its own comparison — see the storage doc).
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct DeleteMediaByPolicyRequest {
@@ -528,7 +530,8 @@ pub async fn quarantine_user_media(
 /// Batch-delete local media by policy.
 ///
 /// Backs `POST /_synapse/admin/v1/media/delete`.
-/// Parameters are optional; `0` or omitted means "no limit".
+/// Parameters are optional and `0` means "no limit on that dimension"; the service rejects
+/// the request with 400 when neither dimension is set (see [`DeleteMediaByPolicyRequest`]).
 #[axum::debug_handler]
 pub async fn delete_media_by_policy(
     _admin: AdminUser,
@@ -570,16 +573,16 @@ pub async fn unprotect_media_by_id(
 /// In this implementation only local media exists, so this degrades to deleting
 /// local media that matches the access-time policy.
 ///
-/// Matches upstream Synapse semantics: `before_ts` is an optional query
-/// parameter (defaults to 0, meaning "no time filter"); the endpoint returns
-/// the number of purged media items.
+/// `before_ts` is mandatory in practice: the service rejects a missing, unparseable or
+/// non-positive value with 400, because the storage predicate also matches rows that were
+/// never accessed (`last_accessed_at IS NULL`) and `before_ts = 0` would purge all of them.
 #[axum::debug_handler]
 pub async fn purge_media_cache(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
     axum::extract::Query(params): axum::extract::Query<PurgeMediaCacheQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    let before_ts = params.before_ts.as_deref().and_then(|v| v.parse::<i64>().ok()).unwrap_or(0).max(0);
+    let before_ts = params.before_ts.as_deref().and_then(|v| v.parse::<i64>().ok()).unwrap_or(0);
 
     let purged = ctx.admin_media_service.purge_media_cache(before_ts).await?;
 

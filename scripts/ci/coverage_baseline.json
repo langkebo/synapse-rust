@@ -1,6 +1,11 @@
 {
   "files": [
     {
+      "path": "scripts/bench_harness.rs",
+      "line_pct": 0.0,
+      "lines_found": 278
+    },
+    {
       "path": "src/bin/federation_sign_request.rs",
       "line_pct": 0.0,
       "lines_found": 32
@@ -29,8 +34,18 @@
       "line_pct": 59.06
     },
     {
+      "path": "src/bin/synapse_ledger_fingerprint.rs",
+      "line_pct": 0.0,
+      "lines_found": 75
+    },
+    {
       "path": "src/bin/synapse_worker.rs",
       "line_pct": 38.19
+    },
+    {
+      "path": "src/cli.rs",
+      "line_pct": 65.71,
+      "lines_found": 35
     },
     {
       "path": "src/common/error.rs",
@@ -72,6 +87,11 @@
       "lines_found": 267
     },
     {
+      "path": "src/worker/heartbeat.rs",
+      "line_pct": 83.88,
+      "lines_found": 273
+    },
+    {
       "path": "synapse-cache/circuit_breaker.rs",
       "line_pct": 94.03,
       "lines_found": 553
@@ -92,7 +112,7 @@
     },
     {
       "path": "synapse-cache/invalidation.rs",
-      "line_pct": 34.47,
+      "line_pct": 35.61,
       "lines_found": 264
     },
     {
@@ -182,7 +202,8 @@
     },
     {
       "path": "synapse-common/config/manager.rs",
-      "line_pct": 0.0
+      "line_pct": 0.0,
+      "lines_found": 47
     },
     {
       "path": "synapse-common/config/mas.rs",
@@ -202,6 +223,11 @@
       "path": "synapse-common/config/policy_server.rs",
       "line_pct": 100.0,
       "lines_found": 42
+    },
+    {
+      "path": "synapse-common/config/push.rs",
+      "line_pct": 75.0,
+      "lines_found": 4
     },
     {
       "path": "synapse-common/config/rate_limit.rs",
@@ -239,6 +265,11 @@
       "lines_found": 24
     },
     {
+      "path": "synapse-common/config/task_scheduler.rs",
+      "line_pct": 90.38,
+      "lines_found": 52
+    },
+    {
       "path": "synapse-common/config/translate.rs",
       "line_pct": 100.0,
       "lines_found": 162
@@ -263,9 +294,19 @@
       "lines_found": 33
     },
     {
+      "path": "synapse-common/content_scanner/mod.rs",
+      "line_pct": 55.17,
+      "lines_found": 29
+    },
+    {
       "path": "synapse-common/crypto.rs",
       "line_pct": 93.25,
       "lines_found": 667
+    },
+    {
+      "path": "synapse-common/db_query_metrics.rs",
+      "line_pct": 96.34,
+      "lines_found": 82
     },
     {
       "path": "synapse-common/error.rs",
@@ -276,6 +317,11 @@
       "path": "synapse-common/error/code.rs",
       "line_pct": 78.97,
       "lines_found": 233
+    },
+    {
+      "path": "synapse-common/event_id.rs",
+      "line_pct": 99.42,
+      "lines_found": 171
     },
     {
       "path": "synapse-common/event_utils.rs",
@@ -342,6 +388,11 @@
       "line_pct": 96.6
     },
     {
+      "path": "synapse-common/pdu.rs",
+      "line_pct": 100.0,
+      "lines_found": 133
+    },
+    {
       "path": "synapse-common/push_rules.rs",
       "line_pct": 98.08,
       "lines_found": 469
@@ -359,6 +410,16 @@
     {
       "path": "synapse-common/regex_cache.rs",
       "line_pct": 91.57
+    },
+    {
+      "path": "synapse-common/room_creator.rs",
+      "line_pct": 100.0,
+      "lines_found": 41
+    },
+    {
+      "path": "synapse-common/room_id.rs",
+      "line_pct": 96.4,
+      "lines_found": 111
     },
     {
       "path": "synapse-common/room_versions.rs",
@@ -387,13 +448,28 @@
       "line_pct": 93.94
     },
     {
+      "path": "synapse-common/test_database_guard.rs",
+      "line_pct": 14.84,
+      "lines_found": 128
+    },
+    {
       "path": "synapse-common/test_isolation.rs",
       "line_pct": 93.53
     },
     {
       "path": "synapse-common/test_schema_guard.rs",
-      "line_pct": 89.73,
+      "line_pct": 90.57,
       "lines_found": 594
+    },
+    {
+      "path": "synapse-common/test_schema_orphans.rs",
+      "line_pct": 84.43,
+      "lines_found": 212
+    },
+    {
+      "path": "synapse-common/tests-support/exit_hook_impl.rs",
+      "line_pct": 100.0,
+      "lines_found": 6
     },
     {
       "path": "synapse-common/time.rs",
@@ -412,7 +488,7 @@
     },
     {
       "path": "synapse-common/types.rs",
-      "line_pct": 90.33,
+      "line_pct": 91.33,
       "lines_found": 300
     },
     {
@@ -457,7 +533,7 @@
     },
     {
       "path": "synapse-e2ee/cross_signing/storage.rs",
-      "line_pct": 92.7,
+      "line_pct": 97.14,
       "lines_found": 315
     },
     {
@@ -585,7 +661,7 @@
     },
     {
       "path": "synapse-e2ee/to_device/storage.rs",
-      "line_pct": 91.37,
+      "line_pct": 92.39,
       "lines_found": 197
     },
     {
@@ -631,6 +707,16 @@
       "lines_found": 26
     },
     {
+      "path": "synapse-federation/event_auth/rules.rs",
+      "line_pct": 99.74,
+      "lines_found": 387
+    },
+    {
+      "path": "synapse-federation/event_auth/state_map_auth.rs",
+      "line_pct": 97.18,
+      "lines_found": 390
+    },
+    {
       "path": "synapse-federation/event_auth/state_resolution.rs",
       "line_pct": 91.99,
       "lines_found": 899
@@ -639,6 +725,11 @@
       "path": "synapse-federation/event_broadcaster.rs",
       "line_pct": 64.37,
       "lines_found": 710
+    },
+    {
+      "path": "synapse-federation/event_finalize.rs",
+      "line_pct": 99.26,
+      "lines_found": 136
     },
     {
       "path": "synapse-federation/friend/client.rs",
@@ -656,6 +747,11 @@
       "lines_found": 781
     },
     {
+      "path": "synapse-federation/make_response_validation.rs",
+      "line_pct": 60.96,
+      "lines_found": 146
+    },
+    {
       "path": "synapse-federation/server_acl.rs",
       "line_pct": 97.59,
       "lines_found": 166
@@ -666,14 +762,24 @@
       "lines_found": 906
     },
     {
+      "path": "synapse-federation/test_isolation.rs",
+      "line_pct": 100.0,
+      "lines_found": 7
+    },
+    {
       "path": "synapse-federation/test_mocks.rs",
-      "line_pct": 61.34,
+      "line_pct": 61.76,
       "lines_found": 238
     },
     {
       "path": "synapse-services/account_data_service.rs",
       "line_pct": 97.34,
       "lines_found": 413
+    },
+    {
+      "path": "synapse-services/account_deactivation_service.rs",
+      "line_pct": 87.47,
+      "lines_found": 407
     },
     {
       "path": "synapse-services/account_device_list_service.rs",
@@ -683,6 +789,11 @@
     {
       "path": "synapse-services/account_identity_service.rs",
       "line_pct": 85.57
+    },
+    {
+      "path": "synapse-services/account_status_service.rs",
+      "line_pct": 95.93,
+      "lines_found": 246
     },
     {
       "path": "synapse-services/admin_audit_service.rs",
@@ -731,6 +842,11 @@
       "lines_found": 396
     },
     {
+      "path": "synapse-services/application_service/proxy.rs",
+      "line_pct": 96.04,
+      "lines_found": 202
+    },
+    {
       "path": "synapse-services/application_service/scheduler.rs",
       "line_pct": 92.89
     },
@@ -742,6 +858,11 @@
       "path": "synapse-services/auth/account.rs",
       "line_pct": 81.55,
       "lines_found": 206
+    },
+    {
+      "path": "synapse-services/auth/credential_auth.rs",
+      "line_pct": 0.0,
+      "lines_found": 2
     },
     {
       "path": "synapse-services/auth/login.rs",
@@ -790,8 +911,13 @@
       "line_pct": 83.28
     },
     {
+      "path": "synapse-services/auth/token_auth.rs",
+      "line_pct": 0.0,
+      "lines_found": 2
+    },
+    {
       "path": "synapse-services/background_update_service.rs",
-      "line_pct": 89.56,
+      "line_pct": 90.29,
       "lines_found": 412
     },
     {
@@ -799,8 +925,13 @@
       "line_pct": 63.26
     },
     {
+      "path": "synapse-services/builtin_oidc_provider.rs",
+      "line_pct": 0.0,
+      "lines_found": 998
+    },
+    {
       "path": "synapse-services/burn_after_read_service.rs",
-      "line_pct": 92.62,
+      "line_pct": 92.95,
       "lines_found": 908
     },
     {
@@ -834,6 +965,11 @@
       "path": "synapse-services/content_scanner/service.rs",
       "line_pct": 94.94,
       "lines_found": 415
+    },
+    {
+      "path": "synapse-services/content_scanner/verdict.rs",
+      "line_pct": 98.92,
+      "lines_found": 93
     },
     {
       "path": "synapse-services/database_initializer/mod.rs",
@@ -900,6 +1036,11 @@
       "lines_found": 158
     },
     {
+      "path": "synapse-services/friend_room_service/blocked_relation.rs",
+      "line_pct": 90.91,
+      "lines_found": 22
+    },
+    {
       "path": "synapse-services/friend_room_service/error.rs",
       "line_pct": 100.0,
       "lines_found": 43
@@ -927,6 +1068,16 @@
       "path": "synapse-services/friend_room_service/sharding.rs",
       "line_pct": 100.0,
       "lines_found": 58
+    },
+    {
+      "path": "synapse-services/friend_room_service/sync.rs",
+      "line_pct": 66.67,
+      "lines_found": 3
+    },
+    {
+      "path": "synapse-services/graph_metadata.rs",
+      "line_pct": 56.03,
+      "lines_found": 755
     },
     {
       "path": "synapse-services/identity/models.rs",
@@ -994,6 +1145,11 @@
       "path": "synapse-services/oidc_user_mapping_service.rs",
       "line_pct": 9.09,
       "lines_found": 33
+    },
+    {
+      "path": "synapse-services/one_time_invite_service.rs",
+      "line_pct": 83.62,
+      "lines_found": 116
     },
     {
       "path": "synapse-services/policy_service.rs",
@@ -1066,6 +1222,11 @@
       "lines_found": 237
     },
     {
+      "path": "synapse-services/room/federation_broadcast.rs",
+      "line_pct": 89.57,
+      "lines_found": 163
+    },
+    {
       "path": "synapse-services/room/join_rules.rs",
       "line_pct": 100.0,
       "lines_found": 55
@@ -1078,6 +1239,11 @@
     {
       "path": "synapse-services/room/lifecycle/create_events.rs",
       "line_pct": 86.93
+    },
+    {
+      "path": "synapse-services/room/lifecycle/creation_graph.rs",
+      "line_pct": 100.0,
+      "lines_found": 102
     },
     {
       "path": "synapse-services/room/lifecycle/service.rs",
@@ -1102,6 +1268,11 @@
       "path": "synapse-services/room/membership/federation.rs",
       "line_pct": 43.95,
       "lines_found": 958
+    },
+    {
+      "path": "synapse-services/room/membership/friend_dm_sync.rs",
+      "line_pct": 100.0,
+      "lines_found": 6
     },
     {
       "path": "synapse-services/room/membership/mod.rs",
@@ -1135,6 +1306,11 @@
       "lines_found": 1203
     },
     {
+      "path": "synapse-services/room/messaging/history_visibility.rs",
+      "line_pct": 96.15,
+      "lines_found": 156
+    },
+    {
       "path": "synapse-services/room/messaging/messages.rs",
       "line_pct": 82.5,
       "lines_found": 657
@@ -1153,6 +1329,11 @@
       "path": "synapse-services/room/messaging/service.rs",
       "line_pct": 96.0,
       "lines_found": 50
+    },
+    {
+      "path": "synapse-services/room/scheduled_dispatch.rs",
+      "line_pct": 66.67,
+      "lines_found": 63
     },
     {
       "path": "synapse-services/room/service.rs",
@@ -1178,6 +1359,11 @@
       "lines_found": 207
     },
     {
+      "path": "synapse-services/room/state/auth_events.rs",
+      "line_pct": 100.0,
+      "lines_found": 286
+    },
+    {
       "path": "synapse-services/room/state/error.rs",
       "line_pct": 100.0,
       "lines_found": 39
@@ -1194,6 +1380,11 @@
     {
       "path": "synapse-services/room/state/tags.rs",
       "line_pct": 70.91
+    },
+    {
+      "path": "synapse-services/room/state_record.rs",
+      "line_pct": 93.95,
+      "lines_found": 893
     },
     {
       "path": "synapse-services/room/summary/service.rs",
@@ -1213,6 +1404,11 @@
       "path": "synapse-services/room/utils.rs",
       "line_pct": 100.0,
       "lines_found": 65
+    },
+    {
+      "path": "synapse-services/room_state_cache.rs",
+      "line_pct": 100.0,
+      "lines_found": 21
     },
     {
       "path": "synapse-services/rtc/call.rs",
@@ -1319,6 +1515,11 @@
       "lines_found": 946
     },
     {
+      "path": "synapse-services/sync_service/history_visibility.rs",
+      "line_pct": 100.0,
+      "lines_found": 57
+    },
+    {
       "path": "synapse-services/sync_service/lazy_load.rs",
       "line_pct": 98.27,
       "lines_found": 289
@@ -1378,8 +1579,13 @@
       "line_pct": 73.89
     },
     {
+      "path": "synapse-services/url_preview.rs",
+      "line_pct": 89.97,
+      "lines_found": 339
+    },
+    {
       "path": "synapse-services/user_service.rs",
-      "line_pct": 89.31,
+      "line_pct": 89.57,
       "lines_found": 393
     },
     {
@@ -1429,6 +1635,11 @@
       "lines_found": 43
     },
     {
+      "path": "synapse-services/worker/event_sink.rs",
+      "line_pct": 0.0,
+      "lines_found": 8
+    },
+    {
       "path": "synapse-services/worker/health.rs",
       "line_pct": 95.4,
       "lines_found": 348
@@ -1448,9 +1659,29 @@
       "line_pct": 65.2
     },
     {
+      "path": "synapse-services/worker/runtime_topology.rs",
+      "line_pct": 92.75,
+      "lines_found": 138
+    },
+    {
+      "path": "synapse-services/worker/surface_gate.rs",
+      "line_pct": 99.13,
+      "lines_found": 115
+    },
+    {
       "path": "synapse-services/worker/tcp.rs",
       "line_pct": 62.34,
       "lines_found": 239
+    },
+    {
+      "path": "synapse-services/worker/topology_gate.rs",
+      "line_pct": 100.0,
+      "lines_found": 100
+    },
+    {
+      "path": "synapse-services/worker/topology_metrics.rs",
+      "line_pct": 43.64,
+      "lines_found": 55
     },
     {
       "path": "synapse-services/worker/topology_validator.rs",
@@ -1458,13 +1689,28 @@
       "lines_found": 680
     },
     {
+      "path": "synapse-services/worker/write_streams.rs",
+      "line_pct": 90.2,
+      "lines_found": 204
+    },
+    {
+      "path": "synapse-services/worker/write_streams/admin.rs",
+      "line_pct": 100.0,
+      "lines_found": 15
+    },
+    {
+      "path": "synapse-services/worker/write_streams/paths.rs",
+      "line_pct": 93.1,
+      "lines_found": 58
+    },
+    {
       "path": "synapse-storage/account_data/mod.rs",
       "line_pct": 98.29
     },
     {
       "path": "synapse-storage/admin_federation.rs",
-      "line_pct": 99.05,
-      "lines_found": 737
+      "line_pct": 100.0,
+      "lines_found": 639
     },
     {
       "path": "synapse-storage/admin_media.rs",
@@ -1483,7 +1729,8 @@
     },
     {
       "path": "synapse-storage/audit.rs",
-      "line_pct": 64.83
+      "line_pct": 93.37,
+      "lines_found": 196
     },
     {
       "path": "synapse-storage/background_update.rs",
@@ -1495,26 +1742,27 @@
     },
     {
       "path": "synapse-storage/beacon.rs",
-      "line_pct": 99.22,
-      "lines_found": 898
+      "line_pct": 99.76,
+      "lines_found": 836
     },
     {
       "path": "synapse-storage/burn_after_read.rs",
-      "line_pct": 90.82,
-      "lines_found": 752
+      "line_pct": 93.76,
+      "lines_found": 689
     },
     {
       "path": "synapse-storage/call_session.rs",
       "line_pct": 100.0,
-      "lines_found": 330
+      "lines_found": 300
     },
     {
       "path": "synapse-storage/captcha.rs",
-      "line_pct": 98.65
+      "line_pct": 100.0,
+      "lines_found": 921
     },
     {
       "path": "synapse-storage/cas/api.rs",
-      "line_pct": 0.0,
+      "line_pct": 6.25,
       "lines_found": 32
     },
     {
@@ -1524,43 +1772,53 @@
     },
     {
       "path": "synapse-storage/cas/repository.rs",
-      "line_pct": 95.26
+      "line_pct": 100.0,
+      "lines_found": 205
     },
     {
       "path": "synapse-storage/dehydrated_device.rs",
-      "line_pct": 97.75
+      "line_pct": 98.36,
+      "lines_found": 610
     },
     {
       "path": "synapse-storage/delayed_events.rs",
-      "line_pct": 92.86,
-      "lines_found": 140
+      "line_pct": 94.78,
+      "lines_found": 134
     },
     {
       "path": "synapse-storage/device/mod.rs",
-      "line_pct": 76.23
+      "line_pct": 79.73,
+      "lines_found": 523
     },
     {
       "path": "synapse-storage/e2ee_audit.rs",
-      "line_pct": 97.26
+      "line_pct": 98.92,
+      "lines_found": 279
     },
     {
       "path": "synapse-storage/email_verification.rs",
-      "line_pct": 98.64,
-      "lines_found": 295
+      "line_pct": 99.28,
+      "lines_found": 278
     },
     {
       "path": "synapse-storage/event/basic.rs",
-      "line_pct": 100.0
+      "line_pct": 100.0,
+      "lines_found": 121
     },
     {
       "path": "synapse-storage/event/batch.rs",
-      "line_pct": 63.29,
-      "lines_found": 286
+      "line_pct": 82.9,
+      "lines_found": 269
+    },
+    {
+      "path": "synapse-storage/event/cascade.rs",
+      "line_pct": 98.57,
+      "lines_found": 70
     },
     {
       "path": "synapse-storage/event/create.rs",
-      "line_pct": 84.48,
-      "lines_found": 116
+      "line_pct": 98.17,
+      "lines_found": 109
     },
     {
       "path": "synapse-storage/event/dag.rs",
@@ -1568,29 +1826,39 @@
       "lines_found": 83
     },
     {
+      "path": "synapse-storage/event/depth.rs",
+      "line_pct": 91.3,
+      "lines_found": 138
+    },
+    {
       "path": "synapse-storage/event/ephemeral.rs",
       "line_pct": 100.0,
       "lines_found": 79
     },
     {
+      "path": "synapse-storage/event/history_boundary.rs",
+      "line_pct": 100.0,
+      "lines_found": 12
+    },
+    {
       "path": "synapse-storage/event/models.rs",
       "line_pct": 100.0,
-      "lines_found": 25
+      "lines_found": 24
     },
     {
       "path": "synapse-storage/event/pagination.rs",
-      "line_pct": 94.58,
-      "lines_found": 277
+      "line_pct": 95.08,
+      "lines_found": 264
     },
     {
       "path": "synapse-storage/event/reader.rs",
-      "line_pct": 11.58,
+      "line_pct": 72.63,
       "lines_found": 95
     },
     {
       "path": "synapse-storage/event/redaction.rs",
-      "line_pct": 85.57,
-      "lines_found": 97
+      "line_pct": 98.89,
+      "lines_found": 90
     },
     {
       "path": "synapse-storage/event/search.rs",
@@ -1603,12 +1871,13 @@
     },
     {
       "path": "synapse-storage/event/state.rs",
-      "line_pct": 47.73,
-      "lines_found": 352
+      "line_pct": 88.53,
+      "lines_found": 340
     },
     {
       "path": "synapse-storage/event/txn_dedup.rs",
-      "line_pct": 76.27
+      "line_pct": 100.0,
+      "lines_found": 41
     },
     {
       "path": "synapse-storage/event/unread.rs",
@@ -1617,35 +1886,38 @@
     },
     {
       "path": "synapse-storage/event/writer.rs",
-      "line_pct": 13.51,
-      "lines_found": 37
+      "line_pct": 39.71,
+      "lines_found": 68
     },
     {
       "path": "synapse-storage/event_report/repository.rs",
-      "line_pct": 96.09,
-      "lines_found": 230
+      "line_pct": 96.23,
+      "lines_found": 212
     },
     {
       "path": "synapse-storage/feature_flags.rs",
-      "line_pct": 89.08
+      "line_pct": 93.81,
+      "lines_found": 339
     },
     {
       "path": "synapse-storage/federation_blacklist.rs",
-      "line_pct": 97.67
+      "line_pct": 99.88,
+      "lines_found": 844
     },
     {
       "path": "synapse-storage/federation_queue.rs",
       "line_pct": 100.0,
-      "lines_found": 360
+      "lines_found": 323
     },
     {
       "path": "synapse-storage/filter.rs",
-      "line_pct": 92.39
+      "line_pct": 100.0,
+      "lines_found": 137
     },
     {
       "path": "synapse-storage/friend_room/repository.rs",
-      "line_pct": 78.12,
-      "lines_found": 585
+      "line_pct": 97.21,
+      "lines_found": 502
     },
     {
       "path": "synapse-storage/invite_blocklist.rs",
@@ -1667,7 +1939,7 @@
     {
       "path": "synapse-storage/matrixrtc.rs",
       "line_pct": 100.0,
-      "lines_found": 876
+      "lines_found": 826
     },
     {
       "path": "synapse-storage/media/backend.rs",
@@ -1675,7 +1947,8 @@
     },
     {
       "path": "synapse-storage/media/chunked_upload.rs",
-      "line_pct": 97.58
+      "line_pct": 99.37,
+      "lines_found": 633
     },
     {
       "path": "synapse-storage/media/filesystem.rs",
@@ -1687,8 +1960,8 @@
     },
     {
       "path": "synapse-storage/media/quarantine_stream.rs",
-      "line_pct": 64.86,
-      "lines_found": 222
+      "line_pct": 69.31,
+      "lines_found": 202
     },
     {
       "path": "synapse-storage/media/s3.rs",
@@ -1697,11 +1970,13 @@
     },
     {
       "path": "synapse-storage/media_quota/repository.rs",
-      "line_pct": 90.62
+      "line_pct": 93.66,
+      "lines_found": 142
     },
     {
       "path": "synapse-storage/membership/api.rs",
-      "line_pct": 2.82
+      "line_pct": 30.0,
+      "lines_found": 140
     },
     {
       "path": "synapse-storage/membership/mod.rs",
@@ -1709,13 +1984,13 @@
     },
     {
       "path": "synapse-storage/migration_checks.rs",
-      "line_pct": 90.32,
-      "lines_found": 341
+      "line_pct": 91.9,
+      "lines_found": 321
     },
     {
       "path": "synapse-storage/module.rs",
-      "line_pct": 91.98,
-      "lines_found": 648
+      "line_pct": 93.17,
+      "lines_found": 586
     },
     {
       "path": "synapse-storage/monitoring.rs",
@@ -1736,18 +2011,24 @@
       "line_pct": 95.8
     },
     {
+      "path": "synapse-storage/one_time_invite.rs",
+      "line_pct": 99.22,
+      "lines_found": 128
+    },
+    {
       "path": "synapse-storage/openid_token.rs",
-      "line_pct": 95.6
+      "line_pct": 97.0,
+      "lines_found": 400
     },
     {
       "path": "synapse-storage/presence/api.rs",
-      "line_pct": 0.0,
+      "line_pct": 72.0,
       "lines_found": 25
     },
     {
       "path": "synapse-storage/presence/mod.rs",
-      "line_pct": 89.16,
-      "lines_found": 1033
+      "line_pct": 93.18,
+      "lines_found": 939
     },
     {
       "path": "synapse-storage/privacy.rs",
@@ -1764,13 +2045,13 @@
     },
     {
       "path": "synapse-storage/push_notification.rs",
-      "line_pct": 89.34,
-      "lines_found": 910
+      "line_pct": 97.18,
+      "lines_found": 851
     },
     {
       "path": "synapse-storage/qr_login.rs",
       "line_pct": 100.0,
-      "lines_found": 185
+      "lines_found": 167
     },
     {
       "path": "synapse-storage/rate_limit.rs",
@@ -1792,46 +2073,47 @@
     },
     {
       "path": "synapse-storage/relations/mod.rs",
-      "line_pct": 97.15,
-      "lines_found": 1018
+      "line_pct": 99.79,
+      "lines_found": 953
     },
     {
       "path": "synapse-storage/rendezvous.rs",
-      "line_pct": 91.9,
-      "lines_found": 543
+      "line_pct": 97.13,
+      "lines_found": 523
     },
     {
       "path": "synapse-storage/retention.rs",
-      "line_pct": 98.2,
-      "lines_found": 555
+      "line_pct": 100.0,
+      "lines_found": 513
     },
     {
       "path": "synapse-storage/room/admin.rs",
-      "line_pct": 59.92,
-      "lines_found": 751
+      "line_pct": 74.64,
+      "lines_found": 694
     },
     {
       "path": "synapse-storage/room/api.rs",
-      "line_pct": 28.71,
+      "line_pct": 50.5,
       "lines_found": 101
     },
     {
       "path": "synapse-storage/room/mod.rs",
-      "line_pct": 81.25
+      "line_pct": 91.09,
+      "lines_found": 707
     },
     {
       "path": "synapse-storage/room/models.rs",
-      "line_pct": 82.72,
-      "lines_found": 162
+      "line_pct": 86.62,
+      "lines_found": 157
     },
     {
       "path": "synapse-storage/room_account_data.rs",
-      "line_pct": 93.47,
-      "lines_found": 444
+      "line_pct": 98.26,
+      "lines_found": 402
     },
     {
       "path": "synapse-storage/room_summary/api.rs",
-      "line_pct": 0.0,
+      "line_pct": 83.33,
       "lines_found": 60
     },
     {
@@ -1841,15 +2123,18 @@
     },
     {
       "path": "synapse-storage/room_summary/repository.rs",
-      "line_pct": 91.77
+      "line_pct": 99.06,
+      "lines_found": 426
     },
     {
       "path": "synapse-storage/room_tag/mod.rs",
-      "line_pct": 93.57
+      "line_pct": 97.56,
+      "lines_found": 123
     },
     {
       "path": "synapse-storage/saml/repository.rs",
-      "line_pct": 66.61
+      "line_pct": 68.79,
+      "lines_found": 330
     },
     {
       "path": "synapse-storage/schema_health_check.rs",
@@ -1858,12 +2143,12 @@
     },
     {
       "path": "synapse-storage/schema_validator.rs",
-      "line_pct": 99.09,
-      "lines_found": 439
+      "line_pct": 99.2,
+      "lines_found": 374
     },
     {
       "path": "synapse-storage/server_notification/api.rs",
-      "line_pct": 0.0,
+      "line_pct": 34.38,
       "lines_found": 64
     },
     {
@@ -1873,18 +2158,18 @@
     },
     {
       "path": "synapse-storage/server_notification/repository.rs",
-      "line_pct": 45.56,
-      "lines_found": 619
+      "line_pct": 71.19,
+      "lines_found": 531
     },
     {
       "path": "synapse-storage/sliding_sync/api.rs",
-      "line_pct": 29.17,
-      "lines_found": 48
+      "line_pct": 36.96,
+      "lines_found": 92
     },
     {
       "path": "synapse-storage/sliding_sync/models.rs",
-      "line_pct": 54.9,
-      "lines_found": 51
+      "line_pct": 68.0,
+      "lines_found": 50
     },
     {
       "path": "synapse-storage/sliding_sync/repository.rs",
@@ -1898,84 +2183,92 @@
     },
     {
       "path": "synapse-storage/space/repository.rs",
-      "line_pct": 94.29
+      "line_pct": 98.61,
+      "lines_found": 577
     },
     {
       "path": "synapse-storage/state_groups.rs",
-      "line_pct": 90.89,
-      "lines_found": 615
+      "line_pct": 99.29,
+      "lines_found": 567
     },
     {
       "path": "synapse-storage/sticky_event.rs",
       "line_pct": 100.0
     },
     {
+      "path": "synapse-storage/stream_positions.rs",
+      "line_pct": 100.0,
+      "lines_found": 23
+    },
+    {
       "path": "synapse-storage/test_isolation.rs",
       "line_pct": 100.0,
-      "lines_found": 117
+      "lines_found": 107
     },
     {
       "path": "synapse-storage/test_mocks/access_token.rs",
-      "line_pct": 0.0,
-      "lines_found": 50
+      "line_pct": 91.67,
+      "lines_found": 48
     },
     {
       "path": "synapse-storage/test_mocks/account_data.rs",
-      "line_pct": 0.0,
-      "lines_found": 16
+      "line_pct": 53.57,
+      "lines_found": 28
     },
     {
       "path": "synapse-storage/test_mocks/admin_media.rs",
-      "line_pct": 0.0,
-      "lines_found": 55
+      "line_pct": 30.0,
+      "lines_found": 50
     },
     {
       "path": "synapse-storage/test_mocks/audit_event.rs",
-      "line_pct": 92.25,
-      "lines_found": 142
+      "line_pct": 94.07,
+      "lines_found": 135
     },
     {
       "path": "synapse-storage/test_mocks/background_update.rs",
-      "line_pct": 0.0,
-      "lines_found": 66
+      "line_pct": 75.0,
+      "lines_found": 64
     },
     {
       "path": "synapse-storage/test_mocks/cas.rs",
-      "line_pct": 0.0,
-      "lines_found": 67
+      "line_pct": 30.1,
+      "lines_found": 103
     },
     {
       "path": "synapse-storage/test_mocks/dehydrated_device.rs",
-      "line_pct": 0.0,
-      "lines_found": 19
+      "line_pct": 58.82,
+      "lines_found": 17
     },
     {
       "path": "synapse-storage/test_mocks/delayed_event.rs",
-      "line_pct": 0.0,
-      "lines_found": 36
+      "line_pct": 81.82,
+      "lines_found": 33
     },
     {
       "path": "synapse-storage/test_mocks/device_list.rs",
-      "line_pct": 0.0,
-      "lines_found": 65
+      "line_pct": 64.06,
+      "lines_found": 64
     },
     {
       "path": "synapse-storage/test_mocks/event.rs",
-      "line_pct": 48.75
+      "line_pct": 52.34,
+      "lines_found": 791
     },
     {
       "path": "synapse-storage/test_mocks/filter.rs",
-      "line_pct": 0.0,
-      "lines_found": 16
+      "line_pct": 24.14,
+      "lines_found": 29
     },
     {
       "path": "synapse-storage/test_mocks/login_token.rs",
-      "line_pct": 0.0,
+      "line_pct": 70.59,
       "lines_found": 17
     },
     {
       "path": "synapse-storage/test_mocks/member.rs",
-      "line_pct": 49.71
+      "line_pct": 63.1,
+      "lines_found": 420
     },
     {
       "path": "synapse-storage/test_mocks/mod.rs",
@@ -1984,8 +2277,8 @@
     },
     {
       "path": "synapse-storage/test_mocks/oidc_session.rs",
-      "line_pct": 0.0,
-      "lines_found": 32
+      "line_pct": 22.58,
+      "lines_found": 31
     },
     {
       "path": "synapse-storage/test_mocks/oidc_user_mapping.rs",
@@ -1994,23 +2287,23 @@
     },
     {
       "path": "synapse-storage/test_mocks/openid_token.rs",
-      "line_pct": 0.0,
+      "line_pct": 38.1,
       "lines_found": 21
     },
     {
       "path": "synapse-storage/test_mocks/presence.rs",
-      "line_pct": 0.0,
-      "lines_found": 33
+      "line_pct": 70.97,
+      "lines_found": 31
     },
     {
       "path": "synapse-storage/test_mocks/push.rs",
-      "line_pct": 0.0,
-      "lines_found": 92
+      "line_pct": 57.55,
+      "lines_found": 139
     },
     {
       "path": "synapse-storage/test_mocks/quarantine_media.rs",
-      "line_pct": 0.0,
-      "lines_found": 31
+      "line_pct": 50.0,
+      "lines_found": 30
     },
     {
       "path": "synapse-storage/test_mocks/rate_limit.rs",
@@ -2019,27 +2312,28 @@
     },
     {
       "path": "synapse-storage/test_mocks/refresh_token.rs",
-      "line_pct": 0.0,
-      "lines_found": 102
+      "line_pct": 96.81,
+      "lines_found": 94
     },
     {
       "path": "synapse-storage/test_mocks/relations.rs",
-      "line_pct": 0.0,
-      "lines_found": 88
+      "line_pct": 53.01,
+      "lines_found": 83
     },
     {
       "path": "synapse-storage/test_mocks/rendezvous.rs",
-      "line_pct": 0.0,
-      "lines_found": 55
+      "line_pct": 67.31,
+      "lines_found": 52
     },
     {
       "path": "synapse-storage/test_mocks/room.rs",
-      "line_pct": 35.28
+      "line_pct": 40.64,
+      "lines_found": 438
     },
     {
       "path": "synapse-storage/test_mocks/room_account_data.rs",
-      "line_pct": 0.0,
-      "lines_found": 39
+      "line_pct": 22.22,
+      "lines_found": 63
     },
     {
       "path": "synapse-storage/test_mocks/room_summary.rs",
@@ -2056,45 +2350,52 @@
     },
     {
       "path": "synapse-storage/test_mocks/thread.rs",
-      "line_pct": 0.0,
-      "lines_found": 209
+      "line_pct": 13.62,
+      "lines_found": 301
     },
     {
       "path": "synapse-storage/test_mocks/threepid.rs",
-      "line_pct": 0.0,
-      "lines_found": 43
+      "line_pct": 71.43,
+      "lines_found": 42
     },
     {
       "path": "synapse-storage/test_mocks/worker.rs",
-      "line_pct": 0.0,
-      "lines_found": 111
+      "line_pct": 13.56,
+      "lines_found": 177
     },
     {
       "path": "synapse-storage/test_utils.rs",
       "line_pct": 83.76
     },
     {
+      "path": "synapse-storage/thread/models.rs",
+      "line_pct": 100.0,
+      "lines_found": 26
+    },
+    {
       "path": "synapse-storage/thread/storage.rs",
-      "line_pct": 92.6
+      "line_pct": 93.89,
+      "lines_found": 491
     },
     {
       "path": "synapse-storage/threepid.rs",
-      "line_pct": 86.51,
-      "lines_found": 704
+      "line_pct": 93.98,
+      "lines_found": 665
     },
     {
       "path": "synapse-storage/token.rs",
-      "line_pct": 86.83
+      "line_pct": 98.68,
+      "lines_found": 453
     },
     {
       "path": "synapse-storage/trigram_ranking.rs",
       "line_pct": 100.0,
-      "lines_found": 67
+      "lines_found": 66
     },
     {
       "path": "synapse-storage/url_preview_storage.rs",
       "line_pct": 100.0,
-      "lines_found": 289
+      "lines_found": 272
     },
     {
       "path": "synapse-storage/user/models.rs",
@@ -2103,11 +2404,18 @@
     },
     {
       "path": "synapse-storage/user/storage.rs",
-      "line_pct": 79.83
+      "line_pct": 81.76,
+      "lines_found": 658
+    },
+    {
+      "path": "synapse-storage/user_deactivation.rs",
+      "line_pct": 100.0,
+      "lines_found": 48
     },
     {
       "path": "synapse-storage/user_store_fake.rs",
-      "line_pct": 78.03
+      "line_pct": 78.76,
+      "lines_found": 226
     },
     {
       "path": "synapse-storage/voice.rs",
@@ -2116,27 +2424,37 @@
     },
     {
       "path": "synapse-storage/widget.rs",
-      "line_pct": 96.05,
-      "lines_found": 810
+      "line_pct": 97.07,
+      "lines_found": 751
     },
     {
       "path": "synapse-storage/worker/api.rs",
-      "line_pct": 0.0,
+      "line_pct": 44.29,
       "lines_found": 70
     },
     {
       "path": "synapse-storage/worker/models.rs",
       "line_pct": 100.0,
-      "lines_found": 437
+      "lines_found": 431
     },
     {
       "path": "synapse-storage/worker/repository.rs",
-      "line_pct": 98.3,
-      "lines_found": 352
+      "line_pct": 98.42,
+      "lines_found": 317
+    },
+    {
+      "path": "synapse-test-utils/db_isolation.rs",
+      "line_pct": 26.67,
+      "lines_found": 135
     },
     {
       "path": "synapse-test-utils/lib.rs",
       "line_pct": 69.66
+    },
+    {
+      "path": "synapse-test-utils/memory_guard.rs",
+      "line_pct": 97.96,
+      "lines_found": 49
     },
     {
       "path": "synapse-web/federation/edu.rs",
@@ -2164,6 +2482,11 @@
       "line_pct": 84.15
     },
     {
+      "path": "synapse-web/middleware/http_metrics.rs",
+      "line_pct": 100.0,
+      "lines_found": 64
+    },
+    {
       "path": "synapse-web/middleware/mod.rs",
       "line_pct": 80.33
     },
@@ -2175,6 +2498,26 @@
       "path": "synapse-web/middleware/security.rs",
       "line_pct": 96.34,
       "lines_found": 273
+    },
+    {
+      "path": "synapse-web/middleware/worker_surface.rs",
+      "line_pct": 95.42,
+      "lines_found": 131
+    },
+    {
+      "path": "synapse-web/middleware/write_forwarding.rs",
+      "line_pct": 76.79,
+      "lines_found": 168
+    },
+    {
+      "path": "synapse-web/middleware/write_forwarding/forward.rs",
+      "line_pct": 75.2,
+      "lines_found": 125
+    },
+    {
+      "path": "synapse-web/middleware/write_forwarding/report.rs",
+      "line_pct": 98.95,
+      "lines_found": 190
     },
     {
       "path": "synapse-web/routes/account_compat.rs",
@@ -2200,6 +2543,11 @@
       "line_pct": 99.22
     },
     {
+      "path": "synapse-web/routes/admin/invite_lists.rs",
+      "line_pct": 95.04,
+      "lines_found": 121
+    },
+    {
       "path": "synapse-web/routes/admin/media.rs",
       "line_pct": 11.81,
       "lines_found": 381
@@ -2221,7 +2569,8 @@
     },
     {
       "path": "synapse-web/routes/admin/register.rs",
-      "line_pct": 66.67
+      "line_pct": 90.45,
+      "lines_found": 199
     },
     {
       "path": "synapse-web/routes/admin/report.rs",
@@ -2387,7 +2736,8 @@
     },
     {
       "path": "synapse-web/routes/extractors/localhost_guard.rs",
-      "line_pct": 90.15
+      "line_pct": 90.64,
+      "lines_found": 203
     },
     {
       "path": "synapse-web/routes/extractors/mod.rs",
@@ -2447,6 +2797,11 @@
       "lines_found": 299
     },
     {
+      "path": "synapse-web/routes/federation/pdu.rs",
+      "line_pct": 89.13,
+      "lines_found": 138
+    },
+    {
       "path": "synapse-web/routes/federation/transaction.rs",
       "line_pct": 60.47,
       "lines_found": 645
@@ -2471,8 +2826,14 @@
       "line_pct": 13.73
     },
     {
+      "path": "synapse-web/routes/handlers/account_status.rs",
+      "line_pct": 87.38,
+      "lines_found": 103
+    },
+    {
       "path": "synapse-web/routes/handlers/auth_discovery.rs",
-      "line_pct": 45.1
+      "line_pct": 100.0,
+      "lines_found": 37
     },
     {
       "path": "synapse-web/routes/handlers/client_config.rs",
@@ -2555,6 +2916,11 @@
       "path": "synapse-web/routes/handlers/room/state.rs",
       "line_pct": 70.58,
       "lines_found": 554
+    },
+    {
+      "path": "synapse-web/routes/handlers/room/write_access.rs",
+      "line_pct": 81.03,
+      "lines_found": 58
     },
     {
       "path": "synapse-web/routes/handlers/rtc_transports.rs",
@@ -2659,6 +3025,11 @@
       "lines_found": 182
     },
     {
+      "path": "synapse-web/routes/msc4512_proxy.rs",
+      "line_pct": 79.61,
+      "lines_found": 206
+    },
+    {
       "path": "synapse-web/routes/oidc/builtin.rs",
       "line_pct": 39.66
     },
@@ -2677,6 +3048,11 @@
       "lines_found": 255
     },
     {
+      "path": "synapse-web/routes/one_time_invite.rs",
+      "line_pct": 100.0,
+      "lines_found": 17
+    },
+    {
       "path": "synapse-web/routes/pinned.rs",
       "line_pct": 45.61,
       "lines_found": 57
@@ -2685,6 +3061,11 @@
       "path": "synapse-web/routes/presence.rs",
       "line_pct": 100.0,
       "lines_found": 24
+    },
+    {
+      "path": "synapse-web/routes/public_rooms_filter.rs",
+      "line_pct": 100.0,
+      "lines_found": 64
     },
     {
       "path": "synapse-web/routes/push.rs",
@@ -2835,9 +3216,29 @@
       "lines_found": 643
     },
     {
+      "path": "synapse-web/routes/worker/worker_self_announce.rs",
+      "line_pct": 80.51,
+      "lines_found": 118
+    },
+    {
+      "path": "synapse-web/routes/worker/worker_topology.rs",
+      "line_pct": 96.34,
+      "lines_found": 82
+    },
+    {
       "path": "synapse-web/utils/admin_auth.rs",
       "line_pct": 86.44,
       "lines_found": 354
+    },
+    {
+      "path": "synapse-web/utils/admin_auth/allowlist.rs",
+      "line_pct": 91.18,
+      "lines_found": 34
+    },
+    {
+      "path": "synapse-web/utils/admin_auth/privileged.rs",
+      "line_pct": 100.0,
+      "lines_found": 77
     },
     {
       "path": "synapse-web/utils/auth.rs",
@@ -2848,6 +3249,11 @@
       "path": "synapse-web/utils/ip.rs",
       "line_pct": 94.54,
       "lines_found": 348
+    },
+    {
+      "path": "synapse-web/utils/login_lockout.rs",
+      "line_pct": 93.22,
+      "lines_found": 295
     }
   ]
 }

@@ -487,8 +487,15 @@ impl AdminMediaStorage {
     /// Batch-delete local media by policy: created before `before_ts` OR larger than `max_size`.
     ///
     /// Backs `POST /_synapse/admin/v1/media/delete`.
-    /// Both parameters are optional; a value of `0` means "no limit on that dimension".
-    /// Protected and quarantined rows are skipped.
+    /// Both parameters are optional; a value of `0` disables that dimension. Protected and
+    /// quarantined rows are skipped.
+    ///
+    /// Each dimension must gate **its own** comparison: a disabled dimension contributes nothing
+    /// instead of making the whole predicate true. With the criteria flat-ORed (the shape before
+    /// 2026-10-29) `max_size = 0` alone matched every row, so a "delete media older than X"
+    /// request wiped the entire local store. With both dimensions disabled nothing matches —
+    /// the service layer still rejects that combination with 400 rather than returning a silent
+    /// `0`, because it is a caller mistake, not a policy.
     pub async fn delete_media_by_policy(&self, before_ts: i64, max_size: i64) -> Result<u64, ApiError> {
         // ⚠️ **D-74 同型陷阱**：裸 `$n = 0` 会让 PG 把参数定型成 **int4**，于是宏要求 `i32`，
         // 而公共 API 传的是 `i64`（动态路径靠 sqlx 显式发送 INT8 才没暴露）⇒ 显式 `0::BIGINT`
@@ -498,8 +505,8 @@ impl AdminMediaStorage {
             DELETE FROM media_metadata
             WHERE (quarantine_status IS NULL OR quarantine_status NOT IN ('quarantined', 'protected'))
               AND (
-                    $1 = 0::BIGINT OR created_ts < $1
-                    OR $2 = 0::BIGINT OR size > $2
+                    ($1 <> 0::BIGINT AND created_ts < $1)
+                    OR ($2 <> 0::BIGINT AND size > $2)
                   )
             "#,
             before_ts,
@@ -519,6 +526,9 @@ impl AdminMediaStorage {
     /// so this degrades to deleting local media that matches the access-time
     /// policy (the remote-cache table does not exist in this codebase).
     /// Returns the number of rows deleted.
+    ///
+    /// `before_ts` must be positive: rows with `last_accessed_at IS NULL` match regardless of
+    /// the threshold, so `0` purges every never-accessed item. The service layer enforces this.
     pub async fn purge_media_cache(&self, before_ts: i64) -> Result<u64, ApiError> {
         let result = sqlx::query!(
             r#"
@@ -1326,32 +1336,43 @@ mod admin_read_paths_db_tests {
     }
 
     #[tokio::test]
-    async fn delete_media_by_policy_honours_both_dimensions_and_skips_protected() {
+    async fn delete_media_by_policy_honours_each_dimension_and_skips_flagged_rows() {
         let (_iso, pool) = test_pool().await;
         let storage = AdminMediaStorage::new(&pool);
         let s = uuid::Uuid::new_v4().simple().to_string();
 
-        // 时间维度：ts=100 早于阈值 ⇒ 删；ts=900 不早于阈值且尺寸不大 ⇒ 留
+        // 时间维度：ts=100 早于阈值 ⇒ 删；ts=900 不早且尺寸不大 ⇒ 留
         let old_small = format!("m_old_{s}");
         let new_small = format!("m_new_{s}");
         // 尺寸维度：ts=900 不早但 size=1000 > 500 ⇒ 删
         let new_big = format!("m_big_{s}");
-        // 受保护：早且不大，但 protected ⇒ 两个维度都不动它
+        // 受保护 / 已隔离：两个维度都命中也不许动
         let protected = format!("m_prot_{s}");
+        let quarantined = format!("m_quar_{s}");
         insert_media_row(&pool, &old_small, "@p:test", 1, 100, None, None).await;
         insert_media_row(&pool, &new_small, "@p:test", 1, 900, None, None).await;
         insert_media_row(&pool, &new_big, "@p:test", 1000, 900, None, None).await;
         insert_media_row(&pool, &protected, "@p:test", 1000, 100, None, Some("protected")).await;
+        insert_media_row(&pool, &quarantined, "@p:test", 1000, 100, None, Some("quarantined")).await;
 
-        // (before_ts=500, max_size=500)：两个维度是 OR ⇒ 删 old_small（早）+ new_big（大）
-        assert_eq!(storage.delete_media_by_policy(500, 500).await.expect("policy"), 2);
-        assert!(storage.get_media_info(&new_small).await.expect("kept").is_some());
-        assert!(storage.get_media_info(&protected).await.expect("protected kept").is_some());
+        // 双零 = 两个维度都关掉 ⇒ 不匹配任何行（同日修复前这里是无条件全删）
+        assert_eq!(storage.delete_media_by_policy(0, 0).await.expect("double zero"), 0);
+        assert!(storage.get_media_info(&old_small).await.expect("kept").is_some());
+        assert!(storage.get_media_info(&new_big).await.expect("kept").is_some());
+
+        // 只给时间维度（max_size=0 表示该维度不设限）⇒ 只删 old_small
+        assert_eq!(storage.delete_media_by_policy(500, 0).await.expect("time only"), 1);
         assert!(storage.get_media_info(&old_small).await.expect("deleted").is_none());
+        assert!(storage.get_media_info(&new_big).await.expect("big kept").is_some());
 
-        // `0` 表示该维度不设限：只按时间删（此时只剩 new_small 与 protected）
-        assert_eq!(storage.delete_media_by_policy(0, 0).await.expect("no limits"), 1, "0 是'不设限'不是'匹配 0'");
+        // 只给尺寸维度（before_ts=0 表示该维度不设限）⇒ 只删 new_big
+        assert_eq!(storage.delete_media_by_policy(0, 500).await.expect("size only"), 1);
+        assert!(storage.get_media_info(&new_big).await.expect("deleted").is_none());
+        assert!(storage.get_media_info(&new_small).await.expect("small kept").is_some());
+
+        // 两个被标记的行在任何维度下都保留
         assert!(storage.get_media_info(&protected).await.expect("protected kept").is_some());
+        assert!(storage.get_media_info(&quarantined).await.expect("quarantined kept").is_some());
     }
 
     #[tokio::test]

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM media_metadata\n            WHERE (quarantine_status IS NULL OR quarantine_status NOT IN ('quarantined', 'protected'))\n              AND (\n                    ($1 <> 0::BIGINT AND created_ts < $1)\n                    OR ($2 <> 0::BIGINT AND size > $2)\n                  )\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "cb885dd37671c0e124f8f8ae323e5ec28e2579ce825d596d1eed2722020800ac"
+}

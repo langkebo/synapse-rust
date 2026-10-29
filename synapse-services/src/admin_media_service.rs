@@ -318,10 +318,22 @@ impl AdminMediaService {
     /// Batch-delete local media by policy: created before `before_ts` OR larger than `max_size`.
     ///
     /// Backs `POST /_synapse/admin/v1/media/delete`.
-    /// Both parameters are optional; a value of `0` means "no limit on that dimension".
+    /// Both parameters are optional; a value of `0` disables that dimension, but **at least one
+    /// of them must be positive**. With both disabled the storage predicate selects nothing, so
+    /// the request would be a silent no-op — treated as a caller mistake and rejected with 400.
+    /// Negative values are rejected for the same reason (`size > -1` matches every row).
     /// Protected and quarantined rows are skipped.
     #[instrument(skip(self))]
     pub async fn delete_media_by_policy(&self, before_ts: i64, max_size: i64) -> Result<u64, ApiError> {
+        if before_ts < 0 || max_size < 0 {
+            return Err(ApiError::bad_request("before_ts and max_size must not be negative"));
+        }
+        if before_ts == 0 && max_size == 0 {
+            return Err(ApiError::bad_request(
+                "at least one of before_ts or max_size must be set; refusing to delete every local media item",
+            ));
+        }
+
         let deleted = self.storage.delete_media_by_policy(before_ts, max_size).await?;
         Ok(deleted)
     }
@@ -331,8 +343,18 @@ impl AdminMediaService {
     /// Backs `POST /_synapse/admin/v1/purge_media_cache`.
     /// In this implementation only local media exists, so this degrades to
     /// deleting local media that matches the access-time policy.
+    ///
+    /// `before_ts` is mandatory and must be a positive Unix millisecond timestamp: the storage
+    /// predicate also matches rows whose `last_accessed_at` is `NULL` (locally uploaded media
+    /// that was never fetched back), so `before_ts = 0` would delete every never-accessed item.
     #[instrument(skip(self))]
     pub async fn purge_media_cache(&self, before_ts: i64) -> Result<u64, ApiError> {
+        if before_ts <= 0 {
+            return Err(ApiError::bad_request(
+                "before_ts is required and must be a positive Unix millisecond timestamp",
+            ));
+        }
+
         let purged = self.storage.purge_media_cache(before_ts).await?;
         Ok(purged)
     }
@@ -531,5 +553,107 @@ mod tests {
         let (svc, _store, _q_store) = test_service();
         let changes = svc.get_media_quarantine_changes("nonexistent", 0, 100).await.unwrap();
         assert!(changes.is_empty());
+    }
+
+    // ── S3 P0：破坏性媒体策略端点的入参护栏 ──
+    //
+    // `delete_media_by_policy` / `purge_media_cache` 在服务层原本是零校验透传，而存储谓词
+    // 曾把两个维度平铺成 `$1 = 0 OR ... OR $2 = 0 OR ...`：于是「只按时间删」这种正常请求
+    // （`max_size = 0`）会命中全部媒体，`(0, 0)` 更是无条件清空。存储谓词已修为「每个维度
+    // 只门控自己的比较」，这里再锁死服务层的拒绝语义：双零/负值一律 400 且一行都不动。
+
+    #[tokio::test]
+    async fn delete_media_by_policy_rejects_double_zero_and_keeps_everything() {
+        let (svc, store, _q) = test_service();
+        store.insert_media(sample_media("media-1", "@alice:example.com")).await;
+        store.insert_media(sample_media("media-2", "@bob:example.com")).await;
+
+        let err = svc.delete_media_by_policy(0, 0).await.unwrap_err();
+        assert!(err.is_bad_request(), "双零 ⇒ 400，而不是静默全删（got {}）", err.code_str());
+        assert_eq!(store.get_media_quota().await.unwrap().total_count, 2, "被拒绝的请求不得删除任何行");
+    }
+
+    #[tokio::test]
+    async fn delete_media_by_policy_rejects_negative_dimensions() {
+        let (svc, store, _q) = test_service();
+        store.insert_media(sample_media("media-1", "@alice:example.com")).await;
+
+        // 负值语义上等同"不设限"（`size > -1` 命中所有行），必须与双零同样拒绝
+        for (before_ts, max_size) in [(-1_i64, 500_i64), (500, -1)] {
+            let err = svc.delete_media_by_policy(before_ts, max_size).await.unwrap_err();
+            assert!(err.is_bad_request(), "({before_ts}, {max_size}) 必须 400");
+        }
+        assert_eq!(store.get_media_quota().await.unwrap().total_count, 1, "被拒绝的请求不得删除任何行");
+    }
+
+    #[tokio::test]
+    async fn delete_media_by_policy_allows_a_single_dimension() {
+        let (svc, store, _q) = test_service();
+        store.insert_media(sample_media("media-1", "@alice:example.com")).await; // size = 1024
+
+        // before_ts=0 = 时间维度不设限；max_size=500 ⇒ 这一行命中尺寸维度
+        assert_eq!(svc.delete_media_by_policy(0, 500).await.unwrap(), 1);
+        assert!(store.get_media_info("media-1").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn purge_media_cache_rejects_non_positive_before_ts() {
+        let (svc, store, _q) = test_service();
+        store.insert_media(sample_media("media-1", "@alice:example.com")).await;
+
+        for before_ts in [0_i64, -1] {
+            let err = svc.purge_media_cache(before_ts).await.unwrap_err();
+            assert!(err.is_bad_request(), "before_ts={before_ts} ⇒ 400（否则清掉所有从未被访问的行）");
+        }
+        assert_eq!(store.get_media_quota().await.unwrap().total_count, 1, "被拒绝的请求不得清理任何行");
+    }
+
+    #[tokio::test]
+    async fn purge_media_cache_deletes_with_a_positive_threshold() {
+        let (svc, store, _q) = test_service();
+        store.insert_media(sample_media("media-1", "@alice:example.com")).await; // last_accessed_at = None
+
+        assert_eq!(svc.purge_media_cache(1_700_000_000_000).await.unwrap(), 1);
+        assert!(store.get_media_info("media-1").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn unprotect_media_returns_not_found_for_missing_media_without_audit() {
+        let (svc, _store, q_store) = test_service();
+
+        let err = svc.unprotect_media("missing", "@admin:example.com").await.unwrap_err();
+        assert!(err.is_not_found(), "缺失行 ⇒ 404，不能把空操作报成成功");
+        assert_eq!(q_store.get_current_stream_id().await.unwrap(), 0, "失败的请求不得写审计流");
+    }
+
+    #[tokio::test]
+    async fn unprotect_media_returns_not_found_for_unprotected_media_without_audit() {
+        let (svc, store, q_store) = test_service();
+        store.insert_media(sample_media("media-1", "@alice:example.com")).await; // quarantined/protected = false
+
+        let err = svc.unprotect_media("media-1", "@admin:example.com").await.unwrap_err();
+        assert!(err.is_not_found());
+        assert!(
+            err.to_string().contains("was not protected"),
+            "必须区分「本来就没有保护」与「媒体不存在」，实际错误: {err}"
+        );
+        assert_eq!(q_store.get_current_stream_id().await.unwrap(), 0, "失败的请求不得写审计流");
+    }
+
+    #[tokio::test]
+    async fn unprotect_media_clears_status_and_records_audit_with_the_actor() {
+        let (svc, store, q_store) = test_service();
+        let mut protected = sample_media("media-1", "@alice:example.com");
+        protected.quarantined = true; // mock 用 quarantined 代表 protected
+        store.insert_media(protected).await;
+
+        let stream_id = svc.unprotect_media("media-1", "@admin:example.com").await.unwrap();
+        assert_eq!(stream_id, 1);
+        assert!(!store.get_media_info("media-1").await.unwrap().unwrap().quarantined, "protected 状态必须被清掉");
+
+        let changes = q_store.get_changes_by_media("media-1", 0, 10).await.unwrap();
+        assert_eq!(changes.len(), 1, "成功路径必须恰好写一条审计");
+        assert_eq!(changes[0].change_type, "unprotect");
+        assert_eq!(changes[0].changed_by, "@admin:example.com", "审计必须记录操作者，而不是被操作的用户");
     }
 }
