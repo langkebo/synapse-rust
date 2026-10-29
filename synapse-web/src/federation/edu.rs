@@ -976,8 +976,8 @@ async fn handle_sticky_event_edu(
     let sticky_duration_ms = content.get("sticky_duration_ms").and_then(|v| v.as_i64());
 
     // Persist the sticky event metadata from federation.
-    // When is_sticky=true, store with the origin server as the user_id (federated sticky events
-    // are server-level, not tied to a specific local user).
+    // `user_id` holds the **bare origin** server name ⇒ a room-level row visible to the whole
+    // room. UG-7 前该列有指向 `users` 的外键 ⇒ 每次写入都失败、远端置顶从未落库（已去 FK）。
     // When is_sticky=false, clear the sticky event for that event_type.
     let result = if is_sticky {
         ctx.room_service.set_is_sticky_event(&room_id, origin, &event_id, &event_type, true, sticky_duration_ms).await

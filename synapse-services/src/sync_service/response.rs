@@ -133,9 +133,12 @@ impl SyncService {
             self.get_device_lists(user_id, since_token),
         )?;
 
-        // MSC4354: Pre-fetch all room IDs where this user has sticky events.
-        // This is a cheap DISTINCT query; if it fails we fail-open (empty set).
-        let sticky_rooms: HashSet<String> = self.get_sticky_event_rooms(user_id).await.into_iter().collect();
+        // MSC4354: pre-fetch the rooms **in this response** with pins the user can see —
+        // own rows ∪ federation's room-level rows (`user_id NOT LIKE '@%'`). Bounded by
+        // `rooms_to_include`: with room-level rows in scope an unbounded prefetch would
+        // degenerate into "every room any peer ever pinned". Fail-open on error.
+        let sticky_rooms: HashSet<String> =
+            self.get_sticky_event_rooms(user_id, &rooms_to_include).await.into_iter().collect();
         let presence_events = Self::apply_sync_filter_to_values(
             presence_events,
             response_filter.and_then(|filter| filter.presence.as_ref()),
@@ -260,17 +263,16 @@ impl SyncService {
                 state_after_is_unstable,
             });
 
-            // MSC4354: inject sticky_events for v2 /sync response.
-            // Only fetch for rooms that have sticky events configured, avoiding
-            // a query on every room of a wide initial sync (the sticky_rooms
-            // set was pre-fetched in the try_join above).
+            // MSC4354: inject sticky_events. Only fetch for rooms flagged by the
+            // pre-fetch above, so a wide initial sync does not query every room.
             //
-            // C2（§19.5 批次 C）：这里与 `GET /rooms/{room_id}/sticky_events`
-            // 落到**同一个** per-user 读取 `StickyEventStorage::get_all_is_sticky_events(room_id, user_id)`
-            // （过期过滤 `is_sticky = true AND (expires_at IS NULL OR expires_at > now)` 也在该读取内），
-            // 因此对任一 (room, user)，`/sync` 的 `sticky_events` 集合**恒等于** `GET` 端点返回的集合。
-            // 直接后果：新加入房间的成员在该读取下集合为空（sticky 是 per-user 的，无 per-room 广播抄本），
-            // `/sync` 与 `GET` 两路同时为空 —— 二者恒等，无需在加入路径补发。
+            // C2（§19.5 批次 C）：与 `GET /rooms/{room_id}/sticky_events` 落到**同一个**
+            // `get_all_is_sticky_events(room_id, user_id)`（过期过滤也在该读取内）⇒ 两者集合恒等。
+            //
+            // UG-7（2026-10-29）：该读取现为「本人行 ∪ 房级行」，故新加入的成员也能看到远端置顶；
+            // 旧注释「sticky 是 per-user 的 ⇒ 加入路径无需补发」只在「只写本人行」时成立，已改判。
+            // **仍未做**：per-destination catch-up（#20165）与加入时定向补发（#20233），二者都需要
+            // sticky EDU 位点，而 `synapse-federation/src/edu.rs` 尚无该位点索引。
             if let Some(storage) = self.sticky_event_storage.as_ref() {
                 if sticky_rooms.iter().any(|r| r == room_id) {
                     if let Ok(events) = storage.get_all_is_sticky_events(room_id, user_id).await {
@@ -817,16 +819,13 @@ impl SyncService {
         })
     }
 
-    /// MSC4354 helper: pre-fetch all room IDs where the given user has
-    /// at least one sticky event configured.
-    ///
-    /// Returns `Vec<String>` of room IDs with sticky events for `user_id`.
-    /// The query is fail-open: if `sticky_event_storage` is `None` or
-    /// returns an error, an empty vector is returned so /sync succeeds
-    /// without sticky data rather than failing the whole request.
-    async fn get_sticky_event_rooms(&self, user_id: &str) -> Vec<String> {
+    /// MSC4354 helper: out of `room_ids`, the rooms where the user sees at least one
+    /// sticky event (own rows ∪ federation's room-level rows). Fail-open: a `None`
+    /// storage or an error yields an empty vector, so /sync keeps working without
+    /// sticky data instead of failing.
+    async fn get_sticky_event_rooms(&self, user_id: &str, room_ids: &[String]) -> Vec<String> {
         match &self.sticky_event_storage {
-            Some(storage) => match storage.get_rooms_with_is_sticky_events(user_id).await {
+            Some(storage) => match storage.get_rooms_with_is_sticky_events(room_ids, user_id).await {
                 Ok(rooms) => rooms,
                 Err(e) => {
                     ::tracing::warn!(

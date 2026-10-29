@@ -1354,14 +1354,10 @@ impl UserStorage {
             return Ok(cached);
         }
 
-        // R4 ①：`match_score`（算术表达式）与 `match_type`（`CASE`）都没有关系来源 ⇒ sqlx 推成
-        // 可空，而结构体字段是 `i32` / `String` ⇒ 断言（谁保证非空：两列都是**恒有值**的表达式，
-        // 不存在 NULL 分支）。
-        // ⚠️ **D-20 实测**：LEFT JOIN 外侧的 `p.presence` 在表里是 `NOT NULL`，PG 会把 NOT NULL
-        // **透传**给连接结果 ⇒ 宏按非空推断生成 `String`，而没有 presence 行时运行期是 NULL ⇒
-        // `ColumnDecode { index: 5, UnexpectedNullError }`（**编译器不报**，只有真库往返才暴露）
-        // ⇒ 必须写 `AS "presence?"` / `AS "last_active_ts?"` 覆盖回可空。
-        // `COALESCE(u.displayname, u.username) AS displayname` 天然可空，与 `Option` 字段一致。
+        // R4 ①/D-20：`match_score`/`match_type` 是无关系来源的表达式，宏按非空推断；LEFT JOIN
+        // 外侧的 `p.presence` 虽 `NOT NULL`，PG 对连接结果**不透传**非空 ⇒ 无 presence 行时运行期
+        // 为 NULL，触发 `ColumnDecode{index:5,UnexpectedNullError}`（编译器不报）⇒ 必须
+        // `AS "presence?"` / `AS "last_active_ts?"`；`COALESCE(...)` 天然可空。
         let rows = sqlx::query_as!(
             UserDirectorySearchResult,
             r#"
@@ -1541,7 +1537,11 @@ impl UserStorage {
     /// See [`delete_user`].
     pub async fn delete_user(&self, user_id: &str) -> Result<(), sqlx::Error> {
         tracing::info!(user_id = %user_id, "Deleting user");
-        sqlx::query!(r#"DELETE FROM users WHERE user_id = $1"#, user_id).execute(&*self.pool).await?;
+        // room_sticky_events 已无 users 外键（UG-7）⇒ 置顶行清理改为显式、与删用户同事务。
+        let mut tx = self.pool.begin().await?;
+        sqlx::query!(r#"DELETE FROM room_sticky_events WHERE user_id = $1"#, user_id).execute(&mut *tx).await?;
+        sqlx::query!(r#"DELETE FROM users WHERE user_id = $1"#, user_id).execute(&mut *tx).await?;
+        tx.commit().await?;
         Ok(())
     }
 

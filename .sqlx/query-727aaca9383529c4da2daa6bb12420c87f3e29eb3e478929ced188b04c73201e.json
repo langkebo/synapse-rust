@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT room_id, user_id, event_id, event_type, is_sticky,\n                   sticky_duration_ms, expires_at, created_ts, updated_ts\n            FROM room_sticky_events\n            WHERE room_id = $1 AND user_id = $2 AND is_sticky = true\n              AND (expires_at IS NULL OR expires_at > $3)\n            ORDER BY event_type\n            ",
+  "query": "\n            SELECT room_id, user_id, event_id, event_type, is_sticky,\n                   sticky_duration_ms, expires_at, created_ts, updated_ts\n            FROM room_sticky_events\n            WHERE room_id = $1 AND event_type = $3 AND is_sticky = true\n              AND (expires_at IS NULL OR expires_at > $4)\n              AND (user_id = $2 OR user_id NOT LIKE '@%')\n            ORDER BY (user_id = $2) DESC, updated_ts DESC, id DESC\n            LIMIT 1\n            ",
   "describe": {
     "columns": [
       {
@@ -53,6 +53,7 @@
       "Left": [
         "Text",
         "Text",
+        "Text",
         "Int8"
       ]
     },
@@ -68,5 +69,5 @@
       false
     ]
   },
-  "hash": "60488f923a1f84227230f656d9b5e1decfed96a90bd25dc885a8ef7663a26d4b"
+  "hash": "727aaca9383529c4da2daa6bb12420c87f3e29eb3e478929ced188b04c73201e"
 }

@@ -656,10 +656,8 @@ impl RoomService {
                 }
             })?;
 
-        // MSC4354 Federation broadcast: notify peers about sticky event change
-        // Only broadcast if this originated locally (not from federation).
-        // We determine this by checking if user_id matches our server name (federated
-        // updates use the origin server as user_id to avoid conflicts).
+        // MSC4354: broadcast to peers. Anti-loop lives in `broadcast_sticky_event_update`
+        // (it compares the server segment); this condition holds for local users too.
         if is_sticky && user_id != self.server_name {
             self.broadcast_sticky_event_update(room_id, user_id, event_id, event_type, true, sticky_duration_ms)
                 .await?;
@@ -704,8 +702,7 @@ impl RoomService {
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to clear sticky event", e))?;
 
-        // MSC4354 Federation broadcast: notify peers about sticky event removal
-        // Only broadcast if this originated locally (not from federation).
+        // MSC4354: broadcast the removal. Anti-loop: see `broadcast_sticky_event_update`.
         if user_id != self.server_name {
             self.broadcast_sticky_event_update(room_id, user_id, "", event_type, false, None).await?;
         }
@@ -730,10 +727,9 @@ impl RoomService {
         is_sticky: bool,
         sticky_duration_ms: Option<i64>,
     ) -> ApiResult<()> {
-        // Anti-loop: never re-broadcast a change that originated from a federated
-        // peer (inbound handler persists under the remote origin as user_id).
-        // For local users, user_id follows "@user:server.example.com" format;
-        // for federated updates, user_id is just the origin server name.
+        // Anti-loop: never re-broadcast a change that originated from a federated peer.
+        // 入站 EDU 用远端裸 origin 作 `user_id`（无 `:` ⇒ `next_back()` 取整串），本地
+        // 用户是 `@u:server`；这是**唯一**的反环判断，删掉后两个服务器会互相转发。
         let sender_server = user_id.split(':').next_back().unwrap_or(user_id);
         if sender_server != self.server_name {
             tracing::debug!(

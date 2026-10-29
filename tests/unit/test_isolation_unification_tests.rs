@@ -282,7 +282,20 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // 248615 字节 ⇒ FNV-1a 64 = `5abd723ba9424fd6`。自检：复算改动前的
 // `1ab01c9a9^:migrations/…v12.sql`（247657 字节）得 `1694426daf4fb659`，
 // 与改动前常量逐字节吻合，证明哈希实现未变后才取新值。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "5abd723ba9424fd6";
+// 2026-10-29（UG-7 联邦置顶：摘掉 `room_sticky_events.user_id` → `users.user_id` 外键，
+// 让联邦 EDU 以裸 origin 落"房级行"；建表处删约束 + 尾部补一条
+// `DROP CONSTRAINT IF EXISTS` 让存量库/测试模板也能收敛）：基线 248615 →
+// 250174 字节 ⇒ FNV-1a 64 = `04fe5b9e7cd338c7`。自检：复算改动前的
+// `HEAD:migrations/…v12.sql`（248615 字节）得 `5abd723ba9424fd6`，
+// 与改动前常量逐字节吻合，证明哈希实现未变后才取新值。
+// 2026-10-29（UG-7 补第二道闸门：v11-02 的 `ck_%I_user_id_format` 循环给该表生成的
+// `ck_room_sticky_events_user_id_format` 只接受 Matrix id，裸 origin 的房级行被 23514
+// 拒绝 ⇒ 同一段尾部按表 DROP 后重声明为「Matrix id 或裸 server name」）：基线
+// 250174 → 251100 字节 ⇒ FNV-1a 64 = `927f107dfec99a29`。自检：复算改动前常量
+// `04fe5b9e7cd338c7` 那个版本（250174 字节）时，测试模板名实测即为
+// `test_isolation_template_04fe5b9e7cd338c7`（运行期证据）；另复算 `HEAD`（248615
+// 字节）得 `5abd723ba9424fd6`，与上一轮记录吻合。
+const EXPECTED_BASELINE_FINGERPRINT: &str = "927f107dfec99a29";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))

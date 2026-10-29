@@ -126,7 +126,6 @@
 1003 synapse-services/src/widget_service.rs
 998 synapse-services/src/event_notifier.rs
 994 synapse-storage/src/sliding_sync/repository.rs
-989 synapse-storage/src/sticky_event.rs
 985 synapse-storage/src/server_notification/repository.rs
 979 synapse-storage/src/cas/db_tests.rs
 967 synapse-services/src/room/service.rs

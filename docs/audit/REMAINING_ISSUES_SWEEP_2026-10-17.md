@@ -112,7 +112,7 @@ L-4…L-8 的结论不变（其中 L-7 仍需一次专门时段）。
 | **L-2** | `worker.worker_app` **配置项从未被读取** | `synapse-common/src/config/worker.rs:19` 定义；全仓除测试无读点 | 要么接线（决定 worker 形态），要么删字段并在示例配置里注明"保留未实现" |
 | **L-3** | `stream_writers` 是**纯声明面** | 只有 `worker_topology.rs` 的解析/校验与测试消费，写路径无消费者 | 明确写成"仅声明，尚无消费者"，或在 `GET /_synapse/worker/v1/topology` 的 `valid` 里降级提示 |
 | **L-4** | ~~`preview_url` 仍是**桩**~~ → **已实现（2026-10-22）** | 当时 `media_service.rs:974` 只回 `{"url"}`（不含任何抓取）；现在走 `synapse-services/src/url_preview.rs`：钉扎 IP 抓取 + 逐跳 SSRF 重校验 + 重定向/体积上限，输出 `og:title`/`og:description` | 保持诚实桩即可；若要做真抓取，需同时做 DNS 钉扎与 SSRF 白名单（不是小改动） |
-| **L-5** | MSC4354 sticky **无逐 destination 增量补发** | 有 `EduType::StickyEvent`（`synapse-federation/src/edu.rs:38`）与启动重放，但无 per-destination 位点 | 等上游 MSC 定稿；当前形态已在对比报告登记为残余 |
+| **L-5** | MSC4354 sticky **联邦路径是断的**（不只是"无逐 destination 补发"）；**已修复（2026-10-29，见 §9.2）** | 2026-10-29 复核：① 入站 `handle_sticky_event_edu`（`synapse-web/src/federation/edu.rs`）把 EDU 的 `origin`（裸服务器名）当 `user_id` 写库，撞 `fk_room_sticky_events_user`（`migrations/00000000_unified_schema_v12.sql:648`）⇒ **远端置顶从未落库**；② 三条读路径（`/sync`、滑动同步、`GET .../sticky_events`）全 `WHERE user_id = <本地 user>` ⇒ 即便落库也不可见；③ `synapse-federation/src/edu.rs` 只有 `EduType::StickyEvent` 映射，无 per-destination 位点 | **已修复**（迁移去 FK + 读路径「本人 ∪ 房级」+ 预取限定 + `delete_user` 显式清理）；**仍缺** #20165/#20233，见 §9.2 |
 | **L-6** | 稳定 `/{keyName}` profile 路由**未注册**，但 `/versions` 已声明 `m.profile_fields` | `capability_governance.rs:154` 自带 `GAP:` 注释；派生表里只有 `unstable/uk.tcpip.msc4133/...` | 二选一：注册稳定路由（契约链要同步），或在能力里改为 `false`。**声明与实现相反**是最该避免的形态 |
 | **L-7** | **全量集成套件从未跑完** | 历次只跑高风险子集（59 条 + 手工 18 条 + 装配 3 条）；文档自认 ~2 h | 拆成"可并行的小 lane"再跑一次全量；否则"没跑过"会一直是无法量化的风险 |
 | **L-8** | 20+ 处 `#[ignore]`（有理由，守卫强制） | `tests/e2e/user_flow_tests.rs` 7、`performance/*` 4、`pagination_gate_tests` 3 等；`e2e_honesty_tests` 强制每个 ignore 都写理由 | 保持现状（有理由即可）；建议给"需要真实 homeserver"的那批加一个可选的 `just e2e` 入口 |
@@ -293,7 +293,83 @@ L-4…L-8 的结论不变（其中 L-7 仍需一次专门时段）。
 | ID | 状态 | 为什么不在本轮 |
 | --- | --- | --- |
 | **L-4** `preview_url` 桩 | ~~保持~~ → **已做（2026-10-22）** | 真抓取所需的 DNS 钉扎 + SSRF 白名单已在 `synapse-common`（`check_url_and_resolve` + `pinned_client_for_url`），本轮补上抓取本体与 OG 提取；`og:image` 仍不做（要媒体镜像 + 隔离检查） |
-| **L-5** sticky 无逐 destination 补发 | 保持 | 等上游 MSC 定稿；当前形态已在对比报告登记为残余 |
+| **L-5** sticky 联邦路径 | **已改判并修复（2026-10-29，见 §9.2）** | 原文"等上游 MSC 定稿"建立在"远端置顶能落库、只是不补发"的错误前提上；实际是入站外键违约 ⇒ 从未落库 |
 | **L-7** 全量集成套件 | 保持 | 需一次专门时段（~2 h 串行）；本轮只跑受影响的子集 |
 | **L-8** `#[ignore]` 20+ 处 | 保持 | 每处都有理由且被 `e2e_honesty_tests` 强制；建议给"需真实 homeserver"那批加 `just e2e` 入口 |
 | **A5** live 联邦互操作 | 保持 | 需双主机名 + 互信 CA |
+
+## 9. 2026-10-29 全清单复核
+
+复核方法：只认**当前 HEAD 可执行/可读到的证据**，不引用历史结论。凡与原文冲突的，下文给出
+文件与行号；凡本轮未取证的条目，保持原判并标注"未复核"。
+
+### 9.1 本轮更正（原文已过期）
+
+| 条目 | 原判 | 现判 | 证据 |
+| --- | --- | --- | --- |
+| **L-4 / UG-6** `preview_url` | 桩 | **已实现，无残余** | `synapse-services/src/url_preview.rs:183` 发起真实抓取；`synapse-common/src/http_client.rs:125` 的 `pinned_client_for_url` 做 DNS 钉扎；逐跳 SSRF 重校验 + 重定向/体积上限；输出 `og:title`/`og:description`（`og:image` 刻意不做） |
+| **R8 / UG-11** 注销退房 | "退房仍为同步逐房" | **已异步可重试，无残余** | `user_pending_deactivations` 表（基线 §3039）+ `AccountDeactivationService::process_pending_parts()`；对应上游 `add_user_pending_deactivation` + `_user_parter_loop` |
+| **覆盖率 134+6** | 待逐条定性 | **已出实测分档** | `classify_coverage_drift.py` 跑完整 lcov：677 文件 / 683 基线 / 3394 磁盘源码；`LOST-HITS 3 + DROP 101 + DENOM 77`，另有 `GONE-NOT-BUILT 3 + GONE-SOURCE 4 + NEW-FILE 1 + RISE 19 + EQUAL 434`。3 条 `LOST-HITS` 全部**分母不变、命中绝对减少** ⇒ 唯三可判真回归的条目；101 条 `DROP` 因基线未记 `lines_found` 仍不可归因，**禁用 `--update` 的理由未消失** |
+| **L-5 / UG-7** sticky 联邦 | 无 per-destination 补发 | **原判比实际轻**：入站从未落库 + 读路径不可见 + 无 catch-up（三处串联）⇒ **已修复（2026-10-29）**：迁移去掉 `fk_room_sticky_events_user`、三条读路径改「本人 ∪ 房级」、预取限定 `rooms_to_include`、`delete_user` 显式清理；**仍缺** per-destination 位点（#20165）与新成员补发（#20233） | 见 §9.2 |
+
+### 9.2 L-5 的重新定性（比原文严重一个层级）与修复（已实施）
+
+原判"有类型映射与启动重放，只是缺 per-destination 位点"，隐含前提是**远端置顶能写入**。
+复核发现前提不成立，按数据流顺序有三处独立缺陷（下述行号均为**修复前**取证时的位置，
+用于说明当时判据；修复后的实际位置见本节末「落点」）：
+
+1. **入站写不进去**：`synapse-web/src/federation/edu.rs::handle_sticky_event_edu` 用
+   `ctx.room_service.set_is_sticky_event(&room_id, origin, &event_id, &event_type, true, …)`，
+   把 EDU 的 `origin`（形如 `remote.example.com`，**裸服务器名**）直接当 `user_id`。
+   而 `room_sticky_events` 带 `CONSTRAINT fk_room_sticky_events_user FOREIGN KEY (user_id)
+   REFERENCES users(user_id) ON DELETE CASCADE`（`migrations/00000000_unified_schema_v12.sql:648`）
+   —— `users` 表里没有 `remote.example.com` 这一行。⇒ 每条入站置顶都是一次外键违约，
+   只留下 warn 日志 + `federation_inbound_sticky_event_error_total` 计数。
+2. **读路径按本地 user 过滤**：`synapse-services/src/sync_service/response.rs:275` 与
+   `synapse-services/src/sliding_sync_service/filters.rs:230` 都走
+   `get_all_is_sticky_events(room_id, user_id)`，`GET /rooms/{id}/sticky_events` 同款；
+   `sticky_rooms` 预取（`response.rs:827` 的 `get_rooms_with_is_sticky_events(user_id)`）
+   也只按本人。⇒ 即使第 1 条修好、房级行落库成功，本地成员也读不到它。
+3. **无 catch-up**：`synapse-federation/src/edu.rs` 只有 `EduType::StickyEvent` 与字符串映射
+   （L38/78/97），没有 per-destination 位点。⇒ 新加入成员与断连期间丢失的置顶无法补齐。
+
+修复方案（**2026-10-29 已实施**）：
+
+- **迁移**：移除 `fk_room_sticky_events_user`（房级行的 owner key 是 origin server 名，
+  天然不在 `users` 表里；建表处不再声明，并在基线尾部补幂等 `DROP CONSTRAINT IF EXISTS`，
+  存量库/测试模板同路收敛）。同一段尾部还要**覆盖 v11-02 的 `ck_%I_user_id_format` 循环**：
+  它给该表生成的 `ck_room_sticky_events_user_id_format` 只接受 Matrix id，裸 origin 会被
+  23514 拒绝 ⇒ 同一段里 `DROP` 后重声明为「Matrix id **或** 裸 server name」（实测：不加这
+  一条时 `db_tests_room_level` 直接 23514 失败）。相应地**不能再依赖 FK 级联**做用户删除
+  清理，改为在 `UserStorage::delete_user`（`synapse-storage/src/user/storage.rs:1542`）
+  事务内显式删除该用户的 sticky 行。迁移改动同步了
+  `tests/unit/test_isolation_unification_tests.rs` 的 **FNV-1a 64 指纹常量**（规则 R10：
+  先用改动前常量自检哈希实现，再取新值；实测 248615 → 250174 → 251100 字节，
+  `5abd723ba9424fd6` → `04fe5b9e7cd338c7` → `927f107dfec99a29`）。
+- **读路径**：改为「本人 ∪ 房级」（房级行的判据是 `user_id` 不以 `@` 开头），并用
+  `DISTINCT ON (event_type)` 保证「每类型一条」的既有语义、本人行优先。
+- **预取**：`sticky_rooms` 由「本人 pin 的房间」扩为「本人 pin ∪ 有房级 pin 且属于本次
+  `rooms_to_include` 的房间」；`get_rooms_with_is_sticky_events` 因此改为
+  `(&self, room_ids: &[String], user_id: &str)`（`room_id = ANY($1::text[])`）。
+- **反环**：`broadcast_sticky_event_update` 里 `user_id.split(':').next_back() != server_name`
+  已能拦住无冒号的 origin，保持不动；但 `set_is_sticky_event` 外层那个
+  `user_id != self.server_name` 不再承担反环职责，注释已改。
+- **仍不做（如实登记）**：per-destination 位点的增量补发（#20165）与新成员补发（#20233）。
+  本轮只让"在线的远端置顶"能落库并可见；断连窗口与新成员入房仍会漏。
+
+**落点（修复后实际位置）**：读路径 `synapse-storage/src/sticky_event.rs` 的
+`get_is_sticky_event` / `get_all_is_sticky_events` / `get_rooms_with_is_sticky_events`；
+`/sync` 调用点 `synapse-services/src/sync_service/response.rs:278`，预取
+`response.rs:826`（`get_sticky_event_rooms` → 传 `&rooms_to_include`）；
+滑动同步 `synapse-services/src/sliding_sync_service/filters.rs:236`；
+删用户清理 `synapse-storage/src/user/storage.rs:1542`；基线尾部幂等 DROP 在
+`migrations/00000000_unified_schema_v12.sql:5571-5593`（建表处的 FK 已不存在；5571-5583 是
+外键 DROP，5585-5593 是 `ck_room_sticky_events_user_id_format` 的放宽覆盖）。
+判据：`sticky_event.rs::db_tests_room_level::test_room_level_pin_is_visible_to_every_member` 与
+`tests/integration/api_sticky_event_tests.rs::room_level_pins_are_visible_to_members_and_yield_to_own_pins`。
+
+### 9.3 未复核（保持原判）
+
+L-1（MSC4242 残留）、L-2（`worker_app`）、L-3（`stream_writers`）、L-6（`/{keyName}` 稳定路由）、
+L-7（全量集成套件）、L-8（`#[ignore]`）、A5（live 联邦互操作）本轮**未重新取证**，结论沿用
+§3 与 §8。若要动它们，需按 §9 的方法重新出证据再改判。

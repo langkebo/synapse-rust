@@ -644,8 +644,13 @@ CREATE TABLE IF NOT EXISTS room_sticky_events (
     CONSTRAINT ck_room_sticky_events_duration_positive CHECK (
         sticky_duration_ms IS NULL OR sticky_duration_ms > 0
     ),
-    CONSTRAINT fk_room_sticky_events_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE,
-    CONSTRAINT fk_room_sticky_events_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+    -- ⚠️ `user_id` **不**外键到 `users`（2026-10-29，UG-7）：远端置顶以 origin
+    --   服务器名（裸 server name，不带 `@`）作为 `user_id` 写入**房级行**，那种值
+    --   在 `users` 里不存在。旧 `fk_room_sticky_events_user` 会把这类行判成外键违约
+    --   直接拒绝 ⇒ 远端置顶**从未落库**（只剩 `federation_inbound_sticky_event_error_total`）。
+    --   判据：`user_id LIKE '@%'` ⇒ 用户行；否则 ⇒ 房级行（见 `StickyEventStorage` 读路径）。
+    --   代价：删用户不再级联清理其置顶行，改由 `UserStorage::delete_user` 显式删。
+    CONSTRAINT fk_room_sticky_events_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE
 );
 
 
@@ -5562,6 +5567,30 @@ END $$;
 -- `idx_room_sticky_events_user_sticky` 之上再加一棵全量 btree。
 CREATE INDEX IF NOT EXISTS idx_room_sticky_events_expires_at
     ON room_sticky_events(expires_at) WHERE is_sticky AND expires_at IS NOT NULL;
+
+-- 2026-10-29（UG-7 联邦置顶）：摘掉 `room_sticky_events.user_id` → `users.user_id` 的外键。
+--
+-- 上面的 `CREATE TABLE IF NOT EXISTS room_sticky_events` 只对**新库**生效；存量库/测试
+-- 模板里的旧外键必须由幂等 DROP 摘掉（与 `application_services.url`、上面两条 `ck_*`
+-- 同构），否则远端 EDU 落库仍是外键违约。
+--
+-- 为什么移除：远端置顶以 **origin 服务器名**（裸 server name）作 `user_id` 写房级行，
+-- 该值不在 `users` 表里；旧外键让 `handle_sticky_event_edu` 的每次写入都失败
+-- （`synapse-web/src/federation/edu.rs`），远端置顶因此从未落库。
+-- 代价与补偿：删用户不再由外键级联清理其置顶行 ⇒ `UserStorage::delete_user` 在同一
+-- 事务里显式 `DELETE FROM room_sticky_events WHERE user_id = $1`。房级行随房间删除，
+-- 由 `fk_room_sticky_events_room` 照常级联。
+ALTER TABLE room_sticky_events DROP CONSTRAINT IF EXISTS fk_room_sticky_events_user;
+
+-- 同一张表还有**第二道**闸门：上面 v11-02 的 `ck_%I_user_id_format` DO 循环按
+-- 「所有 text `user_id` 都是 Matrix id」统一生成 `ck_room_sticky_events_user_id_format`，
+-- 裸 server name（房级行）会被判 23514 直接拒绝 —— 与刚摘掉的外键是同一病症。
+-- 这里按表覆盖（DROP + 重声明），放宽为「Matrix 用户 id **或** 裸 server name」：
+-- 两支互斥（用户 id 以 `@` 开头，server name 的字符类不含 `@`），且都非空 ⇒ 空串仍被拒。
+-- 不加 `NOT VALID`：新约束比旧约束更宽松，存量行必然满足，无需全表校验之外的特权。
+ALTER TABLE room_sticky_events DROP CONSTRAINT IF EXISTS ck_room_sticky_events_user_id_format;
+ALTER TABLE room_sticky_events ADD CONSTRAINT ck_room_sticky_events_user_id_format
+    CHECK (user_id ~ '^@[a-zA-Z0-9._=+./-]+:[a-zA-Z0-9.-]+$' OR user_id ~ '^[a-zA-Z0-9.-]+$');
 
 -- ============================================================
 -- 废弃表清理：让老库与新库收敛（2026-10-15，方案 B5.3）

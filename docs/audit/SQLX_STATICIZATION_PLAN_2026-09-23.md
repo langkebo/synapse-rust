@@ -2194,8 +2194,15 @@ BASELINE_DYNAMIC_PRODUCTION=105
 BASELINE_DYNAMIC_TEST_INFRA=842
 BASELINE_STATIC=1360
 BASELINE_QUERY_BUILDER=17
-SQLX_CACHE_ENTRIES=1322
+SQLX_CACHE_ENTRIES=1323
 <!-- sqlx-plan-numbers:end -->
+
+> **2026-10-29 更新（UG-7：sticky 读路径改「本人行 ∪ 房级行」）**，数字块一项：
+> - `SQLX_CACHE_ENTRIES` **1322 → 1323**（净 +1）：`synapse-storage/src/sticky_event.rs` 三条读
+>   语句的文本随谓词改动（3 出 3 入，`query_as!` / `query_scalar!` 形态不变），
+>   `synapse-storage/src/user/storage.rs` 的 `delete_user` 新增 1 条显式清理
+>   `DELETE FROM room_sticky_events WHERE user_id = $1`（补齐 UG-7 移除的外键级联语义）。
+> - 生产 105 / 测试 842 / 静态 1360 / QueryBuilder 17 均不变。
 
 > **2026-10-28 更新（census 分区缺陷修复，`check_sqlx_dynamic_ratio` 由红转绿）**，两项数字：
 > - `BASELINE_DYNAMIC_PRODUCTION` **106 → 105**（−1）：10-26 那条"已按实测收紧到零余量（106）"
