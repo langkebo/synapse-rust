@@ -61,21 +61,37 @@ fn list_entries() -> Vec<String> {
 /// `--save-baseline` defaults to `--baseline`, which lives in the temp dir.
 fn run_ratchet(list: &Path, records: &[(&str, u32, u32)], baseline: &[(&str, f64)]) -> (i32, String) {
     let dir = tempfile::tempdir().expect("a temp dir must be creatable");
-    let report = dir.path().join("probe.info");
-    let baseline_file = dir.path().join("baseline.json");
+    let baseline_entries: Vec<String> =
+        baseline.iter().map(|(path, pct)| format!("{{\"path\":\"{path}\",\"line_pct\":{pct}}}")).collect();
+    let (code, output, _saved) = run_ratchet_in(dir.path(), list, None, records, &baseline_entries);
+    (code, output)
+}
+
+/// `run_ratchet` 的完整版：可以让调用方指定 `--core-files`，并自定义基线条目
+/// （`[CORE-KNOWN]` 的用例需要先埋一个 `target` 字段）。
+///
+/// 返回 `(exit_code, combined_output, saved_baseline_json)`；`saved` 是脚本按
+/// `--save-baseline` 默认写回 `--baseline` 之后的内容。
+fn run_ratchet_in(
+    workdir: &Path,
+    list: &Path,
+    core: Option<&Path>,
+    records: &[(&str, u32, u32)],
+    baseline_entries: &[String],
+) -> (i32, String, String) {
+    let report = workdir.join("probe.info");
+    let baseline_file = workdir.join("baseline.json");
 
     let mut lcov = String::new();
     for (path, lines_found, lines_hit) in records {
         lcov.push_str(&format!("SF:{path}\nLF:{lines_found}\nLH:{lines_hit}\nend_of_record\n"));
     }
     fs::write(&report, lcov).expect("synthetic lcov must be writable");
-
-    let entries: Vec<String> =
-        baseline.iter().map(|(path, pct)| format!("{{\"path\":\"{path}\",\"line_pct\":{pct}}}")).collect();
-    fs::write(&baseline_file, format!("{{\"files\":[{}]}}\n", entries.join(",")))
+    fs::write(&baseline_file, format!("{{\"files\":[{}]}}\n", baseline_entries.join(",")))
         .expect("synthetic baseline must be writable");
 
-    let output = Command::new("python3")
+    let mut command = Command::new("python3");
+    command
         .arg(script_path())
         .arg("--report")
         .arg(&report)
@@ -86,13 +102,19 @@ fn run_ratchet(list: &Path, records: &[(&str, u32, u32)], baseline: &[(&str, f64
         .arg("--new-file-floor")
         .arg("30")
         .arg("--non-unit-coverable")
-        .arg(list)
-        .current_dir(repo_root())
-        .output()
-        .expect("python3 must be runnable");
+        .arg(list);
+    if let Some(core_list) = core {
+        command.arg("--core-files").arg(core_list);
+    }
+    let output = command.current_dir(repo_root()).output().expect("python3 must be runnable");
     let mut combined = String::from_utf8_lossy(&output.stdout).into_owned();
     combined.push_str(&String::from_utf8_lossy(&output.stderr));
-    (output.status.code().unwrap_or(-1), combined)
+    let saved = fs::read_to_string(&baseline_file).unwrap_or_default();
+    (output.status.code().unwrap_or(-1), combined, saved)
+}
+
+fn core_list_path() -> PathBuf {
+    repo_root().join("scripts/ci/core_file_coverage_prefixes.txt")
 }
 
 /// (a) The exemption list is exactly `src/bin/` and `src/main.rs`.
@@ -293,4 +315,100 @@ fn a_baseline_known_file_with_positive_coverage_is_not_exempted() {
         !output.contains("[DECL-ONLY] src/probe_decl_regressed.rs"),
         "the declaration-only exemption must not cover a file that was previously reachable:\n{output}"
     );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// `[CORE-KNOWN]`：core 老文件的"改动即负责 + 分档目标"
+//
+// 规则：`--core-files` 命中的**基线已知**文件，floor = `min(target, recorded)`。
+// `target` 按档位播种（0–10% → 30、10–30% → 40、30–50% → 55、50–70% → 70），
+// 持久化在基线条目里且只升不降。`min()` 是"不制造红墙"的那一半：3% 的 core 文件
+// 不会一夜之间因为没到 30% 而红 —— 它被钉在 3%，直到自己爬过 target。
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// (j) 裸奔的 core 老文件**不会**因为没到档位目标而当天变红。
+#[test]
+fn core_known_file_below_its_tier_target_is_not_red_overnight() {
+    let dir = tempfile::tempdir().expect("a temp dir must be creatable");
+    let probe = "synapse-services/src/auth/probe_core.rs";
+    let key = "synapse-services/auth/probe_core.rs";
+    let baseline = vec![format!("{{\"path\":\"{key}\",\"line_pct\":3.0,\"lines_found\":100}}")];
+
+    let (code, output, saved) =
+        run_ratchet_in(dir.path(), &list_path(), Some(&core_list_path()), &[(probe, 100, 3)], &baseline);
+
+    assert_eq!(code, 0, "a 3%-covered core file must not be red for missing its 30% target:\n{output}");
+    assert!(
+        output.contains("Core-known guard: 1 baseline-known core file(s), 0 already at/above target"),
+        "the run must show the file was judged on the CORE-KNOWN ladder (and is not at target yet):\n{output}"
+    );
+    assert!(
+        !output.contains("[CORE-KNOWN]"),
+        "a pinned-at-recorded-value file must not be reported as a failure:\n{output}"
+    );
+    assert!(
+        saved.contains("\"target\": 30.0"),
+        "the tier target (3% -> 30) must be persisted in the baseline, not re-derived each run:\n{saved}"
+    );
+}
+
+/// (k) 有 `target` 且已经到点：低于 target 就是红 —— "到点必须达标"。
+#[test]
+fn core_known_file_below_a_ratcheted_target_is_red() {
+    let dir = tempfile::tempdir().expect("a temp dir must be creatable");
+    let probe = "synapse-services/src/auth/probe_core_ratcheted.rs";
+    let key = "synapse-services/auth/probe_core_ratcheted.rs";
+    // prev 55 / target 55：`min(55, 55) = 55`，cur 45 既跌穿 prev 也低于 target。
+    let baseline = vec![format!("{{\"path\":\"{key}\",\"line_pct\":55.0,\"lines_found\":100,\"target\":55.0}}")];
+
+    let (code, output, _saved) =
+        run_ratchet_in(dir.path(), &list_path(), Some(&core_list_path()), &[(probe, 100, 45)], &baseline);
+
+    assert_eq!(code, 1, "45% must fail a 55% target (and a 55% recorded value):\n{output}");
+    assert!(
+        output.contains(&format!("[CORE-KNOWN] {key}")) && output.contains("target 55%"),
+        "the failure must name the tag and the target it missed:\n{output}"
+    );
+}
+
+/// (l) 棘轮只升：`cur > target` 时 target 抬到 `floor(cur/5)*5`，并写回基线。
+#[test]
+fn core_known_target_ratchets_up_to_the_five_percent_grid() {
+    let dir = tempfile::tempdir().expect("a temp dir must be creatable");
+    let probe = "synapse-services/src/auth/probe_core_climb.rs";
+    let key = "synapse-services/auth/probe_core_climb.rs";
+    // 播种值 30（3% 档），这次跑到 63% ⇒ target 应抬到 60，而不是停在 30 或跳到 63。
+    let baseline = vec![format!("{{\"path\":\"{key}\",\"line_pct\":3.0,\"lines_found\":100,\"target\":30.0}}")];
+
+    let (code, output, saved) =
+        run_ratchet_in(dir.path(), &list_path(), Some(&core_list_path()), &[(probe, 100, 63)], &baseline);
+
+    assert_eq!(code, 0, "63% clears both the recorded 3% and the 30% target:\n{output}");
+    assert!(
+        saved.contains("\"target\": 60.0"),
+        "`cur > target` must raise target to floor(cur/5)*5 = 60 and persist it:\n{saved}"
+    );
+    assert!(
+        saved.contains("\"line_pct\": 63.0"),
+        "the recorded value must follow the measurement, not the target:\n{saved}"
+    );
+}
+
+/// (m) core 标签不能外溢：同一份基线数据、同样的低覆盖，非 core 路径仍是 `[TOUCHED]`。
+#[test]
+fn non_core_baseline_known_files_keep_the_touched_tag() {
+    let dir = tempfile::tempdir().expect("a temp dir must be creatable");
+    let probe = "synapse-services/src/not_core/probe_plain.rs";
+    let baseline =
+        vec![format!("{{\"path\":\"synapse-services/not_core/probe_plain.rs\",\"line_pct\":3.0,\"lines_found\":100}}")];
+
+    let (code, output, _saved) =
+        run_ratchet_in(dir.path(), &list_path(), Some(&core_list_path()), &[(probe, 100, 0)], &baseline);
+
+    assert_eq!(code, 1, "0% against a recorded 3% is a regression, core or not:\n{output}");
+    assert!(
+        output.contains("[TOUCHED] synapse-services/not_core/probe_plain.rs"),
+        "only `--core-files` matches may take the CORE-KNOWN branch:\n{output}"
+    );
+    assert!(!output.contains("[CORE-KNOWN]"), "the core tag must not leak onto non-core paths:\n{output}");
 }

@@ -153,6 +153,89 @@ fn changed_line_coverage_counts_added_executable_lines_only() {
     assert_eq!(code, 1, "66.7% must fail an 80% threshold:\n{text}");
 }
 
+/// core 前缀单独一档：新增行完全没有命中就红，哪怕非 core 阈值仍是 0。
+///
+/// 这是 `check_changed_line_coverage.py` docstring 里"0 → 30 → 50 逐级抬"的第一级：
+/// core 是认证 / E2EE / 联邦签名 / 路由与中间件，lib 测试就在受影响 crate 自己身上，
+/// 不需要集成测试才跑得到 ⇒ 30% 的单腿命中是能兑现的要求，不是下界造成的假红。
+#[test]
+fn core_changed_lines_have_their_own_thirty_percent_floor() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let report = dir.path().join("probe.info");
+    // 两条可执行变更行，全是未命中。
+    fs::write(
+        &report,
+        "SF:/work/repo/synapse-services/src/auth/probe.rs\nDA:10,0\nDA:11,0\nLF:2\nLH:0\nend_of_record\n",
+    )
+    .expect("probe report");
+
+    let patch = dir.path().join("probe.patch");
+    fs::write(
+        &patch,
+        "diff --git a/synapse-services/src/auth/probe.rs b/synapse-services/src/auth/probe.rs\n\
+         --- a/synapse-services/src/auth/probe.rs\n\
+         +++ b/synapse-services/src/auth/probe.rs\n\
+         @@ -9,0 +10,2 @@\n\
+         +fn a() {}\n\
+         +fn b() {}\n",
+    )
+    .expect("probe patch");
+
+    let (code, text) = run(
+        "check_changed_line_coverage.py",
+        &[
+            "--report",
+            utf8(&report),
+            "--diff-file",
+            utf8(&patch),
+            "--min-percent",
+            "0",
+            "--core-files",
+            "scripts/ci/core_file_coverage_prefixes.txt",
+            "--core-min-percent",
+            "30",
+        ],
+    );
+    assert_eq!(code, 1, "0% on core changed lines must fail the 30% core floor:\n{text}");
+    assert!(text.contains("core 0.0%"), "the core group must be reported separately:\n{text}");
+    assert!(text.contains("[core]"), "the core row must be marked:\n{text}");
+
+    // 同一份数据、不给 core 清单 ⇒ 回到"只报数不判红"（非 core 阈值为 0）。
+    let (code, text) = run(
+        "check_changed_line_coverage.py",
+        &["--report", utf8(&report), "--diff-file", utf8(&patch), "--min-percent", "0"],
+    );
+    assert_eq!(code, 0, "without the core list the same data must only be reported:\n{text}");
+}
+
+/// `--core-min-percent` 没有 `--core-files` 就无法落地 ⇒ fail-closed（exit 2）。
+///
+/// 一个空转的 "core 30%" 比没有更糟：它让人以为 core 有门禁。
+#[test]
+fn core_threshold_without_a_core_list_fails_closed() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let report = dir.path().join("probe.info");
+    fs::write(&report, "SF:/work/repo/src/probe.rs\nDA:10,1\nLF:1\nLH:1\nend_of_record\n").expect("probe report");
+
+    let patch = dir.path().join("probe.patch");
+    fs::write(
+        &patch,
+        "diff --git a/src/probe.rs b/src/probe.rs\n\
+         --- a/src/probe.rs\n\
+         +++ b/src/probe.rs\n\
+         @@ -9,0 +10,1 @@\n\
+         +fn a() {}\n",
+    )
+    .expect("probe patch");
+
+    let (code, text) = run(
+        "check_changed_line_coverage.py",
+        &["--report", utf8(&report), "--diff-file", utf8(&patch), "--core-min-percent", "30"],
+    );
+    assert_eq!(code, 2, "a core threshold without a core list must not silently pass:\n{text}");
+    assert!(text.contains("--core-files"), "the error must name the missing flag:\n{text}");
+}
+
 /// 只有删除/上下文改动时，不该被算成"未覆盖"。
 #[test]
 fn a_deletion_only_change_is_not_judged() {
