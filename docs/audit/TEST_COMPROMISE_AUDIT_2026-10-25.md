@@ -1088,7 +1088,7 @@ llvm-cov 分母**且几乎 100% 命中 —— 那样做会把 19.4% 直接"提�
 **结论：12 条没有一条是本轮引入的回归。** 缺的测试在 floor 那一刻就不存在；pct 下降来自
 "分母变大 + 删掉已覆盖的行"的组合。分成两堆：
 
-**A. 有可定位的测试缺口（5 条，值得补）**
+**A. 有可定位的测试缺口（5 条，值得补）** —— 5 条均已处置，逐条见 §3.1.7.10 / §3.1.7.11 / §3.1.7.12 / §3.1.7.13
 
 | 文件 | 未执行的东西 | floor 时已存在 | 性质 |
 |---|---|---|---|
@@ -1096,7 +1096,7 @@ llvm-cov 分母**且几乎 100% 命中 —— 那样做会把 19.4% 直接"提�
 | `e2ee_audit/audit_service.rs` | `verify_device` + `DeviceVerificationStatus` 组装（28 行） | 是 | 设备验证审计的主路径 |
 | `user/storage.rs` | `set_deactivation_status_batch`（批量停用，10 行）与 `count_non_deactivated_users_by_app_service`（11 行） | 是 | 管理面批量操作；**有调用方**（`admin_user_service.rs:689`、`user_service.rs`）但无测试 |
 | `cache/error.rs` | `hit_rate()` / `degradation_rate()`（15 行）+ `From<ConnectionTimeout>` | 是 | 缓存健康度指标没断言；文件本身只有 30% |
-| `registration_service.rs` | `login()` 的 6 行 | 是 | 单个错误分支 |
+| `registration_service.rs` | `login()` 的 6 行 | 是 | ~~单个错误分支~~ → **改判**：那 6 行是**签名块**（`pub async fn login(` + 5 个参数行），不是分支；函数体在 lcov 里根本没有行级 region。真缺口是它包着的指标语义（首次注册/失败记耗时/复用不清零），已补 3 条 —— §3.1.7.13 |
 
 **B. 量化效应 / 口径（7 条，无需动作）**
 
@@ -1357,6 +1357,77 @@ llvm-cov 分母且近 100% 命中，"补测试"就变成给自己刷分。
 `docs/synapse-rust-vs-synapse-comparison.md` 的「测试文件数」「测试分层」两行、
 `TESTING.md` 的 `TEST_FILES_*` 块（`TESTS_DIR` / `TESTS_DIR_RS` / `UNIT` 三个键）；
 外加 `tests/unit/mod.rs` 注册一行。
+
+#### 3.1.7.13 A 组最后一条（2026-10-29）：那 6 行是**签名块**，不是分支
+
+§3.1.7.9 的 A 组表把这条记成「`login()` 的 6 行 / 性质：单个错误分支」。
+拿到 CI 的原始 lcov（run `40783016127` 的 `coverage-report` 产物，逐 `DA:` 行）后，
+**这个定性是错的**：那 6 行是函数签名。
+
+```
+135..140 = 0     # pub async fn login( + 5 个参数行   ← 「6 行」就是这里
+141      = 1     # 函数体开括号 `) -> ApiResult<..> {`
+142..172         # 整个函数体：**没有任何 DA 条目**
+173      = 0
+174      = 1     # 结尾 `}`
+```
+
+四条判据：
+
+1. **不是"没调用"**：141 与 174 都等于 1。函数被进过，否则这两个也不可能非零。
+2. **函数体根本没有行级 region**：142–172 在 CI 报告与本地探针报告里都**没有任何
+   `DA:` 条目** —— `#[tracing::instrument]` 把整块函数体搬进了生成代码，
+   llvm-cov 那侧没有逐行区域。所以「函数体里某行没覆盖」这类判断在这个文件上
+   根本不成立，能读的只有签名与花括号那几个 region。
+3. **同文件对照，区分"真没调用"与"计数归属"**：
+
+   | 位置 | CI 命中 | 形态 |
+   |---|---|---|
+   | `register_user` 51–57（同样多行签名 + 同样的 `#[instrument]`） | 632 | 签名行可被点亮 |
+   | `get_profile` 202 / 204 | 8 / 8 | 单行签名，可被点亮 |
+   | `get_profiles` 208 / 210 | **0 / 0**，中间无 DA | 这才是"真没调用"的形态 |
+   | `login` 135–140 / 141 | **0** / 1 | 入口 region 为 0、body region 为 1，自相矛盾 |
+
+4. **定向实测直接证伪**：本地用
+   `cargo llvm-cov --test integration … -- registration_service_tests_migrated::`
+   跑（该轮 `login` 被调用 5 次），同一份代码的 **135–140 = 5**，而 CI 报的是 0。
+   且探针报告的 `DA` 集合是 CI 报告的超集（163 ⊇ 132，CI 的 132 条一条不缺）
+   ⇒ 两份报告口径一致，差异只来自二进制组成/内联不同导致的 region 归属。
+
+⇒ 结论：**那 6 行读的是「函数入口 region 的归属」，不能当作"有行为未测"的证据。**
+补测试也点不亮它们（CI 里 141 已经是 1 了）。这和 §3.1.7.11 的 `verify_device`
+是同一类判断：**行数缺口要落到"它包着什么行为"上才有意义。**
+
+##### 那个 6 行包着的行为，确实一条断言都没有
+
+`RegistrationService::login` 在整仓只有 **1 个**调用点
+（`tests/integration/registration_service_tests_migrated.rs::test_login_success`），
+而它做的三件与指标有关的事全无断言：首次使用要注册指标、失败也要记耗时、
+后续调用要复用句柄（重注册会把计数清零）。
+
+补 3 条（同文件，「全新 `MetricsCollector`」的夹具 `build_service()`）：
+
+| 用例 | 断的东西 |
+|---|---|
+| `login_registers_login_metrics_on_first_use` | 前置断言"两个名字此刻都不存在"（否则证明不了 register-on-first-use）→ 注册用户后仍不存在 → 登录后直方图 `count == 1`、计数器 `== 1` |
+| `login_failure_records_duration_but_never_counts_a_success` | 口令错误 ⇒ `Err`；直方图仍 `count == 1`（失败延迟必须可见）；`login_success_total` **必须不存在** |
+| `login_reuses_the_registered_metrics_on_subsequent_calls` | 两次登录 ⇒ `count == 2`、`counter == 2`（得 1 说明每次都在重新注册、计数被清零） |
+
+变异自证（三处，各自精确命中，互不重叠）：
+
+| 变异 | 结果 |
+|---|---|
+| 删掉两个 `else` 分支（不注册，只 `if let Some`） | 三条**全红**，报「首次登录必须注册耗时直方图」 |
+| 把成功计数器自增挪到 `let (..) = result?;` **之前** | **只有**失败路径那条红，报「`result?` 必须早于计数器自增」；另两条 PASS |
+| 直方图改成每次都 `register_histogram`（绕过 `Some` 分支） | **只有**复用那条红，`left: 1 / right: 2`；另两条 PASS |
+
+##### 顺带发现（未修，需产品决策）
+
+`get_profiles`（208/210）、`set_displayname`（214/216）、`set_avatar_url`（220/222）
+这三个转发方法**零调用方**：路由侧用的是 `update_user_profile` 与 `get_profile`
+（`synapse-web/src/routes/account_compat.rs:229` / `:265` / `:110`）。
+它们与 `verify_device` 同类 —— 不是"缺测试"，是"没有生产入口"。
+删还是保留（当公共 API 留着）需要决策，本轮不动。
 
 ### 3.2 性能验收只有报告，没有断言
 
@@ -2418,9 +2489,9 @@ storage 现在在 leg 1（`-p synapse-storage --lib`）和 leg 2 的报告里**�
 | 合并报告 | `files=676, LF=206098, LH=151090, coverage=73.31%` |
 | 棘轮 | **154 红** = 150 `[TOUCHED]` + 4 `[NEW]` |
 
-用同一份 profraw 按修复后的合并逻辑重算：
+用同一份 profraw 按修复后的合并逻辑**离线重算**（注意：这不是修复后脚本真实生成的产物）：
 
-| 指标 | 修复前 | 修复后 |
+| 指标 | 修复前 | 修复后（离线重算） |
 |---|---|---|
 | `files` | 676 | 676 |
 | `LF` | 206098 | **212488**（+6390，正好等于被旧实现砍掉的 storage 幽灵行） |
@@ -2434,6 +2505,52 @@ storage 现在在 leg 1（`-p synapse-storage --lib`）和 leg 2 的报告里**�
 同一轮还有 10 个测试失败、3 个 target 红（`thumbnails.is_animated` 列缺失、`RUST_TEST_THREADS`
 污染、381 个孤儿 test schema），**不是 S1 引入**：`grep "test result:"` 复核为
 **passed=10909 / failed=10**，覆盖率主体确实跑过。
+
+##### 真实产物复核（2026-10-29）：72.63% 不再是离线值
+
+上面的 72.63% 是「拿修复前的 profraw、按修复后的合并逻辑重算」得到的离线值。为避免
+「离线重算自己证明自己」，随后用 merge 修复后的 `bash scripts/ci/run_coverage.sh`
+完整跑了一轮，直接读产物 `coverage/lcov.info`（51,420,344 字节）：
+
+| 指标 | 离线重算 | **真实产物** | 差异 |
+|---|---|---|---|
+| `files` | 676 | **677** | +1 |
+| `LF` | 212488 | **212762** | +274 |
+| `LH` | 154330 | **154535** | +205 |
+| `coverage` | 72.63% | **72.63%** | 0.00 pt |
+
+百分比两位小数完全一致 ⇒ 分母修复的结论成立；绝对量的小幅上浮来自这一轮多编译进来的
+1 个文件（及其 274 行可覆盖行），与合并口径无关。
+
+只看产物本身（不依赖脚本退出码）：
+
+```bash
+python3 - <<'PY'
+lf = lh = files = 0
+for line in open("coverage/lcov.info"):
+    if line.startswith("SF:"):
+        files += 1
+    elif line.startswith("LF:"):
+        lf += int(line[3:])
+    elif line.startswith("LH:"):
+        lh += int(line[3:])
+print(f"files={files} LF={lf} LH={lh} pct={lh / lf * 100:.2f}")
+PY
+```
+
+这一轮共 **14 条 FAILED**，两组，**全部与 S1/S2/S3 无关**：
+
+| 组 | 条数 | 失败目标 | 归因 |
+|---|---|---|---|
+| A | 6 | `api_route_ledger_tests`（2）、`worker_write_stream_tests`（1）、`admin_auth::admin_rbac_tests`（2）、`doc_credibility_guard_tests`（1） | 在途改动「把 `verify_device` 接线成真实端点」的 4 个冻结面未同步：路由账本快照、写流映射表、RBAC 角色注册表、`ROUTE_CONTRACT.md` 路由计数（文档 66 ↔ 契约 67） |
+| B | 8 | `db_schema_pool_tests`（6）、`pooled_schema_reseed_tests`（1）、`schema_pool_idle_reclaimer_tests`（1） | 纯环境：`schema guard: 336 orphaned test schema(s) remain (limit 200)`。跑完后用 `scripts/cleanup_test_schemas.sh` 清理，尝试 314、失败 0、残留 0，守卫已恢复 |
+
+两个必须记住的读数陷阱：
+
+1. `run_coverage.sh` 末尾的 `merge_lcov.py` 会**吞掉测试失败** —— 整条链路 `EXIT=0`，
+   但日志里有 14 条 FAILED。读覆盖率产物前必须另查 `test result:` 行，否则「全绿」是假象。
+2. 这一轮的二进制在 S3 会员写入补测落盘**之前**就编译完成（日志里搜不到新增用例名），
+   所以这份 72.63% 反映的是 S3 补测前的树。
 
 #### 7.8.6 结论
 
@@ -2449,3 +2566,5 @@ storage 现在在 leg 1（`-p synapse-storage --lib`）和 leg 2 的报告里**�
    合并结果不得塌成 DA 计数）。三个相关模块实测全绿：
    `coverage_leg_resilience_tests` 11 passed / `coverage_ratchet_exemption_tests` 9 passed /
    `pr_coverage_lane_tests` 13 passed。
+6. **读数已升级为真实产物**：72.63% 由 merge 修复后脚本真实产出（677/212762/154535）复核，
+   与离线重算两位小数一致；本轮 14 条 FAILED 已逐条归因，无一属于 S1/S2/S3（7.8.5 末段）。
