@@ -17,8 +17,8 @@
 
 | 编号 | 级别 | 问题 | 状态 |
 |---|---|---|---|
-| **P1-1** | P1 | 状态决议仍保留 `origin_server_ts` 兜底路径 | 未解决 |
-| **P1-2** | P1 | 无 Redis 时拓扑校验只 `warn!`，不阻断启动 | 未解决 |
+| **P1-1** | P1 | 状态决议仍保留 `origin_server_ts` 兜底路径 | **已关闭（`f3a91641a`）**：读路径 fail-closed，推导入口只给播种与逃生开关用（见 §2 R-8） |
+| **P1-2** | P1 | 无 Redis 时拓扑校验只 `warn!`，不阻断启动 | **已关闭（`a68a93a08`）**：`write_forwarding` + 缺 `notify_fan_out` ⇒ 无条件 fatal，不看 `strict` |
 | **P1-3** | P1 | 写归属守卫不校验 handler 行为，只看路由集合与 stream 归属 | **行为维度已补（`67ffd19bc`）**：sticky 补发 tick 的归属改为运行时门；**静态扫描已补**：`check_event_writer_routes.py`（52 条事件写路由 / 18 条约一条理由的例外） |
 | **P1-4** | P1 | sticky catch-up 的**服务层零测试** | **已关闭（`67ffd19bc` + 本轮）**：`StickyCatchUpIo` 接缝 + 11 条用例（含跨 destination 轮转公平性） |
 | **P2-1** | P2 | 写转发链路没有两进程 e2e | 未解决 |
@@ -62,29 +62,62 @@
   陈旧条目（`get_user GET /_synapse/admin/v1/users/{user_id}`）⇒ 红；两处还原后绿。
 - **R-7 P1-4 残余②（跨 destination 轮转公平性）→ 第 11 条用例。**
   `FakeIo` 改为游标表以复刻 SQL 三语义，40 对 destination 两轮 tick 全部收敛、无重复、无饥饿。
+- **R-8 P1-1 状态决议去掉 `origin_server_ts` 兜底（fail-closed）→ `f3a91641a`。**
+  ① 读路径：`get_state_event` / `get_state_events` 无 `state_groups` 记录即 `Err`（`state.rs::missing_state_group`，
+  `sqlx::Error::Protocol`），两条 `ORDER BY origin_server_ts DESC` 分支合并为「有记录读记录 / 无记录报错」；
+  唯一逃生开关是 `SYNAPSE_ALLOW_STATE_TS_FALLBACK`（任意值即开，等价于旧的推导路径）。
+  ② 推导入口改名为 `EventReader::derive_state_from_event_log`（真实实现 + 内存 mock 各一份），
+  只允许两个调用方：写路径的一次性播种 `seed_from_current_state` 与逃生开关本身 ——
+  播种若改回走 `get_state_events`，新房间的第一个状态写会撞 fail-closed 变成死锁式回归。
+  ③ **变异时发现的真实缺口**：本地状态写原本**根本不维护记录**（只有 `create_event_with_graph` /
+  `create_outlier_event` / 联邦 membership 三处调 `after_state_event`）⇒ 记录被冻结在建房那一刻，
+  `m.room.history_visibility` 永远读到建房的 `shared`，改 `invited` 也不生效（历史泄漏）。
+  补两块：`run_post_create_side_effects` 里对每次本地状态写调 `after_state_event`（失败只 `warn!`，
+  不影响事件写入）；建房路径加幂等的 `StateRecord::seed_new_room`（建房整段走一个事务、
+  不经过 `after_state_event`，不补则新房间 `GET /rooms/{id}/state` 直接报错）。
+  ④ 回填脚本 `scripts/migration/backfill_state_groups.py` 同步修正：去掉硬编码测试库（改 `--database-url` /
+  `DATABASE_URL`）、`state_hash` 改为与 Rust 逐字节一致（原先是 `str(...).encode().hex()[:64]` 的假 hash）、
+  `event_to_state_groups` 只绑锚事件（原来把每个状态事件都绑进同一组，等于谎称它们都在该状态被决议）、
+  `ON CONFLICT (state_hash)` 支持重跑。
+  ⑤ 测试隔离：裸 SQL 造房间的夹具（`dedup_marker_failure_soft_fails_the_created_event`，没有状态事件也没有
+  `state_groups`）在 A1 之后连事件都写不进去 ⇒ 用 `EnvGuard` 开逃生开关，并与断言 fail-closed 的
+  `forked_state_is_resolved_and_served` 共用 `serial(state_ts_fallback)` 这把锁
+  （`serial_test` 只互斥同 key 的用例，进程级环境变量会泄漏给并发用例）。
+  ⑥ 变异自证 4 条：M1 `state_ts_fallback_allowed` 恒 `true` ⇒ 存储层用例红；M2 恒 `false` ⇒ 同一用例另一段红；
+  M3 删建房 `seed_new_room` ⇒ `api_history_visibility` **9/9 红**；M4 关 `run_post_create_side_effects` 的维护块
+  ⇒ **5/9 红**（invited / joined / room_sync / single_event / relations）。还原后全绿。
+- **R-9 P1-2 无 Redis 阻断启动 → `a68a93a08`（并发写入者落地，本轮核对口径）。**
+  `check_startup_topology` 把「`write_forwarding=true` 且 `missing_notify_fan_out` 非空」单列为
+  `hard` 一类，产出 `fatal` 时**不看** `topology.strict`；`strict` 从此只管其余静态规则的升级。
+  用例 `forwarding_without_redis_is_always_fatal` 对 `strict ∈ {true,false}` 双跑，断言 `fatal` 必须存在且
+  其文本点名修法；`warnings_alone_are_not_escalated_by_strict` 钉住"`strict` 不再吞告警级之外的东西"。
+  代价与 §4-A2 预告一致：开发/单机环境必须显式关 `worker.enabled`，不能"配着玩"。
 
 ## 3. 仍存在的问题
 
-### P1-1 状态决议仍保留 `origin_server_ts` 兜底
+### P1-1 状态决议仍保留 `origin_server_ts` 兜底 —— **已关闭（`f3a91641a`，§2 R-8）**
 
-**现象**：房间没有 state group 记录时，读路径回落到 `ORDER BY origin_server_ts DESC LIMIT 1`。
-**证据**：`synapse-storage/src/event/state.rs` 的两处读取（`get_state_event` / `get_state_events`）
+**原现象**：房间没有 state group 记录时，读路径回落到 `ORDER BY origin_server_ts DESC LIMIT 1`。
+**原证据**：`synapse-storage/src/event/state.rs` 的两处读取（`get_state_event` / `get_state_events`）
 各有一个 `STATE_GROUP_REQUIRED` 环境变量分支，未设置时执行上述查询（该文件内命中 4 处）。
-**影响**：`origin_server_ts` 是发送方时钟，联邦事件可能带着偏旧时间戳后到 ⇒ 推导结果可能与 DAG 顺序相反。
-**缓解现状**：首次状态写即 `seed_from_current_state` 播种，另有一键回填脚本 `scripts/migration/backfill_state_groups.py`
-⇒ 实际受影响面是"从未有过状态写的存量房"。
-**为什么是 P1 而不是 P0**：有播种 + 回填 + 环境变量三条退路；但默认行为仍是"静默使用不保证的顺序"。
+**原影响**：`origin_server_ts` 是发送方时钟，联邦事件可能带着偏旧时间戳后到 ⇒ 推导结果可能与 DAG 顺序相反。
+**落地**：`STATE_GROUP_REQUIRED` 常量已删除（`grep -c` 应为 0），默认行为就是 fail-closed；
+推导被降级为独立入口 `derive_state_from_event_log`，只给播种与 `SYNAPSE_ALLOW_STATE_TS_FALLBACK` 用。
+判据与 4 条变异见 §2 R-8。
+**残余（仍成立）**：`SYNAPSE_ALLOW_STATE_TS_FALLBACK` 仍在（回填窗口用），语义是"整进程回到旧推导"；
+它不该长期留在生产配置里 —— 回填完成后应从部署清单消失，这一条没有机器门禁，靠发布说明约束。
 
-### P1-2 无 Redis 时只告警，不阻断启动
+### P1-2 无 Redis 时只告警，不阻断启动 —— **已关闭（`a68a93a08`，§2 R-9）**
 
-**现象**：`worker.write_forwarding=true` + `worker.enabled=true` + `redis.enabled=false` 时，
+**原现象**：`worker.write_forwarding=true` + `worker.enabled=true` + `redis.enabled=false` 时，
 写入会在 writer 实例执行，而跨实例唤醒 `/sync` 长轮询只靠 Redis 扇出 ⇒ 落在 reader 的长轮询
 要等客户端自己的 timeout（典型 30 s）才拿到数据。数据不丢，只是变慢。
-**证据**：`synapse-services/src/worker/topology_gate.rs` 的 `check_startup_topology` 把该情形放进
+**原证据**：`synapse-services/src/worker/topology_gate.rs` 的 `check_startup_topology` 把该情形放进
 `validation.errors`（`valid=false`），但 `fatal` 只在 `config.topology.strict` 为真时才产出；
 `src/server/mod.rs` 因此在 `valid=false` 时只 `warn!` 并继续启动。
-**影响**：部署看起来健康，但每条推送都晚到 —— **正确性测试发现不了**，这正是它该是启动错误的原因。
-**触发面**：需三个条件同时成立，且 `write_forwarding` 默认 `false`，所以不是任意部署都会中。
+**落地**：该情形已单列 `hard` 一类，`fatal` 不再受 `strict` 影响；`src/server/mod.rs` 见到 `fatal` 即拒绝启动。
+**残余（仍成立）**：告警级的其余拓扑问题在非 strict 下仍只 `warn!`（这是设计意图 —— 它们不改变正确性，
+只是慢或可观测性变差），因此**没有**"拓扑全静态校验"这回事，别按这个前提写发布检查单。
 
 ### P1-3 写归属守卫不校验 handler 行为
 
@@ -182,6 +215,10 @@ backfill 归零重放 / backfill 本机短路与 reset 失败短路。
   删掉两条 `ORDER BY origin_server_ts DESC` 回落分支。
 - 判据：① 两个环境变量分支合并为无分支；② 补一条"联邦乱序后状态仍按 DAG"的用例；
   ③ 回填脚本作为存量房的一次性动作写进发布说明。
+- **状态：✅ 已做（`f3a91641a`）。** 两个分支合并为「有记录读记录 / 无记录 `Err`」；判据 ② 由
+  `forked_state_is_resolved_and_served` 的"记录与推导给出相反答案"对照断言承担（推导仍选被 auth 规则拒绝的
+  较新分支 ⇒ 结论只能来自记录）；判据 ③ 的回填脚本另修了三处失真（假 hash / 绑每个状态事件 / 硬编码测试库）。
+  落地细节与 4 条变异见 §2 R-8。
 
 **A2 Redis 前置条件改为硬失败（对应 P1-2）**
 - 上游：多实例/worker 是部署前置条件，缺必要组件直接拒绝启动，不当降级处理。
@@ -189,6 +226,7 @@ backfill 归零重放 / backfill 本机短路与 reset 失败短路。
   ⇒ **无条件 fatal**（不看 `strict`）；`strict` 只管其余静态规则。
 - 判据：新增用例"非 strict + 无 Redis + events 转发 ⇒ 启动失败"；`--validate-topology` 的退出码同口径。
 - 代价：开发/单机环境必须显式关闭 `worker.enabled`，不能再"配着玩"。
+- **状态：✅ 已做（`a68a93a08`）。** 见 §2 R-9。
 
 **A3 单写者守卫补行为维度（对应 P1-3）**
 - 改法：静态扫描 `synapse-web/src/routes/**` 里调用"造事件"入口（如 `create_and_send_event`、
@@ -245,12 +283,23 @@ backfill 归零重放 / backfill 本机短路与 reset 失败短路。
 ## 6. 复现命令
 
 ```bash
-# 状态决议兜底是否还在（应为 4 处命中）
+# 状态决议兜底是否还在（A1 之后应为 0 —— 常量已删，默认 fail-closed）
 grep -c STATE_GROUP_REQUIRED synapse-storage/src/event/state.rs
 
-# 无 Redis 是否只告警（fatal 仅 strict）
-grep -n "config.topology.strict" synapse-services/src/worker/topology_gate.rs
-sed -n '210,226p' src/server/mod.rs
+# 逃生开关只剩一个，推导入口只该给"播种 + 逃生开关"用（逐个看调用链，别只看命中数）
+grep -rn "STATE_TS_FALLBACK_ENV\|derive_state_from_event_log" --include=*.rs synapse-storage synapse-services synapse-common
+
+# A1 存储层 2 条 + 服务层 1 条（fail-closed / 记录优先于推导 / 记录与推导分歧时只能读记录）
+cargo test -p synapse-storage --lib -- state_ts_fallback
+cargo test -p synapse-storage --lib -- test_current_state_prefers_the_resolved_state_record
+cargo test -p synapse-services --lib --features test-utils -- forked_state_is_resolved_and_served
+
+# A1 端到端：建房播种 + 本地状态写维护记录（M3/M4 变异都在这 9 条上体现）
+cargo test --test integration --features "test-utils privacy-ext voice-extended voip-tracking beacons server-notifications" -- api_history_visibility
+
+# 无 Redis 是否仍只告警（A2 之后：hard 一类不受 strict 影响，应为 fatal）
+grep -n "let fatal = if !hard.is_empty()" -A 6 synapse-services/src/worker/topology_gate.rs
+cargo test -p synapse-services --lib --features test-utils topology_gate
 
 # catch-up 服务层用例（`67ffd19bc` 外移为兄弟文件 10 条，本轮补 ② ⇒ 应为 11）
 grep -c '#\[tokio::test\]' synapse-services/src/room/sticky_catch_up/tests.rs

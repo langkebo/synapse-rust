@@ -836,6 +836,7 @@ TEST_INLINE 34 / TEST_FILE 47 = 107**；测试域合计 81。此后 NEW-10 把 4
 | W15 | P0 注销数据清理漏 5 张表（`room_tags` / `event_receipts` / `event_receipts_stream` / `thread_read_receipts` / `presence`）：登记常量 `ACCOUNT_DEACTIVATION_PURGED_TABLES` + 三条守卫用例（表集合自检 / 逐表清空且不误删他人 / 幂等），`.sqlx` 1328 → **1333** | ✅ 本笔（见 `REMAINING_ISSUES_SWEEP_2026-10-17.md` §9.4；变异自证：注释 `presence` 删除 ⇒ 用例 2 红，还原后 3/3 绿） |
 | W16 | P1 守卫可信度（第八轮 P1-3 / P1-4）：sticky 补发抽出 `StickyCatchUpIo` 接缝 + **10 条**服务层用例；单写者判据从调用点静态声明改为**运行时行为门**（非所有者零 io 调用），`RoomServiceConfig` 注入 `worker`、`RoomService` 只存派生 `owns_events` | ✅ `67ffd19bc`（判据：变异自证 5 条，每次仅 1 条红；trait 基线 75 → 76、`file_size` 单条 956 → 962，理由见各自基线） |
 | W17 | P1 守卫行为维度的**两条残余**：① 静态扫描门禁 `check_event_writer_routes.py`（52 条事件写路由全部须有非 `-` 流声明）+ 例外清单 `event_writer_allowlist.txt`（18 条逐条带理由，双向校验陈旧条目），接入 `preflight.sh`；② 跨 destination 轮转公平性第 **11** 条用例（`FakeIo` 改游标表复刻 SQL 三语义，40 对两轮收敛） | ✅ 本笔（判据：插一次 `.create_event(` 不登记 ⇒ 红；塞一条陈旧例外 ⇒ 红；fake 去 `LIMIT` / 加 `.take(1)` / 过滤恒真 ⇒ 分别 40≠32、1≠32、32≠40；全部还原后 11/11 + 门禁绿） |
+| W18 | P1 状态决议（第八轮 P1-1）+ 无 Redis 启动门（P1-2）：① 当前状态读**默认 fail-closed**（`STATE_GROUP_REQUIRED` 常量删除，无 `state_groups` 记录即 `Err`），推导降级为独立入口 `derive_state_from_event_log` 只给播种与 `SYNAPSE_ALLOW_STATE_TS_FALLBACK` 用；② 补上被变异暴露的真实缺口 —— `run_post_create_side_effects` 维护本地状态写的记录 + 建房路径幂等 `seed_new_room`（否则记录冻结在建房时刻、`history_visibility` 改不动）；③ 回填脚本修三处失真（硬编码测试库 → `--database-url` / 假 hash → 与 Rust 逐字节一致 / 只绑锚事件）；④ P1-2 由并发笔 `a68a93a08` 落地：缺 Redis 的转发拓扑单列 `hard`，`fatal` 不看 `topology.strict` | ✅ `f3a91641a` + `a68a93a08`（判据：变异 4 条 —— 逃生开关恒真/恒假各红一次、删建房播种 ⇒ `api_history_visibility` 9/9 红、关维护块 ⇒ 5/9 红；还原后 services `room::` 353 绿、integration 37+16+4 绿；`file_size` 7 条增长按整表 `--update` 入册，计数仍 222） |
 
 ### 10.2 下一批建议
 
@@ -852,6 +853,9 @@ PERF-01 已于 W10 收口（`to_device_messages` 按龄清理 + 零天关闭开�
 ARCH-05 已于 W11 收口（生产段全部 ≤1557 行，行数棘轮 7 条逐条收紧，变异自证见附录 D）；
 CODE-11 已于 W12 收口（`#[allow]` 无理由存量 157 → 0，基线 0/0，变异自证见附录 D）；
 NEW-20 已于 W13 收口（按拍板整表 `--update` 一次性批准，基线 220 → 222 条，闸门转绿，见附录 D）。
+第八轮 P1-1 / P1-2 已于 W18 收口（状态决议默认 fail-closed + 建房播种/本地写维护记录；缺 Redis 的转发拓扑改为无条件 fatal）。
+**仍未动的只有"等外部条件"的两条**（ARCH-04 要真实数据量、CODE-10 只按后果分类且不设配额），
+其余（`PERF-11/12`、`MAINT-07`）仍是登记项。
 
 ### 10.3 明确不做（防止过度开发）
 
