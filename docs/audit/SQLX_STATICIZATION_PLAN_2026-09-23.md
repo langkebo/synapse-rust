@@ -2191,11 +2191,25 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 <!-- sqlx-plan-numbers:start -->
 <!-- 以下数字由 `scripts/ci/check_plan_numbers_fresh.sh` 与基线/实测现算比对；改基线必须同步改这里。 -->
 BASELINE_DYNAMIC_PRODUCTION=105
-BASELINE_DYNAMIC_TEST_INFRA=842
+BASELINE_DYNAMIC_TEST_INFRA=846
 BASELINE_STATIC=1360
 BASELINE_QUERY_BUILDER=17
-SQLX_CACHE_ENTRIES=1323
+SQLX_CACHE_ENTRIES=1328
 <!-- sqlx-plan-numbers:end -->
+
+> **2026-10-29 更新（UG-7 catch-up：per-destination 增量补发 + 新成员定向补发）**，两项数字：
+> - `BASELINE_DYNAMIC_TEST_INFRA` **842 → 846**：+2 是本批
+>   `synapse-storage/src/sticky_event/db_tests_destinations.rs` 的两个种子/状态翻转语句
+>   （`INSERT INTO room_memberships … ON CONFLICT DO UPDATE`、`UPDATE room_memberships SET
+>   membership = 'leave'`）；+2 是 HEAD（`50ae32afb`）就存在、但被 `#[path]` 声明掩盖的
+>   **基线滞后**（`db_tests_room_level.rs` 的两处测试夹具）。头一条注记里"测试 842 不变"
+>   因此只对那一批成立，本批把潜伏的 2 点一并入册。
+> - `SQLX_CACHE_ENTRIES` **1323 → 1328**（净 +5）：`sticky_event/destinations.rs` 五条补发游标
+>   查询全为静态宏（种子 `INSERT … SELECT DISTINCT`、单房间重置 `INSERT … ON CONFLICT
+>   DO UPDATE`、待补发列表 `SELECT … WHERE EXISTS`、取行 `SELECT … revision > $2`、
+>   推进 `UPDATE … GREATEST`）；`sticky_event.rs` 的 `set_is_sticky_event` /
+>   `clear_is_sticky_event` 因新增 `revision` 列各换一次条目（出 2 入 2，不计净增）。
+>   生产 105 / 静态 1360 / QueryBuilder 17 不变；静态实测 1366 仍 ≥ 下限。
 
 > **2026-10-29 更新（UG-7：sticky 读路径改「本人行 ∪ 房级行」）**，数字块一项：
 > - `SQLX_CACHE_ENTRIES` **1322 → 1323**（净 +1）：`synapse-storage/src/sticky_event.rs` 三条读
