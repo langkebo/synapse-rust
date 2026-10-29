@@ -4,7 +4,7 @@
 //! its fake seam crosses the 600-line ceiling (`scripts/ci/check_file_size_ratchet.py`).
 
 use super::*;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
 
 /// Every call the loop makes against the seam, in order.
@@ -22,11 +22,16 @@ enum Call {
 ///
 /// `rows` is a flat list (the cases all use one room) and `pending_rows` applies
 /// the same `revision > after` / `LIMIT` contract the SQL does.
+///
+/// `cursors` mirrors `room_sticky_event_destinations`: `pending_destinations` reproduces
+/// the SQL's two predicates (an owned row past the cursor, `ORDER BY room_id, destination`,
+/// `LIMIT`), and `advance_cursor` moves the cursor like `GREATEST`. Without that, the fake
+/// would answer every tick with the full backlog and rotation could not be observed.
 struct FakeIo {
     server_name: String,
     is_writer: bool,
     seed_error: Option<String>,
-    destinations: Vec<PendingStickyDelivery>,
+    cursors: Mutex<HashMap<(String, String), i64>>,
     destinations_error: Option<String>,
     rows: Vec<StickyDeliveryRow>,
     sends: Mutex<VecDeque<Result<bool, String>>>,
@@ -41,7 +46,7 @@ impl FakeIo {
             server_name: "a.example".to_string(),
             is_writer: true,
             seed_error: None,
-            destinations: Vec::new(),
+            cursors: Mutex::new(HashMap::new()),
             destinations_error: None,
             rows: Vec::new(),
             sends: Mutex::new(VecDeque::new()),
@@ -52,7 +57,9 @@ impl FakeIo {
     }
 
     fn with_destinations(mut self, destinations: Vec<PendingStickyDelivery>) -> Self {
-        self.destinations = destinations;
+        let cursors =
+            destinations.into_iter().map(|item| ((item.room_id, item.destination), item.last_revision)).collect();
+        self.cursors = Mutex::new(cursors);
         self
     }
 
@@ -123,10 +130,24 @@ impl StickyCatchUpIo for FakeIo {
 
     async fn pending_destinations(&self, limit: i64) -> Result<Vec<PendingStickyDelivery>, String> {
         self.calls.lock().unwrap().push(Call::Destinations(limit));
-        match &self.destinations_error {
-            Some(e) => Err(e.clone()),
-            None => Ok(self.destinations.clone()),
+        if let Some(e) = &self.destinations_error {
+            return Err(e.clone());
         }
+
+        let cursors = self.cursors.lock().unwrap();
+        let mut pending: Vec<PendingStickyDelivery> = cursors
+            .iter()
+            .filter(|(_, cursor)| self.rows.iter().any(|row| row.revision > **cursor))
+            .map(|((room_id, destination), cursor)| PendingStickyDelivery {
+                room_id: room_id.clone(),
+                destination: destination.clone(),
+                last_revision: *cursor,
+            })
+            .collect();
+        // Same stable order as the SQL, so "which pairs get the cap" is deterministic.
+        pending.sort_by(|a, b| (&a.room_id, &a.destination).cmp(&(&b.room_id, &b.destination)));
+        pending.truncate(limit.max(0) as usize);
+        Ok(pending)
     }
 
     async fn pending_rows(
@@ -152,7 +173,13 @@ impl StickyCatchUpIo for FakeIo {
         });
         match &self.advance_error {
             Some(e) => Err(e.clone()),
-            None => Ok(()),
+            None => {
+                // `GREATEST`, like the SQL: a stale writer must never push the cursor back.
+                let mut cursors = self.cursors.lock().unwrap();
+                let slot = cursors.entry((room_id.to_string(), destination.to_string())).or_insert(0);
+                *slot = (*slot).max(revision);
+                Ok(())
+            }
         }
     }
 
@@ -163,7 +190,10 @@ impl StickyCatchUpIo for FakeIo {
             .push(Call::Reset { room_id: room_id.to_string(), destination: destination.to_string() });
         match &self.reset_error {
             Some(e) => Err(e.clone()),
-            None => Ok(()),
+            None => {
+                self.cursors.lock().unwrap().insert((room_id.to_string(), destination.to_string()), 0);
+                Ok(())
+            }
         }
     }
 }
@@ -345,4 +375,43 @@ async fn backfill_short_circuits_on_self_and_on_reset_failure() {
     backfill_to_destination(&broken, "!r:a", "b.example").await;
     assert_eq!(broken.calls().len(), 1, "only the failed reset");
     assert!(broken.sent_edus().is_empty());
+}
+
+/// (11) destination 数超过每 tick 上限 ⇒ 多轮收敛，每对恰好一次（无饥饿、无重复）。
+///
+/// 单个 destination 的分页由 (4) 覆盖；这里补的是**跨 destination 的轮转**：
+/// `pending_sticky_destinations` 每次只给 `LIMIT 32` 个对，排在前面的对推进后不再满足
+/// 「仍有积压」谓词，下一轮自然轮到剩下的——这是「不饿死」的全部机制。
+#[tokio::test]
+async fn destinations_beyond_the_per_tick_cap_rotate_without_starvation() {
+    const TOTAL: i64 = CATCH_UP_DESTINATIONS_PER_TICK + 8;
+
+    // Spread over several rooms so the `(room_id, destination)` ordering is exercised.
+    let pairs: Vec<_> =
+        (0..TOTAL).map(|i| destination(&format!("!r{:02}:a", i / 10), &format!("peer{i:02}.example"), 0)).collect();
+    let io = FakeIo::new().with_destinations(pairs).with_rows(vec![pin(1)]);
+
+    run_catch_up_tick(&io).await;
+    let first_tick = io.advances().len();
+    assert_eq!(
+        first_tick as i64, CATCH_UP_DESTINATIONS_PER_TICK,
+        "one tick serves at most the cap — if the fake ignored LIMIT every pair would be done here"
+    );
+
+    run_catch_up_tick(&io).await;
+
+    let advances = io.advances();
+    assert_eq!(advances.len() as i64, TOTAL, "two ticks cover the whole backlog");
+    let mut served: Vec<String> = advances
+        .into_iter()
+        .map(|(destination, revision)| {
+            assert_eq!(revision, 1, "each pair stops at the only row");
+            destination
+        })
+        .collect();
+    let before_dedup = served.len();
+    served.sort();
+    served.dedup();
+    assert_eq!(served.len(), before_dedup, "no destination is served twice");
+    assert_eq!(served.len() as i64, TOTAL, "no destination is starved");
 }

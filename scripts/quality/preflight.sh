@@ -299,6 +299,17 @@ fi
 step "路由鉴权口径（SEC-15）"
 run "check_route_auth.py" python3 scripts/contract/check_route_auth.py
 
+# 事件写路由（P1-3）：`write_stream_map.txt` 的棘轮（`tests/unit/worker_write_stream_tests.rs`）
+# 比的是**路由集合**，它的头注释自认盲区：「一条已经存在的路由**开始**写事件，这份清单不会变红」。
+# 这一步填那个洞：静态扫描每条路由的 handler（含 3 层 helper 传递）是否出现造事件的入口
+# （`create_event` / `send_message` / `join_room` / `invite_user` / `redact_event` …），
+# 命中的路由必须在清单里有一个非 `-` 的流；确属本地写（审计表 / space 表）的逐条登记在
+# `scripts/contract/event_writer_allowlist.txt`，且登记项陈旧（路由已不再写）也判红。
+# 故障形态：给一条既有 admin 路由补上"写房间事件"而忘了声明流 ⇒ 那一路悄悄回到多写者状态，
+# 无任何运行期症状。只读源码 + 两份清单，不与 HEAD 比，因此不受上面契约链 SKIP 分支影响。~0.7s。
+step "事件写路由：写房间 DAG 的路由必须声明流向（P1-3）"
+run "check_event_writer_routes.py" python3 scripts/ci/check_event_writer_routes.py
+
 # 文档可信度守卫：`docs/synapse-rust-vs-synapse-comparison.md` 的计数必须等于
 # `ROUTE_CONTRACT.md`，引用的路径必须存在，五个历史章节必须带 §18 指针。
 #

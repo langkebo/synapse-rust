@@ -1,0 +1,47 @@
+# `check_event_writer_routes.py` 的例外清单 —— 形似写房间事件、实际不写房间 DAG 的 handler
+#
+# 三列：`handler <空格> METHOD <空格> path`，`#` 之后必须写理由。
+# `*` 可通配 handler / METHOD，path 支持 `*` 通配与 `/` 边界后缀匹配（与路由树同名规则）。
+#
+# ## 为什么需要这份清单
+#
+# 门禁的判据是"handler（含 3 层 helper 传递）里出现了造事件的入口
+# （`create_event` / `send_message` / `join_room` / `invite_user` / `redact_event` …）⇒
+# 这条路由必须在 `write_stream_map.txt` 里有一个非 `-` 的流"。
+# 静态扫描按**方法名**辨认，而同一个方法名在两个不相关的服务上可能是两件事：
+#
+#   * `admin_audit_service.create_event` —— 写 `audit_events` 表，与房间 DAG 无关；
+#   * `space_service.invite_user` / `space_events` —— 写本服务自建的 space 表，不进房间 DAG。
+#
+# 这些是"确属本地写、但不是房间事件"的例外，必须逐条登记理由，而不是放宽门禁 ——
+# 放宽会让真正的新增房间事件写也一起漏过去。
+#
+# ## 双向校验
+#
+# 每条登记项都必须**真的**命中一条当前判红的路由；某条路由将来不再写事件（或已被删除），
+# 对应登记项就变成陈旧条目 ⇒ 门禁红，逼你删掉它。所以这份清单不会慢慢腐烂成第二个真相。
+#
+# 排序：按 handler 名，便于审阅。
+
+# ── 审计表写入：`record_audit_event` → `admin_audit_service.create_event` → `audit_events` ──
+# 管理操作留痕，不产生房间 PDU/EDU；对联邦无广播，因此不占 `events` 流。
+acknowledge_alert	POST	/_synapse/admin/v1/telemetry/alerts/{alert_id}/ack	# 直接调 admin_audit_service.create_event 写 audit_events（告警确认留痕），不写房间 DAG
+create_audit_event	POST	/_synapse/admin/v1/audit/events	# 本路由就是审计事件的公开写入端点，目标表 audit_events
+deactivate_user	POST	/_synapse/admin/v1/deactivate/{user_id}	# 经 record_audit_event 写 audit_events；反激活本身不发房间事件
+deactivate_user	POST	/_synapse/admin/v1/users/{user_id}/deactivate	# 同上（v1 路径别名）
+delete_user	DELETE	/_synapse/admin/v1/users/{user_id}	# 经 record_audit_event 写 audit_events；删号不写房间 DAG
+delete_user	DELETE	/_synapse/admin/v2/users/{user_id}	# 同上（v2 路径别名）
+delete_user_override_rate_limit	DELETE	/_synapse/admin/v1/users/{user_id}/override_ratelimit	# 经 delete_user_rate_limit → record_audit_event 写 audit_events
+delete_user_rate_limit	DELETE	/_synapse/admin/v1/users/{user_id}/rate_limit	# 经 record_audit_event 写 audit_events
+login_as_user	POST	/_synapse/admin/v1/users/{user_id}/login	# 经 record_audit_event 写 audit_events；代登录不写房间事件
+management::block_room	POST	/_synapse/admin/v1/rooms/{room_id}/block	# 经 record_audit_event 写 audit_events；封禁房间是管理面标记，不改房间 DAG
+management::unblock_room	POST	/_synapse/admin/v1/rooms/{room_id}/unblock	# 同上（解封）
+set_admin	PUT	/_synapse/admin/v1/users/{user_id}/admin	# 经 record_audit_event 写 audit_events；改管理员标志不动房间事件
+set_user_override_rate_limit	POST	/_synapse/admin/v1/users/{user_id}/override_ratelimit	# 经 set_user_rate_limit → record_audit_event 写 audit_events
+set_user_rate_limit	PUT	/_synapse/admin/v1/users/{user_id}/rate_limit	# 经 record_audit_event 写 audit_events
+shadow_ban_user	POST	/_synapse/admin/v1/users/{user_id}/shadow_ban	# 经 record_audit_event 写 audit_events；影子封禁不改成员关系
+unshadow_ban_user	DELETE	/_synapse/admin/v1/users/{user_id}/shadow_ban	# 同上（解除影子封禁）
+update_account	POST	/_synapse/admin/v1/account/{user_id}	# 经 record_audit_event 写 audit_events；改账户属性不动房间事件
+
+# ── space 表写入：`space_service.invite_user` → `space_events`，不进房间 DAG ──
+invite_user	POST	/_matrix/vendor/v1/spaces/{space_id}/invite	# 写 space_events（本项目自建 space 表）；同名方法易与房间邀请混淆，故逐条登记
