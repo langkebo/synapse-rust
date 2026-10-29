@@ -753,6 +753,36 @@ fn test_refresh_token_lifetime_seconds_falls_back_to_default_when_zero() {
     assert_eq!(config.refresh_token_lifetime_seconds(), crate::DEFAULT_REFRESH_TOKEN_EXPIRY_SECS);
 }
 
+fn config_with_token_lifetimes(server_lifetime: i64, security_lifetime: i64) -> Config {
+    Config {
+        server: ServerConfig { expire_access_token_lifetime: server_lifetime, ..Default::default() },
+        security: SecurityConfig { expiry_time: security_lifetime, ..Default::default() },
+        ..Default::default()
+    }
+}
+
+#[test]
+fn test_access_token_lifetime_prefers_the_server_level_field() {
+    // `server.expire_access_token_lifetime` 是 Synapse 风格的显式配置；只要它不是
+    // 历史默认值 3600，就必须压过 `security.expiry_time`。
+    assert_eq!(config_with_token_lifetimes(86_400, 3_600).access_token_lifetime_seconds(), 86_400);
+}
+
+#[test]
+fn test_access_token_lifetime_keeps_the_server_value_when_both_are_set_and_differ() {
+    // 两个字段都被显式改过且互相矛盾时，仍以 server 级为准（只打 WARN，不阻塞启动）。
+    // 这条分支此前零覆盖：矛盾配置会静默地走另一支。
+    assert_eq!(config_with_token_lifetimes(86_400, 7_200).access_token_lifetime_seconds(), 86_400);
+}
+
+#[test]
+fn test_access_token_lifetime_falls_back_to_security_then_to_an_hour() {
+    // server 级仍是历史默认 3600 ⇒ 让 security 级生效。
+    assert_eq!(config_with_token_lifetimes(3_600, 7_200).access_token_lifetime_seconds(), 7_200);
+    // 两者都未配置 ⇒ 一小时的最终兜底。
+    assert_eq!(config_with_token_lifetimes(0, 0).access_token_lifetime_seconds(), 3_600);
+}
+
 /// `Config` 的必填字段（`server`/`database`/`redis`/…）无默认值，无法用最小 JSON
 /// 直接反序列化整个 `Config`，因此这里用一个镜像了 `Config::redaction_allowed_period`
 /// 完全相同 serde 属性的探针结构体来验证该字段的解析行为。
@@ -805,6 +835,20 @@ fn test_redaction_allowed_period_rejects_invalid_values() {
     assert!(err.to_string().contains("redaction_allowed_period"), "实际：{err}");
     let err = parse_redaction_period(json!(1.5)).unwrap_err();
     assert!(err.to_string().contains("redaction_allowed_period"), "实际：{err}");
+}
+
+#[test]
+fn test_redaction_allowed_period_rejects_non_scalar_shapes() {
+    // 布尔/数组/对象既不是数字也不是 duration 字符串。此前只测了浮点，这一支的
+    // 报错文本从未被断言过：配置写成 `redaction_allowed_period: true` 会不会被
+    // 当成 0 静默放行，取决于这条分支。
+    for raw in [json!(true), json!([1]), json!({"ms": 1})] {
+        let err = parse_redaction_period(raw.clone()).unwrap_err();
+        assert!(
+            err.to_string().contains("duration string or an integer number of milliseconds"),
+            "raw={raw} 实际：{err}"
+        );
+    }
 }
 
 #[test]

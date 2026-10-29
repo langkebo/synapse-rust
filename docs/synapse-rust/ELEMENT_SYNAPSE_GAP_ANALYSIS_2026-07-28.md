@@ -14,7 +14,7 @@ synapse-rust v6.2.0 对标 Element Synapse v1.156.0 的整体覆盖率达到 **~
 **当前状态：所有 P0/P1/P2 项均已完成（共 14 项）。** 剩余差距已收敛至：
 1. **持续维护任务**：Complement 互通测试需在 CI 中持续运行；Canonical JSON 官方向量需随 Matrix spec 更新同步
 2. **前端 UI 覆盖**：Admin API 后端已完整，前端仍缺"外部服务管理面板"和"事件举报管理面板"（详见前端功能缺失清单）
-3. **更深层实现**：MSC4242 仅完成存储层 tracer bullet，完整实现需房间版本支持和联邦功能
+3. **更深层实现**：~~MSC4242 仅完成存储层 tracer bullet~~ **MSC4242 已裁定不接入（2026-10-02），存储面于 2026-10-17 整体清空，本行描述已失效**
 
 ---
 
@@ -53,7 +53,7 @@ synapse-rust v6.2.0 对标 Element Synapse v1.156.0 的整体覆盖率达到 **~
 | MSC4491 | 邀请理由 | ✅ | ✅ (v1.156 新增) |
 | MSC4354 | 粘性事件 | ✅ | ✅ (v1.156 增加滑动同步集成) |
 | MSC2409 | AppService 短暂事件 | ✅ (P0-2 已实现) | ✅ (v1.156 稳定化) |
-| MSC4242 | State DAG | ✅ (P2-14 存储层已实现) | ✅ (实验性) |
+| MSC4242 | State DAG | ❌ 不接入（2026-10-02 裁定；存储面 2026-10-17 清空，原 P2-14 作废） | ✅ (实验性，提案未定稿) |
 
 ---
 
@@ -129,7 +129,7 @@ synapse-rust v6.2.0 对标 Element Synapse v1.156.0 的整体覆盖率达到 **~
 | `allowed_room_ids` in /summary | v1.156 新增 (Matrix 1.15) | ✅ 已实现（P0-1：room_summary handler 查询 restricted join rules 返回 allowed_room_ids） | P0 |
 | MSC4354 Sticky Events over Sliding Sync | v1.156 新增 | ✅ 已实现（P1-4：SlidingSyncService 注入 sticky_event_storage，build_room_json 中注入粘性事件） | P1 |
 | 本地事件 Purge History 保护 | v1.156 修复 (#19850) | ✅ 已修复 (P0 安全验证) | — |
-| MSC4242 State DAG | 实验性 | ✅ 存储层已实现（P2-14：`prev_state_events` 列 + `create_state_event_with_dag`/`get_prev_state_events`/`get_state_dag_edges`/`find_events_referencing_missing_state` 方法 + 3 个 TDD 测试） | P2 |
+| MSC4242 State DAG | 实验性 | ❌ 不接入（2026-10-02 裁定；2026-10-17 存储面清空：`prev_state_events` 列与 `create_state_event_with_dag`/`get_prev_state_events`/`find_events_referencing_missing_state` 均已删除，权威口径见 comparison §18.3 #18 / §18.4 L-2） | P2 |
 
 **优化方案 — P0 allowed_room_ids in /summary：**
 - **实现路径**: 在 `room_summary.rs` 的 `GET /rooms/{room_id}/summary` handler 中，当房间有 restricted join rules 时，在响应中添加 `allowed_room_ids` 字段
@@ -442,7 +442,7 @@ synapse-rust v6.2.0 对标 Element Synapse v1.156.0 的整体覆盖率达到 **~
 | 11 | MSC4452 端点级 403 强制 | 媒体 | 0.5 天 | 低 | ✅ 已完成 |
 | 12 | Refresh Token access_token 缓存失效验证 | 认证 | 1 天 | 低 | ✅ 已完成 |
 | 13 | Sliding Sync 性能阈值门禁 | 同步 | 2 天 | 低 | ✅ 已完成 |
-| 14 | MSC4242 State DAG | 房间与事件 | 5 天 | 中 | ✅ 已完成（存储层 tracer bullet） |
+| 14 | MSC4242 State DAG | 房间与事件 | 5 天 | 中 | ❌ 已撤回（2026-10-17 存储面清空，不接入） |
 | 15 | Worker 拓扑校验覆盖 v1.156 新配置 | Worker | 1 天 | 低 | ✅ 已完成 |
 | 16 | 联邦密钥 query/notary 语义收敛 | 联邦 | 2 天 | 低 | ✅ 已完成 |
 

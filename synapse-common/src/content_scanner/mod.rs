@@ -155,3 +155,45 @@ pub struct WebhookScanResponse {
     /// The `threat_message` field.
     pub threat_message: Option<String>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::ContentType;
+
+    const ALL: [ContentType; 6] = [
+        ContentType::MediaImage,
+        ContentType::MediaVideo,
+        ContentType::MediaAudio,
+        ContentType::MediaFile,
+        ContentType::MessageText,
+        ContentType::FileAttachment,
+    ];
+
+    #[test]
+    fn as_str_and_from_str_round_trip_every_variant() {
+        // `as_str`/`FromStr` 是走 `content_scanner` 配置与 webhook 载荷的字符串口径，
+        // 两者一旦不同步，配置里写的类型就会被静默当成未知值。
+        for variant in ALL {
+            let text = variant.as_str();
+            assert_eq!(text.parse::<ContentType>(), Ok(variant), "as_str 与 FromStr 不同步: {text}");
+        }
+    }
+
+    #[test]
+    fn as_str_uses_the_snake_case_wire_names() {
+        // 这些字面量会出现在 homeserver.yaml 与 webhook 请求体里，属于对外契约。
+        assert_eq!(ContentType::MediaImage.as_str(), "media_image");
+        assert_eq!(ContentType::MediaVideo.as_str(), "media_video");
+        assert_eq!(ContentType::MediaAudio.as_str(), "media_audio");
+        assert_eq!(ContentType::MediaFile.as_str(), "media_file");
+        assert_eq!(ContentType::MessageText.as_str(), "message_text");
+        assert_eq!(ContentType::FileAttachment.as_str(), "file_attachment");
+    }
+
+    #[test]
+    fn from_str_rejects_unknown_and_differently_cased_names() {
+        assert_eq!("application_pdf".parse::<ContentType>(), Err(()));
+        assert_eq!("".parse::<ContentType>(), Err(()));
+        assert_eq!("Media_Image".parse::<ContentType>(), Err(()));
+    }
+}

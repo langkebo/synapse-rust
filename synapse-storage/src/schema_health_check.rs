@@ -525,7 +525,15 @@ pub async fn quick_validate(pool: &Pool<Postgres>) -> Result<bool, sqlx::Error> 
 /// 详细验证报告
 pub async fn detailed_report(pool: &Pool<Postgres>) -> Result<String, sqlx::Error> {
     let result = run_schema_health_check(pool, false).await?;
+    Ok(format_detailed_report(&result))
+}
 
+/// 把一次检查结果渲染成 Markdown 报告。
+///
+/// 与 [`detailed_report`] 拆开的唯一理由是**可测**：报告的每一节都由
+/// `if !vec.is_empty()` 控制，而要让真实数据库同时缺表、缺列、缺索引、缺迁移
+/// 几乎不可能，这些分支在拆分前没有任何测试能走到。
+fn format_detailed_report(result: &HealthCheckResult) -> String {
     let mut report = String::new();
     report.push_str("# Database Schema Health Report\n\n");
 
@@ -584,7 +592,7 @@ pub async fn detailed_report(pool: &Pool<Postgres>) -> Result<String, sqlx::Erro
         report.push('\n');
     }
 
-    Ok(report)
+    report
 }
 
 #[cfg(test)]
@@ -619,6 +627,58 @@ mod tests {
         assert_eq!(result.baseline_drift, 3);
         assert_eq!(result.applied_migration_count, 5);
         assert_eq!(result.missing_migrations, vec![20240101000001]);
+    }
+
+    /// 报告渲染是「有就写、没有就整节省略」，因此必须分别覆盖两端：
+    /// 全部字段填充时每一节都要出现，空结果时任何一节都不许出现。
+    #[test]
+    fn test_format_detailed_report_renders_every_section_when_all_fields_are_populated() {
+        let result = HealthCheckResult {
+            passed: false,
+            missing_tables: vec!["users".to_string()],
+            missing_columns: vec!["events.room_id".to_string()],
+            missing_indexes: vec!["idx_events_room".to_string()],
+            invalid_indexes: vec![],
+            repaired_indexes: vec![],
+            warnings: vec!["test warning".to_string()],
+            baseline_drift: 3,
+            applied_migration_count: 5,
+            missing_migrations: vec![20240101000001],
+        };
+
+        let report = format_detailed_report(&result);
+
+        assert!(report.starts_with("# Database Schema Health Report\n\n"), "{report}");
+        assert!(report.contains("## Status: FAILED"), "{report}");
+        // metrics 表的「实际表数」= baseline + drift，两列都要写进同一行。
+        let expected_actual = crate::baseline_tables::baseline_table_count() as i64 + 3;
+        assert!(report.contains(&format!("| Actual table count | {expected_actual} |")), "{report}");
+        assert!(report.contains("| Baseline drift | 3 |"), "{report}");
+        assert!(report.contains("| Missing tables | 1 |"), "{report}");
+        assert!(report.contains("| Missing columns | 1 |"), "{report}");
+        assert!(report.contains("| Missing indexes | 1 |"), "{report}");
+        assert!(report.contains("| Applied migrations | 5 |"), "{report}");
+        assert!(report.contains("| Missing migrations | 1 |"), "{report}");
+        // 各节内容（列表项）
+        assert!(report.contains("## Missing Tables\n- users\n"), "{report}");
+        assert!(report.contains("## Missing Columns\n- events.room_id\n"), "{report}");
+        assert!(report.contains("## Missing Indexes\n- idx_events_room\n"), "{report}");
+        assert!(report.contains("## Missing Migrations\n- 20240101000001\n"), "{report}");
+        assert!(report.contains("## Warnings\n- test warning\n"), "{report}");
+    }
+
+    #[test]
+    fn test_format_detailed_report_omits_empty_sections() {
+        let report = format_detailed_report(&HealthCheckResult::default());
+
+        assert!(report.contains("## Status: PASSED"), "{report}");
+        assert!(report.contains("| Missing tables | 0 |"), "{report}");
+        // 空集合不得留下空节 —— 否则报告会被一堆无内容的标题撑长。
+        for heading in
+            ["## Missing Tables", "## Missing Columns", "## Missing Indexes", "## Missing Migrations", "## Warnings"]
+        {
+            assert!(!report.contains(heading), "{heading} 不该出现在空报告里：{report}");
+        }
     }
 
     #[test]

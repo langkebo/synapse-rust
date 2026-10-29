@@ -656,4 +656,158 @@ mod tests {
         assert_eq!(changes[0].change_type, "unprotect");
         assert_eq!(changes[0].changed_by, "@admin:example.com", "审计必须记录操作者，而不是被操作的用户");
     }
+
+    // ── 房间 / 全局 / 用户维度的隔离与解隔离 ──
+    //
+    // 这些端点（U-5 补齐的 `get_room_media` / `delete_room_media` / `quarantine_room_media` /
+    // `unquarantine_room_media` / `protect_media` / `quarantine_user_media` /
+    // `get_global_media_quarantine_changes`）此前**零单元测试**：路由层有集成用例，
+    // 但服务层的分支（空房间 404、uploader 过滤、重复隔离的 0 命中）一条也没走过。
+
+    #[tokio::test]
+    async fn get_room_media_returns_the_storage_page() {
+        let (svc, store, _q) = test_service();
+        store.insert_media(sample_media("media-1", "@alice:example.com")).await;
+        store.insert_media(sample_media("media-2", "@bob:example.com")).await;
+
+        let page = svc.get_room_media("!room:example.com", 100, None).await.unwrap();
+        assert_eq!(page.media.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn delete_room_media_reports_missing_and_removes_existing() {
+        let (svc, store, _q) = test_service();
+
+        let err = svc.delete_room_media("!room:example.com", "missing").await.unwrap_err();
+        assert!(err.is_not_found(), "房间里没有这条媒体 ⇒ 404");
+
+        store.insert_media(sample_media("media-1", "@alice:example.com")).await;
+        svc.delete_room_media("!room:example.com", "media-1").await.unwrap();
+        assert!(store.get_media_info("media-1").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn get_global_media_quarantine_changes_spans_all_media() {
+        let (svc, _store, q_store) = test_service();
+        q_store.seed_change(sample_change(1, "media-A", "quarantine")).await;
+        q_store.seed_change(sample_change(2, "media-B", "protect")).await;
+
+        let changes = svc.get_global_media_quarantine_changes(0, 10).await.unwrap();
+        assert_eq!(changes.len(), 2, "全局流不受 media_id 限制");
+        assert_eq!(changes[1].media_id, "media-B");
+
+        let after = svc.get_global_media_quarantine_changes(1, 10).await.unwrap();
+        assert_eq!(after.len(), 1, "since_stream_id 之后的才返回");
+        assert_eq!(after[0].stream_id, 2);
+    }
+
+    #[tokio::test]
+    async fn quarantine_and_unquarantine_media_write_audit_with_the_change_type() {
+        let (svc, _store, q_store) = test_service();
+
+        let q_id = svc.quarantine_media("example.com", "media-1", "@admin:example.com").await.unwrap();
+        let u_id = svc.unquarantine_media("example.com", "media-1", "@admin:example.com").await.unwrap();
+        assert!(u_id > q_id, "解隔离的 stream_id 必须晚于隔离");
+
+        let changes = q_store.get_changes_by_media("media-1", 0, 10).await.unwrap();
+        assert_eq!(changes.len(), 2);
+        assert_eq!(changes[0].change_type, "quarantine");
+        assert_eq!(changes[1].change_type, "unquarantine");
+        assert!(changes.iter().all(|c| c.changed_by == "@admin:example.com"));
+    }
+
+    #[tokio::test]
+    async fn quarantine_room_media_records_one_change_per_media() {
+        let (svc, store, q_store) = test_service();
+        store.insert_media(sample_media("media-1", "@alice:example.com")).await;
+        store.insert_media(sample_media("media-2", "@bob:example.com")).await;
+
+        let last = svc.quarantine_room_media("!room:example.com", None, "@admin:example.com").await.unwrap();
+        assert_eq!(last, 2, "两条媒体各写一条变更，返回最后一条的 stream_id");
+
+        let changes = q_store.get_quarantined_media_changes(0, 10).await.unwrap();
+        assert_eq!(changes.len(), 2);
+        assert!(changes.iter().all(|c| c.change_type == "quarantine"));
+    }
+
+    #[tokio::test]
+    async fn quarantine_room_media_filters_by_uploader() {
+        let (svc, store, q_store) = test_service();
+        store.insert_media(sample_media("media-1", "@alice:example.com")).await;
+        store.insert_media(sample_media("media-2", "@bob:example.com")).await;
+
+        svc.quarantine_room_media("!room:example.com", Some("@alice:example.com"), "@admin:example.com").await.unwrap();
+
+        let changes = q_store.get_quarantined_media_changes(0, 10).await.unwrap();
+        assert_eq!(changes.len(), 1, "带 uploader 过滤时只动这个人的媒体");
+        assert_eq!(changes[0].media_id, "media-1");
+    }
+
+    #[tokio::test]
+    async fn quarantine_room_media_returns_not_found_for_a_room_without_media() {
+        let (svc, _store, q_store) = test_service();
+
+        let err = svc.quarantine_room_media("!empty:example.com", None, "@admin:example.com").await.unwrap_err();
+        assert!(err.is_not_found(), "空房间不得报成功");
+        assert_eq!(q_store.get_current_stream_id().await.unwrap(), 0, "失败的请求不得写审计流");
+    }
+
+    #[tokio::test]
+    async fn unquarantine_room_media_records_changes_and_reports_an_empty_room() {
+        let (svc, store, q_store) = test_service();
+
+        let err = svc.unquarantine_room_media("!empty:example.com", None, "@admin:example.com").await.unwrap_err();
+        assert!(err.is_not_found());
+
+        store.insert_media(sample_media("media-1", "@alice:example.com")).await;
+        let last = svc.unquarantine_room_media("!room:example.com", None, "@admin:example.com").await.unwrap();
+        assert_eq!(last, 1);
+        let changes = q_store.get_quarantined_media_changes(0, 10).await.unwrap();
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].change_type, "unquarantine");
+    }
+
+    #[tokio::test]
+    async fn protect_media_records_a_protect_change() {
+        let (svc, _store, q_store) = test_service();
+
+        let stream_id = svc.protect_media("example.com", "media-1", "@admin:example.com").await.unwrap();
+        assert_eq!(stream_id, 1);
+
+        let changes = q_store.get_changes_by_media("media-1", 0, 10).await.unwrap();
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].change_type, "protect");
+        assert_eq!(changes[0].changed_by, "@admin:example.com");
+    }
+
+    #[tokio::test]
+    async fn quarantine_user_media_records_audit_and_reports_a_user_without_media() {
+        let (svc, store, q_store) = test_service();
+        store.insert_media(sample_media("media-1", "@alice:example.com")).await;
+        store.insert_media(sample_media("media-2", "@alice:example.com")).await;
+        store.insert_media(sample_media("media-3", "@bob:example.com")).await;
+
+        let stream_id = svc.quarantine_user_media("@alice:example.com", "@admin:example.com").await.unwrap();
+        assert_eq!(stream_id, 1, "整用户隔离只写一条审计，而不是每媒体一条");
+
+        let changes = q_store.get_changes_by_media("user:@alice:example.com/*", 0, 10).await.unwrap();
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].change_type, "quarantine_by_user");
+
+        // 第二次调用：alice 的媒体已全部隔离 ⇒ 0 命中 ⇒ 404（不能报成成功）
+        let err = svc.quarantine_user_media("@alice:example.com", "@admin:example.com").await.unwrap_err();
+        assert!(err.is_not_found(), "没有可隔离的媒体时必须 404，实际：{err}");
+        assert_eq!(q_store.get_current_stream_id().await.unwrap(), 1, "失败请求不得二次写审计");
+    }
+
+    #[tokio::test]
+    async fn delete_user_media_removes_only_that_uploaders_rows() {
+        let (svc, store, _q) = test_service();
+        store.insert_media(sample_media("media-1", "@alice:example.com")).await;
+        store.insert_media(sample_media("media-2", "@bob:example.com")).await;
+
+        assert_eq!(svc.delete_user_media("@alice:example.com").await.unwrap(), 1);
+        assert!(store.get_media_info("media-1").await.unwrap().is_none());
+        assert!(store.get_media_info("media-2").await.unwrap().is_some(), "不得误删别人的媒体");
+    }
 }
