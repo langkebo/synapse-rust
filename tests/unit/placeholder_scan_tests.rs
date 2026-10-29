@@ -351,3 +351,57 @@ fn test_extract_unresolved_allowlist_stale_entry_is_red() {
 
     let _ = fs::remove_dir_all(&tmp);
 }
+
+/// `docs/openapi/route-table.json` 的 `generated_at` 必须等于
+/// `scripts/api_test/artifact_common.py::FIXED_TIMESTAMP`。
+///
+/// ## 为什么需要这一条
+///
+/// CI 的 `openapi-artifact` job 用
+/// `--timestamp="$(python3 -c '… print(artifact_common.FIXED_TIMESTAMP)')"` 做一次
+/// **全新的 default-feature 导出**，再 `gen_route_table.py --check` 与 committed
+/// 文件逐字节比对。而 golden 车道的夹具
+/// `tests/unit/fixtures/ledger_export/{default,worker,all}.json` 钉的是**另一个**
+/// 时间戳 `2026-05-02T00:00:00Z`（见 `ledger_export_tests.rs`）。
+///
+/// 于是"从夹具重生 `route-table.json`"是个陷阱：路由内容完全正确，只有
+/// `generated_at` 一行从 `2026-09-16T00:00:00Z` 变成 `2026-05-02T00:00:00Z`，
+/// 本地所有门禁都绿（没有一个比对这一行），CI 的 `--check` 却红。
+/// **2026-10-29 实测踩到**：`eb2658f38` 从夹具重生后变成 05-02，此后
+/// `openapi-artifact` 连续两轮红在 `Verify committed route-table.json is in sync`，
+/// 而同一 job 里刚修好的 `_workspace_version()` 根本没机会被执行到。
+///
+/// 断言取**两边相等**而不是写死 09-16：这样改 `FIXED_TIMESTAMP` 的人必须同批
+/// 重生产物，改产物的人也不会把常量落单。
+#[test]
+fn committed_route_table_carries_the_ci_fixed_timestamp() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+
+    let raw = fs::read_to_string(root.join("docs/openapi/route-table.json")).expect("read committed route-table.json");
+    let artifact: serde_json::Value =
+        serde_json::from_str(&raw).expect("docs/openapi/route-table.json must be valid JSON");
+    let generated_at = artifact
+        .get("generated_at")
+        .and_then(serde_json::Value::as_str)
+        .expect("route-table.json must carry a `generated_at` string");
+
+    let common = fs::read_to_string(root.join("scripts/api_test/artifact_common.py"))
+        .expect("read scripts/api_test/artifact_common.py");
+    let literal = common
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("FIXED_TIMESTAMP = \""))
+        .and_then(|rest| rest.strip_suffix('"'))
+        .expect("artifact_common.py must define FIXED_TIMESTAMP as a single quoted string literal");
+
+    assert_eq!(
+        generated_at, literal,
+        "committed route-table.json 的 generated_at 与 CI 的 FIXED_TIMESTAMP 不一致。\n\
+         修法：用 CI 那条命令重生 ——\n\
+         \x20 cargo run --bin synapse_ledger_export -- --profile=default \\\n\
+         \x20   --timestamp=\"$(python3 -c 'import sys; sys.path.insert(0, \"scripts/api_test\"); \
+         import artifact_common; print(artifact_common.FIXED_TIMESTAMP)')\" \
+         --output=/tmp/ledger_default_ci.json\n\
+         \x20 python3 scripts/api_test/gen_route_table.py --ledger /tmp/ledger_default_ci.json\n\
+         不要用 tests/unit/fixtures/ledger_export/default.json 重生 —— 那个夹具钉的是 golden 车道的时间戳。"
+    );
+}
