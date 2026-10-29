@@ -17,7 +17,7 @@
 
 | 编号 | 级别 | 问题 | 状态 |
 |---|---|---|---|
-| **P1-1** | P1 | 状态决议仍保留 `origin_server_ts` 兜底路径 | **已关闭（`f3a91641a`）**：读路径 fail-closed，推导入口只给播种与逃生开关用（见 §2 R-8） |
+| **P1-1** | P1 | 状态决议仍保留 `origin_server_ts` 兜底路径 | **已关闭（`f3a91641a`）**：读路径 fail-closed，推导入口只给播种与逃生开关用（见 §2 R-8）；逃生开关的部署清单门禁已补（R-8 ⑦） |
 | **P1-2** | P1 | 无 Redis 时拓扑校验只 `warn!`，不阻断启动 | **已关闭（`a68a93a08`）**：`write_forwarding` + 缺 `notify_fan_out` ⇒ 无条件 fatal，不看 `strict` |
 | **P1-3** | P1 | 写归属守卫不校验 handler 行为，只看路由集合与 stream 归属 | **行为维度已补（`67ffd19bc`）**：sticky 补发 tick 的归属改为运行时门；**静态扫描已补**：`check_event_writer_routes.py`（52 条事件写路由 / 18 条约一条理由的例外） |
 | **P1-4** | P1 | sticky catch-up 的**服务层零测试** | **已关闭（`67ffd19bc` + 本轮）**：`StickyCatchUpIo` 接缝 + 11 条用例（含跨 destination 轮转公平性） |
@@ -86,6 +86,11 @@
   ⑥ 变异自证 4 条：M1 `state_ts_fallback_allowed` 恒 `true` ⇒ 存储层用例红；M2 恒 `false` ⇒ 同一用例另一段红；
   M3 删建房 `seed_new_room` ⇒ `api_history_visibility` **9/9 红**；M4 关 `run_post_create_side_effects` 的维护块
   ⇒ **5/9 红**（invited / joined / room_sync / single_event / relations）。还原后全绿。
+  ⑦ **残余收口**：逃生开关原先只靠发布说明约束，现加静态门禁
+  `scripts/ci/check_state_ts_fallback_absent.sh`（接入 `preflight.sh`，紧跟 B-7 部署隐私那一步），
+  扫描仓库内 `*.yaml` / `*.yml` / `*.toml` / `*.env*` 的部署配置，**激活行一律红**、纯注释放行。
+  这里的判据与 B-7 相反：实现是 `std::env::var_os(..).is_some()`，只看存在性 ⇒ **空值也算开启**，
+  所以没有"安全值"可言。变异 3 条：写入 `=1` ⇒ 红、写入空值 ⇒ 也红、写成注释 ⇒ 绿，还原后绿。
 - **R-9 P1-2 无 Redis 阻断启动 → `a68a93a08`（并发写入者落地，本轮核对口径）。**
   `check_startup_topology` 把「`write_forwarding=true` 且 `missing_notify_fan_out` 非空」单列为
   `hard` 一类，产出 `fatal` 时**不看** `topology.strict`；`strict` 从此只管其余静态规则的升级。
@@ -104,8 +109,11 @@
 **落地**：`STATE_GROUP_REQUIRED` 常量已删除（`grep -c` 应为 0），默认行为就是 fail-closed；
 推导被降级为独立入口 `derive_state_from_event_log`，只给播种与 `SYNAPSE_ALLOW_STATE_TS_FALLBACK` 用。
 判据与 4 条变异见 §2 R-8。
-**残余（仍成立）**：`SYNAPSE_ALLOW_STATE_TS_FALLBACK` 仍在（回填窗口用），语义是"整进程回到旧推导"；
-它不该长期留在生产配置里 —— 回填完成后应从部署清单消失，这一条没有机器门禁，靠发布说明约束。
+**残余（本笔已收口）**：`SYNAPSE_ALLOW_STATE_TS_FALLBACK` 仍在（回填窗口用），语义是"整进程回到旧推导"；
+它不该长期留在生产配置里 —— 回填完成后应从部署清单消失。这一条原先没有机器门禁（只靠发布说明），
+现由 `scripts/ci/check_state_ts_fallback_absent.sh` 守住仓库内的部署配置（见 §2 R-8 ⑦）。
+**仍在门禁之外**：运维在 shell / systemd / K8s Secret 里临时 export 这个变量，仓库看不到；
+那一段只能靠发布说明与回填后复核。
 
 ### P1-2 无 Redis 时只告警，不阻断启动 —— **已关闭（`a68a93a08`，§2 R-9）**
 
@@ -332,6 +340,9 @@ cargo test -p synapse-services --lib --features test-utils -- forked_state_is_re
 
 # A1 端到端：建房播种 + 本地状态写维护记录（M3/M4 变异都在这 9 条上体现）
 cargo test --test integration --features "test-utils privacy-ext voice-extended voip-tracking beacons server-notifications" -- api_history_visibility
+
+# 逃生开关不得进部署配置（应 0；写进任一 .env/.yml 再跑应变 1）
+bash scripts/ci/check_state_ts_fallback_absent.sh
 
 # 无 Redis 是否仍只告警（A2 之后：hard 一类不受 strict 影响，应为 fatal）
 grep -n "let fatal = if !hard.is_empty()" -A 6 synapse-services/src/worker/topology_gate.rs
