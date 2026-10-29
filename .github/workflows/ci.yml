@@ -1591,6 +1591,11 @@ jobs:
         # bootstrap runs first, with every floor at 0 (a pass by construction),
         # purely to materialise the file for the follow-up commit step.
         if: github.event_name == 'push' && (github.ref == 'refs/heads/main')
+        # `--core-files` is passed even here, with the core threshold at 0: the
+        # snapshot must carry a `[CORE-KNOWN]` `target` per core entry, because
+        # the ratchet step below exits 2 when one is missing (a target that is
+        # re-derived from `prev` every run makes `min(target, prev)` collapse to
+        # `prev`, i.e. the tiered target silently never applies).
         run: |
           if [ -f scripts/ci/coverage_baseline.json ]; then
             echo "Baseline present; nothing to bootstrap."
@@ -1601,6 +1606,7 @@ jobs:
             --report coverage/lcov.info \
             --baseline scripts/ci/coverage_baseline.json \
             --save-baseline scripts/ci/coverage_baseline.json \
+            --core-files scripts/ci/core_file_coverage_prefixes.txt \
             --global-floor 0 --new-file-floor 0 --core-threshold 0
 
       - name: Per-file coverage ratchet (B.3)

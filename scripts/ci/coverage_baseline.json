@@ -301,7 +301,8 @@
     {
       "path": "synapse-common/crypto.rs",
       "line_pct": 93.25,
-      "lines_found": 667
+      "lines_found": 667,
+      "target": 90.0
     },
     {
       "path": "synapse-common/db_query_metrics.rs",
@@ -433,7 +434,8 @@
     },
     {
       "path": "synapse-common/security.rs",
-      "line_pct": 98.84
+      "line_pct": 98.84,
+      "target": 95.0
     },
     {
       "path": "synapse-common/server_metrics.rs",
@@ -519,22 +521,26 @@
     {
       "path": "synapse-e2ee/cross_signing/mod.rs",
       "line_pct": 100.0,
-      "lines_found": 19
+      "lines_found": 19,
+      "target": 100.0
     },
     {
       "path": "synapse-e2ee/cross_signing/models.rs",
       "line_pct": 100.0,
-      "lines_found": 87
+      "lines_found": 87,
+      "target": 100.0
     },
     {
       "path": "synapse-e2ee/cross_signing/service.rs",
       "line_pct": 56.69,
-      "lines_found": 859
+      "lines_found": 859,
+      "target": 70.0
     },
     {
       "path": "synapse-e2ee/cross_signing/storage.rs",
       "line_pct": 97.14,
-      "lines_found": 315
+      "lines_found": 315,
+      "target": 95.0
     },
     {
       "path": "synapse-e2ee/crypto/aes.rs",
@@ -558,16 +564,19 @@
     },
     {
       "path": "synapse-e2ee/device_keys/models.rs",
-      "line_pct": 98.98
+      "line_pct": 98.98,
+      "target": 95.0
     },
     {
       "path": "synapse-e2ee/device_keys/service.rs",
-      "line_pct": 62.22
+      "line_pct": 62.22,
+      "target": 70.0
     },
     {
       "path": "synapse-e2ee/device_keys/storage.rs",
       "line_pct": 90.32,
-      "lines_found": 279
+      "lines_found": 279,
+      "target": 90.0
     },
     {
       "path": "synapse-e2ee/key_request/models.rs",
@@ -587,49 +596,59 @@
     {
       "path": "synapse-e2ee/key_rotation/service.rs",
       "line_pct": 48.58,
-      "lines_found": 459
+      "lines_found": 459,
+      "target": 55.0
     },
     {
       "path": "synapse-e2ee/megolm/models.rs",
       "line_pct": 100.0,
-      "lines_found": 122
+      "lines_found": 122,
+      "target": 100.0
     },
     {
       "path": "synapse-e2ee/megolm/service.rs",
-      "line_pct": 16.28
+      "line_pct": 16.28,
+      "target": 40.0
     },
     {
       "path": "synapse-e2ee/megolm/storage.rs",
       "line_pct": 93.06,
-      "lines_found": 144
+      "lines_found": 144,
+      "target": 90.0
     },
     {
       "path": "synapse-e2ee/olm/models.rs",
       "line_pct": 100.0,
-      "lines_found": 106
+      "lines_found": 106,
+      "target": 100.0
     },
     {
       "path": "synapse-e2ee/olm/service.rs",
       "line_pct": 38.17,
-      "lines_found": 372
+      "lines_found": 372,
+      "target": 55.0
     },
     {
       "path": "synapse-e2ee/olm/session.rs",
-      "line_pct": 15.42
+      "line_pct": 15.42,
+      "target": 40.0
     },
     {
       "path": "synapse-e2ee/olm/storage.rs",
       "line_pct": 100.0,
-      "lines_found": 344
+      "lines_found": 344,
+      "target": 100.0
     },
     {
       "path": "synapse-e2ee/secure_backup/models.rs",
       "line_pct": 100.0,
-      "lines_found": 186
+      "lines_found": 186,
+      "target": 100.0
     },
     {
       "path": "synapse-e2ee/secure_backup/service.rs",
-      "line_pct": 97.1
+      "line_pct": 97.1,
+      "target": 95.0
     },
     {
       "path": "synapse-e2ee/signed_json.rs",
@@ -657,12 +676,14 @@
     {
       "path": "synapse-e2ee/to_device/service.rs",
       "line_pct": 89.22,
-      "lines_found": 167
+      "lines_found": 167,
+      "target": 85.0
     },
     {
       "path": "synapse-e2ee/to_device/storage.rs",
       "line_pct": 92.39,
-      "lines_found": 197
+      "lines_found": 197,
+      "target": 90.0
     },
     {
       "path": "synapse-e2ee/vodozemac_megolm.rs",
@@ -694,32 +715,38 @@
     {
       "path": "synapse-federation/event_auth/chain.rs",
       "line_pct": 92.54,
-      "lines_found": 456
+      "lines_found": 456,
+      "target": 90.0
     },
     {
       "path": "synapse-federation/event_auth/mod.rs",
       "line_pct": 89.36,
-      "lines_found": 141
+      "lines_found": 141,
+      "target": 85.0
     },
     {
       "path": "synapse-federation/event_auth/models.rs",
       "line_pct": 84.62,
-      "lines_found": 26
+      "lines_found": 26,
+      "target": 80.0
     },
     {
       "path": "synapse-federation/event_auth/rules.rs",
       "line_pct": 99.74,
-      "lines_found": 387
+      "lines_found": 387,
+      "target": 95.0
     },
     {
       "path": "synapse-federation/event_auth/state_map_auth.rs",
       "line_pct": 97.18,
-      "lines_found": 390
+      "lines_found": 390,
+      "target": 95.0
     },
     {
       "path": "synapse-federation/event_auth/state_resolution.rs",
       "line_pct": 91.99,
-      "lines_found": 899
+      "lines_found": 899,
+      "target": 90.0
     },
     {
       "path": "synapse-federation/event_broadcaster.rs",
@@ -759,7 +786,8 @@
     {
       "path": "synapse-federation/signing.rs",
       "line_pct": 95.14,
-      "lines_found": 906
+      "lines_found": 906,
+      "target": 95.0
     },
     {
       "path": "synapse-federation/test_isolation.rs",
@@ -857,63 +885,76 @@
     {
       "path": "synapse-services/auth/account.rs",
       "line_pct": 81.55,
-      "lines_found": 206
+      "lines_found": 206,
+      "target": 80.0
     },
     {
       "path": "synapse-services/auth/credential_auth.rs",
       "line_pct": 0.0,
-      "lines_found": 2
+      "lines_found": 2,
+      "target": 30.0
     },
     {
       "path": "synapse-services/auth/login.rs",
-      "line_pct": 94.59
+      "line_pct": 94.59,
+      "target": 90.0
     },
     {
       "path": "synapse-services/auth/mas_rest_client.rs",
       "line_pct": 97.26,
-      "lines_found": 219
+      "lines_found": 219,
+      "target": 95.0
     },
     {
       "path": "synapse-services/auth/mas_validator.rs",
       "line_pct": 87.77,
-      "lines_found": 139
+      "lines_found": 139,
+      "target": 85.0
     },
     {
       "path": "synapse-services/auth/mod.rs",
       "line_pct": 76.67,
-      "lines_found": 240
+      "lines_found": 240,
+      "target": 75.0
     },
     {
       "path": "synapse-services/auth/password_policy.rs",
       "line_pct": 83.67,
-      "lines_found": 147
+      "lines_found": 147,
+      "target": 80.0
     },
     {
       "path": "synapse-services/auth/power_levels.rs",
       "line_pct": 93.58,
-      "lines_found": 841
+      "lines_found": 841,
+      "target": 90.0
     },
     {
       "path": "synapse-services/auth/register.rs",
-      "line_pct": 94.38
+      "line_pct": 94.38,
+      "target": 90.0
     },
     {
       "path": "synapse-services/auth/session.rs",
-      "line_pct": 77.86
+      "line_pct": 77.86,
+      "target": 75.0
     },
     {
       "path": "synapse-services/auth/test_harness.rs",
       "line_pct": 100.0,
-      "lines_found": 37
+      "lines_found": 37,
+      "target": 100.0
     },
     {
       "path": "synapse-services/auth/token.rs",
-      "line_pct": 83.28
+      "line_pct": 83.28,
+      "target": 80.0
     },
     {
       "path": "synapse-services/auth/token_auth.rs",
       "line_pct": 0.0,
-      "lines_found": 2
+      "lines_found": 2,
+      "target": 30.0
     },
     {
       "path": "synapse-services/background_update_service.rs",
@@ -955,7 +996,8 @@
     {
       "path": "synapse-services/container.rs",
       "line_pct": 91.86,
-      "lines_found": 381
+      "lines_found": 381,
+      "target": 90.0
     },
     {
       "path": "synapse-services/content_scanner/models.rs",
@@ -1192,7 +1234,8 @@
     {
       "path": "synapse-services/refresh_token_service.rs",
       "line_pct": 94.03,
-      "lines_found": 519
+      "lines_found": 519,
+      "target": 90.0
     },
     {
       "path": "synapse-services/registration_service.rs",
@@ -1338,7 +1381,8 @@
     {
       "path": "synapse-services/room/service.rs",
       "line_pct": 66.85,
-      "lines_found": 546
+      "lines_found": 546,
+      "target": 70.0
     },
     {
       "path": "synapse-services/room/space/children.rs",
@@ -1494,53 +1538,64 @@
     },
     {
       "path": "synapse-services/sync_service/api.rs",
-      "line_pct": 92.86
+      "line_pct": 92.86,
+      "target": 90.0
     },
     {
       "path": "synapse-services/sync_service/api_trait.rs",
       "line_pct": 50.0,
-      "lines_found": 12
+      "lines_found": 12,
+      "target": 70.0
     },
     {
       "path": "synapse-services/sync_service/data_fetch.rs",
-      "line_pct": 85.44
+      "line_pct": 85.44,
+      "target": 85.0
     },
     {
       "path": "synapse-services/sync_service/event_fetch.rs",
-      "line_pct": 86.67
+      "line_pct": 86.67,
+      "target": 85.0
     },
     {
       "path": "synapse-services/sync_service/filter.rs",
       "line_pct": 97.36,
-      "lines_found": 946
+      "lines_found": 946,
+      "target": 95.0
     },
     {
       "path": "synapse-services/sync_service/history_visibility.rs",
       "line_pct": 100.0,
-      "lines_found": 57
+      "lines_found": 57,
+      "target": 100.0
     },
     {
       "path": "synapse-services/sync_service/lazy_load.rs",
       "line_pct": 98.27,
-      "lines_found": 289
+      "lines_found": 289,
+      "target": 95.0
     },
     {
       "path": "synapse-services/sync_service/metrics.rs",
-      "line_pct": 89.71
+      "line_pct": 89.71,
+      "target": 85.0
     },
     {
       "path": "synapse-services/sync_service/mod.rs",
-      "line_pct": 95.83
+      "line_pct": 95.83,
+      "target": 95.0
     },
     {
       "path": "synapse-services/sync_service/response.rs",
       "line_pct": 89.33,
-      "lines_found": 872
+      "lines_found": 872,
+      "target": 85.0
     },
     {
       "path": "synapse-services/sync_service/types.rs",
       "line_pct": 93.6,
-      "lines_found": 125
+      "lines_found": 125,
+      "target": 90.0
     },
     {
       "path": "synapse-services/telemetry_service.rs",
@@ -1803,91 +1858,109 @@
     {
       "path": "synapse-storage/event/basic.rs",
       "line_pct": 100.0,
-      "lines_found": 121
+      "lines_found": 121,
+      "target": 100.0
     },
     {
       "path": "synapse-storage/event/batch.rs",
       "line_pct": 82.9,
-      "lines_found": 269
+      "lines_found": 269,
+      "target": 80.0
     },
     {
       "path": "synapse-storage/event/cascade.rs",
       "line_pct": 98.57,
-      "lines_found": 70
+      "lines_found": 70,
+      "target": 95.0
     },
     {
       "path": "synapse-storage/event/create.rs",
       "line_pct": 98.17,
-      "lines_found": 109
+      "lines_found": 109,
+      "target": 95.0
     },
     {
       "path": "synapse-storage/event/dag.rs",
       "line_pct": 98.8,
-      "lines_found": 83
+      "lines_found": 83,
+      "target": 95.0
     },
     {
       "path": "synapse-storage/event/depth.rs",
       "line_pct": 91.3,
-      "lines_found": 138
+      "lines_found": 138,
+      "target": 90.0
     },
     {
       "path": "synapse-storage/event/ephemeral.rs",
       "line_pct": 100.0,
-      "lines_found": 79
+      "lines_found": 79,
+      "target": 100.0
     },
     {
       "path": "synapse-storage/event/history_boundary.rs",
       "line_pct": 100.0,
-      "lines_found": 12
+      "lines_found": 12,
+      "target": 100.0
     },
     {
       "path": "synapse-storage/event/models.rs",
       "line_pct": 100.0,
-      "lines_found": 24
+      "lines_found": 24,
+      "target": 100.0
     },
     {
       "path": "synapse-storage/event/pagination.rs",
       "line_pct": 95.08,
-      "lines_found": 264
+      "lines_found": 264,
+      "target": 95.0
     },
     {
       "path": "synapse-storage/event/reader.rs",
       "line_pct": 72.63,
-      "lines_found": 95
+      "lines_found": 95,
+      "target": 70.0
     },
     {
       "path": "synapse-storage/event/redaction.rs",
       "line_pct": 98.89,
-      "lines_found": 90
+      "lines_found": 90,
+      "target": 95.0
     },
     {
       "path": "synapse-storage/event/search.rs",
       "line_pct": 68.25,
-      "lines_found": 274
+      "lines_found": 274,
+      "target": 70.0
     },
     {
       "path": "synapse-storage/event/signature.rs",
-      "line_pct": 100.0
+      "line_pct": 100.0,
+      "target": 100.0
     },
     {
       "path": "synapse-storage/event/state.rs",
       "line_pct": 88.53,
-      "lines_found": 340
+      "lines_found": 340,
+      "target": 85.0
     },
     {
       "path": "synapse-storage/event/txn_dedup.rs",
       "line_pct": 100.0,
-      "lines_found": 41
+      "lines_found": 41,
+      "target": 100.0
     },
     {
       "path": "synapse-storage/event/unread.rs",
       "line_pct": 96.43,
-      "lines_found": 28
+      "lines_found": 28,
+      "target": 95.0
     },
     {
       "path": "synapse-storage/event/writer.rs",
       "line_pct": 39.71,
-      "lines_found": 68
+      "lines_found": 68,
+      "target": 55.0
     },
     {
       "path": "synapse-storage/event_report/repository.rs",
@@ -1976,11 +2049,13 @@
     {
       "path": "synapse-storage/membership/api.rs",
       "line_pct": 30.0,
-      "lines_found": 140
+      "lines_found": 140,
+      "target": 55.0
     },
     {
       "path": "synapse-storage/membership/mod.rs",
-      "line_pct": 73.23
+      "line_pct": 73.23,
+      "target": 70.0
     },
     {
       "path": "synapse-storage/migration_checks.rs",
@@ -2023,12 +2098,14 @@
     {
       "path": "synapse-storage/presence/api.rs",
       "line_pct": 72.0,
-      "lines_found": 25
+      "lines_found": 25,
+      "target": 70.0
     },
     {
       "path": "synapse-storage/presence/mod.rs",
       "line_pct": 93.18,
-      "lines_found": 939
+      "lines_found": 939,
+      "target": 90.0
     },
     {
       "path": "synapse-storage/privacy.rs",
@@ -2059,7 +2136,8 @@
     },
     {
       "path": "synapse-storage/refresh_token/mod.rs",
-      "line_pct": 94.1
+      "line_pct": 94.1,
+      "target": 90.0
     },
     {
       "path": "synapse-storage/registration_token/models.rs",
@@ -2385,7 +2463,8 @@
     {
       "path": "synapse-storage/token.rs",
       "line_pct": 98.68,
-      "lines_found": 453
+      "lines_found": 453,
+      "target": 95.0
     },
     {
       "path": "synapse-storage/trigram_ranking.rs",
@@ -2463,772 +2542,934 @@
     {
       "path": "synapse-web/middleware/auth.rs",
       "line_pct": 91.32,
-      "lines_found": 242
+      "lines_found": 242,
+      "target": 90.0
     },
     {
       "path": "synapse-web/middleware/cors.rs",
-      "line_pct": 68.85
+      "line_pct": 68.85,
+      "target": 70.0
     },
     {
       "path": "synapse-web/middleware/csrf.rs",
-      "line_pct": 90.59
+      "line_pct": 90.59,
+      "target": 90.0
     },
     {
       "path": "synapse-web/middleware/federation_auth.rs",
-      "line_pct": 79.69
+      "line_pct": 79.69,
+      "target": 75.0
     },
     {
       "path": "synapse-web/middleware/federation_rate_limit.rs",
-      "line_pct": 84.15
+      "line_pct": 84.15,
+      "target": 80.0
     },
     {
       "path": "synapse-web/middleware/http_metrics.rs",
       "line_pct": 100.0,
-      "lines_found": 64
+      "lines_found": 64,
+      "target": 100.0
     },
     {
       "path": "synapse-web/middleware/mod.rs",
-      "line_pct": 80.33
+      "line_pct": 80.33,
+      "target": 80.0
     },
     {
       "path": "synapse-web/middleware/rate_limit.rs",
-      "line_pct": 91.95
+      "line_pct": 91.95,
+      "target": 90.0
     },
     {
       "path": "synapse-web/middleware/security.rs",
       "line_pct": 96.34,
-      "lines_found": 273
+      "lines_found": 273,
+      "target": 95.0
     },
     {
       "path": "synapse-web/middleware/worker_surface.rs",
       "line_pct": 95.42,
-      "lines_found": 131
+      "lines_found": 131,
+      "target": 95.0
     },
     {
       "path": "synapse-web/middleware/write_forwarding.rs",
       "line_pct": 76.79,
-      "lines_found": 168
+      "lines_found": 168,
+      "target": 75.0
     },
     {
       "path": "synapse-web/middleware/write_forwarding/forward.rs",
       "line_pct": 75.2,
-      "lines_found": 125
+      "lines_found": 125,
+      "target": 75.0
     },
     {
       "path": "synapse-web/middleware/write_forwarding/report.rs",
       "line_pct": 98.95,
-      "lines_found": 190
+      "lines_found": 190,
+      "target": 95.0
     },
     {
       "path": "synapse-web/routes/account_compat.rs",
       "line_pct": 61.46,
-      "lines_found": 672
+      "lines_found": 672,
+      "target": 70.0
     },
     {
       "path": "synapse-web/routes/account_data.rs",
-      "line_pct": 70.85
+      "line_pct": 70.85,
+      "target": 70.0
     },
     {
       "path": "synapse-web/routes/admin/audit.rs",
       "line_pct": 93.2,
-      "lines_found": 103
+      "lines_found": 103,
+      "target": 90.0
     },
     {
       "path": "synapse-web/routes/admin/cleanup.rs",
       "line_pct": 60.42,
-      "lines_found": 48
+      "lines_found": 48,
+      "target": 70.0
     },
     {
       "path": "synapse-web/routes/admin/federation.rs",
-      "line_pct": 99.22
+      "line_pct": 99.22,
+      "target": 95.0
     },
     {
       "path": "synapse-web/routes/admin/invite_lists.rs",
       "line_pct": 95.04,
-      "lines_found": 121
+      "lines_found": 121,
+      "target": 95.0
     },
     {
       "path": "synapse-web/routes/admin/media.rs",
       "line_pct": 11.81,
-      "lines_found": 381
+      "lines_found": 381,
+      "target": 40.0
     },
     {
       "path": "synapse-web/routes/admin/mod.rs",
       "line_pct": 95.65,
-      "lines_found": 46
+      "lines_found": 46,
+      "target": 95.0
     },
     {
       "path": "synapse-web/routes/admin/notification.rs",
       "line_pct": 65.77,
-      "lines_found": 260
+      "lines_found": 260,
+      "target": 70.0
     },
     {
       "path": "synapse-web/routes/admin/policy.rs",
       "line_pct": 80.14,
-      "lines_found": 141
+      "lines_found": 141,
+      "target": 80.0
     },
     {
       "path": "synapse-web/routes/admin/register.rs",
       "line_pct": 90.45,
-      "lines_found": 199
+      "lines_found": 199,
+      "target": 90.0
     },
     {
       "path": "synapse-web/routes/admin/report.rs",
       "line_pct": 39.47,
-      "lines_found": 228
+      "lines_found": 228,
+      "target": 55.0
     },
     {
       "path": "synapse-web/routes/admin/retention.rs",
       "line_pct": 6.25,
-      "lines_found": 144
+      "lines_found": 144,
+      "target": 30.0
     },
     {
       "path": "synapse-web/routes/admin/room/management.rs",
       "line_pct": 43.03,
-      "lines_found": 409
+      "lines_found": 409,
+      "target": 55.0
     },
     {
       "path": "synapse-web/routes/admin/room/mod.rs",
-      "line_pct": 49.84
+      "line_pct": 49.84,
+      "target": 55.0
     },
     {
       "path": "synapse-web/routes/admin/room/spaces.rs",
-      "line_pct": 20.35
+      "line_pct": 20.35,
+      "target": 40.0
     },
     {
       "path": "synapse-web/routes/admin/security.rs",
       "line_pct": 28.73,
-      "lines_found": 181
+      "lines_found": 181,
+      "target": 40.0
     },
     {
       "path": "synapse-web/routes/admin/server.rs",
       "line_pct": 19.94,
-      "lines_found": 316
+      "lines_found": 316,
+      "target": 40.0
     },
     {
       "path": "synapse-web/routes/admin/token.rs",
       "line_pct": 59.44,
-      "lines_found": 180
+      "lines_found": 180,
+      "target": 70.0
     },
     {
       "path": "synapse-web/routes/admin/user.rs",
       "line_pct": 50.94,
-      "lines_found": 746
+      "lines_found": 746,
+      "target": 70.0
     },
     {
       "path": "synapse-web/routes/app_service.rs",
-      "line_pct": 77.78
+      "line_pct": 77.78,
+      "target": 75.0
     },
     {
       "path": "synapse-web/routes/assembly.rs",
-      "line_pct": 95.15
+      "line_pct": 95.15,
+      "target": 95.0
     },
     {
       "path": "synapse-web/routes/auth_compat.rs",
       "line_pct": 74.02,
-      "lines_found": 762
+      "lines_found": 762,
+      "target": 70.0
     },
     {
       "path": "synapse-web/routes/auth_source.rs",
       "line_pct": 40.0,
-      "lines_found": 30
+      "lines_found": 30,
+      "target": 55.0
     },
     {
       "path": "synapse-web/routes/background_update.rs",
       "line_pct": 51.79,
-      "lines_found": 280
+      "lines_found": 280,
+      "target": 70.0
     },
     {
       "path": "synapse-web/routes/burn_after_read.rs",
       "line_pct": 28.26,
-      "lines_found": 276
+      "lines_found": 276,
+      "target": 40.0
     },
     {
       "path": "synapse-web/routes/captcha.rs",
       "line_pct": 100.0,
-      "lines_found": 68
+      "lines_found": 68,
+      "target": 100.0
     },
     {
       "path": "synapse-web/routes/cas.rs",
       "line_pct": 40.52,
-      "lines_found": 306
+      "lines_found": 306,
+      "target": 55.0
     },
     {
       "path": "synapse-web/routes/context.rs",
       "line_pct": 97.62,
-      "lines_found": 336
+      "lines_found": 336,
+      "target": 95.0
     },
     {
       "path": "synapse-web/routes/delayed_events.rs",
-      "line_pct": 100.0
+      "line_pct": 100.0,
+      "target": 100.0
     },
     {
       "path": "synapse-web/routes/derived_route_table_always.inc.rs",
       "line_pct": 100.0,
-      "lines_found": 5389
+      "lines_found": 5389,
+      "target": 100.0
     },
     {
       "path": "synapse-web/routes/derived_route_table_oidc.inc.rs",
       "line_pct": 100.0,
-      "lines_found": 44
+      "lines_found": 44,
+      "target": 100.0
     },
     {
       "path": "synapse-web/routes/derived_route_table_worker.inc.rs",
       "line_pct": 100.0,
-      "lines_found": 75
+      "lines_found": 75,
+      "target": 100.0
     },
     {
       "path": "synapse-web/routes/derived_routes.rs",
       "line_pct": 82.0,
-      "lines_found": 50
+      "lines_found": 50,
+      "target": 80.0
     },
     {
       "path": "synapse-web/routes/device.rs",
       "line_pct": 69.78,
-      "lines_found": 450
+      "lines_found": 450,
+      "target": 70.0
     },
     {
       "path": "synapse-web/routes/directory_reporting.rs",
       "line_pct": 70.57,
-      "lines_found": 615
+      "lines_found": 615,
+      "target": 70.0
     },
     {
       "path": "synapse-web/routes/dm.rs",
       "line_pct": 94.35,
-      "lines_found": 354
+      "lines_found": 354,
+      "target": 90.0
     },
     {
       "path": "synapse-web/routes/e2ee/backup.rs",
-      "line_pct": 87.3
+      "line_pct": 87.3,
+      "target": 85.0
     },
     {
       "path": "synapse-web/routes/e2ee/devices.rs",
       "line_pct": 59.54,
-      "lines_found": 393
+      "lines_found": 393,
+      "target": 70.0
     },
     {
       "path": "synapse-web/routes/e2ee/keys.rs",
-      "line_pct": 38.96
+      "line_pct": 38.96,
+      "target": 55.0
     },
     {
       "path": "synapse-web/routes/ephemeral.rs",
       "line_pct": 35.29,
-      "lines_found": 17
+      "lines_found": 17,
+      "target": 55.0
     },
     {
       "path": "synapse-web/routes/event_report.rs",
       "line_pct": 9.52,
-      "lines_found": 252
+      "lines_found": 252,
+      "target": 30.0
     },
     {
       "path": "synapse-web/routes/external_service.rs",
       "line_pct": 37.96,
-      "lines_found": 353
+      "lines_found": 353,
+      "target": 55.0
     },
     {
       "path": "synapse-web/routes/extractors/auth.rs",
       "line_pct": 98.88,
-      "lines_found": 179
+      "lines_found": 179,
+      "target": 95.0
     },
     {
       "path": "synapse-web/routes/extractors/json.rs",
-      "line_pct": 95.24
+      "line_pct": 95.24,
+      "target": 95.0
     },
     {
       "path": "synapse-web/routes/extractors/localhost_guard.rs",
       "line_pct": 90.64,
-      "lines_found": 203
+      "lines_found": 203,
+      "target": 90.0
     },
     {
       "path": "synapse-web/routes/extractors/mod.rs",
       "line_pct": 100.0,
-      "lines_found": 66
+      "lines_found": 66,
+      "target": 100.0
     },
     {
       "path": "synapse-web/routes/feature_flags.rs",
-      "line_pct": 97.75
+      "line_pct": 97.75,
+      "target": 95.0
     },
     {
       "path": "synapse-web/routes/federation/events.rs",
       "line_pct": 49.25,
-      "lines_found": 796
+      "lines_found": 796,
+      "target": 55.0
     },
     {
       "path": "synapse-web/routes/federation/keys.rs",
       "line_pct": 75.0,
-      "lines_found": 856
+      "lines_found": 856,
+      "target": 75.0
     },
     {
       "path": "synapse-web/routes/federation/media.rs",
-      "line_pct": 70.99
+      "line_pct": 70.99,
+      "target": 70.0
     },
     {
       "path": "synapse-web/routes/federation/membership/invite.rs",
       "line_pct": 71.91,
-      "lines_found": 534
+      "lines_found": 534,
+      "target": 70.0
     },
     {
       "path": "synapse-web/routes/federation/membership/join.rs",
       "line_pct": 41.23,
-      "lines_found": 325
+      "lines_found": 325,
+      "target": 55.0
     },
     {
       "path": "synapse-web/routes/federation/membership/knock.rs",
       "line_pct": 84.8,
-      "lines_found": 125
+      "lines_found": 125,
+      "target": 80.0
     },
     {
       "path": "synapse-web/routes/federation/membership/leave.rs",
       "line_pct": 44.9,
-      "lines_found": 147
+      "lines_found": 147,
+      "target": 55.0
     },
     {
       "path": "synapse-web/routes/federation/membership/mod.rs",
       "line_pct": 73.85,
-      "lines_found": 260
+      "lines_found": 260,
+      "target": 70.0
     },
     {
       "path": "synapse-web/routes/federation/membership/query.rs",
-      "line_pct": 44.07
+      "line_pct": 44.07,
+      "target": 55.0
     },
     {
       "path": "synapse-web/routes/federation/mod.rs",
       "line_pct": 82.61,
-      "lines_found": 299
+      "lines_found": 299,
+      "target": 80.0
     },
     {
       "path": "synapse-web/routes/federation/pdu.rs",
       "line_pct": 89.13,
-      "lines_found": 138
+      "lines_found": 138,
+      "target": 85.0
     },
     {
       "path": "synapse-web/routes/federation/transaction.rs",
       "line_pct": 60.47,
-      "lines_found": 645
+      "lines_found": 645,
+      "target": 70.0
     },
     {
       "path": "synapse-web/routes/federation/transaction/edus.rs",
       "line_pct": 89.09,
-      "lines_found": 110
+      "lines_found": 110,
+      "target": 85.0
     },
     {
       "path": "synapse-web/routes/formatting.rs",
       "line_pct": 100.0,
-      "lines_found": 17
+      "lines_found": 17,
+      "target": 100.0
     },
     {
       "path": "synapse-web/routes/friend_room.rs",
       "line_pct": 53.54,
-      "lines_found": 635
+      "lines_found": 635,
+      "target": 70.0
     },
     {
       "path": "synapse-web/routes/guest.rs",
-      "line_pct": 13.73
+      "line_pct": 13.73,
+      "target": 40.0
     },
     {
       "path": "synapse-web/routes/handlers/account_status.rs",
       "line_pct": 87.38,
-      "lines_found": 103
+      "lines_found": 103,
+      "target": 85.0
     },
     {
       "path": "synapse-web/routes/handlers/auth_discovery.rs",
       "line_pct": 100.0,
-      "lines_found": 37
+      "lines_found": 37,
+      "target": 100.0
     },
     {
       "path": "synapse-web/routes/handlers/client_config.rs",
       "line_pct": 100.0,
-      "lines_found": 32
+      "lines_found": 32,
+      "target": 100.0
     },
     {
       "path": "synapse-web/routes/handlers/dehydrated_device.rs",
       "line_pct": 72.67,
-      "lines_found": 150
+      "lines_found": 150,
+      "target": 70.0
     },
     {
       "path": "synapse-web/routes/handlers/extended_profile.rs",
       "line_pct": 98.04,
-      "lines_found": 153
+      "lines_found": 153,
+      "target": 95.0
     },
     {
       "path": "synapse-web/routes/handlers/health.rs",
       "line_pct": 78.03,
-      "lines_found": 264
+      "lines_found": 264,
+      "target": 75.0
     },
     {
       "path": "synapse-web/routes/handlers/presence.rs",
       "line_pct": 69.23,
-      "lines_found": 234
+      "lines_found": 234,
+      "target": 70.0
     },
     {
       "path": "synapse-web/routes/handlers/room/e2ee.rs",
-      "line_pct": 54.55
+      "line_pct": 54.55,
+      "target": 70.0
     },
     {
       "path": "synapse-web/routes/handlers/room/events.rs",
       "line_pct": 54.61,
-      "lines_found": 1139
+      "lines_found": 1139,
+      "target": 70.0
     },
     {
       "path": "synapse-web/routes/handlers/room/management/account_data.rs",
-      "line_pct": 91.43
+      "line_pct": 91.43,
+      "target": 90.0
     },
     {
       "path": "synapse-web/routes/handlers/room/management/create.rs",
       "line_pct": 82.46,
-      "lines_found": 228
+      "lines_found": 228,
+      "target": 80.0
     },
     {
       "path": "synapse-web/routes/handlers/room/management/metadata.rs",
       "line_pct": 49.93,
-      "lines_found": 677
+      "lines_found": 677,
+      "target": 55.0
     },
     {
       "path": "synapse-web/routes/handlers/room/management/query.rs",
       "line_pct": 46.49,
-      "lines_found": 114
+      "lines_found": 114,
+      "target": 55.0
     },
     {
       "path": "synapse-web/routes/handlers/room/management/upgrade.rs",
       "line_pct": 32.05,
-      "lines_found": 78
+      "lines_found": 78,
+      "target": 55.0
     },
     {
       "path": "synapse-web/routes/handlers/room/management/visibility.rs",
       "line_pct": 43.75,
-      "lines_found": 96
+      "lines_found": 96,
+      "target": 55.0
     },
     {
       "path": "synapse-web/routes/handlers/room/members.rs",
       "line_pct": 41.06,
-      "lines_found": 526
+      "lines_found": 526,
+      "target": 55.0
     },
     {
       "path": "synapse-web/routes/handlers/room/mod.rs",
       "line_pct": 97.78,
-      "lines_found": 316
+      "lines_found": 316,
+      "target": 95.0
     },
     {
       "path": "synapse-web/routes/handlers/room/receipts.rs",
-      "line_pct": 30.0
+      "line_pct": 30.0,
+      "target": 55.0
     },
     {
       "path": "synapse-web/routes/handlers/room/state.rs",
       "line_pct": 70.58,
-      "lines_found": 554
+      "lines_found": 554,
+      "target": 70.0
     },
     {
       "path": "synapse-web/routes/handlers/room/write_access.rs",
       "line_pct": 81.03,
-      "lines_found": 58
+      "lines_found": 58,
+      "target": 80.0
     },
     {
       "path": "synapse-web/routes/handlers/rtc_transports.rs",
-      "line_pct": 94.29
+      "line_pct": 94.29,
+      "target": 90.0
     },
     {
       "path": "synapse-web/routes/handlers/search/context.rs",
       "line_pct": 71.54,
-      "lines_found": 253
+      "lines_found": 253,
+      "target": 70.0
     },
     {
       "path": "synapse-web/routes/handlers/search/hierarchy.rs",
-      "line_pct": 2.38
+      "line_pct": 2.38,
+      "target": 30.0
     },
     {
       "path": "synapse-web/routes/handlers/search/mod.rs",
       "line_pct": 100.0,
-      "lines_found": 33
+      "lines_found": 33,
+      "target": 100.0
     },
     {
       "path": "synapse-web/routes/handlers/search/search.rs",
       "line_pct": 88.69,
-      "lines_found": 389
+      "lines_found": 389,
+      "target": 85.0
     },
     {
       "path": "synapse-web/routes/handlers/sync.rs",
       "line_pct": 90.45,
-      "lines_found": 178
+      "lines_found": 178,
+      "target": 90.0
     },
     {
       "path": "synapse-web/routes/handlers/thread.rs",
       "line_pct": 73.43,
-      "lines_found": 749
+      "lines_found": 749,
+      "target": 70.0
     },
     {
       "path": "synapse-web/routes/handlers/versions.rs",
       "line_pct": 80.28,
-      "lines_found": 142
+      "lines_found": 142,
+      "target": 80.0
     },
     {
       "path": "synapse-web/routes/invite_blocklist.rs",
       "line_pct": 100.0,
-      "lines_found": 107
+      "lines_found": 107,
+      "target": 100.0
     },
     {
       "path": "synapse-web/routes/key_backup.rs",
       "line_pct": 15.31,
-      "lines_found": 725
+      "lines_found": 725,
+      "target": 40.0
     },
     {
       "path": "synapse-web/routes/key_rotation.rs",
-      "line_pct": 33.58
+      "line_pct": 33.58,
+      "target": 55.0
     },
     {
       "path": "synapse-web/routes/ledger_export.rs",
       "line_pct": 95.06,
-      "lines_found": 162
+      "lines_found": 162,
+      "target": 95.0
     },
     {
       "path": "synapse-web/routes/media/download.rs",
       "line_pct": 53.85,
-      "lines_found": 351
+      "lines_found": 351,
+      "target": 70.0
     },
     {
       "path": "synapse-web/routes/media/mod.rs",
       "line_pct": 100.0,
-      "lines_found": 220
+      "lines_found": 220,
+      "target": 100.0
     },
     {
       "path": "synapse-web/routes/media/preview.rs",
       "line_pct": 92.86,
-      "lines_found": 28
+      "lines_found": 28,
+      "target": 90.0
     },
     {
       "path": "synapse-web/routes/media/quota.rs",
       "line_pct": 84.06,
-      "lines_found": 69
+      "lines_found": 69,
+      "target": 80.0
     },
     {
       "path": "synapse-web/routes/media/upload.rs",
       "line_pct": 61.08,
-      "lines_found": 406
+      "lines_found": 406,
+      "target": 70.0
     },
     {
       "path": "synapse-web/routes/mod.rs",
       "line_pct": 100.0,
-      "lines_found": 226
+      "lines_found": 226,
+      "target": 100.0
     },
     {
       "path": "synapse-web/routes/moderation.rs",
       "line_pct": 100.0,
-      "lines_found": 18
+      "lines_found": 18,
+      "target": 100.0
     },
     {
       "path": "synapse-web/routes/module.rs",
       "line_pct": 36.73,
-      "lines_found": 452
+      "lines_found": 452,
+      "target": 55.0
     },
     {
       "path": "synapse-web/routes/msc4108_rendezvous.rs",
       "line_pct": 96.7,
-      "lines_found": 182
+      "lines_found": 182,
+      "target": 95.0
     },
     {
       "path": "synapse-web/routes/msc4512_proxy.rs",
       "line_pct": 79.61,
-      "lines_found": 206
+      "lines_found": 206,
+      "target": 75.0
     },
     {
       "path": "synapse-web/routes/oidc/builtin.rs",
-      "line_pct": 39.66
+      "line_pct": 39.66,
+      "target": 55.0
     },
     {
       "path": "synapse-web/routes/oidc/mod.rs",
-      "line_pct": 72.41
+      "line_pct": 72.41,
+      "target": 70.0
     },
     {
       "path": "synapse-web/routes/oidc/provider.rs",
       "line_pct": 20.18,
-      "lines_found": 327
+      "lines_found": 327,
+      "target": 40.0
     },
     {
       "path": "synapse-web/routes/oidc/sso.rs",
       "line_pct": 34.9,
-      "lines_found": 255
+      "lines_found": 255,
+      "target": 55.0
     },
     {
       "path": "synapse-web/routes/one_time_invite.rs",
       "line_pct": 100.0,
-      "lines_found": 17
+      "lines_found": 17,
+      "target": 100.0
     },
     {
       "path": "synapse-web/routes/pinned.rs",
       "line_pct": 45.61,
-      "lines_found": 57
+      "lines_found": 57,
+      "target": 55.0
     },
     {
       "path": "synapse-web/routes/presence.rs",
       "line_pct": 100.0,
-      "lines_found": 24
+      "lines_found": 24,
+      "target": 100.0
     },
     {
       "path": "synapse-web/routes/public_rooms_filter.rs",
       "line_pct": 100.0,
-      "lines_found": 64
+      "lines_found": 64,
+      "target": 100.0
     },
     {
       "path": "synapse-web/routes/push.rs",
       "line_pct": 63.16,
-      "lines_found": 475
+      "lines_found": 475,
+      "target": 70.0
     },
     {
       "path": "synapse-web/routes/push_notification.rs",
       "line_pct": 55.96,
-      "lines_found": 302
+      "lines_found": 302,
+      "target": 70.0
     },
     {
       "path": "synapse-web/routes/push_rules.rs",
-      "line_pct": 71.59
+      "line_pct": 71.59,
+      "target": 70.0
     },
     {
       "path": "synapse-web/routes/reactions.rs",
       "line_pct": 97.25,
-      "lines_found": 109
+      "lines_found": 109,
+      "target": 95.0
     },
     {
       "path": "synapse-web/routes/relations.rs",
       "line_pct": 63.14,
-      "lines_found": 255
+      "lines_found": 255,
+      "target": 70.0
     },
     {
       "path": "synapse-web/routes/rendezvous.rs",
-      "line_pct": 76.24
+      "line_pct": 76.24,
+      "target": 75.0
     },
     {
       "path": "synapse-web/routes/response_helpers.rs",
-      "line_pct": 100.0
+      "line_pct": 100.0,
+      "target": 100.0
     },
     {
       "path": "synapse-web/routes/room.rs",
-      "line_pct": 91.44
+      "line_pct": 91.44,
+      "target": 90.0
     },
     {
       "path": "synapse-web/routes/room_access.rs",
       "line_pct": 78.57,
-      "lines_found": 84
+      "lines_found": 84,
+      "target": 75.0
     },
     {
       "path": "synapse-web/routes/room_summary.rs",
-      "line_pct": 73.27
+      "line_pct": 73.27,
+      "target": 70.0
     },
     {
       "path": "synapse-web/routes/route_ledger.rs",
       "line_pct": 96.86,
-      "lines_found": 159
+      "lines_found": 159,
+      "target": 95.0
     },
     {
       "path": "synapse-web/routes/route_module.rs",
       "line_pct": 99.26,
-      "lines_found": 135
+      "lines_found": 135,
+      "target": 95.0
     },
     {
       "path": "synapse-web/routes/saml.rs",
       "line_pct": 18.12,
-      "lines_found": 298
+      "lines_found": 298,
+      "target": 40.0
     },
     {
       "path": "synapse-web/routes/sliding_sync.rs",
       "line_pct": 97.47,
-      "lines_found": 158
+      "lines_found": 158,
+      "target": 95.0
     },
     {
       "path": "synapse-web/routes/space.rs",
       "line_pct": 80.49,
-      "lines_found": 123
+      "lines_found": 123,
+      "target": 80.0
     },
     {
       "path": "synapse-web/routes/space/children_hierarchy.rs",
       "line_pct": 76.79,
-      "lines_found": 168
+      "lines_found": 168,
+      "target": 75.0
     },
     {
       "path": "synapse-web/routes/space/lifecycle_query.rs",
       "line_pct": 98.48,
-      "lines_found": 198
+      "lines_found": 198,
+      "target": 95.0
     },
     {
       "path": "synapse-web/routes/space/membership_state.rs",
-      "line_pct": 96.67
+      "line_pct": 96.67,
+      "target": 95.0
     },
     {
       "path": "synapse-web/routes/space/summary.rs",
       "line_pct": 97.56,
-      "lines_found": 41
+      "lines_found": 41,
+      "target": 95.0
     },
     {
       "path": "synapse-web/routes/space/types.rs",
       "line_pct": 100.0,
-      "lines_found": 316
+      "lines_found": 316,
+      "target": 100.0
     },
     {
       "path": "synapse-web/routes/state.rs",
-      "line_pct": 71.64
+      "line_pct": 71.64,
+      "target": 70.0
     },
     {
       "path": "synapse-web/routes/sticky_event.rs",
-      "line_pct": 53.46
+      "line_pct": 53.46,
+      "target": 70.0
     },
     {
       "path": "synapse-web/routes/sync.rs",
       "line_pct": 100.0,
-      "lines_found": 43
+      "lines_found": 43,
+      "target": 100.0
     },
     {
       "path": "synapse-web/routes/tags.rs",
-      "line_pct": 98.28
+      "line_pct": 98.28,
+      "target": 95.0
     },
     {
       "path": "synapse-web/routes/telemetry.rs",
       "line_pct": 91.32,
-      "lines_found": 219
+      "lines_found": 219,
+      "target": 90.0
     },
     {
       "path": "synapse-web/routes/thirdparty.rs",
-      "line_pct": 97.35
+      "line_pct": 97.35,
+      "target": 95.0
     },
     {
       "path": "synapse-web/routes/typing.rs",
-      "line_pct": 82.69
+      "line_pct": 82.69,
+      "target": 80.0
     },
     {
       "path": "synapse-web/routes/validators.rs",
-      "line_pct": 99.17
+      "line_pct": 99.17,
+      "target": 95.0
     },
     {
       "path": "synapse-web/routes/voice.rs",
       "line_pct": 41.49,
-      "lines_found": 323
+      "lines_found": 323,
+      "target": 55.0
     },
     {
       "path": "synapse-web/routes/voip.rs",
       "line_pct": 60.83,
-      "lines_found": 217
+      "lines_found": 217,
+      "target": 70.0
     },
     {
       "path": "synapse-web/routes/widget.rs",
       "line_pct": 74.13,
-      "lines_found": 433
+      "lines_found": 433,
+      "target": 70.0
     },
     {
       "path": "synapse-web/routes/worker.rs",
       "line_pct": 67.34,
-      "lines_found": 643
+      "lines_found": 643,
+      "target": 70.0
     },
     {
       "path": "synapse-web/routes/worker/worker_self_announce.rs",
       "line_pct": 80.51,
-      "lines_found": 118
+      "lines_found": 118,
+      "target": 80.0
     },
     {
       "path": "synapse-web/routes/worker/worker_topology.rs",
       "line_pct": 96.34,
-      "lines_found": 82
+      "lines_found": 82,
+      "target": 95.0
     },
     {
       "path": "synapse-web/utils/admin_auth.rs",
       "line_pct": 86.44,
-      "lines_found": 354
+      "lines_found": 354,
+      "target": 85.0
     },
     {
       "path": "synapse-web/utils/admin_auth/allowlist.rs",

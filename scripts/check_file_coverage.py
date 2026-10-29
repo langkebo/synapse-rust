@@ -57,6 +57,13 @@ Usage:
       --global-floor 40 --new-file-floor 30 \\
       --core-files scripts/ci/core_file_coverage_prefixes.txt \\
       --non-unit-coverable scripts/ci/non_unit_coverable_prefixes.txt
+
+  python3 scripts/check_file_coverage.py \\
+      --baseline scripts/ci/coverage_baseline.json \\
+      --core-files scripts/ci/core_file_coverage_prefixes.txt \\
+      --seed-targets
+      # ^ offline: write the missing `target` field in place, read no report,
+      #   leave `line_pct`/`lines_found` untouched.
 """
 
 import argparse
@@ -310,7 +317,9 @@ def save_baseline(
     匹配 `core_prefixes` 的条目多存一个 `target`，供 `check_file_coverage` 计算
     `floor = min(target, prev)`（"不许跌" + "到点必须达标"）。规则：
 
-    * 首次（条目里没有 `target`）⇒ 用 `core_target_floor(prev)` 按档位播种；
+    * 首次（条目里没有 `target`）⇒ 用 `core_target_floor(本次记录值)` 按档位播种
+      （"本次记录值" = `merged`，即 `max(前值, 本次实测)`；拿 `previous` 播种会让
+      bootstrap 那一轮把所有 core 条目都按 0% 播种成 30，比档位规则弱一档）；
     * 之后每轮 ⇒ `cur > target` 时抬到 `floor(cur/5)*5`，否则保持；
     * 本次报告里没有它 ⇒ 保留旧 `target`（与 `line_pct` 同一条不删规则）；
     * 不匹配 core 前缀的条目**不写**该字段（清单是唯一真源，移出清单即移出规则）。
@@ -362,7 +371,7 @@ def save_baseline(
         target = (
             float(recorded)
             if recorded is not None
-            else core_target_floor(float(previous.get(path_key, 0.0)))
+            else core_target_floor(float(merged.get(path_key, 0.0)))
         )
         cur_value = files.get(path_key)
         if cur_value is not None and float(cur_value) > target:
@@ -882,9 +891,13 @@ def main() -> int:
     )
     parser.add_argument(
         "--report",
-        required=True,
+        required=False,
         type=pathlib.Path,
-        help="Path to coverage report (lcov.info).",
+        default=None,
+        help=(
+            "Path to coverage report (lcov.info). Required in every mode except "
+            "--seed-targets, which never reads a measurement."
+        ),
     )
     parser.add_argument(
         "--baseline",
@@ -963,14 +976,29 @@ def main() -> int:
             "exist in the baseline — a typo would otherwise be a silent no-op."
         ),
     )
+    parser.add_argument(
+        "--seed-targets",
+        action="store_true",
+        help=(
+            "Offline maintenance mode: write the missing `[CORE-KNOWN]` `target` "
+            "field into the baseline without touching `line_pct`/`lines_found` "
+            "(no report is read). Run once after a baseline was written before "
+            "2026-10-29, whose entries have no `target`; commit the result."
+        ),
+    )
     args = parser.parse_args()
 
-    if not args.report.exists():
+    if args.report is None and not args.seed_targets:
+        parser.error(
+            "--report is required (--seed-targets is the only mode that does not read one)"
+        )
+
+    if not args.seed_targets and not args.report.exists():
         print(f"Coverage report not found: {args.report}", file=sys.stderr)
         return 1
 
     lines_found: Dict[str, int] = {}
-    current = parse_lcov(args.report, lines_found)
+    current = {} if args.seed_targets else parse_lcov(args.report, lines_found)
     baseline_lines: Dict[str, int] = {}
     baseline_targets: Dict[str, float] = {}
     baseline = load_baseline(args.baseline, baseline_lines, baseline_targets)
@@ -1029,6 +1057,62 @@ def main() -> int:
             1 for n in _normalized_source_paths() if _matches_prefix(n, core_prefixes)
         )
         print(f"Core-path guard: {len(core_prefixes)} prefixes match {matched} files.")
+
+    # 离线播种：把缺失的 `[CORE-KNOWN] target` 写进基线，**不动** `line_pct`。
+    # 传 `files = previous = baseline` 让 `save_baseline` 走 `cur >= prev` 分支 ——
+    # `merged[p]` 与 `merged_lines[p]` 都取本条目自己的值（同源），所以除新增的
+    # `target` 外逐字节不变。这条命令**不是** `--save-baseline` 的别名：它不读报告、
+    # 不收紧任何 floor，`line_pct` 不会被抬高（禁止用"重测"抬高覆盖率基线）。
+    if args.seed_targets:
+        seed_path = args.save_baseline or args.baseline
+        core_entries = [p for p in baseline if _matches_prefix(p, core_prefixes)]
+        if not core_entries:
+            print(
+                f"No baseline entry matches the core prefixes; nothing to seed in {seed_path}.",
+                file=sys.stderr,
+            )
+            return 2
+        save_baseline(
+            seed_path,
+            baseline,
+            previous=baseline,
+            lines_found=baseline_lines,
+            previous_lines=baseline_lines,
+            targets=baseline_targets,
+            core_prefixes=core_prefixes,
+        )
+        print(
+            f"Seeded [CORE-KNOWN] targets in {seed_path}: {len(core_entries)} core "
+            f"entr(ies), {len(baseline_targets)} target(s) already on file "
+            "(line_pct/lines_found unchanged)."
+        )
+        return 0
+
+    # `target` 缺失时 `floor = min(target, prev)` 会退化成 `prev`（`core_target_floor`
+    # 每轮从 `prev` 重推 ⇒ `target >= prev` 恒成立），分档推进静默变成纯 no-regression。
+    # 实测 2026-10-29：683 条基线里 0 条带 `target`，机制自上线起就没生效过。所以这里
+    # fail-closed：宁可红一次，也不要再安静地空转。
+    if core_prefixes:
+        missing_targets = [
+            p
+            for p in baseline
+            if _matches_prefix(p, core_prefixes) and p not in baseline_targets
+        ]
+        if missing_targets:
+            shown = "\n  ".join(missing_targets[:10])
+            more = len(missing_targets) - min(len(missing_targets), 10)
+            print(
+                f"{len(missing_targets)} baseline core file(s) have no persisted "
+                "[CORE-KNOWN] target:\n  "
+                + shown
+                + (f"\n  … and {more} more" if more else "")
+                + "\n  Without it `floor = min(target, prev)` collapses to `prev` and the\n"
+                "  tiered target is never enforced. Seed it once and commit the result:\n"
+                f"    python3 scripts/check_file_coverage.py --baseline {args.baseline} "
+                f"--core-files {args.core_files} --seed-targets",
+                file=sys.stderr,
+            )
+            return 2
 
     # `--non-unit-coverable` gets the same fail-closed treatment as
     # `--core-files`: a missing list, an empty list, or a prefix matching no file

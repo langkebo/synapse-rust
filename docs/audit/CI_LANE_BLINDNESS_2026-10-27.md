@@ -240,15 +240,19 @@ gh run view <run-id> --json jobs \
 
 ## 6 仍未解决（附本轮四条复核记录：§6.1 修好 / §6.2 让渡 / §6.3 作废 / §6.4 修好）
 
-* **结构性**：GitHub 的步骤是顺序短路语义 —— **前一步失败，后面全部 `skipped`，且不产生任何读数**。
-  这意味着"一个门禁红"会顺带让 22 个门禁**失去观测**，而页面上只呈现一条失败。可选的改法：
-  ①把门禁拆成多个 job（失败面独立可见）；②对非阻塞步骤加 `if: always()` 并在末尾汇总。
-  **未实施** —— 改 CI 语义属独立决策；且"全盲"这个直接后果已经消失：`ea9a57af1` 上该 job 实测
-  **`success 26 / failure 1 / skipped 4`**（唯一红是 §6.2 的 `File-size ratchet`，已让渡；
-  4 个 `skipped` 正是它后面的四步），让渡后 `d297b2937` 上 **31/31 全绿 / 0 skipped**。
-  历史上那句 `failure 1 / skipped 22 / success 8` 不再成立。
-  **注意这只治好了"看不见"，没治好"一红全盲"** ——
-  下一次任何门禁红，后面仍会整片 `skipped`。
+* ~~**结构性**：GitHub 的步骤是顺序短路语义 —— 前一步失败，后面全部 `skipped`~~ → **已修**（`c30a097e8`，2026-10-28）。
+  修法是给 `repo-sanity` 的**每一步**加 `if: ${{ !cancelled() }}`。依据是 GitHub 官方语义：
+  「A default status check of `success()` is applied unless you include one of these functions」——
+  `cancelled()` 属于该函数族，因此显式写 `!cancelled()` 会**抑制**隐式的 `success()`，
+  前一步失败后该步**照常执行**（取消仍中止整 job，所以没有选 `always()`）。
+  job 结论仍是 `failure`（step 失败就是 job 失败），**不需要**末尾聚合步，也不需要拆 job；
+  "一个门禁红 ⇒ 其余 31 个门禁那次等于没跑"这条后果不再成立。
+  历史读数对照：`ea9a57af1` 上 `success 26 / failure 1 / skipped 4`、`d297b2937` 上 `31/31`，
+  都是修法**之前**的形态；修复后 `repo-sanity` 共 32 步、32 步带守卫。
+  **守卫**：`scripts/ci/check_ci_summary_dependencies.py` 判据 5（`ISOLATED_GATE_JOBS = ("repo-sanity",)`）
+  逐 `- name:` 切段检查守卫，少一条即红，且 `--mutation-check` 会注入"某个门禁步没带守卫"自证。
+  本地实测该脚本 `EXIT=0`。**真实 CI 读数待下一次 run 复核**（本轮 `gh run list` TLS 超时，
+  无法本地取证，故此处不宣称已见到修复后的 step 分布）。
 * **约定靠人记**：`check_schema_table_coverage.py` 仍然逐字扫描夹具文本，所以"夹具里用真实表名"
   这条约定只能靠注释提醒。要不要让门禁自己识别"内嵌源码的字符串"是另一个决策 ——
   可用的精确判据是「该 `sqlx::query(` 的起始位置落在另一个字符串字面量区间内」，

@@ -454,6 +454,15 @@ python3 scripts/check_file_coverage.py \
   （`cur >= min(target, prev)`，`target` 分档播种、只升不降、持久化在基线 `target` 字段）
   加 no-regression 推进。看到 `--core-threshold 70` 就以为"所有 core 文件必须 ≥70%"是
   误读，语义以 `docs/coverage_policy.md` §1 为准。
+- 基线里 core 前缀条目**缺 `target`** 时棘轮同样 **exit 2（fail-closed）**：没有 `target`
+  就只能每轮从 `prev` 重推，`min(target, prev)` 退化成 `prev`，分档目标静默不生效。
+  补种用离线模式（不读报告、不动 `line_pct`/`lines_found`，幂等）：
+  ```bash
+  python3 scripts/check_file_coverage.py \
+    --baseline scripts/ci/coverage_baseline.json \
+    --core-files scripts/ci/core_file_coverage_prefixes.txt \
+    --seed-targets
+  ```
 - `--global-floor 40` 只用于 ramp-up 提示，**不**重放给已登记文件（重放会让首批基线里
   188 个未回退的文件集体变红，实测 2026-09-19）。
 - P2 的 30% 是 `--raise-queue` 的**目标**不是下限：只打印 `[RAISE]` / `[RAISE-DONE]` /

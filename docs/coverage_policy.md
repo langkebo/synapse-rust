@@ -15,6 +15,18 @@
   其后当 `cur > target` 时抬到 `floor(cur/5)*5`，**只升不降**，自动收敛，
   不需人手改数字。`min()` 允许最多 `prev - target` 个百分点的回落，这是分档过渡的
   设计代价（否则 75 个 core 老文件会在切换当天集体变红）。
+  - **`target` 必须落盘**：若条目里没有 `target`，每轮只能从 `prev` 重推 ⇒ `target >= prev`
+    恒成立 ⇒ `floor` 退化成 `prev`，分档推进静默失效（实测 2026-10-29：683 条基线 0 条带
+    `target`，机制自上线起从未生效）。所以 `check_file_coverage.py` 对此 **fail-closed**：
+    基线中匹配 core 前缀却缺 `target` ⇒ exit 2，并打印补种命令。
+  - 补种用离线模式（不读报告、不动 `line_pct`/`lines_found`）：
+    ```bash
+    python3 scripts/check_file_coverage.py \
+      --baseline scripts/ci/coverage_baseline.json \
+      --core-files scripts/ci/core_file_coverage_prefixes.txt \
+      --seed-targets
+    ```
+    幂等：连跑两次结果逐字节相同；`git diff` 只新增 `target` 行。
 - **新文件**（baseline 中没有）：
   - 核心路径（`core_file_coverage_prefixes.txt` 前缀）：≥ 70%
   - 其余：≥ 50%（ramp-up 底线；2026-10-25 由 30% 上调）
@@ -57,12 +69,12 @@ CI 调用 `ci.yml` Code Coverage job 的两处：
 ```
 python3 scripts/check_file_coverage.py \
   --report coverage/lcov.info \
-  --format lcov \
   --baseline scripts/ci/coverage_baseline.json \
   --global-floor 40 --new-file-floor 50 \
   --core-files scripts/ci/core_file_coverage_prefixes.txt \
   --core-threshold 70 \
-  --non-unit-coverable scripts/ci/non_unit_coverable_prefixes.txt
+  --non-unit-coverable scripts/ci/non_unit_coverable_prefixes.txt \
+  --raise-queue scripts/ci/coverage_raise_queue.json
 ```
 
 ---
@@ -100,7 +112,7 @@ python3 scripts/check_file_coverage.py \
 
 | 文件 | 用途 |
 |---|---|
-| `scripts/ci/coverage_baseline.json` | 每文件覆盖率快照（core 前缀条目在首次 `--save-baseline` 播种后带 `target` 字段） |
+| `scripts/ci/coverage_baseline.json` | 每文件覆盖率快照（core 前缀条目必须带 `target` 字段；缺失时门禁 exit 2，用 `--seed-targets` 补种，见 §1） |
 | `scripts/ci/core_file_coverage_prefixes.txt` | 核心路径前缀（**新**文件 ≥70%；已登记 core 文件走 `[CORE-KNOWN]`，见 §1） |
 | `scripts/ci/non_unit_coverable_prefixes.txt` | 覆盖率腿盲区前缀（ramp-up 豁免） |
 | `scripts/check_file_coverage.py` | 棘轮执行脚本 |
