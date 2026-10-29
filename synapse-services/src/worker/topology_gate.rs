@@ -25,20 +25,29 @@ use crate::worker::topology_validator::{validate_worker_config, TopologyValidati
 pub struct StartupTopologyCheck {
     /// What the static validator found.
     pub validation: TopologyValidation,
-    /// `Some(reason)` when the caller must refuse to start. `None` means "log it
-    /// and continue", which is the behaviour for every configuration that is
-    /// valid, every configuration whose only findings are warnings, and every
-    /// configuration when `worker.topology.strict` is off (the default).
+    /// `Some(reason)` when the caller must refuse to start.
+    ///
+    /// Two tiers:
+    /// * **hard** — a notify-bound stream forwarded without Redis. Always fatal:
+    ///   nothing is lost, but every `/sync` long-poll parked on a reader waits for
+    ///   the client's own timeout (typically 30 s), and no correctness test can
+    ///   observe that. `worker.topology.strict` must not be able to silence it.
+    /// * **soft** — every other validator error. Fatal only under
+    ///   `worker.topology.strict`; otherwise it is logged and the server starts.
     pub fatal: Option<String>,
 }
 
 /// Run the static validator and apply the configured enforcement policy.
 ///
-/// `worker.topology.strict` only escalates **errors**: warnings stay advisory
+/// `worker.topology.strict` escalates **soft** errors only: warnings stay advisory
 /// even under `strict`, matching [`TopologyValidation::valid`] — which is false
 /// exactly when there is an error — so the pre-deploy check
 /// (`--validate-topology`) and the startup path cannot disagree about whether a
 /// given configuration is deployable.
+///
+/// The one exception is the notify-fan-out finding, which is **always** fatal: it
+/// is a deployment precondition (forwarding a notify-bound stream requires Redis),
+/// not a latent configuration smell to be tolerated. See [`StartupTopologyCheck`].
 ///
 /// `redis_enabled` is `redis.enabled`, which lives outside [`WorkerConfig`] and is
 /// therefore passed in. It participates in one check only: a stream that reaches
@@ -49,14 +58,25 @@ pub struct StartupTopologyCheck {
 pub fn check_startup_topology(config: &WorkerConfig, redis_enabled: bool) -> StartupTopologyCheck {
     let mut validation = validate_worker_config(config);
 
+    // Collected separately so the verdict below can tell a *precondition* failure
+    // (this one) from an ordinary validator error (the rest).
+    let mut hard: Vec<String> = Vec::new();
     for message in crate::worker::write_streams::missing_notify_fan_out(config, redis_enabled) {
         validation.valid = false;
-        validation.errors.push(message);
+        validation.errors.push(message.clone());
+        hard.push(message);
     }
 
-    // `valid` is false iff `errors` is non-empty, so this single condition cannot
-    // fire on a warning-only report.
-    let fatal = if !validation.valid && config.topology.strict { Some(validation.errors.join("; ")) } else { None };
+    let fatal = if !hard.is_empty() {
+        // Unconditional: `strict` governs advisory findings, not deployment
+        // preconditions. A silent 30 s latency on every push is exactly the class
+        // of failure that must not depend on someone remembering a switch.
+        Some(hard.join("; "))
+    } else if !validation.valid && config.topology.strict {
+        Some(validation.errors.join("; "))
+    } else {
+        None
+    };
 
     StartupTopologyCheck { validation, fatal }
 }
@@ -157,10 +177,11 @@ mod tests {
     }
 
     #[test]
-    fn forwarding_without_redis_is_fatal_under_strict_and_a_hard_error_without_it() {
+    fn forwarding_without_redis_is_always_fatal() {
         // `events` cannot be forwarded without Redis (design doc §4.5): the write lands on
         // the writer and the only cross-instance wake-up for `/sync` is unavailable. It is
-        // an *error* — not a warning — because the deployment looks healthy otherwise.
+        // an *error* — not a warning — because the deployment looks healthy otherwise, and
+        // a deployment precondition must not be silenceable by `worker.topology.strict`.
         let mut config = valid_config(false);
         config.write_forwarding = true;
         // `events` 与 `device_lists` 必须同实例（联邦 `send` 一个请求写两路），否则
@@ -176,7 +197,9 @@ mod tests {
                 "strict={strict}: the error must name the fix, got {:?}",
                 check.validation.errors
             );
-            assert_eq!(check.fatal.is_some(), strict, "only `strict` refuses to start");
+            let reason =
+                check.fatal.unwrap_or_else(|| panic!("strict={strict}: forwarding without Redis must refuse to start"));
+            assert!(reason.contains("redis.enabled"), "the reason must name the fix: {reason}");
         }
 
         // Negative control: with Redis the same configuration is valid.
