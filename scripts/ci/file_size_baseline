@@ -34,8 +34,8 @@
 1476 synapse-services/src/auth/tests.rs
 1466 synapse-storage/src/test_mocks/event.rs
 1464 synapse-storage/src/admin_media.rs
-1450 synapse-storage/src/presence/mod.rs
 1448 synapse-federation/src/client.rs
+1448 synapse-storage/src/presence/mod.rs
 1442 synapse-common/src/server_metrics.rs
 1431 synapse-services/src/burn_after_read_service.rs
 1425 synapse-storage/src/beacon.rs
@@ -174,8 +174,8 @@
 778 synapse-web/src/routes/push.rs
 776 synapse-services/src/uia_service.rs
 772 synapse-common/src/redaction.rs
-769 synapse-services/src/container.rs
 768 synapse-federation/src/event_auth/rules.rs
+767 synapse-services/src/container.rs
 749 synapse-services/src/background_update_service.rs
 744 synapse-common/src/push_rules.rs
 739 synapse-services/src/test_utils.rs

@@ -14,8 +14,15 @@ Semantics (an "ice ratchet", same one-way spirit as `check_trait_ratchet.py`):
     currently over the threshold at its current size — that is its ceiling;
   * a grandfathered file may NOT grow past its recorded ceiling;
   * a file NOT in the baseline may NOT exceed the threshold (new offender);
-  * a baseline entry is STALE — and fails — once its file is deleted or shrinks
-    to/under the threshold, so the ceiling can only come down, never linger.
+  * the ratchet is **one-way**: when a grandfathered file shrinks — or drops to
+    the threshold or below, or is deleted — the gate *lowers* (or removes) that
+    entry itself instead of only printing "run --update to tighten". A ceiling
+    that can only be raised by a separate command is not a ratchet; it is a
+    plaque recording the worst day the file ever had.
+  * `--update` therefore **refuses to add a new offender** by default: a file
+    that is over the threshold and not yet in the baseline must be split, not
+    grandfathered. `--allow-new` is the explicit, reviewed escape hatch (and
+    prints a warning) for the rare case where splitting is impossible.
 
 `threshold` is deliberately a single constant here (not a tuned number per
 file): the goal is one visible decision point — "this file is too big, shrink
@@ -24,8 +31,10 @@ it or say why" — not a knob to turn green.
 Baseline: scripts/ci/file_size_baseline   (<lines> <path>, one per line)
 
 Usage:
-    python3 scripts/ci/check_file_size_ratchet.py           # gate (exit 1 on any violation)
-    python3 scripts/ci/check_file_size_ratchet.py --update  # rewrite the baseline to the current over-threshold set
+    python3 scripts/ci/check_file_size_ratchet.py           # gate; tightens lowered ceilings in place
+    python3 scripts/ci/check_file_size_ratchet.py --update  # rewrite ceilings; refuses new offenders
+    python3 scripts/ci/check_file_size_ratchet.py --update --allow-new
+                                                            # reviewed escape hatch: grandfather new files too
 """
 
 from __future__ import annotations
@@ -139,6 +148,36 @@ def write_baseline(over: dict[str, int]) -> None:
     BASELINE.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def new_offenders_of(
+    baseline: dict[str, int], over: dict[str, int]
+) -> list[tuple[str, int]]:
+    """Files over the threshold that the baseline does not know about.
+
+    These are *never* added by `--update` unless `--allow-new` is passed: a file
+    that has never been grandfathered has no excuse to start life at 700 lines.
+    """
+    return sorted((p, over[p]) for p in over if p not in baseline)
+
+
+def plan_tightening(
+    baseline: dict[str, int], over: dict[str, int]
+) -> tuple[dict[str, int], list[tuple[str, int, int]], list[str]]:
+    """Return `(tightened_baseline, lowered, dropped)` — the one-way half.
+
+    * `lowered`: still over the threshold, but smaller than its ceiling.
+    * `dropped`: gone, or now at/under the threshold.
+    * New offenders are deliberately absent: they must be split, not blessed.
+    """
+    lowered = sorted(
+        (p, baseline[p], over[p])
+        for p in baseline
+        if p in over and over[p] < baseline[p]
+    )
+    dropped = sorted(p for p in baseline if p not in over)
+    tightened = {p: min(baseline[p], over[p]) for p in baseline if p in over}
+    return tightened, lowered, dropped
+
+
 def main() -> int:
     counts = scan()
     if not counts:
@@ -151,6 +190,26 @@ def main() -> int:
     over = over_threshold(counts)
 
     if "--update" in sys.argv:
+        baseline = read_baseline()
+        new = new_offenders_of(baseline, over)
+        if new and "--allow-new" not in sys.argv:
+            print(
+                f"FAIL: refusing to grandfather {len(new)} new file(s) over "
+                f"{THRESHOLD} lines. Split them instead; pass --allow-new only for "
+                "a reviewed exception:",
+                file=sys.stderr,
+            )
+            for path, n in new:
+                print(f"  {n:5d}  {path}", file=sys.stderr)
+            return 2
+        if new:
+            print(
+                f"WARNING: --allow-new grandfathers {len(new)} new file(s) that were "
+                "never reviewed as acceptable:",
+                file=sys.stderr,
+            )
+            for path, n in new:
+                print(f"  {n:5d}  {path}", file=sys.stderr)
         write_baseline(over)
         print(
             f"file_size: baseline updated — {len(over)} file(s) over {THRESHOLD} lines"
@@ -166,13 +225,13 @@ def main() -> int:
         )
         return 2
 
-    new_offenders = sorted((p, over[p]) for p in over if p not in baseline)
+    new_offenders = new_offenders_of(baseline, over)
     grown = sorted(
         (p, baseline[p], over[p])
         for p in over
         if p in baseline and over[p] > baseline[p]
     )
-    stale = sorted(p for p in baseline if p not in over)
+    tightened, lowered, dropped = plan_tightening(baseline, over)
 
     print(
         f"file_size: {len(counts)} files scanned, {len(over)} over {THRESHOLD} "
@@ -199,28 +258,27 @@ def main() -> int:
         for path, was, now in grown:
             print(f"  {path}: {was} -> {now}", file=sys.stderr)
 
-    if stale:
-        failed = True
-        print(
-            f"FAIL: {len(stale)} stale baseline entr(y|ies) — deleted, or now "
-            f"{THRESHOLD} lines or fewer. Tighten the ratchet:",
-            file=sys.stderr,
-        )
-        for path in stale:
-            print(f"  {path}", file=sys.stderr)
-
     if failed:
         print(
-            "\n  Fix: split the file, or (for a deliberate, reviewed change) "
-            "run `python3 scripts/ci/check_file_size_ratchet.py --update`.",
+            "\n  Fix: split the file. `--update` will not grandfather a file that "
+            "was never in the baseline; for a genuinely deliberate case pass "
+            "`--update --allow-new`.",
             file=sys.stderr,
         )
         return 1
 
-    if len(over) < len(baseline):
+    # No hard violation. The ratchet still has to move: lower every ceiling the
+    # file no longer needs, and drop entries whose file is gone. Doing this here
+    # (rather than asking a human to run --update) is what makes it one-way.
+    if tightened != baseline:
+        write_baseline(tightened)
+        for path, was, now in lowered:
+            print(f"  tightened {path}: {was} -> {now}")
+        for path in dropped:
+            print(f"  dropped stale entry {path}")
         print(
-            "OK: at baseline (some entries are now under the threshold — "
-            "run --update to tighten)"
+            f"OK: baseline tightened in place "
+            f"({len(lowered)} lowered, {len(dropped)} dropped; ratchet is one-way)"
         )
     else:
         print("OK: file sizes at baseline")
