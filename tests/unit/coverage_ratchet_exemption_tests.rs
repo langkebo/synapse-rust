@@ -326,13 +326,16 @@ fn a_baseline_known_file_with_positive_coverage_is_not_exempted() {
 // 不会一夜之间因为没到 30% 而红 —— 它被钉在 3%，直到自己爬过 target。
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// (j) 裸奔的 core 老文件**不会**因为没到档位目标而当天变红。
+/// (j) 已播种 30 的 3% core 老文件**不会**因为没到档位目标而当天变红。
+///
+/// 2026-10-29 起 `target` 必须由 `--seed-targets` **离线**写进基线，运行期缺失
+/// 直接 fail-closed（见用例 (j0)）。因此这里喂的就是播种后的形态：3% 档 ⇒ 30。
 #[test]
 fn core_known_file_below_its_tier_target_is_not_red_overnight() {
     let dir = tempfile::tempdir().expect("a temp dir must be creatable");
     let probe = "synapse-services/src/auth/probe_core.rs";
     let key = "synapse-services/auth/probe_core.rs";
-    let baseline = vec![format!("{{\"path\":\"{key}\",\"line_pct\":3.0,\"lines_found\":100}}")];
+    let baseline = vec![format!("{{\"path\":\"{key}\",\"line_pct\":3.0,\"lines_found\":100,\"target\":30.0}}")];
 
     let (code, output, saved) =
         run_ratchet_in(dir.path(), &list_path(), Some(&core_list_path()), &[(probe, 100, 3)], &baseline);
@@ -348,7 +351,35 @@ fn core_known_file_below_its_tier_target_is_not_red_overnight() {
     );
     assert!(
         saved.contains("\"target\": 30.0"),
-        "the tier target (3% -> 30) must be persisted in the baseline, not re-derived each run:\n{saved}"
+        "the seeded tier target (3% -> 30) must survive the write-back unchanged:\n{saved}"
+    );
+}
+
+/// (j0) 运行期缺 `target` 必须 fail-closed，且不许顺手静默播种。
+///
+/// 反例：若运行期从 `prev` 现推 `target`，则 `min(target, prev)` 恒等于 `prev`，
+/// 分档推进退化成纯 no-regression —— 2026-10-29 之前 683 条基线里 0 条带
+/// `target`，机制自上线起就没生效过。所以缺字段不是"补一下就好"，而是判定
+/// 这一轮的读数不可信，必须先把基线补齐再谈门禁。
+#[test]
+fn a_core_baseline_entry_without_a_persisted_target_fails_closed() {
+    let dir = tempfile::tempdir().expect("a temp dir must be creatable");
+    let probe = "synapse-services/src/auth/probe_core_unseeded.rs";
+    let key = "synapse-services/auth/probe_core_unseeded.rs";
+    let baseline = vec![format!("{{\"path\":\"{key}\",\"line_pct\":3.0,\"lines_found\":100}}")];
+
+    let (code, output, saved) =
+        run_ratchet_in(dir.path(), &list_path(), Some(&core_list_path()), &[(probe, 100, 3)], &baseline);
+
+    assert_eq!(code, 2, "a missing [CORE-KNOWN] target must fail closed:\n{output}");
+    assert!(
+        output.contains("1 baseline core file(s) have no persisted [CORE-KNOWN] target")
+            && output.contains("--seed-targets"),
+        "the failure must name the offending entry and the offline seed command:\n{output}"
+    );
+    assert!(
+        !saved.contains("\"target\""),
+        "the runtime must not silently seed the field it just declared missing:\n{saved}"
     );
 }
 
