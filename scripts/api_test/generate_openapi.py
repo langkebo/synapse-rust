@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -46,11 +47,19 @@ _CARGO_TOML = Path(__file__).resolve().parents[2] / "Cargo.toml"
 
 
 def _workspace_version() -> str:
-    """读取 `[workspace.package].version`，读不到直接失败（不猜默认值）。"""
+    """读取 `[workspace.package].version`，读不到直接失败（不猜默认值）。
+
+    ⚠️ 必须**按行首锚定**找段头，不能用 `text.split("[workspace.package]", 1)`：
+    `Cargo.toml` 第 3 行的注释里就写着「产品版本仅在 [workspace.package] 定义一次」，
+    字面量切分会从**注释**那里切开，于是"段内"的文本里根本没有 `version =`，
+    读取必然失败 —— CI 的 `OpenAPI Artifact` 因此长期红在
+    `RuntimeError: … 的 [workspace.package] 缺少 version`（2026-10-29 定位并修）。
+    """
     text = _CARGO_TOML.read_text(encoding="utf-8")
-    if "[workspace.package]" not in text:
+    header = re.search(r"^\[workspace\.package\]\s*$", text, re.MULTILINE)
+    if header is None:
         raise RuntimeError(f"{_CARGO_TOML} 缺少 [workspace.package] 段")
-    section = text.split("[workspace.package]", 1)[1].split("\n[", 1)[0]
+    section = text[header.end() :].split("\n[", 1)[0]
     for line in section.splitlines():
         key, sep, value = line.partition("=")
         if sep and key.strip() == "version":

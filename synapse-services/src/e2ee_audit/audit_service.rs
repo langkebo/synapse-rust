@@ -45,12 +45,35 @@ pub struct DeviceVerificationReport {
 /// The `E2eeAuditService` struct.
 pub struct E2eeAuditService {
     storage: E2eeAuditStorage,
+    /// 供 [`E2eeAuditService::verify_device_for_user`] 按需构造
+    /// [`CrossSigningVerificationService`]（后者的构造需要 `Arc<E2eeAuditService>`，
+    /// 见该方法的 doc）。
+    pool: Arc<PgPool>,
 }
 
 impl E2eeAuditService {
     /// See [`new`].
     pub fn new(pool: Arc<PgPool>) -> Self {
-        Self { storage: E2eeAuditStorage::new(&pool) }
+        Self { storage: E2eeAuditStorage::new(&pool), pool }
+    }
+
+    /// 交叉签名单设备验证的**门面**：`POST
+    /// /_synapse/admin/v1/users/{user_id}/devices/{device_id}/verify` 的唯一入口。
+    ///
+    /// 为什么挂在 `E2eeAuditService` 上、而不是让路由直接持一个
+    /// `CrossSigningVerificationService`：后者构造时要 `Arc<E2eeAuditService>`（审计行必须
+    /// 落同一张 `e2ee_audit_log`），若把它塞进 `AdminContext` 就得多一个字段 —— 而
+    /// `AdminContext` 已经贴住行数棘轮上限（1038），加两行即红。这里按需构造
+    /// （三个 `Storage` 包装，成本可忽略，也不引入 `Arc` 自引用），生产路径仍是真的在调
+    /// `CrossSigningVerificationService::verify_device_for_user`。
+    pub async fn verify_device_for_user(
+        self: &Arc<Self>,
+        user_id: &str,
+        device_id: &str,
+    ) -> Result<DeviceVerificationStatus, ApiError> {
+        CrossSigningVerificationService::new(self.pool.clone(), self.clone())
+            .verify_device_for_user(user_id, device_id)
+            .await
     }
 
     /// See [`log_key_operation`].

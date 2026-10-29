@@ -5152,7 +5152,7 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
         let e = RouteEntry::new(
             axum::http::Method::POST,
             "/_synapse/admin/v1/users/{user_id}/devices/{device_id}/verify",
-            "admin::user",
+            "admin::device_verify",
         );
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }

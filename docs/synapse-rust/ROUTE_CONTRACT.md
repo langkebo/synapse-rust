@@ -18,10 +18,10 @@
   · `/_matrix/client` 246 · `/_synapse/admin` 233 · 其他命名空间 301
 - **逻辑端点**（唯一路径再折叠 `v1`/`v3`/`r0`/`unstable/<seg>` → `vX`）：**761**
   · `/_matrix/client` 229 · `/_synapse/admin` 231 · 其他命名空间 301
-- 含路由注册的模块文件：**66**（生成器口径；sidecar 口径 113/74/51 的差异见附录 B）
-- `derived_routes.rs` 中的 `registered_by` 标签：**75**
+- 含路由注册的模块文件：**67**（生成器口径；sidecar 口径 113/74/51 的差异见附录 B）
+- `derived_routes.rs` 中的 `registered_by` 标签：**76**
 - 非默认 profile 门控的路由（`default` 构建不注册）：**19**（worker **11** · oidc **8**，明细见「运行时 Profile 门控」）
-- 已被派生表覆盖的模块：**66**
+- 已被派生表覆盖的模块：**67**
 
 > **路径为何是绝对的**：本清单由 `extract_registered.py` 从真实 router 构造解析得到，
 > 已递归应用 `.nest("/prefix", ..)` 的前缀。
@@ -926,7 +926,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_matrix/client/v3/thirdparty/user`
 - `GET` `/_matrix/client/v3/thirdparty/user/{protocol}`
 
-### 管理 (Admin) （151 条）
+### 管理 (Admin) （150 条）
 
 #### `admin/room/mod.rs` — 46 条 ✅派生表
 
@@ -977,7 +977,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `PUT` `/_synapse/admin/v1/rooms/{room_id}/make_admin`
 - `PUT` `/_synapse/admin/v1/rooms/{room_id}/members/{user_id}`
 
-#### `admin/user.rs` — 28 条 ✅派生表
+#### `admin/user.rs` — 27 条 ✅派生表
 
 - `DELETE` `/_synapse/admin/v1/users/{user_id}`
 - `DELETE` `/_synapse/admin/v1/users/{user_id}/devices/{device_id}`
@@ -1000,7 +1000,6 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `POST` `/_synapse/admin/v1/users/batch_deactivate`
 - `POST` `/_synapse/admin/v1/users/{user_id}/deactivate`
 - `POST` `/_synapse/admin/v1/users/{user_id}/devices/{device_id}/delete`
-- `POST` `/_synapse/admin/v1/users/{user_id}/devices/{device_id}/verify`
 - `POST` `/_synapse/admin/v1/users/{user_id}/evict`
 - `POST` `/_synapse/admin/v1/users/{user_id}/login`
 - `POST` `/_synapse/admin/v1/users/{user_id}/logout`
@@ -1293,7 +1292,7 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `PUT` `/_matrix/client/v3/rooms/{room_id}/send/m.call.hangup/{txn_id}`
 - `PUT` `/_matrix/client/v3/rooms/{room_id}/send/m.call.invite/{txn_id}`
 
-### 设备 (Device) （12 条）
+### 设备 (Device) （13 条）
 
 #### `device.rs` — 6 条 ✅派生表
 
@@ -1312,6 +1311,10 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 - `GET` `/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events`
 - `POST` `/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events`
 - `PUT` `/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device`
+
+#### `admin/device_verify.rs` — 1 条 ✅派生表
+
+- `POST` `/_synapse/admin/v1/users/{user_id}/devices/{device_id}/verify`
 
 ### 访客 (Guest) （3 条）
 

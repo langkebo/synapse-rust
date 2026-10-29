@@ -2,6 +2,8 @@
 pub mod audit;
 /// The `cleanup` module.
 pub mod cleanup;
+/// The `device_verify` module.
+pub mod device_verify;
 /// The `federation` module.
 pub mod federation;
 /// The `invite_lists` module.
@@ -38,6 +40,7 @@ use axum::Router;
 
 pub use audit::create_audit_router;
 pub use cleanup::create_cleanup_router;
+pub use device_verify::create_device_verify_router;
 pub use federation::create_federation_router;
 pub use media::create_media_router;
 pub use notification::create_notification_router;
@@ -99,7 +102,8 @@ pub fn create_admin_module_router(state: AppState) -> Router<crate::routes::AppS
         .merge(create_server_router(state.clone()))
         .merge(create_security_router())
         .merge(create_cleanup_router(state.clone()))
-        .merge(create_notification_router());
+        .merge(create_notification_router())
+        .merge(create_device_verify_router());
     let protected = admin_router
         .merge(create_token_router())
         .merge(create_federation_router())

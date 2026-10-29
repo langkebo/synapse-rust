@@ -70,11 +70,6 @@ pub struct AdminModuleServices {
     pub delayed_event_service: Arc<crate::delayed_event_service::DelayedEventService>,
     /// The `e2ee_audit_service` field.
     pub e2ee_audit_service: Arc<crate::e2ee_audit::E2eeAuditService>,
-    /// 交叉签名设备验证（`POST /_synapse/admin/v1/users/{user_id}/devices/{device_id}/verify`）。
-    ///
-    /// 与 `e2ee_audit_service` 分开持有：前者是审计日志写入端，这个是**读设备 + 签名表**
-    /// 的校验端，二者共享同一个 `E2eeAuditService` 来落审计行（构造时传入）。
-    pub cross_signing_verification: Arc<crate::e2ee_audit::CrossSigningVerificationService>,
     /// The `background_update_service` field.
     pub background_update_service: Arc<crate::background_update_service::BackgroundUpdateService>,
     /// The `module_storage` field.

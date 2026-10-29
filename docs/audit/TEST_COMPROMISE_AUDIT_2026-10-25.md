@@ -1206,13 +1206,23 @@ llvm-cov 分母，所以 `saml_service.rs` 的 pct 会明显上升 —— 那是
    合并要么让单设备验证退化成 N+1，要么让批量路径多读 N 次。
    > 原计划要给 `DeviceInfo` 加 `pub fn new`，实际不需要：转换只发生在同一模块内，
    > 保持字段私有反而少一个可以乱构造的入口。
-2. 装配：`AdminModuleServices` 新增 `cross_signing_verification`，与 `e2ee_audit_service`
-   **共享同一个** `Arc<E2eeAuditService>`（审计行必须落在同一张 `e2ee_audit_log` 上）。
-3. 路由：`POST /_synapse/admin/v1/users/{user_id}/devices/{device_id}/verify`
-   （`synapse-web/src/routes/admin/user.rs`）。**用 POST 不用 GET**：这条路径会写一行
-   `e2ee_audit_log`，做成 GET 会让管理面板的刷新把审计表撑大 —— 有用例反向钉住这一点
-   （GET 必须 405）。不额外写 `admin_audit` 行：设备级结论已由 `e2ee_audit_log` 承载
-   （含 `device_id` 与三项布尔），再记一条只会让同一动作在两份审计里各出现一次。
+2. 门面：**没有**给 `AdminContext` 加字段 —— 它已贴住行数棘轮上限（1038），加两行即红
+   （第一版加了 `cross_signing_verification` 字段，被 `check_file_size_ratchet` 判 `1038 → 1041`）。
+   改为把 `E2eeAuditService::verify_device_for_user(self: &Arc<Self>, …)` 做成门面：它持有
+   `Arc<PgPool>`，按需构造 `CrossSigningVerificationService`（后者构造时需要
+   `Arc<E2eeAuditService>` 来写同一张审计表，因此不能反过来塞进 context）。
+   三个 `Storage` 包装的构造成本可忽略，也不引入 `Arc` 自引用。生产路径**仍然真的在调**
+   `CrossSigningVerificationService::verify_device_for_user`，接线语义不变。
+3. 路由：`POST /_synapse/admin/v1/users/{user_id}/devices/{device_id}/verify`，
+   放在**独立模块** `synapse-web/src/routes/admin/device_verify.rs`（`admin/user.rs` 同样贴住
+   1139 上限，塞一个 handler 就 `1139 → 1171`）。`admin/mod.rs` 加 `.merge(...)` 并挂在
+   `admin_auth_middleware` 保护的那条链上。
+   **用 POST 不用 GET**：这条路径会写一行 `e2ee_audit_log`，做成 GET 会让管理面板的刷新把
+   审计表撑大 —— 有用例反向钉住这一点（GET 必须 405）。不额外写 `admin_audit` 行：设备级
+   结论已由 `e2ee_audit_log` 承载（含 `device_id` 与三项布尔），再记一条只会让同一动作在
+   两份审计里各出现一次。
+   ⚠️ 副作用：`registered_by` 从 `admin::user` 变成 `admin::device_verify` ⇒ 6 份夹具的
+   label、3 张派生表、sidecar 与两份 route-table 都要重导（路由**总数不变**：980）。
 4. 契约链（改路由字面量必须整条）：`gen_derived_routes.py --bootstrap` →
    `generate_sdk_ledger_fixtures.sh` + 三次 golden `synapse_ledger_export` →
    `gen_derived_routes.py --check` → `gen_route_handlers.py`（sidecar 写盘）→

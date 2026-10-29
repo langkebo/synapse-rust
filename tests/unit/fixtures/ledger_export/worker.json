@@ -7809,7 +7809,7 @@
     {
       "method": "POST",
       "path": "/_synapse/admin/v1/users/{user_id}/devices/{device_id}/verify",
-      "registered_by": "admin::user",
+      "registered_by": "admin::device_verify",
       "path_params": [
         "user_id",
         "device_id"
