@@ -21,7 +21,7 @@
 | **P1-2** | P1 | 无 Redis 时拓扑校验只 `warn!`，不阻断启动 | **已关闭（`a68a93a08`）**：`write_forwarding` + 缺 `notify_fan_out` ⇒ 无条件 fatal，不看 `strict` |
 | **P1-3** | P1 | 写归属守卫不校验 handler 行为，只看路由集合与 stream 归属 | **行为维度已补（`67ffd19bc`）**：sticky 补发 tick 的归属改为运行时门；**静态扫描已补**：`check_event_writer_routes.py`（52 条事件写路由 / 18 条约一条理由的例外） |
 | **P1-4** | P1 | sticky catch-up 的**服务层零测试** | **已关闭（`67ffd19bc` + 本轮）**：`StickyCatchUpIo` 接缝 + 11 条用例（含跨 destination 轮转公平性） |
-| **P2-1** | P2 | 写转发链路没有两进程 e2e | 未解决 |
+| **P2-1** | P2 | 写转发链路没有两进程 e2e | **断言已加**（脚本 + compose 开关 + `stream_writers` 声明），静态校验通过；**端到端未跑通**（镜像迁移入口，与环境有关） |
 | **P2-2** | P2 | sliding_sync 逐房 3 次查询（required_state / timeline / sticky） | **bench 已就位**：分档 [10,100,1000] + 6 项 `required_state`；基线数字需种子库（见 §4-C1） |
 | **P2-3** | P2 | `events` 未分区、`room_memberships` 无归档（等量级） | **判据已落地**：`events-partition-trigger` 两条告警 + 两个面板（见 §4-C2）；分区本身仍等量级 |
 | **P3-1** | P3 | 行数棘轮只报不压：`--update` 会把**新文件**直接纳入基线 | **已关闭（`92504e69f`）**：缩小即自动下压、条目消失自动删；`--update` 默认拒绝从未登记的新文件（`--allow-new` 为显式例外） |
@@ -165,6 +165,16 @@ backfill 归零重放 / backfill 本机短路与 reset 失败短路。
 "What this deliberately does **not** cover: two OS processes"（两个真实 HTTP 实例、真 TCP，但同进程）；
 `scripts/test/worker_topology_smoke.sh` 里检索 `write_forwarding` / `转发` 无命中。
 **影响**：进程边界（启动顺序、配置隔离、共享 secret、surface gate 与转发的组合）从未被真实验证。
+**已补（2026-10-30）**：`scripts/test/worker_topology_smoke.sh` 新增 `assert_write_forwarding` ——
+写打到 `client_reader`，**直查 `events` 表**确认落库（不看 200）；`docker/docker-compose.workers.yml`
+加 `SYNAPSE__WORKER__WRITE_FORWARDING=${SMOKE_WRITE_FORWARDING:-false}`（master 与 worker 两处同源）；
+`docker/config/homeserver.yaml` 补上此前**只存在于注释里**的 `stream_writers`（`events`/`device_lists` → `event_persister`）。
+**⚠️ 端到端未跑通，阻塞与环境有关、与本次改动无关**：本机只有 2 天前的 `synapse-rust:distroless`，
+起栈时 master 在"检查数据库连接"后即 `[ERROR] Database migrations failed`（entrypoint 走"宿主 psql"后端），
+全新库上必然失败。静态校验已过：`bash -n` 通过、`worker_topology_deployment_tests` **9/9**。
+复跑命令（镜像健康后）：
+`SKIP_BUILD=1 SYNAPSE_IMAGE_TAG=<tag> bash scripts/test/worker_topology_smoke.sh`
+或用 `SKIP_BUILD=0` 现场重建镜像。该脚本**不在 CI 里跑**（无 workflow 引用），属手工验证。
 
 ### P2-2 sliding_sync 逐房 3 次查询
 

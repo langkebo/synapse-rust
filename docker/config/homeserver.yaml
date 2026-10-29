@@ -282,6 +282,16 @@ worker:
   #     排查看 `GET /_synapse/worker/v1/topology/validate` 的 `write_forwarding` 段，
   #     或 `GET /_health` 的 `checks.write_forwarding`（design doc §6.1/§6.2）。
   write_forwarding: false
+  # 流的「合法写者」。默认只是**声明**（谁接到写谁写）；只有 `write_forwarding: true`
+  # 时，非 writer 实例才会把写真的转发过去。
+  # B1 的两进程 e2e（`scripts/test/worker_topology_smoke.sh` 的写转发断言）依赖这份声明：
+  # 写打到 `client_reader`，由 `event_persister` 落库，再直查 DB 佐证。
+  # ⚠️ `events` 与 `device_lists` 必须指向同一实例：联邦 `send` 一个请求同时写这两路。
+  stream_writers:
+    events:
+      - event_persister
+    device_lists:
+      - event_persister
   # ── 参考多进程拓扑（W-D）─────────────────────────────────────────────────
   # 以下键**只在 SYNAPSE__WORKER__ENABLED=true 时生效**：单进程部署走
   # `worker.enabled: false` 的早退分支（校验直接 valid），instance_map 没有消费者。

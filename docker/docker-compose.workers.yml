@@ -67,6 +67,10 @@ x-worker-base: &worker-base
     # 于是每个 worker 的心跳都会宣告 worker_name="master" ⇒ 5 个声明的实例全部仍报 missing。
     # 这是部署级开关（同一份配置每个进程都读），不是"只有 master 才需要"。
     SYNAPSE__WORKER__ENABLED: "true"
+    # B1：写转发 e2e 的开关。默认 false（与生产默认一致）；烟测用
+    # `SMOKE_WRITE_FORWARDING=1` 打开，才能断言"写打到 reader、由 writer 落库"。
+    # ⚠️ 打开后 `events` 是通知绑定流 ⇒ 必须有 Redis，否则启动直接 fatal（A2）。
+    SYNAPSE__WORKER__WRITE_FORWARDING: ${SMOKE_WRITE_FORWARDING:-false}
     # HTTP 角色实例必须打开准入（写在每个服务里，避免误加到队列消费者上：
     # `synapse_worker` 只有 `/metrics`，开不开都一样，但语义上不该开）。
     # worker 进程不做迁移：6 个 worker 抢着建表是并发 DDL，不是"更保险"。
@@ -115,6 +119,8 @@ services:
   synapse-rust:
     environment:
       SYNAPSE__WORKER__ENABLED: "true"
+      # B1：与 worker 侧同源开关（同一份配置每个进程都读，别让两侧不一致）。
+      SYNAPSE__WORKER__WRITE_FORWARDING: ${SMOKE_WRITE_FORWARDING:-false}
       # 建议同时打开（W-B）：配置错误就不要起。想先观察再收紧就先留 false。
       SYNAPSE__WORKER__TOPOLOGY__STRICT: ${WORKER_TOPOLOGY_STRICT:-false}
 

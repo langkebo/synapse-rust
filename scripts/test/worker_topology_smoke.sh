@@ -87,6 +87,11 @@ readonly SYNC_WORKER_PORT="${WORKER_SYNC_WORKER_PORT:-18010}"
 readonly FEDERATION_READER_PORT="${WORKER_FEDERATION_READER_PORT:-18011}"
 readonly MEDIA_REPOSITORY_PORT="${WORKER_MEDIA_REPOSITORY_PORT:-18012}"
 
+# B1：写转发默认对**本烟测栈**打开。只有它配合 `worker.stream_writers` 的声明，
+# "写打到 reader、由 writer 落库"才是一句可断言的话；生产默认仍是 false。
+# 打开后 `events` 是通知绑定流 ⇒ 必须有 Redis，否则启动直接 fatal（本轮 A2 的判据）。
+export SMOKE_WRITE_FORWARDING="${SMOKE_WRITE_FORWARDING:-1}"
+
 # 必须与 docker/config/homeserver.yaml 的 worker.instance_map 以及
 # docker/docker-compose.workers.yml 的服务名一致 —— 由
 # tests/unit/worker_topology_deployment_tests.rs 离线守住这三者的同步。
@@ -365,6 +370,48 @@ print("OK   /sync 读回了刚发的事件（这一路走 master；按角色分�
 PY
 }
 
+# ── B1：写转发 e2e ───────────────────────────────────────────────────────────
+# 写请求打到 `client_reader`（它不是 `events` 流的 writer），再**直查数据库**确认事件
+# 真的落库。为什么不能只看 HTTP 状态码：reader 可能先回 200 而转发在后台失败，也可能
+# 转发成功但 writer 没提交；只有 `events` 表里确实有那一行，才证明跨实例这条链通了。
+# 反向说明：本断言证明的是"事件没丢、且不是由 reader 自己写"，不会去分辨是哪个进程落库 ——
+# 那需要 DB 侧的连接标识，成本远高于收益。
+assert_write_forwarding() { # assert_write_forwarding <admin_token>
+    local token="$1"
+
+    if [[ "${SMOKE_WRITE_FORWARDING:-1}" != "1" ]]; then
+        skip "写转发断言（SMOKE_WRITE_FORWARDING != 1：栈内 write_forwarding 未开）"
+        return 0
+    fi
+
+    log "写转发：写打到 client_reader，直查 DB 确认事件落库"
+
+    local room_id
+    room_id="$(curl -fsS -X POST "$BASE_URL/_matrix/client/v3/createRoom" \
+        -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
+        -d '{"name":"worker-write-forwarding-smoke","preset":"private_chat"}' |
+        python3 -c 'import json,sys; print(json.load(sys.stdin).get("room_id",""))')"
+    assert_eq "$([[ -n "$room_id" ]] && echo yes || echo no)" "yes" "写转发：createRoom 返回 room_id"
+    [[ -n "$room_id" ]] || return 0
+
+    local txn="fwd-$(date +%s)-${RANDOM}"
+    local event_id
+    event_id="$(curl -fsS -X PUT \
+        "http://127.0.0.1:${CLIENT_READER_PORT}/_matrix/client/v3/rooms/${room_id}/send/m.room.message/${txn}" \
+        -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
+        -d '{"msgtype":"m.text","body":"forwarded-through-client-reader"}' |
+        python3 -c 'import json,sys; print(json.load(sys.stdin).get("event_id",""))')"
+    assert_eq "$([[ -n "$event_id" ]] && echo yes || echo no)" "yes" \
+        "写转发：client_reader 接受写并回 event_id（它是 reader，必须转发给 event_persister）"
+    [[ -n "$event_id" ]] || return 0
+
+    # 直查库（事件 id 由服务端产生，不含单引号，直接内联安全）。
+    local row
+    row="$(compose exec -T db psql -U "${DB_USER:-synapse}" -d "${DB_NAME:-synapse}" -tAc \
+        "SELECT event_id FROM events WHERE event_id = '${event_id}'" 2>/dev/null | tr -d '[:space:]')"
+    assert_eq "$row" "$event_id" "写转发：事件确实落库（直查 events 表，不看 200）"
+}
+
 main() {
     log "环境检查"
     require_commands || return 1
@@ -388,6 +435,7 @@ main() {
     assert_topology_endpoint "$token"
     assert_surface_gate
     assert_client_surface "$token"
+    assert_write_forwarding "$token"
     return 0
 }
 
