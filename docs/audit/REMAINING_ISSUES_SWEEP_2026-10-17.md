@@ -415,12 +415,18 @@ join 后定向补发 `synapse-web/src/routes/federation/membership/join.rs`，�
 | `non_writer_instance_is_inert` | **单写者运行时门**：非所有者零 io 调用（`calls() == []`） |
 | `backfill_resets_then_replays_the_whole_room` | join 补发归零后全量重放 |
 | `backfill_short_circuits_on_self_and_on_reset_failure` | 本机短路 + reset 失败短路 |
+| `destinations_beyond_the_per_tick_cap_rotate_without_starvation` | 跨 destination 轮转公平性：超 `LIMIT 32` 后两轮收敛、无重复、无饥饿 |
 
-跑法：`cargo test -p synapse-services --lib --features test-utils sticky_catch_up` ⇒ 10 passed；
+跑法：`cargo test -p synapse-services --lib --features test-utils sticky_catch_up` ⇒ 11 passed；
 变异自证 5 条（删归属门、两条分支误推进游标、去掉过期投影、seed 失败不 return），每次仅 1 条红。
 其中 `non_writer_instance_is_inert` 同时是 §9.1 `L-5` 单写者约束的**行为维度**判据 ——
 归属判定 `owns_events_dispatch(&WorkerConfig)` 只在构造期算一次，门在 tick 首行执行。
-**残余**：跨 destination 的轮转公平性（destination 数超每 tick 上限 LIMIT 32 后多轮收敛）仍无用例。
+**轮转公平性（2026-10-30 补）**：原记的残余"超每 tick 上限后多轮收敛无用例"已关闭。为此把 `FakeIo` 的
+destination 表示从 `Vec` 改为游标表 `Mutex<HashMap<(room, destination), i64>>`，复刻 `pending_sticky_destinations`
+的三个语义（两谓词过滤 / `ORDER BY (room_id, destination)` / `LIMIT`）与 `advance_cursor` 的 `GREATEST`
+（`*slot = (*slot).max(revision)`）—— 否则"多轮收敛"在 fake 里恒真、测不出来。用例构造
+`CATCH_UP_DESTINATIONS_PER_TICK + 8`（=40）对 destination，断言第一轮恰好 32 条推进、第二轮补齐到 40 条、
+每对 `revision == 1` 且去重后长度不变。变异自证 3 条（fake 去掉 `LIMIT`、tick 内加 `.take(1)`、过滤条件恒真），均红并还原。
 
 ### 9.3 未复核（保持原判）
 

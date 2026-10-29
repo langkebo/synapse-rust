@@ -19,8 +19,8 @@
 |---|---|---|---|
 | **P1-1** | P1 | 状态决议仍保留 `origin_server_ts` 兜底路径 | 未解决 |
 | **P1-2** | P1 | 无 Redis 时拓扑校验只 `warn!`，不阻断启动 | 未解决 |
-| **P1-3** | P1 | 写归属守卫不校验 handler 行为，只看路由集合与 stream 归属 | **行为维度已补（`67ffd19bc`）**：sticky 补发 tick 的归属改为运行时门 |
-| **P1-4** | P1 | sticky catch-up 的**服务层零测试** | **已关闭（`67ffd19bc`）**：`StickyCatchUpIo` 接缝 + 10 条用例 |
+| **P1-3** | P1 | 写归属守卫不校验 handler 行为，只看路由集合与 stream 归属 | **行为维度已补（`67ffd19bc`）**：sticky 补发 tick 的归属改为运行时门；**静态扫描已补**：`check_event_writer_routes.py`（52 条事件写路由 / 18 条约一条理由的例外） |
+| **P1-4** | P1 | sticky catch-up 的**服务层零测试** | **已关闭（`67ffd19bc` + 本轮）**：`StickyCatchUpIo` 接缝 + 11 条用例（含跨 destination 轮转公平性） |
 | **P2-1** | P2 | 写转发链路没有两进程 e2e | 未解决 |
 | **P2-2** | P2 | sliding_sync 逐房 3 次查询（required_state / timeline / sticky） | 未解决 |
 | **P2-3** | P2 | `events` 未分区、`room_memberships` 无归档（等量级） | 未解决（登记项） |
@@ -52,7 +52,16 @@
 - **R-5 P1-3 单写者判据从静态改运行时 → `67ffd19bc`（仅 sticky tick 这一段）。**
   门放在共享自由函数 `run_catch_up_tick` 首行，`RoomServiceConfig.worker` 注入拓扑、
   `RoomService` 只存派生 `owns_events: bool`（判定仍委托 `owns_events_dispatch`）。
-  守卫本身（`write_stream_map.txt` 双向棘轮）仍是静态的，缺口见 §3 P1-3 的"残余"。
+  守卫本身（`write_stream_map.txt` 双向棘轮）当时仍是静态的 —— 该缺口由下面的 R-6 关闭。
+- **R-6 P1-3 残余①（静态扫描）→ 新增 `check_event_writer_routes.py` + 例外清单。**
+  从真实路由表出发扫描每条路由 handler（含 3 层 helper 传递）是否调用"造事件"入口；命中即要求该
+  `(method, path)` 在 `write_stream_map.txt` 里有一个非 `-` 的流。当前 52 条事件写路由、18 条例外
+  （16 条 `record_audit_event` → `audit_events`、1 条 `space_service.invite_user` → `space_events`、
+  1 条审计事件写入端点本身），逐条带理由。已接入 `preflight.sh`。
+  变异自证 2 条：给 `reset_user_password` 插一次 `.create_event(` 且不登记 ⇒ 红；在例外清单里塞一条
+  陈旧条目（`get_user GET /_synapse/admin/v1/users/{user_id}`）⇒ 红；两处还原后绿。
+- **R-7 P1-4 残余②（跨 destination 轮转公平性）→ 第 11 条用例。**
+  `FakeIo` 改为游标表以复刻 SQL 三语义，40 对 destination 两轮 tick 全部收敛、无重复、无饥饿。
 
 ## 3. 仍存在的问题
 
@@ -88,23 +97,34 @@
 **运行时门** —— 门在共享自由函数 `run_catch_up_tick` 首行（`if !io.is_events_writer() { return; }`），
 非所有者实例连 seed 都不会调用，由 `non_writer_instance_is_inert` 断言 `calls() == []` 钉住。
 判定本体仍委托唯一实现 `owns_events_dispatch(&WorkerConfig)`；`RoomService` 只存构造期派生的 `owns_events: bool`。
-**残余（仍成立）**：① 守卫本体（`write_stream_map.txt` 双向棘轮）仍是**静态**的，一个 handler 行为上新增事件写
-而路由不变，门禁依旧不会红 —— 见 §4-A3；② 运行时门目前只覆盖 sticky tick **一处**，
+**已补（本轮，静态扫描这一半）**：新增门禁 `scripts/ci/check_event_writer_routes.py`，从真实路由表出发，
+对每条路由的 handler（含 3 层 helper 传递）做静态扫描，命中"造事件"入口（`create_event` / `send_message` /
+`join_room` / `invite_user` / `redact_event` …）即要求该 `(method, path)` 在 `write_stream_map.txt` 里
+有一个非 `-` 的流；确属本地写（`audit_events` / `space_events`，共 18 条）逐条登记在
+`scripts/contract/event_writer_allowlist.txt` 且**带理由**。登记项双向校验：漏登记 ⇒ 红，登记项陈旧 ⇒ 也红。
+已接入 `preflight.sh` 契约段（只读源码 + 两份清单，不与 HEAD 比，不受契约链 SKIP 分支影响）。
+**残余（仍成立）**：运行时门目前只覆盖 sticky tick **一处**，
 其余"该只由 events owner 跑"的路径尚无同款断言，需逐个补。
 
-### P1-4 sticky catch-up 的服务层零测试 —— **已关闭（`67ffd19bc`）**
+### P1-4 sticky catch-up 的服务层零测试 —— **已关闭（`67ffd19bc` + 本轮补 ②）**
 
 **原现象**：对账循环与"加入即补发"没有任何测试；`sticky_catch_up.rs` 内 `#[cfg(test)]` 计数为 0，
 `tests/` 下检索三个入口名无命中。存储层另有 4 条（`synapse-storage/src/sticky_event/db_tests_destinations.rs`）。
 **落地**：`run_catch_up_tick` / `backfill_to_destination` 与 io 之间插入 `StickyCatchUpIo`（8 方法），
-生产实现 `LiveStickyCatchUpIo` 只做薄适配；内联测试按仓库惯例外移为 `sticky_catch_up/tests.rs`（10 条）。
+生产实现 `LiveStickyCatchUpIo` 只做薄适配；内联测试按仓库惯例外移为 `sticky_catch_up/tests.rs`（`67ffd19bc` 落 10 条，本轮补第 11 条）。
 覆盖：游标推进到最新 / `Ok(false)` 与 `Err` 都不推进 / 整批 128 行续页（`row_fetches == [0, 128]`）/
 墓碑与过期行投影为移除 / seed 失败整轮跳过 / destination 列举失败零发送 / 非所有者零 io 调用 /
 backfill 归零重放 / backfill 本机短路与 reset 失败短路。
-**判据**：`cargo test -p synapse-services --lib --features test-utils sticky_catch_up` ⇒ 10 passed；
-变异自证 5 条（删归属门、两条分支误推进游标、去掉过期投影、seed 失败不 return），每次仅 1 条红、还原后 10/10 绿。
-**残余**：§4-A4 原列的"轮转饥饿"（destination 数超每 tick 上限后多轮收敛）尚未有专门用例 —— 现有
-`full_batch_continues_to_the_next_page` 只覆盖**单 destination 的分页**，不覆盖**跨 destination 的公平性**。
+**判据**：`cargo test -p synapse-services --lib --features test-utils sticky_catch_up` ⇒ 11 passed；
+变异自证 5 条（删归属门、两条分支误推进游标、去掉过期投影、seed 失败不 return），每次仅 1 条红、还原后 10/10 绿；
+本轮为第 11 条另做 3 条变异（`FakeIo::pending_destinations` 去掉 `LIMIT` ⇒ 40≠32 / tick 内加 `.take(1)` ⇒ 1≠32 /
+过滤条件恒真 ⇒ 32≠40），均红并还原。
+**残余（本轮已关闭）**：§4-A4 ②"轮转饥饿"（destination 数超每 tick 上限后多轮收敛）已由第 11 条用例
+`destinations_beyond_the_per_tick_cap_rotate_without_starvation` 覆盖：40 对 `(room_id, destination)`
+（= `CATCH_UP_DESTINATIONS_PER_TICK` + 8）两轮 tick 后 40 对全部推进到 `revision == 1`，且无重复消费。
+为此把 `FakeIo` 的 destination 表示从 `Vec` 改成**游标表** `Mutex<HashMap<(room, destination), i64>>`，
+复刻 `pending_sticky_destinations` 的三个语义（两谓词过滤 / `ORDER BY (room_id, destination)` / `LIMIT`）
+与 `advance_cursor` 的 `GREATEST`（`*slot = (*slot).max(revision)`）—— 否则"多轮收敛"在 fake 里是假命题。
 
 ### P2-1 写转发链路没有两进程 e2e
 
@@ -175,16 +195,22 @@ backfill 归零重放 / backfill 本机短路与 reset 失败短路。
   admin 的 membership 写入）的处理函数，要求其所在 `(method, path)` 已在 `write_stream_map.txt` 登记；
   白名单只放"确属本地写"的例外。
 - 判据：变异自证 —— 给某个 admin handler 加一次事件写入但不登记 ⇒ 门禁必红；还原 ⇒ 绿。
-- **状态：未做（静态扫描这部分）**。`67ffd19bc` 只落了"运行时归属门"这一半（见 §3 P1-3 的已补/残余），
-  与 A3 的静态扫描是两条独立补法：运行时门证明"非所有者不跑"，静态扫描证明"该登记的没漏登记"。
+- **状态：✅ 已做。** 脚本 `scripts/ci/check_event_writer_routes.py`（例外清单
+  `scripts/contract/event_writer_allowlist.txt`），已接入 `preflight.sh` 契约段。
+  `67ffd19bc` 落的"运行时归属门"与此是两条独立补法：运行时门证明"非所有者不跑"，
+  静态扫描证明"该登记的没漏登记"—— 两者都需要，缺一仍有盲区。
+- 实测口径：52 条事件写路由全部有非 `-` 声明；18 条例外逐条带理由（16 条审计表、1 条 space 表、1 条审计端点本身）；
+  1 条 handler 静态不可解析（根状态页 closure，`GET /`）。
 
 **A4 catch-up 补三条服务层测试（对应 P1-4）**
 - ① 单 destination 有积压 ⇒ 一轮 tick 后游标推进到最新；✅ `tick_advances_cursor_to_last_confirmed_row`
-- ② destination 数超过每 tick 上限 ⇒ 按 `ORDER BY room_id, destination` 轮转、无饥饿（跑多轮后全部收敛）；❌ 未覆盖
+- ② destination 数超过每 tick 上限 ⇒ 按 `ORDER BY room_id, destination` 轮转、无饥饿（跑多轮后全部收敛）；
+  ✅ `destinations_beyond_the_per_tick_cap_rotate_without_starvation`
 - ③ join 补发把 `last_revision` 重置为 0 ⇒ 下一轮全量重放、且不会重复消费同一条；
   ✅ `backfill_resets_then_replays_the_whole_room`（③ 的重放部分）+ `backfill_short_circuits_on_self_and_on_reset_failure`
 - 判据：三条都不需要真联邦（用 fake io），断言游标值与广播次数 —— 已按此实现（`FakeIo` 记录 `Call` 序列）。
-- **状态：`67ffd19bc` 落了 10 条，其中 ①③ 已覆盖，②（跨 destination 公平性）仍缺**，见 §3 P1-4 残余。
+- **状态：✅ 三条全部覆盖。** `67ffd19bc` 落 10 条（①③），本轮补第 11 条（②，跨 destination 公平性），
+  见 §3 P1-4 末段的落地说明与 3 条变异自证。
 
 ### 批次 B（需要一套多进程夹具，合并做）
 
@@ -226,15 +252,20 @@ grep -c STATE_GROUP_REQUIRED synapse-storage/src/event/state.rs
 grep -n "config.topology.strict" synapse-services/src/worker/topology_gate.rs
 sed -n '210,226p' src/server/mod.rs
 
-# catch-up 服务层用例（`67ffd19bc` 后：外移为兄弟文件，应为 10）
+# catch-up 服务层用例（`67ffd19bc` 外移为兄弟文件 10 条，本轮补 ② ⇒ 应为 11）
 grep -c '#\[tokio::test\]' synapse-services/src/room/sticky_catch_up/tests.rs
 cargo test -p synapse-services --lib --features test-utils sticky_catch_up
 
 # 运行时归属门是否仍在 tick 首行（应命中 `if !io.is_events_writer()`）
 grep -n "is_events_writer" synapse-services/src/room/sticky_catch_up.rs
 
-# 守卫本体是否仍是静态的（仍命中 ⇒ §4-A3 未做）
-sed -n '16,22p' tests/unit/worker_write_stream_tests.rs
+# 守卫本体（`write_stream_map.txt` 双向棘轮）的盲区自述仍在 —— 该盲区已由下面的门禁填上
+sed -n '29,31p' scripts/contract/write_stream_map.txt
+
+# 静态扫描门禁（§4-A3）：应为 `✅ 52 event-writing route(s) all declare a stream (18 exception(s), 1 ...)`
+python3 scripts/ci/check_event_writer_routes.py
+python3 scripts/ci/check_event_writer_routes.py --self-test   # 16 条判据自证
+python3 scripts/ci/check_event_writer_routes.py --print       # 逐条打印识别出的路由 + writer + 调用链
 
 # 两进程 e2e 缺口
 grep -n "two OS processes" tests/unit/worker_write_forwarding_two_instance_tests.rs

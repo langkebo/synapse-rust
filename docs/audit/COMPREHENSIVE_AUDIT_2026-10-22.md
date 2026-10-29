@@ -835,6 +835,7 @@ TEST_INLINE 34 / TEST_FILE 47 = 107**；测试域合计 81。此后 NEW-10 把 4
 | W14 | P3 审计 §0.4「数字真值」失真：7 组数字按脚本/基线现算重写（含「84 列」与 43 + 42 的自相矛盾 → **85**、「clippy allow 无理由」160/96 → **0/0** 与 CODE-11 对齐、门禁 47 → **58**）；27 个内联锚点并入 `check_doc_metrics.py`（内联 12 → **39**） | ✅ 本笔（判据：改 §0.4 数字 ⇒ 红；改 `sleep_baseline` 的 `PROD` ⇒ 红；两条均为实测后还原） |
 | W15 | P0 注销数据清理漏 5 张表（`room_tags` / `event_receipts` / `event_receipts_stream` / `thread_read_receipts` / `presence`）：登记常量 `ACCOUNT_DEACTIVATION_PURGED_TABLES` + 三条守卫用例（表集合自检 / 逐表清空且不误删他人 / 幂等），`.sqlx` 1328 → **1333** | ✅ 本笔（见 `REMAINING_ISSUES_SWEEP_2026-10-17.md` §9.4；变异自证：注释 `presence` 删除 ⇒ 用例 2 红，还原后 3/3 绿） |
 | W16 | P1 守卫可信度（第八轮 P1-3 / P1-4）：sticky 补发抽出 `StickyCatchUpIo` 接缝 + **10 条**服务层用例；单写者判据从调用点静态声明改为**运行时行为门**（非所有者零 io 调用），`RoomServiceConfig` 注入 `worker`、`RoomService` 只存派生 `owns_events` | ✅ `67ffd19bc`（判据：变异自证 5 条，每次仅 1 条红；trait 基线 75 → 76、`file_size` 单条 956 → 962，理由见各自基线） |
+| W17 | P1 守卫行为维度的**两条残余**：① 静态扫描门禁 `check_event_writer_routes.py`（52 条事件写路由全部须有非 `-` 流声明）+ 例外清单 `event_writer_allowlist.txt`（18 条逐条带理由，双向校验陈旧条目），接入 `preflight.sh`；② 跨 destination 轮转公平性第 **11** 条用例（`FakeIo` 改游标表复刻 SQL 三语义，40 对两轮收敛） | ✅ 本笔（判据：插一次 `.create_event(` 不登记 ⇒ 红；塞一条陈旧例外 ⇒ 红；fake 去 `LIMIT` / 加 `.take(1)` / 过滤恒真 ⇒ 分别 40≠32、1≠32、32≠40；全部还原后 11/11 + 门禁绿） |
 
 ### 10.2 下一批建议
 
