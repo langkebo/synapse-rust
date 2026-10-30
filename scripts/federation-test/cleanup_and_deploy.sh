@@ -223,9 +223,11 @@ else
     cd "$DOCKER_DIR"
     log "Building synapse-rust image (this may take 5-10 minutes)..."
 
-    # Build with minimal features to speed up (can be adjusted)
-    DOCKER_CARGO_FEATURE_ARGS="--features core-private-chat,widgets,external-services,voice-extended,cas-sso,saml-sso,friends --no-default-features" \
-        docker compose build synapse-rust || {
+    # feature 集由 `docker/Dockerfile` 的 `ARG CARGO_FEATURE_ARGS` 默认值决定
+    # （`docker/docker-compose.yml` 不再覆盖它）。此前这里显式传了一串"7 项"的
+    # feature 想省编译时间，代价是联邦测试跑的是一个比出货镜像少 5 项能力的构建。
+    # 门禁：`scripts/ci/check_feature_arg_consistency.py`。
+    docker compose build synapse-rust || {
         error "Failed to build Docker image. Check the build output above."
     }
 

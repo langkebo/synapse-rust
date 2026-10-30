@@ -18,14 +18,17 @@ ARG RUST_BUILDER_IMAGE=rust:1.93.0-slim-bookworm@sha256:776861219cd851131c1cec3b
 # 必须与 docker/Dockerfile 的同名 ARG 保持一致（升 digest 清 CVE 的理由见那里）
 ARG DEBIAN_BASE_IMAGE=debian:bookworm-slim@sha256:7ff6ba31527b9e336162fa061746c366c4b2032f4d2cff2078bea43f78efe3f8
 ARG MIRROR_URL=
-ARG CARGO_FEATURE_ARGS="--features core-private-chat,widgets,external-services,voice-extended,cas-sso,saml-sso,friends --no-default-features"
+# 必须与 `docker/Dockerfile` 的 `ARG CARGO_FEATURE_ARGS` 默认值**逐字相等**
+# （门禁：`scripts/ci/check_feature_arg_consistency.py`）。Complement 是协议兼容性
+# 测试，跑的就是出货 feature 集，不能拿一个更小的集合去"测过"。
+ARG CARGO_FEATURE_ARGS="--features all-extensions --no-default-features"
 
 # ============================================================================
 # Stage 1: builder — reuse the main project builder
 # ============================================================================
 FROM ${RUST_BUILDER_IMAGE} AS builder
 
-ARG CARGO_FEATURE_ARGS="--features core-private-chat,widgets,external-services,voice-extended,cas-sso,saml-sso,friends --no-default-features"
+ARG CARGO_FEATURE_ARGS="--features all-extensions --no-default-features"
 # [O2-1] 与主 Dockerfile 保持一致，提高并行编译速度
 ARG CARGO_BUILD_JOBS=4
 

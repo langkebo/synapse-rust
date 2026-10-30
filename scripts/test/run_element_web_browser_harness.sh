@@ -19,7 +19,10 @@ TEST_USERNAME="${ELEMENT_TEST_USERNAME:-elementweb_$(date +%s)_$RANDOM}"
 TEST_PASSWORD="${ELEMENT_TEST_PASSWORD:-Test@123456}"
 TEST_DISPLAY_NAME="${ELEMENT_TEST_DISPLAY_NAME:-Element Web Smoke}"
 TEST_SCRIPT="${TEST_SCRIPT:-smoke:login}" # 新增：可以选择测试脚本
-DOCKER_CARGO_FEATURE_ARGS="${DOCKER_CARGO_FEATURE_ARGS:---features core-private-chat,widgets,external-services,voice-extended,cas-sso,saml-sso,friends --no-default-features}"
+# feature 集不再由本脚本指定（2026-10-30）：单一真相源是 `docker/Dockerfile` 的
+# `ARG CARGO_FEATURE_ARGS` 默认值，`docker/docker-compose.yml` 也不再覆盖它
+# （此前的直通导致"不设变量"与"设空串"语义不同，已删除）。门禁见
+# `scripts/ci/check_feature_arg_consistency.py`。
 DOCKER_CARGO_BUILD_JOBS="${DOCKER_CARGO_BUILD_JOBS:-1}"
 TEMP_ENV_CREATED=false
 STACK_STARTED=false
@@ -203,8 +206,7 @@ if [ "$BROWSER_ONLY_OVERLAY" != "1" ]; then
     log "Building synapse-rust docker image"
     (
         cd "$DOCKER_DIR"
-        DOCKER_CARGO_FEATURE_ARGS="$DOCKER_CARGO_FEATURE_ARGS" \
-            DOCKER_CARGO_BUILD_JOBS="$DOCKER_CARGO_BUILD_JOBS" \
+        DOCKER_CARGO_BUILD_JOBS="$DOCKER_CARGO_BUILD_JOBS" \
             docker compose --env-file "$DOCKER_ENV_FILE" -f "$BASE_COMPOSE_FILE" build synapse-rust
     )
 

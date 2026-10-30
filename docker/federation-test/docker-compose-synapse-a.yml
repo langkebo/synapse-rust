@@ -15,7 +15,10 @@ services:
       dockerfile: docker/Dockerfile
       target: tools
       args:
-        CARGO_FEATURE_ARGS: --features core-private-chat,widgets,external-services,voice-extended,cas-sso,saml-sso,friends --no-default-features
+        # ⚠️ 不传 `CARGO_FEATURE_ARGS`：feature 集的单一真相源是
+        # `docker/Dockerfile` 的同名 ARG 默认值。此前这里抄了一份"7 项"的串，
+        # 联邦测试跑的就成了比出货镜像少 5 项能力的构建。
+        # 门禁：`scripts/ci/check_feature_arg_consistency.py`（F3：compose 不得覆盖）。
         CARGO_BUILD_JOBS: "2"
     image: ${SYNAPSE_IMAGE:-synapse-rust}:${SYNAPSE_IMAGE_TAG:-latest}
     container_name: synapse-federation-a

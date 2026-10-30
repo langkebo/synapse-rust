@@ -191,6 +191,13 @@ run "check_sleep_ratchet.py" python3 scripts/ci/check_sleep_ratchet.py
 step "测试：整文件 feature 门控的覆盖（TEST-06）"
 run "check_test_feature_gates.py" python3 scripts/ci/check_test_feature_gates.py
 
+# 出货 feature 串的单一真相源（RD-15）：`docker/Dockerfile` 的 `ARG CARGO_FEATURE_ARGS`
+# 默认值。此前同一个串被 7 个入口各抄一份、全部停在"7 项"，导致
+# `docker compose build` 的镜像比 `deploy.sh --all` 少 5 项能力、而 Trivy 扫的正是那份
+# 少功能的镜像（"扫的镜像 ≠ 发的镜像"）。静态检查（<100ms），与改动集无关 ⇒ 每次都跑。
+step "构建：出货 feature 串只允许一个真相源（RD-15）"
+run "check_feature_arg_consistency.py" python3 scripts/ci/check_feature_arg_consistency.py
+
 # 「自证测试」面（NEW-05）：`*_shape_only_tests.rs` 必须登记 + 文件头声明，且登记的真覆盖文件
 # 真的发请求/碰 DB；`*_{api,route}_tests.rs` 要么调生产符号、要么发请求，否则就是"名字在
 # 声称覆盖、内容在自己造字面量"。静态检查（~40ms），与改动集无关 ⇒ 每次都跑。

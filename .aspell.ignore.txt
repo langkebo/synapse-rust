@@ -120,6 +120,7 @@ backporting
 badrequest
 balancer
 bargauge
+basebackup
 basename
 baseurl
 bcp

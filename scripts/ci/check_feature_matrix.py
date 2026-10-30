@@ -32,13 +32,17 @@
 * S5 CI 接线：`ci.yml` 必须真的以 `--compile` 调用本脚本，删掉这条接线就红
   （防止「脚本存在但从未接入」，即 RD-14 的原始形态）。
 
-编译车道 C1–C4（`--compile`）
+编译车道 C1–C5（`--compile`）
 -----------------------------
 * C1 default：`cargo check --workspace`
 * C2 all：`cargo check --workspace --all-features --all-targets`
 * C3 no-default：`cargo check --workspace --no-default-features`
 * C4 隔离：每个 supported / experimental 特性单独
   `cargo check -p synapse-rust --no-default-features --features <f>`
+* C5 出货组合：`cargo check -p synapse-rust --no-default-features --features all-extensions --bins`
+  —— 与 `docker/Dockerfile` 的 `ARG CARGO_FEATURE_ARGS` 默认值同口径（见
+  `scripts/ci/check_feature_arg_consistency.py`）。C1–C4 都不覆盖它，而它此前只在
+  `build` job（`if` 排除 PR）里编过。
 
 退出码：0 = 全部通过；1 = 有失败项（明细在 stdout）。
 """
@@ -380,6 +384,30 @@ def compile_lanes() -> list[str]:
         ("C1 default", ["--workspace"]),
         ("C2 all-features", ["--workspace", "--all-features", "--all-targets"]),
         ("C3 no-default-features", ["--workspace", "--no-default-features"]),
+        # C5：**出货组合**。`docker/Dockerfile` 的 `ARG CARGO_FEATURE_ARGS` 默认值是
+        # `--features all-extensions --no-default-features`，而 C1–C4 里没有任何一条
+        # 覆盖它：
+        #   * C1 是 default（`beacons` 之类靠默认值来，掩盖"漏在 all-extensions 外"）；
+        #   * C2 是 `--all-features`（多带 test-utils / performance-tests，属另一套
+        #     cfg 组合，证明不了出货组合能编译）；
+        #   * C3 是 `--no-default-features`（一个 feature 都不开）；
+        #   * C4 是逐个特性单独开（证明不了"12 个一起开"）。
+        # 此前这条组合只在 `ci.yml` 的 `build` job 里编，而那个 job 的 `if` 把 PR 排除在外
+        # ⇒ **PR 期从来没验过出货组合**，要等合并后才知道。本车道挂在 `feature-matrix`
+        # job 上（该 job 无 `if`，每次 PR 都跑），把这段补回来。
+        # `-p synapse-rust --bins` 与 Dockerfile 的
+        # `cargo build --bin synapse-rust --bin synapse_worker --bin healthcheck` 同口径。
+        (
+            "C5 shipped (all-extensions, no-default)",
+            [
+                "-p",
+                "synapse-rust",
+                "--no-default-features",
+                "--features",
+                "all-extensions",
+                "--bins",
+            ],
+        ),
     ]
     for name in sorted(features):
         status = FEATURE_STATUS.get(name, ("", ""))[0]

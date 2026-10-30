@@ -23,7 +23,15 @@ services:
       dockerfile: docker/Dockerfile
       target: tools
       args:
-        CARGO_FEATURE_ARGS: ${DOCKER_CARGO_FEATURE_ARGS:---features core-private-chat,widgets,external-services,voice-extended,cas-sso,saml-sso,friends --no-default-features}
+        # ⚠️ 这里**刻意不传** `CARGO_FEATURE_ARGS`：feature 集的单一真相源是
+        # `docker/Dockerfile` 的同名 ARG 默认值（`--features all-extensions
+        # --no-default-features`）。此前本文件抄了一份"7 项"的串，导致
+        # `docker compose build` 的镜像比 `deploy.sh --all` 少 5 项能力，
+        # 而 Trivy 扫的正是这个少功能的镜像。
+        # 需要小镜像时用 `docker compose build --build-arg CARGO_FEATURE_ARGS=…`
+        # 显式覆盖；`DOCKER_CARGO_FEATURE_ARGS` 这个 env 直通已删除（它会让
+        # "不设变量"与"设空串"产生两种不同语义，是同一类漂移的温床）。
+        # 门禁：`scripts/ci/check_feature_arg_consistency.py` 断言本文件不覆盖该 arg。
         CARGO_BUILD_JOBS: ${DOCKER_CARGO_BUILD_JOBS:-2}
     image: ${SYNAPSE_IMAGE:-synapse-rust}:${SYNAPSE_IMAGE_TAG:-latest}
     container_name: ${COMPOSE_PROJECT_NAME:-synapse}-rust
@@ -126,10 +134,8 @@ services:
       TZ: ${TZ:-Asia/Shanghai}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # WAL 归档落点：**必须在 PGDATA 之外**（方案 B1.1）。放数据卷里等于
-      # "归档与数据同损"，PITR 就没意义了。宿主目录需可写（Docker Desktop 下
-      # 一般自动映射为当前用户；Linux 上需 chmod 777 或 chown 70:70）。
-      - ./wal_archive:/var/lib/postgresql/wal_archive
+      # WAL 归档 bind mount 已于 2026-10-30 移除（archive_mode=off，理由见
+      # docker/config/postgres.conf 的 "WAL 归档" 段与 docker/deploy/docker-compose.yml）。
       # 保持单文件挂载：宿主文件名 `postgres.conf` 与容器要读的
       # `/etc/postgresql/postgresql.conf` 名称不同，目录挂载会让 postgres
       # 找不到配置文件而崩溃。理由详见 docker/deploy/docker-compose.yml。

@@ -107,12 +107,17 @@ jobs:
           # `ARG VERSION=dev`，不传时 OCI label `org.opencontainers.image.version`
           # 落回 `dev`——扫描镜像与正式镜像同源，却报出与出货物不符的版本。
           # 与 `build-and-push.sh:23,60` 同一口径：默认从 Cargo.toml 取 crate 版本。
+          # `--build-arg CARGO_FEATURE_ARGS` **刻意不传**（2026-10-30）：feature 集的
+          # 单一真相源是 `docker/Dockerfile` 的 ARG 默认值。此前这里抄了一份"7 项"的
+          # 串，于是 **Trivy 扫的镜像 ≠ `deploy.sh --all` 出货的镜像**（少 beacons /
+          # voip-tracking / server-notifications / privacy-ext / builtin-oidc 五项）——
+          # 扫描结论对出货镜像不成立。不传即继承默认值（all-extensions）。
+          # 门禁：`scripts/ci/check_feature_arg_consistency.py`。
           VERSION="$(grep -E '^version = ' Cargo.toml | head -n1 | cut -d'"' -f2)"
           docker build \
             -f docker/Dockerfile \
             --target tools \
             --build-arg VERSION="${VERSION}" \
-            --build-arg CARGO_FEATURE_ARGS="--features core-private-chat,widgets,external-services,voice-extended,cas-sso,saml-sso,friends --no-default-features" \
             -t synapse-rust:scan \
             .
 

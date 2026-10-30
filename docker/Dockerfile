@@ -16,7 +16,32 @@ ARG RUST_BUILDER_IMAGE=rust:1.93.0-slim-bookworm@sha256:776861219cd851131c1cec3b
 # `apt-get install libssl3`，实测装到 3.0.22-1~deb12u2，故出货镜像无该 CVE）。
 ARG DEBIAN_BASE_IMAGE=debian:bookworm-slim@sha256:7ff6ba31527b9e336162fa061746c366c4b2032f4d2cff2078bea43f78efe3f8
 ARG MIRROR_URL=
-ARG CARGO_FEATURE_ARGS="--features core-private-chat,widgets,external-services,voice-extended,cas-sso,saml-sso,friends --no-default-features"
+# ============================================================================
+# 出货镜像的 feature 集 —— **单一真相源**
+# ----------------------------------------------------------------------------
+# 这个 ARG 的默认值是"出货镜像到底带哪些功能"的唯一定义。其余所有构建入口
+# （`docker/docker-compose.yml`、`docker/complement/Dockerfile`、
+#  `.github/workflows/docker-security-scan.yml`、`.github/workflows/e2e-http.yml`、
+#  `scripts/test/run_element_web_browser_harness.sh`、`scripts/federation-test/cleanup_and_deploy.sh`）
+# 一律**不再各抄一份**：
+#   * compose 直接不传该 build-arg（不覆盖即继承本默认值）；
+#   * 其余入口若要显式传，必须与本值逐字相等 —— 由
+#     `scripts/ci/check_feature_arg_consistency.py` 断言（不等则 CI 红）。
+#
+# 为什么是 `all-extensions`：2026-10-30 之前这里有 6 处各自维护的 feature 串，
+# 全都停在"7 项"（core-private-chat,widgets,external-services,voice-extended,
+# cas-sso,saml-sso,friends），于是 `docker compose build` 出来的镜像比
+# `deploy.sh --all` 少 5 项能力（beacons / voip-tracking / server-notifications /
+# privacy-ext / builtin-oidc）；更严重的是 Trivy 扫的就是那 7 项镜像，
+# **扫的镜像 ≠ 发的镜像**。收敛到 `all-extensions`（= 12 项可单独开关能力，
+# 见 `scripts/ci/check_feature_matrix.py` 的 S2 闭包门禁）后两者必然一致。
+#
+# ⚠️ `--no-default-features` 不可省：Cargo 的 `default` 含 `beacons`，但本串
+#    已经显式列出全部能力；留着 default 只会让"默认集"多一个隐形来源。
+# ⚠️ 若要小镜像/快速构建，用 `--build-arg CARGO_FEATURE_ARGS=…` 显式覆盖
+#    （`deploy.sh --core-only/--core-private-chat/--features …` 就是这么做的），
+#    但**不要**改动本默认值去迁就单个入口。
+ARG CARGO_FEATURE_ARGS="--features all-extensions --no-default-features"
 # PostgreSQL 客户端主版本。**唯一真相源**：包名、二进制目录都从它派生，
 # 升级时只改这一处（`postgresql-client-${PG_MAJOR}` / `/usr/lib/postgresql/${PG_MAJOR}/bin`）。
 ARG PG_MAJOR=15

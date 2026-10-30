@@ -77,7 +77,6 @@ jobs:
           tags: synapse-rust:latest
           load: true
           build-args: |
-            CARGO_FEATURE_ARGS=--features core-private-chat,widgets,external-services,voice-extended,cas-sso,saml-sso,friends --no-default-features
             CARGO_BUILD_JOBS=4
           cache-from: type=gha,scope=e2e-http
           cache-to: type=gha,mode=max,scope=e2e-http

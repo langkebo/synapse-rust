@@ -2,8 +2,17 @@
 # =============================================================================
 # synapse-rust 一键重建与部署脚本
 # =============================================================================
-# 支持按需部署：通过交互式菜单或 ENABLED_EXTENSIONS 环境变量选择需要的
-# 扩展功能，仅应用对应的数据库迁移脚本。
+# 支持按需部署：通过交互式菜单或 ENABLED_EXTENSIONS 环境变量选择启用哪些扩展功能。
+#
+# ⚠️ 选中的扩展**只影响编译期的 feature 集**（`--features …`），**不裁剪数据库**：
+#    迁移恒为完整的 `migrations/00000000_unified_schema_v12.sql`（unified baseline），
+#    不存在"按扩展挑迁移脚本"这一步。原文这里写的是"仅应用对应的数据库迁移脚本"，
+#    但 `docker/deploy/scripts/container-migrate.sh` 与 `docker/db_migrate.sh` 都不读
+#    `ENABLED_EXTENSIONS`（实测 0 命中）—— 那句承诺从来没被实现，2026-10-30 改成事实描述。
+#    实际后果：`--core-only` 得到的是"少 12 项能力、但 schema 仍然全量"的库；
+#    若真的需要小 schema，得另外维护一套裁剪迁移，目前没有。
+#    （`run_migrations()` 仍把 `ENABLED_EXTENSIONS` 当 `-e` 传给 migrator 容器，
+#      那是历史遗留的无效参数 —— 两个迁移脚本都不读它。保留只为不动容器命令行形状。）
 #
 # 用法:
 #   ./deploy.sh                   # 交互式选择功能
@@ -19,6 +28,8 @@
 #   ./deploy.sh --keep-images     # 保留历史项目镜像（默认全量删除旧镜像）
 #   ./deploy.sh --no-strict-warnings # 未知 WARNING 不阻断部署（默认阻断）
 #   ./deploy.sh --no-rollback     # 失败时不自动回滚（默认自动回滚）
+#   ./deploy.sh --restore-db-on-rollback # 回滚时**同时**把数据库还原到部署前备份
+#                                 # （默认只回滚镜像；仅当本次失败确由不可逆迁移引起时才用）
 #   ./deploy.sh --stop-timeout 30 # 容器优雅停止(SIGTERM)等待秒数，默认 30
 #
 # 完整流程: 环境检查 → 依赖安装(可选) → 配置检查 → 功能选择 → 目录准备 →
@@ -30,8 +41,10 @@
 #           日志告警分析 → 监控栈启动 → 状态与访问信息
 #
 # 可靠性: 全部步骤经 run_step 包装，失败时打印失败的步骤/命令/行号/退出码，
-#         并按 ROLLBACK_ENABLED 自动回滚（恢复旧镜像标签 + 还原数据库备份
-#         + 以旧镜像重启服务）；任一步骤失败即停止后续步骤，避免半成品部署。
+#         并按 ROLLBACK_ENABLED 自动回滚（默认只恢复旧镜像标签 + 以旧镜像重启服务；
+#         **数据库只在显式 --restore-db-on-rollback 时才还原**——因为多数失败
+#         （nginx 健康检查超时、HTTPS 验证失败）与数据库无关，无条件还原会把
+#         整个部署窗口内的写入一起丢掉）；任一步骤失败即停止后续步骤，避免半成品部署。
 #
 # 可用扩展功能:
 #   friends, voice-extended, saml-sso, cas-sso,
@@ -61,6 +74,10 @@ LOG_TEE_PID=""
 ROLLBACK_BACKUP=""
 ROLLBACK_IMAGE_TAG=""
 ROLLBACK_ENABLED=true
+# 回滚时是否同时还原数据库。默认 false：多数失败（nginx 健康检查超时、HTTPS 验证
+# 失败、日志告警）与数据库无关，无条件还原会连同部署窗口内的写入一起丢掉。
+# 仅当失败确由不可逆迁移引起（rename/drop 等）时才用 --restore-db-on-rollback。
+RESTORE_DB_ON_ROLLBACK=false
 DEPLOYMENT_PHASE="initialization"
 ROLLBACK_IN_PROGRESS=false
 SKIP_BUILD=false
@@ -191,6 +208,9 @@ parse_args() {
             --no-rollback)
                 ROLLBACK_ENABLED=false
                 ;;
+            --restore-db-on-rollback)
+                RESTORE_DB_ON_ROLLBACK=true
+                ;;
             --stop-timeout)
                 shift
                 STOP_TIMEOUT="${1:?'--stop-timeout 需要参数，如: 30'}"
@@ -233,6 +253,10 @@ show_usage() {
   --no-strict-warnings 未知 WARNING 仅提示、不阻断部署（默认阻断）
   --strict-warnings 未知 WARNING 阻断部署（默认行为）
   --no-rollback     失败时不自动回滚（默认自动回滚）
+  --restore-db-on-rollback
+                    回滚时同时把数据库还原到部署前备份（默认**只回滚镜像**）。
+                    仅在失败确由不可逆迁移（rename/drop）引起时才使用——否则会把
+                    整个部署窗口内写入的消息/事件一起丢掉。
   --stop-timeout N  容器优雅停止(SIGTERM)等待秒数，默认 30
   --help            显示帮助信息
 
@@ -1146,7 +1170,9 @@ create_directories() {
     # 注意：不要 mkdir config —— 配置的唯一真相源是 $PROJECT_ROOT/docker/config/，
     # 在 deploy 目录下创建空的 config/ 会形成"看似有副本"的假象，并让 compose
     # 挂载到空目录（镜像内 /app/config 本身为空，服务会因缺配置启动失败）。
-    mkdir -p ssl media logs backups wal_archive
+    # 不建 wal_archive：WAL 归档已关闭（archive_mode=off，2026-10-30），
+    # 目录不再被任何挂载使用。
+    mkdir -p ssl media logs backups
     # $SYNAPSE_DATA_DIR 是 /app/data 的宿主机落点（见 docker-compose.yml 的 volumes
     # 注释）。必须在 `compose up` 之前存在，否则 Docker 会代为创建；那样在 Linux
     # 上目录属主是 root，而容器以 uid 1000 运行，后续写 signing.key 可能失败。
@@ -1220,6 +1246,7 @@ backup_current_state() {
         ROLLBACK_BACKUP="$(echo "$backup_output" | awk -F': ' '/备份文件:/ {print $2}' | tail -n 1)"
         if [ -n "$ROLLBACK_BACKUP" ] && [ -f "$ROLLBACK_BACKUP" ]; then
             log_success "已创建回滚备份: $ROLLBACK_BACKUP"
+            log_info "  注意：回滚默认**不会**还原该备份（只回滚镜像）；需要时用 --restore-db-on-rollback"
         fi
     else
         log_info "未检测到运行中的旧部署，跳过数据备份"
@@ -1801,6 +1828,8 @@ LOG_WARNING_ALLOWLIST=(
     'Prometheus /metrics 允许匿名抓取|SEC-04 的显式设计：部署栈 Prometheus 走容器内网直连 synapse-app:9090 抓取，故 homeserver.yaml 声明 public=true；docker-compose.yml 已将 9090 仅绑定 127.0.0.1，nginx 也未代理该端口，公网不可达'
     'Rate limiting is DISABLED|测试/联调阶段显式关闭 rate_limit.enabled（审计 §6.5）；恢复 true 后该告警自动消失'
     'Login lockout is DISABLED|测试/联调阶段显式关闭 security.login_lockout_enabled（审计 §6.5）；恢复 true 后该告警自动消失'
+    'worker.stream_writers 已偏离默认值|部署栈是单进程（docker/deploy/.env 走 docker/config/homeserver.yaml，worker.enabled=false + write_forwarding=false），而该文件里的 stream_writers（events/device_lists → event_persister）是给两进程写转发烟测 scripts/test/worker_topology_smoke.sh 用的（它才把 write_forwarding 打开）。topology_validator.rs 有意把这条判断放在 `!enabled` 早退之前，所以单进程栈每次启动都会打这一条；此时声明确实不生效，是预期状态，不是配置错误'
+    'Topology validation: PASSED with 1 warning(s)|上一行那条已知 warning 的汇总行。写成固定 "1 warning(s)" 是有意的：一旦出现别的告警，计数变成 n≠1，本行随即失配并让门禁变红'
 )
 
 # 日志告警分析：区分 ERROR（一律阻断）、已知 WARNING（附原因，仅提示）、
@@ -1900,11 +1929,29 @@ rollback_deployment() {
         log_warning "无可用回滚镜像标签，跳过镜像回滚"
     fi
 
-    # 2) 数据回滚（部署前 pg_dump 备份）
-    if [ -n "$ROLLBACK_BACKUP" ] && [ -f "$ROLLBACK_BACKUP" ]; then
+    # 2) 数据回滚（部署前 pg_dump 备份）——**默认不做**
+    #
+    # 为什么默认不做：回滚由 trap ERR 触发，触发原因里绝大多数与数据库无关
+    # （nginx 健康检查超时、HTTPS 接口验证失败、日志告警门禁）。这些情况下把库退回
+    # 部署前快照，会把整个部署窗口（含镜像构建那段时间）写入的消息/事件一起丢掉，
+    # 等于把"一次失败"放大成"丢数据"。数据库回滚只在迁移不可逆时才有必要，
+    # 因此改成显式开关 --restore-db-on-rollback。
+    if [ "$RESTORE_DB_ON_ROLLBACK" != "true" ]; then
+        log_warning "按默认策略**跳过**数据库回滚（只回滚镜像）"
+        log_warning "  部署前备份仍保留在: ${ROLLBACK_BACKUP:-<无>}"
+        log_warning "  若本次失败确由不可逆迁移（rename/drop）引起，请改用 --restore-db-on-rollback 重跑"
+    elif [ -n "$ROLLBACK_BACKUP" ] && [ -f "$ROLLBACK_BACKUP" ]; then
+        log_warning "已指定 --restore-db-on-rollback，开始还原数据库: $ROLLBACK_BACKUP"
+        # 必须先停 synapse：否则旧进程会在恢复过程中持续写入，恢复完的数据立刻被污染
+        compose stop synapse >/dev/null 2>&1 || true
         chmod +x scripts/restore.sh
         if RESTORE_FORCE=true ./scripts/restore.sh "$ROLLBACK_BACKUP"; then
             log_success "已从备份恢复数据库: $ROLLBACK_BACKUP"
+            # 恢复后必须复核结构版本：备份可能来自迁移前（旧 schema），
+            # 而随后启动的是旧镜像 —— 两者必须对齐，否则应用会带着错配的 schema 起服务。
+            if ! verify_db_version_consistency; then
+                log_error "恢复后数据库版本一致性校验失败，请勿直接放行该环境"
+            fi
         else
             log_error "数据库恢复失败，请手动处理备份: $ROLLBACK_BACKUP"
         fi
