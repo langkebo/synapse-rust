@@ -86,38 +86,31 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # ⚠️ 客户端主版本必须与 service（postgres:16）**精确一致**，不是"≥16"。
-      # 2026-10-30 实测（run 40996685357）：runner 自带 pg_dump **18.6**，service 是 PG16；
-      # pg_dump 18 写出的 dump 带 `SET transaction_timeout = 0;`（PG17 才有的 GUC），
-      # restore 回 PG16 直接
-      #   ERROR:  unrecognized configuration parameter "transaction_timeout"
-      # 原来的守卫是 `-lt 16` ⇒ 18 被放行，这条车道首跑就红。
-      # 生产侧不踩是因为 `scripts/backup_database.sh` 用 `docker exec <pg> pg_dump`，
-      # 客户端与服务端天然同版本；CI 只能用 runner 的客户端，所以必须显式钉住。
-      - name: Install PostgreSQL 16 client (must match the service major)
+      # ⚠️ 客户端主版本必须与 service（postgres:16）**完全一致**，不是"≥16"。
+      # 2026-10-30 两次实测，把两条路都堵住了：
+      #   * run 40996685357：runner 自带 pg_dump **18.6**，它写出的 dump 里带
+      #     `SET transaction_timeout = 0;`（PG17 才引入的 GUC）⇒ restore 回 PG16 报
+      #     `ERROR: unrecognized configuration parameter "transaction_timeout"`；
+      #   * run 40997617608：想补装 16，却 `E: Unable to locate package postgresql-client-16`
+      #     （ubuntu-26.04 的源里没有 16）。
+      # 所以不再依赖 runner 的客户端版本，而是**把整条演练放进 postgres:16 容器**跑：
+      # 客户端与服务端必然同主版本，且与生产 compose pin 的 `postgres:16-alpine` 对齐。
+      # （生产侧 `scripts/backup_database.sh` 用 `docker exec <pg> pg_dump`，本来就同版本；
+      #   这里只是把同一个前提在 CI 里显式化。）
+      - name: Client/server major inside the drill container
         run: |
-          set -euo pipefail
-          major="$(pg_dump --version 2>/dev/null | grep -oE '[0-9]+' | head -1 || echo 0)"
-          if [ "$major" != "16" ]; then
-            sudo apt-get update -qq
-            sudo apt-get install -y -qq postgresql-client-16
-            # apt 把 16 装在 /usr/lib/postgresql/16/bin，不会覆盖 /usr/bin/pg_dump(18)；
-            # 排到 PATH 最前面，后续步骤才真的用到 16。
-            echo "/usr/lib/postgresql/16/bin" >>"$GITHUB_PATH"
-          fi
+          docker run --rm --entrypoint bash postgres:16 -c 'pg_dump --version; psql --version'
 
-      # 断言放独立一步：`$GITHUB_PATH` 只对**之后**的步骤生效，
-      # 在同一个 step 里改 PATH 看不到效果，那样断言会假红。
-      - name: Assert client major == service major
+      - name: Run backup -> restore -> diff drill (client == server, inside postgres:16)
         run: |
           set -euo pipefail
-          client="$(pg_dump --version | grep -oE '[0-9]+' | head -1)"
-          echo "pg_dump: $(pg_dump --version)"
-          echo "psql   : $(psql --version)"
-          if [ "$client" != "16" ]; then
-            echo "::error::pg_dump 主版本 ${client} ≠ service 的 16；dump/restore 必须同主版本（否则 dump 里会带服务端不认识的 GUC）" >&2
-            exit 1
-          fi
+          docker run --rm \
+            --network host \
+            -e PGHOST -e PGPORT -e PGUSER -e PGPASSWORD \
+            -e SOURCE_DB -e TARGET_DB -e WORK_DIR \
+            -v "$PWD:/repo" -w /repo \
+            --entrypoint bash \
+            postgres:16 scripts/ci/backup_restore_drill.sh
 
       - name: Wait for Postgres
         run: |
