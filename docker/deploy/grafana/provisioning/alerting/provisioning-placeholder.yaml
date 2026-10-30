@@ -1,0 +1,3 @@
+# 占位文件：仅用于保证 alerting provisioning 目录存在，避免 Grafana 启动时 ENOENT。
+# 本项目的告警规则由 Prometheus / Alertmanager 管理，Grafana 侧不预置告警。
+apiVersion: 1
