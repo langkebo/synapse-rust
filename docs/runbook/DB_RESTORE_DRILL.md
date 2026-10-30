@@ -20,6 +20,7 @@
 | **WAL 连续归档（PITR 前提）** | ❌ **已关闭**（2026-10-30 起 `archive_mode=off`，`archive_command`/`archive_timeout` 一并注销） | 无落点：bind mount 已移除，历史目录（59 GB）已删除 |
 | 异地副本 | 脚本支持（`BACKUP_OFFSITE_REMOTE`），**未配置时显式 WARNING** | 待定（决策 D2） |
 | 备份可读性校验 | ✅ 每次备份自动做（`pg_restore --list` + 体积下限） | — |
+| **备份可恢复性（自动化演练）** | ✅ 每周一 + 手动 + 备份/迁移脚本变更时自动跑 | `.github/workflows/backup-restore-drill.yml` → `scripts/ci/backup_restore_drill.sh` |
 
 **RPO 的两种口径（必须分开说）**
 
@@ -86,6 +87,21 @@ docker exec -u postgres synapse-postgres psql -U synapse -d postgres -c "DROP DA
 | 日期 | 执行人 | 备份文件 | 库大小 | 实测 RTO | 一致性 | 备注 |
 |---|---|---|---|---|---|---|
 | **2026-10-15** | AI（自动） | `synapse_pg_20261015_135329.dump`（17MB） | 276MB | **5s** | ✅ events 56246 / rooms 7868 / users 116 / room_memberships 7910 / event_edges 48380 / audit_events 110329 / public 索引 693 —— **全部相等** | 首次演练；同日启用 WAL 归档（`archived=1 failed=0`），归档段已落宿主目录 |
+
+### 2.4 自动化演练车道（CI，2026-10-30 起）
+
+`scripts/ci/backup_restore_drill.sh` 在单个 job 内做完整闭环：应用统一基线 schema →
+灌种子数据（`restore_drill_probe`，默认 5000 行 + 索引）→ `pg_dump -Fc` →
+`pg_restore` 到临时库 → **逐项比对**表行数 / 索引定义 / 约束 / 触发器 / 序列值 / 扩展 →
+探针表行数与内容校验和 → 清理。任一项不一致即非零退出，差异文件（`fingerprint.diff`）
+作为 artifact 保留。
+
+**它证明什么、不证明什么**（两种口径不要混用）：
+
+- 证明：备份格式与恢复链路可用，且结构与数据**逐项**一致；schema 改动若破坏可恢复性会当场红。
+- 不证明：生产数据量下的 **RTO**，以及"备份内容与当前线上库一致" —— CI 用的是空 schema +
+  合成种子数据。这两点仍以 §2.1 的人工演练（真实备份 + 真实库）为准，每季度一次、留记录。
+- 异地副本仍未纳入本车道（§5.1 的遗留风险不变）。
 
 ---
 

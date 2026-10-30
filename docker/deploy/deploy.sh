@@ -1090,6 +1090,45 @@ verify_https_endpoints() {
     log_success "HTTPS 验证通过: $base"
 }
 
+# ── .env 权限收紧（P1-5） ─────────────────────────────────────────────────────
+#
+# `.env` 里是 POSTGRES_PASSWORD / SECRET_KEY / ADMIN_SHARED_SECRET 等**全部密钥**，
+# 而 `cp .env.example .env` 与手工创建都受 umask 影响（实测本机为 0644），
+# 即"同机任何用户都能读到全部密钥"。
+#
+# 这里不把"曾经 chmod 过"当作已兑现：收紧后**重新读一次权限位**，只要仍含
+# group/other 位就拒绝继续部署（fail-closed）。属主不是当前用户时 chmod 会失败，
+# 那种情况必须人工处理，而不是带着 0644 继续跑。
+#
+# `../.env`（docker/docker-compose.yml 用的那份）同样含密钥，一并收紧。
+env_file_mode() {
+    stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1" 2>/dev/null
+}
+
+harden_env_permissions() {
+    local file mode tightened
+    for file in .env ../.env; do
+        [ -f "$file" ] || continue
+        mode="$(env_file_mode "$file")"
+        [ -n "$mode" ] || continue
+        case "$mode" in
+            600 | 400) continue ;;
+        esac
+        chmod 600 "$file" 2>/dev/null || true
+        tightened="$(env_file_mode "$file")"
+        case "$tightened" in
+            600 | 400) ;;
+            *)
+                log_error "$file 权限为 ${tightened:-未知}（含 group/other 可读位），密钥对同机其他用户可见"
+                log_error "  自动收紧失败（通常是属主不是当前用户），拒绝继续部署"
+                log_error "  处理: sudo chown \$(id -un) $file && chmod 600 $file"
+                exit 1
+                ;;
+        esac
+        log_warning "$file 权限 ${mode} -> ${tightened}（含密钥，同机其他用户不应可读）"
+    done
+}
+
 check_env_file() {
     DEPLOYMENT_PHASE="environment-check"
     log_info "检查环境变量配置..."
@@ -1098,6 +1137,8 @@ check_env_file() {
         cp .env.example .env
         log_warning "已从 .env.example 创建 .env"
     fi
+
+    harden_env_permissions
 
     chmod +x scripts/generate-secrets.sh
     ./scripts/generate-secrets.sh missing >/dev/null

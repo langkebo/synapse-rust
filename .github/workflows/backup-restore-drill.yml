@@ -1,0 +1,126 @@
+name: Backup Restore Drill
+
+# P1-4：把"备份可用"从推定变成实测。
+#
+# 现状（审计口径）：`scripts/backup_database.sh` 只做到 `pg_restore --list`
+# （能读出目录项），从未把 dump 真正恢复到另一个库。空库 dump、缺索引、
+# 丢序列、客户端/服务端版本不兼容这些失效形态全都能通过 `--list`。
+#
+# 本车道用 service 容器起一个空库 → 应用统一基线 schema → 灌种子数据 →
+# `pg_dump -Fc` → `pg_restore` 到临时库 → 逐项比对表行数/索引/约束/触发器/
+# 序列值/扩展，任何一项不一致即红。
+#
+# 为什么不是直接跑 scripts/backup_database.sh：那个脚本依赖 `docker exec`
+# 进容器（PG_CONTAINER / REDIS_CONTAINER），CI 里没有宿主机 docker 守护进程，
+# 无法复用。因此这里调用 scripts/ci/backup_restore_drill.sh，它只依赖
+# psql/pg_dump/pg_restore，与生产备份用的是同一种 `-Fc` 格式。
+#
+# 异地备份（BACKUP_OFFSITE_REMOTE）本轮仍保持"未配置则显式 WARNING"的行为，
+# 未纳入本车道，作为遗留风险记录在 docs/runbook/DB_RESTORE_DRILL.md。
+
+on:
+  schedule:
+    # 每周一 03:00 UTC（避开 nightly 全量测试窗口）
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/backup_database.sh'
+      - 'scripts/ci/backup_restore_drill.sh'
+      - 'docker/deploy/scripts/backup.sh'
+      - 'docker/deploy/scripts/restore.sh'
+      - 'migrations/**'
+      - '.github/workflows/backup-restore-drill.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/backup_database.sh'
+      - 'scripts/ci/backup_restore_drill.sh'
+      - 'docker/deploy/scripts/backup.sh'
+      - 'docker/deploy/scripts/restore.sh'
+      - 'migrations/**'
+      - '.github/workflows/backup-restore-drill.yml'
+
+concurrency:
+  group: backup-restore-drill-${{ github.ref }}
+  cancel-in-progress: true
+
+# 顶层默认只读（与仓库 Settings → Actions → Workflow permissions 的 read-only 一致）；
+# 需要写仓库的 job 必须在该 job 上单独提权并注明原因，不要改这里的默认。
+permissions:
+  contents: read
+
+jobs:
+  restore-drill:
+    name: Backup -> Restore -> diff
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: synapse
+          POSTGRES_PASSWORD: synapse
+          POSTGRES_DB: synapse_drill
+        ports:
+          - 5432:5432
+        options: >-
+          --shm-size=512m
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: synapse
+      PGPASSWORD: synapse
+      SOURCE_DB: synapse_drill
+      TARGET_DB: synapse_restore_drill
+      WORK_DIR: artifacts/restore-drill
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # pg_dump 不能 dump 比自己主版本更新的服务端；runner 自带客户端版本会随
+      # 镜像升级漂移，所以这里显式保证 >= 16，而不是赌默认值。
+      - name: Ensure PostgreSQL 16 client
+        run: |
+          client_major="$(pg_dump --version 2>/dev/null | grep -oE '[0-9]+' | head -1 || echo 0)"
+          if [ "${client_major:-0}" -lt 16 ]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client-16
+          fi
+          pg_dump --version
+          psql --version
+
+      - name: Wait for Postgres
+        run: |
+          for _ in $(seq 1 30); do
+            if pg_isready -h "$PGHOST" -p "$PGPORT" -U "$PGUSER"; then exit 0; fi
+            sleep 2
+          done
+          echo "Postgres service did not become ready" >&2
+          exit 1
+
+      - name: Apply unified baseline schema
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -d "$SOURCE_DB" \
+            -f migrations/00000000_unified_schema_v12.sql
+
+      - name: Run backup -> restore -> diff drill
+        run: bash scripts/ci/backup_restore_drill.sh
+
+      - name: Upload drill artifacts (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: restore-drill-artifacts
+          path: |
+            artifacts/restore-drill/*.fingerprint
+            artifacts/restore-drill/fingerprint.diff
+          retention-days: 14
