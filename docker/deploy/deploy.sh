@@ -1455,15 +1455,37 @@ build_images() {
     log_info "构建新的 Docker 镜像..."
     local feature_args
     feature_args="$(docker_feature_args)"
+    # OCI 标签（`org.opencontainers.image.version|created|revision`）此前一律落回
+    # Dockerfile 的默认值 `dev / unknown / unknown` —— 出货镜像自报的版本是假的，
+    # Trivy 报告与回滚记录都因此对不上具体 commit。这里补上三个 build-arg，
+    # 口径与仓库根 `build-and-push.sh:39,47,48` 完全一致（默认取 Cargo.toml 版本，
+    # `VERSION=` 可覆盖）。
+    local image_version image_build_date image_vcs_ref
+    image_version="${VERSION:-$(awk -F'"' '/^version = /{print $2; exit}' "$PROJECT_ROOT/Cargo.toml")}"
+    image_build_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    image_vcs_ref="$(git -C "$PROJECT_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+    # 层缓存策略：默认仍是 `--no-cache`（保持历史行为，避免陈旧层），
+    # 但允许 `DOCKER_BUILD_NO_CACHE=false` 复用层缓存 —— 同一 commit 重复部署或
+    # 回滚时能从"整层重跑"降到秒级。安全性由内容寻址保证：基础镜像 pin、
+    # Cargo.lock、构建上下文任一变化都会让相关层自动失效。
+    local cache_flag="--no-cache"
+    if [ "${DOCKER_BUILD_NO_CACHE:-true}" != "true" ]; then
+        cache_flag=""
+        log_info "DOCKER_BUILD_NO_CACHE=false：复用 Docker 层缓存"
+    fi
     # [O1-2] 保留 Dockerfile 顶部的 digest pin，不再用浮动 tag 覆盖。
     # 若网络抖动导致 digest 拉取失败，应改为：
     #   1) 提前 `docker pull <image>@sha256:...` 并保留在本地
     #   2) 搭建内部 registry mirror（Harbor/pull-through cache）
     #   3) 在 deploy.sh 里加"预拉取并校验 digest"步骤，失败时明确报错
-    docker build --no-cache \
+    # shellcheck disable=SC2086  # cache_flag 为空时必须展开成"无参数"
+    docker build $cache_flag \
         -f "$PROJECT_ROOT/docker/Dockerfile" \
         --target tools \
         --build-arg "CARGO_FEATURE_ARGS=${feature_args}" \
+        --build-arg "VERSION=${image_version}" \
+        --build-arg "BUILD_DATE=${image_build_date}" \
+        --build-arg "VCS_REF=${image_vcs_ref}" \
         -t "$(local_image_ref)" \
         "$PROJECT_ROOT"
     docker image inspect "$(local_image_ref)" >/dev/null

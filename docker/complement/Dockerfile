@@ -103,16 +103,33 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
 # ============================================================================
 FROM ${DEBIAN_BASE_IMAGE}
 
-RUN if [ -n "${MIRROR_URL}" ]; then sed -i "s|deb.debian.org|${MIRROR_URL}|g" /etc/apt/sources.list.d/debian.sources; fi && \
+# 与 `docker/Dockerfile` 的 `tools` 阶段同一处置（体积预算与完整理由见那边文件头）：
+# `postgresql-client` **元包**会经 `postgresql-client-common` 拖进 ~56 MB Perl
+# （perl + perl-modules + libperl5.36），而 `postgresql-client` 唯一比
+# `postgresql-client-15` 多出来的就是那个 Perl 包装脚本 `/usr/bin/psql`。
+# 本镜像只在 `/start.sh` 里用 `psql` 建库/探活，包装脚本这层间接没有价值。
+# 真实二进制复制到 `/usr/local/bin`（PATH 里排在 /usr/bin 之前，`start.sh` 直接调 `psql`），
+# 再 purge 掉 client 包与 perl 全家；要删的 perl 包名从 dpkg 现查，不硬编码版本号。
+#
+# 顺带修掉与主 Dockerfile 同款的静默缺陷：`MIRROR_URL` 在第一个 FROM 之前声明，
+# stage 内**不可见**，原先那行 `sed` 一直拿空值 —— 换源从未生效。这里重新声明。
+ARG MIRROR_URL=
+ARG PG_MAJOR=15
+# hadolint ignore=SC2046
+RUN --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    if [ -n "${MIRROR_URL}" ]; then sed -i "s|deb.debian.org|${MIRROR_URL}|g" /etc/apt/sources.list.d/debian.sources; fi && \
     apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl3 \
-    postgresql-client \
+    postgresql-client-${PG_MAJOR} \
     curl \
     tini \
     bash \
     jq \
-    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
+    && cp -a "/usr/lib/postgresql/${PG_MAJOR}/bin/." /usr/local/bin/ \
+    && apt-get purge -y postgresql-client-${PG_MAJOR} postgresql-client-common \
+       $(dpkg-query -W -f='${Package}\n' perl 'libperl*' 'perl-modules*' 2>/dev/null || true)
 
 COPY --from=builder /out/app /app
 

@@ -1,6 +1,12 @@
 # ============================================================================
 # .dockerignore — 生产级构建上下文裁剪
 # 目标: 把 ~500MB 的工作目录裁到只含构建必需文件 (<50MB)
+#
+# ⚠️ 这份文件不只管"上下文体积"，它同时决定 **`COPY . .` 那一层什么时候失效**：
+# 上下文里任何一个字节变了，`COPY . .` 就失效，后面的 `cargo build` 整层重跑。
+# 所以"构建不读、但天天在改"的树（`scripts/`、`tests/`、`docs/`）必须排除，
+# 否则改一行 CI 脚本就要重编整个 workspace。判据见下方三段各自的注释。
+# 实测（2026-10-30）：`docker build` 报告 `transferring context: 11.1MB`。
 # ============================================================================
 
 # Git
@@ -72,6 +78,11 @@ docker/deploy/backups/
 # 它不是构建产物，但未排除时每次 docker build 都要把它整个推给 daemon，
 # 构建上下文从 ~200MB 膨胀到 10GB+，上下文传输要花十几分钟。
 docker/deploy/wal_archive/
+# ⚠️ 2026-10-30 补：上面那条只锚到 `docker/deploy/wal_archive/`，而
+# **`docker/wal_archive/` 是第二个归档目录**（实测两个 16MB WAL segment）。
+# 它此前没有被任何规则排除 —— 走的正是 2026-09 那次"上下文膨胀到 10GB+"的同一条路径，
+# 只是当前恰好还小。用 `**/` 覆盖所有层级，避免再出现第三个漏网的归档目录。
+**/wal_archive/
 docker/deploy/logs/
 docker/deploy/media/
 docker/deploy/ssl/
@@ -82,6 +93,27 @@ docker/deploy/synapse-data/
 *.md
 !docker/README.md
 !migrations/README.md
+
+# 整棵 docs/ 都不参与构建：`*.md` 上面已经排掉了，这里再排一次是为了那 5.4MB
+# 散装的 openapi yaml/json（`docs/openapi/*`）。构建期只读 `migrations/` 与
+# `docker/` 下的脚本，从不读 docs/。
+docs/
+
+# 仓库脚本树：**构建期一个文件都不用**。Dockerfile 只 install `docker/` 下的
+# entrypoint / db_migrate / container-migrate / rate_limit.yaml。
+# 12MB，且几乎天天改 —— 这是"改一行 CI 脚本 → 重编整个 workspace"的元凶。
+# ⚠️ 这条 pattern 只锚仓库根，`docker/deploy/scripts/` 不受影响（构建必须用到它）；
+# 判据：`docker build` 能过，即证明 anchor 正确 —— 若误伤，构建会停在
+# `install -Dm755 docker/deploy/scripts/container-migrate.sh`。
+scripts/
+
+# Rust 工具链 pin 由基础镜像（`RUST_BUILDER_IMAGE`）负责，仓库根这份反而有害：
+# 它声明 `components = [rustfmt, clippy, rust-src]` 与 `targets = [x86_64-unknown-linux-gnu]`，
+# 进上下文后 rustup 会尝试联网补装，离线/弱网环境直接失败。原先靠构建期
+# `RUN rm -f rust-toolchain*` 补救（白多一层），改成在这里排除就删掉了那一层。
+# （`docker/complement/Dockerfile` 里同款 `rm -f` 保留且无害：文件不存在时 `rm -f` 是空操作。）
+rust-toolchain
+rust-toolchain.toml
 
 # 测试 (镜像运行时不需要; benches/ 是 Dockerfile COPY 的, 保留)
 tests/

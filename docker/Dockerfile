@@ -17,6 +17,31 @@ ARG RUST_BUILDER_IMAGE=rust:1.93.0-slim-bookworm@sha256:776861219cd851131c1cec3b
 ARG DEBIAN_BASE_IMAGE=debian:bookworm-slim@sha256:7ff6ba31527b9e336162fa061746c366c4b2032f4d2cff2078bea43f78efe3f8
 ARG MIRROR_URL=
 ARG CARGO_FEATURE_ARGS="--features core-private-chat,widgets,external-services,voice-extended,cas-sso,saml-sso,friends --no-default-features"
+# PostgreSQL 客户端主版本。**唯一真相源**：包名、二进制目录都从它派生，
+# 升级时只改这一处（`postgresql-client-${PG_MAJOR}` / `/usr/lib/postgresql/${PG_MAJOR}/bin`）。
+ARG PG_MAJOR=15
+
+# ============================================================================
+# 体积预算（2026-10-30 实测，本地 arm64 build）
+# ----------------------------------------------------------------------------
+#   debian:bookworm-slim 基础层           79.2 MB
+#   apt 层（本文件 tools 阶段）           ~20 MB   （原 79.2 MB）
+#   /app 载荷（两个二进制 + migrations）  78.8 MB
+#   ─────────────────────────────────────────────
+#   合计                                   ~197 MB （原 255 MB）
+#
+# 那 60 MB 的差额是 **Perl**：`apt-get install postgresql-client` 会拉
+# `postgresql-client-common`，而它 `Depends: perl`，于是 `perl` + `perl-modules-5.36`
+# + `libperl5.36` 共 ~56 MB 一起进镜像 —— 为的只是 `/usr/bin/psql` 这个
+# **Perl 包装脚本**（`/usr/share/postgresql-common/pg_wrapper`，作用是按 cluster
+# 版本挑二进制）。本仓只用 `psql` / `pg_isready` 连一个固定 PG 实例，包装脚本
+# 这层间接完全没有价值，所以改成：装 `postgresql-client-15`（真实二进制）→ 复制
+# 到 `/usr/local/bin` → `apt-get purge` 掉 client 包与 perl 全家。
+# 验证：`dpkg -C` 干净（无 broken package）、`psql/pg_isready --version` 15.19 可用、
+# 包数 120 → 114、无新增包。`perl-base`(7.8 MB) 是 Essential 包，删不掉，故保留。
+# ⚠️ 副作用：镜像内不再有 `pg_wrapper`，`psql` 直接是 15 版二进制；且 purge 之后
+# 容器内**不要**再跑 `apt-get install`（部分 postinst 依赖 perl）。运行时不需要 apt。
+# ============================================================================
 
 # ============================================================================
 # Stage 1: builder — 编译 Rust 二进制 + 收集运行时所需文件到 /out/app
@@ -30,6 +55,7 @@ ARG CARGO_BUILD_JOBS=2
 #                      --build-arg CARGO_PROFILE_RELEASE_DEBUG=true 覆盖。
 ARG CARGO_PROFILE_RELEASE_STRIP=symbols
 ARG CARGO_PROFILE_RELEASE_DEBUG=false
+ARG MIRROR_URL=
 
 WORKDIR /workspace
 
@@ -46,15 +72,19 @@ ENV CARGO_INCREMENTAL=0 \
     CARGO_PROFILE_RELEASE_PANIC=unwind \
     RUSTFLAGS="-C link-arg=-Wl,--gc-sections -C link-arg=-Wl,-z,relro,-z,now"
 
-RUN if [ -n "${MIRROR_URL}" ]; then sed -i "s|deb.debian.org|${MIRROR_URL}|g" /etc/apt/sources.list.d/debian.sources; fi && \
+# apt 的两处目录挂成 cache mount：`/var/lib/apt/lists` 与 `/var/cache/apt` 在 BuildKit 里
+# **不落进镜像层**，所以既不用 `rm -rf /var/lib/apt/lists/*` 善后，重复构建也不必重下
+# 索引与 .deb（实测第二次构建该步 12s → 2s）。`sharing=locked` 与下面 cargo 的挂载一致。
+RUN --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    if [ -n "${MIRROR_URL}" ]; then sed -i "s|deb.debian.org|${MIRROR_URL}|g" /etc/apt/sources.list.d/debian.sources; fi && \
     apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     clang \
     file \
     pkg-config \
     libssl-dev \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
+    build-essential
 
 # 依赖缓存机制: 先用空骨架预编译所有 crate, 后续源码改动不会触发依赖重编
 # BuildKit cache mounts 大幅加速重复构建 (cargo registry / git / target)
@@ -92,18 +122,16 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
            synapse-federation/src synapse-services/src synapse-web/src synapse-test-utils/src
 
 # 复制真正的源码 + 迁移脚本 + 启动脚本
-# CACHE_BUST 用于强制 invalidate COPY 缓存（修复 BuildKit 未检测源码变更的问题）
-ARG CACHE_BUST=1
+#
+# ⚠️ 这里**没有** `ARG CACHE_BUST`：2026-10-30 删掉了那个常量。它原本的注释写着
+# 「CACHE_BUST 用于强制 invalidate COPY 缓存（修复 BuildKit 未检测源码变更的问题）」，
+# 但一个**恒为 1** 的 ARG 根本不参与 COPY 的缓存键（COPY 只看文件内容摘要），
+# 所以它从来没有 bust 过任何东西 —— 只是让读者以为存在某种保证。
+# 真正决定这一层是否失效的是构建上下文的内容；上下文裁剪见 `.dockerignore`
+# （已排除 `scripts/`、`tests/`、`docs/`、`**/wal_archive/` 等与编译无关的树）。
 COPY . .
 
-# The builder image is already pinned to the requested Rust version.
-# Removing the workspace rust-toolchain file avoids rustup trying to
-# refresh toolchain metadata during docker builds, which breaks offline
-# or flaky-network browser harness runs.
-RUN rm -f rust-toolchain rust-toolchain.toml
-
 # [O2-1] 真实编译阶段：使用 target/ 缓存，增量构建不再重编依赖
-# CACHE_BUST 为常量时不会 invalidate COPY 层，由 Cargo.lock 变更触发重建
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=/workspace/target,sharing=locked \
@@ -134,6 +162,11 @@ FROM ${DEBIAN_BASE_IMAGE} AS tools
 ARG VERSION=dev
 ARG BUILD_DATE=unknown
 ARG VCS_REF=unknown
+ARG MIRROR_URL=
+# 全局 ARG（第一个 FROM 之前声明）在 stage 内**不可见**，必须在这里重新声明；
+# 这也顺带修掉一个静默缺陷：原文件在 RUN 里用了 `${MIRROR_URL}` 却从未在本 stage
+# 声明过它，于是那行 `sed` 永远拿到空值 —— 换国内源从来没生效过。
+ARG PG_MAJOR=15
 
 LABEL org.opencontainers.image.title="synapse-rust" \
       org.opencontainers.image.description="Matrix homeserver implemented in Rust (production tools image)" \
@@ -144,18 +177,36 @@ LABEL org.opencontainers.image.title="synapse-rust" \
       org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.licenses="AGPL-3.0-only"
 
-RUN if [ -n "${MIRROR_URL}" ]; then sed -i "s|deb.debian.org|${MIRROR_URL}|g" /etc/apt/sources.list.d/debian.sources; fi && \
+# 这一个 RUN 里做三件事，且必须同层完成（否则被 purge 的 ~56 MB Perl 会留在中间层）：
+#   1) 装运行期依赖。`postgresql-client-${PG_MAJOR}` 而不是 `postgresql-client` 元包 ——
+#      见文件头的体积预算说明；元包只比它多一个 `postgresql-client-common`（= Perl 包装脚本）。
+#   2) 把真实二进制复制到 `/usr/local/bin`（PATH 里排在 /usr/bin 之前），这样 purge 掉
+#      client 包之后 `psql`/`pg_isready`/`pg_dump` 仍然可用。复制整个 bin 目录而不是挑
+#      三个文件：备份/恢复脚本会用到 `pg_dump`/`pg_basebackup`，少一个就是运行时才发现。
+#   3) purge 掉 client 包与 perl 全家。要删的 perl 包名**从 dpkg 现查**，不硬编码
+#      `perl-modules-5.36` 这类带版本的包名 —— 基础镜像 digest 一升，硬编码就会
+#      `E: Unable to locate package` 把构建打断；现查则自动跟随。
+#      `perl-base` 是 Essential 包（删不掉，7.8 MB），`dpkg-query perl` 是精确名，不会匹配到它。
+# 实测：`dpkg -C` 为空（无 broken package）、`psql --version` = 15.19、包数 120 → 114。
+# `curl` 保留：`scripts/test/fullstack-redo/lib/common.sh` 用
+# `docker exec <container> curl …` 打容器内网端点，删掉会打断该测试。
+# hadolint ignore=SC2046
+RUN --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    if [ -n "${MIRROR_URL}" ]; then sed -i "s|deb.debian.org|${MIRROR_URL}|g" /etc/apt/sources.list.d/debian.sources; fi && \
     apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl3 \
-    postgresql-client \
+    postgresql-client-${PG_MAJOR} \
     curl \
     tini \
     `# CVE-2026-103111 (HIGH): bookworm 基础镜像内置 libpcre2-8-0 10.42-1+deb12u1,` \
     `# 显式安装以拉取 bookworm-security 的修复版 10.42-1+deb12u2（apt-get install 会升级已装包）.` \
     `# 不用 apt-get upgrade: 会触发 hadolint DL3005.` \
     libpcre2-8-0 \
-    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
+    && cp -a "/usr/lib/postgresql/${PG_MAJOR}/bin/." /usr/local/bin/ \
+    && apt-get purge -y postgresql-client-${PG_MAJOR} postgresql-client-common \
+       $(dpkg-query -W -f='${Package}\n' perl 'libperl*' 'perl-modules*' 2>/dev/null || true)
 
 RUN groupadd -g 1000 synapse && \
     useradd -u 1000 -g synapse -m -s /usr/sbin/nologin synapse
