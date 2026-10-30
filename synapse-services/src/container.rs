@@ -612,11 +612,9 @@ impl ServiceContainer {
         let account_device_list_service =
             Arc::new(crate::account_device_list_service::AccountDeviceListService::new(storage.device_storage.clone()));
 
-        // Account deactivation pipeline. Assembled **here** (not inside any single
-        // group) because it needs three groups at once: `rooms` (membership),
-        // `admin` (MSC4140 delayed events) and the storage phase (credential
-        // auth for the final teardown). `RegistrationService` — the older, partial
-        // entry point — is built in the core phase, before rooms and admin exist.
+        // Account deactivation pipeline: assembled **here** because it needs `rooms`
+        // (membership), `admin` (MSC4140) and the storage phase (credential auth) at
+        // once; `RegistrationService` is built in core, before rooms and admin exist.
         let account_deactivation_service =
             Arc::new(crate::account_deactivation_service::AccountDeactivationService::new(
                 storage.credential_auth.clone(),
@@ -630,6 +628,8 @@ impl ServiceContainer {
                 )) as Arc<dyn crate::account_deactivation_service::UserDataPurger>,
                 Arc::new(synapse_storage::user_deactivation::UserDeactivationStorage::new(infra.infra.pool.clone()))
                     as Arc<dyn crate::account_deactivation_service::PendingDeactivations>,
+                // Parting writes leave events from a tick: events writer only.
+                crate::worker::write_streams::owns_events_dispatch(&infra.infra.config.worker),
             ));
 
         Self {

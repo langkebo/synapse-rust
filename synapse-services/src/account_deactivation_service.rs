@@ -100,25 +100,18 @@
 
 use std::sync::Arc;
 
-use sqlx::PgPool;
-use synapse_cache::CacheManager;
 use synapse_common::{ApiError, ApiResult};
-use synapse_e2ee::backup::storage::KeyBackupStorage;
-use synapse_e2ee::secure_backup::SecureBackupService;
-use synapse_storage::account_data::AccountDataStorage;
-use synapse_storage::presence::PresenceStorage;
-use synapse_storage::push::{PushStorage, PushStoreApi};
-use synapse_storage::room::RoomStorage;
-use synapse_storage::room_account_data::RoomAccountDataStorage;
-use synapse_storage::room_tag::RoomTagStorage;
-use synapse_storage::thread::ThreadStorage;
-use synapse_storage::threepid::ThreepidStorage;
+use synapse_storage::push::PushStoreApi;
 use synapse_storage::user_deactivation::UserDeactivationStorage;
 use tokio::sync::Notify;
 
 use crate::auth::CredentialAuth;
 use crate::delayed_event_service::DelayedEventService;
 use crate::room::RoomService;
+
+mod purger;
+
+pub use purger::{PurgedUserData, StorageUserDataPurger, UserDataPurger, ACCOUNT_DEACTIVATION_PURGED_TABLES};
 
 /// The room-side operations account deactivation needs.
 ///
@@ -219,178 +212,6 @@ pub struct DeactivationReport {
     pub purged: PurgedUserData,
 }
 
-/// Rows removed by [`UserDataPurger::purge`], one count per table.
-///
-/// Split out (rather than summed) so an operator reading the audit log can tell
-/// *which* store still held data for an account they thought they had deleted.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct PurgedUserData {
-    /// `account_data` rows.
-    pub account_data_deleted: u64,
-    /// `room_account_data` rows.
-    pub room_account_data_deleted: u64,
-    /// `push_rules` rows.
-    pub push_rules_deleted: u64,
-    /// `thread_subscriptions` rows.
-    pub thread_subscriptions_deleted: u64,
-    /// `user_threepids` rows.
-    pub threepids_removed: u64,
-    /// `key_backups` rows (their `backup_keys` cascade away with them).
-    pub key_backups_deleted: u64,
-    /// `secure_key_backups` rows (their session keys cascade away with them).
-    pub secure_backups_deleted: u64,
-    /// `room_tags` rows (per-room favourites / low-priority ordering).
-    pub room_tags_deleted: u64,
-    /// `event_receipts` rows (current read-receipt state).
-    pub event_receipts_deleted: u64,
-    /// `event_receipts_stream` rows (the MSC2409 receipt log).
-    pub event_receipts_stream_deleted: u64,
-    /// `thread_read_receipts` rows (per-thread unread counters).
-    pub thread_read_receipts_deleted: u64,
-    /// `presence` rows (last known presence / status message).
-    pub presence_deleted: u64,
-}
-
-/// Every table [`StorageUserDataPurger`] deletes from, in purge order.
-///
-/// # Why a constant and not just five more `DELETE`s
-///
-/// The `PurgedUserData` counts say *how many* rows went; they cannot say whether
-/// a table was forgotten entirely — a table nobody deletes from reports `0`
-/// forever and looks identical to "this account had none". This list is the
-/// assertion subject for
-/// `tests/integration/account_deactivation_purge_tests.rs`, which checks two
-/// things no count can: every entry exists in the migration baseline and carries
-/// a `user_id` column (so the `DELETE … WHERE user_id = $1` is well-formed), and
-/// every entry is actually emptied by a real purge run.
-///
-/// It is also the honest answer to "which tables survive deactivation?" — the
-/// `users` row itself deliberately does (deactivation is `deactivated = TRUE`,
-/// not a row delete), so anything reachable only through `ON DELETE CASCADE` on
-/// `users` is *not* covered by the cascade and has to be listed here.
-pub const ACCOUNT_DEACTIVATION_PURGED_TABLES: &[&str] = &[
-    "account_data",
-    "room_account_data",
-    "push_rules",
-    "thread_subscriptions",
-    "user_threepids",
-    "key_backups",
-    "secure_key_backups",
-    "room_tags",
-    "event_receipts",
-    "event_receipts_stream",
-    "thread_read_receipts",
-    "presence",
-];
-
-/// The account-scoped cleanup half of the pipeline.
-///
-/// A seam for the same reason [`RoomParting`] is one: it lets the *pipeline*
-/// (order, error policy, "irreversible step last") be tested offline with a fake,
-/// while production uses [`StorageUserDataPurger`] over the real stores.
-#[async_trait::async_trait]
-pub trait UserDataPurger: Send + Sync {
-    /// Remove every account-scoped row owned by `user_id` that deactivation is
-    /// responsible for. See [`PurgedUserData`] for the tables.
-    async fn purge(&self, user_id: &str) -> ApiResult<PurgedUserData>;
-}
-
-/// Production [`UserDataPurger`]: the storage handles for every table in
-/// [`ACCOUNT_DEACTIVATION_PURGED_TABLES`], all built from one pool.
-///
-/// Composing them here (rather than taking a dozen `Arc<dyn …>` constructor
-/// arguments) keeps the container wiring to two arguments and keeps the service's
-/// dependency list — the tests' fake surface — at one seam.
-pub struct StorageUserDataPurger {
-    account_data: AccountDataStorage,
-    room_account_data: RoomAccountDataStorage,
-    push_storage: PushStorage,
-    thread_storage: ThreadStorage,
-    threepid_storage: ThreepidStorage,
-    key_backup_storage: KeyBackupStorage,
-    secure_backup: SecureBackupService,
-    room_tag_storage: RoomTagStorage,
-    room_storage: RoomStorage,
-    presence: PresenceStorage,
-}
-
-impl StorageUserDataPurger {
-    /// Build every store from `pool`. Each storage's constructor takes the pool
-    /// by one of three flavors (`&Arc`, `Arc`, `&`), so they are all fed from the
-    /// same handle.
-    ///
-    /// `cache` is the process-wide [`CacheManager`], **not** a fresh instance:
-    /// [`PresenceStorage::delete_all_presence_for_user`] invalidates
-    /// [`synapse_cache::CacheKeyBuilder::user_presence`], and an invalidation
-    /// against a private cache would leave the deactivated account showing as
-    /// "online" to subscribers until the TTL expired.
-    pub fn new(pool: &Arc<PgPool>, cache: Arc<CacheManager>) -> Self {
-        Self {
-            account_data: AccountDataStorage::new(pool),
-            room_account_data: RoomAccountDataStorage::new(pool),
-            push_storage: PushStorage::new(pool.clone()),
-            thread_storage: ThreadStorage::new(pool),
-            threepid_storage: ThreepidStorage::new(pool.as_ref()),
-            key_backup_storage: KeyBackupStorage::new(pool),
-            secure_backup: SecureBackupService::new(pool),
-            room_tag_storage: RoomTagStorage::new(pool.clone()),
-            room_storage: RoomStorage::new(pool),
-            presence: PresenceStorage::new(pool.clone(), cache),
-        }
-    }
-}
-
-#[async_trait::async_trait]
-impl UserDataPurger for StorageUserDataPurger {
-    async fn purge(&self, user_id: &str) -> ApiResult<PurgedUserData> {
-        // The receipts pair is one transaction in the store, so it is fetched
-        // together and split into the two per-table counts here.
-        let (event_receipts_deleted, event_receipts_stream_deleted) =
-            self.room_storage.delete_all_receipts_for_user(user_id).await.map_err(|e| {
-                ApiError::internal_with_cause("Failed to delete receipts during account deactivation", e)
-            })?;
-
-        Ok(PurgedUserData {
-            account_data_deleted: self.account_data.delete_all_account_data_for_user(user_id).await?,
-            room_account_data_deleted: self.room_account_data.delete_all_room_account_data_for_user(user_id).await?,
-            push_rules_deleted: self.push_storage.delete_all_push_rules_for_user(user_id).await.map_err(|e| {
-                ApiError::internal_with_cause("Failed to delete push rules during account deactivation", e)
-            })?,
-            thread_subscriptions_deleted: self
-                .thread_storage
-                .delete_all_subscriptions_for_user(user_id)
-                .await
-                .map_err(|e| {
-                    ApiError::internal_with_cause(
-                        "Failed to delete thread subscriptions during account deactivation",
-                        e,
-                    )
-                })?,
-            threepids_removed: self.threepid_storage.remove_threepids_by_user(user_id).await?,
-            key_backups_deleted: self.key_backup_storage.delete_all_for_user(user_id).await?,
-            secure_backups_deleted: self.secure_backup.delete_all_for_user(user_id).await?,
-            room_tags_deleted: self.room_tag_storage.delete_all_tags_for_user(user_id).await.map_err(|e| {
-                ApiError::internal_with_cause("Failed to delete room tags during account deactivation", e)
-            })?,
-            event_receipts_deleted,
-            event_receipts_stream_deleted,
-            thread_read_receipts_deleted: self
-                .thread_storage
-                .delete_all_read_receipts_for_user(user_id)
-                .await
-                .map_err(|e| {
-                    ApiError::internal_with_cause(
-                        "Failed to delete thread read receipts during account deactivation",
-                        e,
-                    )
-                })?,
-            presence_deleted: self.presence.delete_all_presence_for_user(user_id).await.map_err(|e| {
-                ApiError::internal_with_cause("Failed to delete presence during account deactivation", e)
-            })?,
-        })
-    }
-}
-
 /// Orchestrates the account-deactivation pipeline. See the module docs for the
 /// step order, the two seams and the error policy.
 pub struct AccountDeactivationService {
@@ -406,10 +227,17 @@ pub struct AccountDeactivationService {
     /// Wakes the background drain loop as soon as a deactivation enqueues work,
     /// instead of waiting for the next maintenance tick.
     parting_notify: Arc<Notify>,
+    /// Does *this* process own the `events` write stream? The drain loop writes
+    /// `m.room.member` leave events, so it is a room-DAG writer — see
+    /// [`process_pending_parts`](Self::process_pending_parts).
+    owns_events: bool,
 }
 
 impl AccountDeactivationService {
-    /// See [`new`].
+    /// `owns_events` is *required*, not defaulted: a default would either break
+    /// single-writer deployments (silently staying `true`) or stop parting
+    /// altogether (silently `false`). It must come from
+    /// [`crate::worker::write_streams::owns_events_dispatch`].
     pub fn new(
         credential_auth: Arc<dyn CredentialAuth>,
         rooms: Arc<dyn RoomParting>,
@@ -417,6 +245,7 @@ impl AccountDeactivationService {
         push_storage: Arc<dyn PushStoreApi>,
         user_data: Arc<dyn UserDataPurger>,
         pending: Arc<dyn PendingDeactivations>,
+        owns_events: bool,
     ) -> Self {
         Self {
             credential_auth,
@@ -426,6 +255,7 @@ impl AccountDeactivationService {
             user_data,
             pending,
             parting_notify: Arc::new(Notify::new()),
+            owns_events,
         }
     }
 
@@ -519,6 +349,16 @@ impl AccountDeactivationService {
     /// recovery) and on every maintenance tick by the server, and woken
     /// immediately after a deactivation enqueues work.
     ///
+    /// **First thing it does is ask about ownership.** Parting writes one
+    /// `m.room.member` leave event per room, i.e. it writes the room DAG from
+    /// outside any HTTP request — exactly the case no route mapping can cover
+    /// (same reasoning as [`crate::worker::write_streams::owns_events_dispatch`]).
+    /// A reader instance running this loop would race the writer: two `leave`
+    /// events for the same `(room, user)` with conflicting `prev_events`, double
+    /// membership/summary projection, and a duplicate federation broadcast. So a
+    /// non-owner returns `Ok(0)` **before touching the queue** — it must not even
+    /// dequeue, or the row would disappear without anyone parting the user.
+    ///
     /// Returns the number of rooms the pass successfully left. Per-room failures
     /// are logged and skipped and the row is still removed (upstream does not
     /// retry per room); a failure to *list* a queued user's rooms keeps the row
@@ -526,6 +366,10 @@ impl AccountDeactivationService {
     /// of spinning.
     #[::tracing::instrument(skip_all)]
     pub async fn process_pending_parts(&self) -> ApiResult<usize> {
+        if !self.owns_events {
+            return Ok(0);
+        }
+
         let mut parted = 0usize;
 
         while let Some(user_id) = self.pending.next().await? {
@@ -834,6 +678,20 @@ mod tests {
         credential_auth_fails: bool,
         purger: PurgerSpec,
     ) -> Harness {
+        harness_with_events_ownership(joined, pending, fail_listing, fail_rooms, credential_auth_fails, purger, true)
+    }
+
+    /// Same harness, but pins the `events`-ownership ruling — the only way to
+    /// exercise the "this instance must not write the DAG" branch.
+    fn harness_with_events_ownership(
+        joined: Vec<&str>,
+        pending: Vec<&str>,
+        fail_listing: bool,
+        fail_rooms: Vec<&str>,
+        credential_auth_fails: bool,
+        purger: PurgerSpec,
+        owns_events: bool,
+    ) -> Harness {
         let log = Arc::new(Log::default());
         let delayed_store = Arc::new(InMemoryDelayedEventStore::new());
         let push_store = Arc::new(InMemoryPushStore::new());
@@ -853,6 +711,7 @@ mod tests {
             push_store.clone(),
             Arc::new(FakePurger { log: log.clone(), purged: purger.purged, fail: purger.fail }),
             pending_queue.clone(),
+            owns_events,
         );
 
         Harness { service, delayed_store, push_store, rooms, pending: pending_queue, log }
@@ -1171,5 +1030,34 @@ mod tests {
         tokio::time::timeout(std::time::Duration::from_millis(100), notify.notified())
             .await
             .expect("deactivation must wake the drain loop instead of waiting for the next tick");
+    }
+
+    /// Single-writer, behaviourally: an instance that does not own the `events`
+    /// stream must issue **zero** calls — no room listing, no `leave` write — and
+    /// must not dequeue either, or the row would vanish with nobody having parted
+    /// the user. Runs on every instance (startup recovery + maintenance tick), so
+    /// a reader without this guard is a second DAG writer by construction.
+    #[tokio::test]
+    async fn a_non_owner_instance_does_not_part_or_dequeue() {
+        let h = harness_with_events_ownership(
+            vec!["!a:example.com"],
+            vec![],
+            false,
+            vec![],
+            false,
+            PurgerSpec::default(),
+            false,
+        );
+        h.pending.seed("@alice:example.com");
+
+        let parted = h.service.process_pending_parts().await.expect("a non-owner must not be an error");
+
+        assert_eq!(parted, 0);
+        assert!(h.log.entries().is_empty(), "a non-owner must issue zero calls: {:?}", h.log.entries());
+        assert_eq!(
+            h.pending.queued(),
+            vec!["@alice:example.com".to_string()],
+            "the queued row belongs to the events writer; a reader must leave it alone"
+        );
     }
 }

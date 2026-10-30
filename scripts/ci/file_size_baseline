@@ -85,7 +85,6 @@
 1188 synapse-storage/src/membership/mod.rs
 1187 synapse-services/src/sync_service/response.rs
 1184 synapse-e2ee/src/backup/storage.rs
-1175 synapse-services/src/account_deactivation_service.rs
 1170 synapse-federation/src/event_broadcaster.rs
 1169 synapse-services/src/room/membership/moderation.rs
 1151 synapse-storage/src/rendezvous.rs
@@ -106,6 +105,7 @@
 1067 synapse-e2ee/src/device_keys/storage.rs
 1066 synapse-services/src/retention_service.rs
 1066 synapse-storage/src/friend_room/repository.rs
+1063 synapse-services/src/account_deactivation_service.rs
 1059 synapse-web/src/routes/account_compat.rs
 1057 synapse-storage/src/application_service/db_tests.rs
 1053 synapse-services/src/database_initializer/mod.rs
