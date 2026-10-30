@@ -139,14 +139,24 @@ main() {
     mkdir -p "$WORK_DIR"
     log "source=$SOURCE_DB target=$TARGET_DB work_dir=$WORK_DIR"
 
-    # 0) 前置：客户端主版本必须 >= 服务端主版本（pg_dump 不会 dump 比自己新的服务端；
-    #    这里与**实际服务端**比较而不是写死 16，本地/CI/生产都能给出正确判据）
+    # 0) 前置：客户端主版本必须**等于**服务端主版本。
+    #
+    # 原来写的是 `>=`，理由只覆盖了 dump 方向（"pg_dump 不会 dump 比自己新的服务端"）。
+    # 但本演练是在**同一台服务端**上 dump 再 restore，反方向不成立：
+    # pg_dump 18 对 PG16 写出的 dump 里带 `SET transaction_timeout = 0;`
+    # （PG17 才引入的 GUC），pg_restore 回到这台 PG16 时直接
+    #   ERROR:  unrecognized configuration parameter "transaction_timeout"
+    # 实测 2026-10-30 CI run 40996685357：runner 自带 pg_dump 18.6 + service postgres:16，
+    # 正是这个组合红的 —— 而 `>=` 守卫放行了 18。
+    # 生产侧没踩是因为 `scripts/backup_database.sh` 用 `docker exec <pg> pg_dump`，
+    # 客户端与服务端天然同版本；CI 只能用 runner 的客户端，所以必须两边都钉住。
     local client_major server_major
     client_major="$(pg_dump --version | grep -oE '[0-9]+' | head -1)"
     server_major="$(q "$SOURCE_DB" -c "SHOW server_version_num")"
     server_major=$((server_major / 10000))
     log "client major=$client_major server major=$server_major"
-    [ "$client_major" -ge "$server_major" ] || fail "pg_dump 主版本 $client_major < 服务端 $server_major，dump 结果不可信"
+    [ "$client_major" -eq "$server_major" ] ||
+        fail "pg_dump 主版本 $client_major ≠ 服务端 $server_major：dump 与 restore 必须在同一主版本上做（更新的客户端会写出服务端不认识的 GUC）"
 
     # 1) 种子数据：一张独立的探针表 + 索引 + 序列，用于验证"数据真的被恢复"
     log "seeding $SEED_ROWS rows into restore_drill_probe ..."
