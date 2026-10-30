@@ -76,7 +76,7 @@
       "id": 3,
       "title": "WAL 体积",
       "type": "stat",
-      "description": "归档失败时 PG 会保留 pg_wal 等待重试 —— 体积持续上涨是磁盘被撑满的前兆（对应告警 PostgresArchiveFailing）。",
+      "description": "pg_wal 体积。归档已于 2026-10-30 关闭（archive_mode=off），正常情况下应稳定在 max_wal_size=512MB 附近；持续上涨说明检查点/WAL 回收有问题（归档不再把它撑大）。",
       "gridPos": {
         "h": 7,
         "w": 5,
@@ -215,7 +215,7 @@
       "id": 8,
       "title": "WAL 归档段（累计 / 失败）",
       "type": "timeseries",
-      "description": "archived 应单调增长；failed 一旦 >0 即 PITR 断档（告警 PostgresArchiveFailing）。",
+      "description": "⚠️ WAL 归档已于 2026-10-30 关闭（archive_mode=off，见 docker/config/postgres.conf）。两条曲线自此冻结在停机前的值，不再随运行变化；本面板仅用于对照历史。重新启用归档后才具备判读意义（原判据：archived 单调增长、failed 应恒为 0）。",
       "gridPos": {
         "h": 7,
         "w": 12,
@@ -239,7 +239,7 @@
       "id": 9,
       "title": "最近归档段年龄",
       "type": "timeseries",
-      "description": "archive_timeout=900s ⇒ 低写入时也应每 15 分钟落一段；阈值 3600s 与告警 PostgresArchiveStalled 一致。",
+      "description": "⚠️ WAL 归档已于 2026-10-30 关闭（archive_mode=off），本曲线只增不减属预期，**不再是异常信号**（原 PostgresArchiveStalled 告警已随之删除）。",
       "gridPos": {
         "h": 7,
         "w": 6,

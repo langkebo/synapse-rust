@@ -19,59 +19,9 @@ rule_files:
 evaluation_interval: 1m
 
 tests:
-  # ── 归档失败：failed_count=1 ⇒ 应响（5m for）────────────────────────────
-  - interval: 1m
-    input_series:
-      - series: 'pg_stat_archiver_failed_count{server="postgres:5432"}'
-        values: '1x20'
-    alert_rule_test:
-      - eval_time: 10m
-        alertname: PostgresArchiveFailing
-        exp_alerts:
-          - exp_labels:
-              severity: critical
-              category: database
-              server: postgres:5432
-            exp_annotations:
-              summary: "🚨 PostgreSQL WAL 归档失败（累计 1 次）—— PITR 已断档"
-              description: "归档失败时 PG 会**保留** pg_wal 等待重试，磁盘会持续增长，最终撑停数据库。\n先查归档目录：docker/deploy/wal_archive 是否存在、可写、所在卷是否已满。\n检查：docker exec synapse-postgres psql -U synapse -c \"SELECT * FROM pg_stat_archiver\""
-
-  # 反例：failed_count=0 ⇒ 不应响
-  - interval: 1m
-    input_series:
-      - series: 'pg_stat_archiver_failed_count{server="postgres:5432"}'
-        values: '0x20'
-    alert_rule_test:
-      - eval_time: 10m
-        alertname: PostgresArchiveFailing
-        exp_alerts: []
-
-  # ── 归档停滞：>> 3600s ⇒ 应响 ───────────────────────────────────────────
-  - interval: 1m
-    input_series:
-      - series: 'pg_stat_archiver_last_archive_age{server="postgres:5432"}'
-        values: '4000x25'
-    alert_rule_test:
-      - eval_time: 15m
-        alertname: PostgresArchiveStalled
-        exp_alerts:
-          - exp_labels:
-              severity: warning
-              category: database
-              server: postgres:5432
-            exp_annotations:
-              summary: "⚠️ PostgreSQL 归档停滞（1h 6m 40s 没有新归档段）"
-              description: "archive_timeout=900s，正常情况下 15 分钟内必有一段。超 1 小时说明归档链路断了（目录不可写/卷满/命令失败），RPO 正在变大。"
-
-  # 反例：600s（10 分钟，正常）⇒ 不应响
-  - interval: 1m
-    input_series:
-      - series: 'pg_stat_archiver_last_archive_age{server="postgres:5432"}'
-        values: '600x25'
-    alert_rule_test:
-      - eval_time: 15m
-        alertname: PostgresArchiveStalled
-        exp_alerts: []
+  # ── 归档类告警已于 2026-10-30 随 archive_mode=off 一并删除 ────────────────
+  # 对应测试（PostgresArchiveFailing / PostgresArchiveStalled 的正例 + 反例）同步移除。
+  # 重新启用归档时必须恢复规则与这 4 个用例（见 alerting-rules.yml 同位置注释）。
 
   # ── 备份过期：时间戳停在纪元、time() 已走 2 天 ⇒ 应响 ────────────────────
   - interval: 1m

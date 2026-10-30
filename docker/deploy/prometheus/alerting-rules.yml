@@ -177,27 +177,12 @@ groups:
   # 单元测试：docker/deploy/prometheus/promtool/alerting-rules.test.yml（promtool test rules）。
   - name: postgres-server-health
     rules:
-      # 归档失败：WAL 送不出去 ⇒ PITR 断档，且 pg_wal 会持续增长直到涨满磁盘
-      - alert: PostgresArchiveFailing
-        expr: pg_stat_archiver_failed_count > 0
-        for: 5m
-        labels:
-          severity: critical
-          category: database
-        annotations:
-          summary: "🚨 PostgreSQL WAL 归档失败（累计 {{ $value }} 次）—— PITR 已断档"
-          description: "归档失败时 PG 会**保留** pg_wal 等待重试，磁盘会持续增长，最终撑停数据库。\n先查归档目录：docker/deploy/wal_archive 是否存在、可写、所在卷是否已满。\n检查：docker exec synapse-postgres psql -U synapse -c \"SELECT * FROM pg_stat_archiver\""
-
-      # 归档停滞：archive_timeout=900s ⇒ 低写入时也应每 15 分钟落一段，超 1 小时即异常
-      - alert: PostgresArchiveStalled
-        expr: pg_stat_archiver_last_archive_age > 3600
-        for: 10m
-        labels:
-          severity: warning
-          category: database
-        annotations:
-          summary: "⚠️ PostgreSQL 归档停滞（{{ $value | humanizeDuration }} 没有新归档段）"
-          description: "archive_timeout=900s，正常情况下 15 分钟内必有一段。超 1 小时说明归档链路断了（目录不可写/卷满/命令失败），RPO 正在变大。"
+      # ⚠️ 归档类告警（原 `PostgresArchiveFailing` / `PostgresArchiveStalled`）已于
+      #    2026-10-30 **删除**：`archive_mode` 已改为 off（见 docker/config/postgres.conf），
+      #    归档没有消费方（备份走 pg_dump，无 PITR）。留着它们不是"更安全"——
+      #    `pg_stat_archiver_failed_count` 会冻结在停机前的 26967 而**永久 critical**，
+      #    `last_archive_age` 只增不减而**永久 warning**，等于把两条告警变成噪音源。
+      #    重新启用归档时，必须连同这两条规则和 promtool 夹具一起恢复。
 
       # 备份新鲜度：由备份脚本上报到 pushgateway（>26h 未成功备份）
       - alert: PostgresBackupStale

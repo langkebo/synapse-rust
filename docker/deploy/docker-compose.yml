@@ -56,10 +56,10 @@ services:
       - config_file=/etc/postgresql/postgresql.conf
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # WAL 归档落点：**必须在 PGDATA 之外**（方案 B1.1）。放数据卷里等于
-      # "归档与数据同损"，PITR 就没意义了。Linux 上宿主目录需 `chmod 777`
-      # 或 `chown 70:70`（容器内 postgres 跑在 uid 70）。
-      - ./wal_archive:/var/lib/postgresql/wal_archive
+      # WAL 归档 bind mount 已于 2026-10-30 移除（archive_mode=off）：
+      # 归档没有消费方（备份走 pg_dump，无 pg_basebackup/PITR），却让 59 GB 只写
+      # 不删的段与数据、备份挤在同一文件系统上。重新启用前请先读
+      # docker/config/postgres.conf 的 "WAL 归档" 段列出的 5 项前提。
       - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/01-init-db.sql:ro
       # 保持**单文件**挂载：宿主文件名是 `postgres.conf`，容器要读的是
       # `/etc/postgresql/postgresql.conf`。改成目录挂载（`../config:/etc/postgresql`）
