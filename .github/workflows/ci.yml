@@ -397,6 +397,16 @@ jobs:
         if: ${{ !cancelled() }}
         run: python3 scripts/ci/check_feature_arg_consistency.py
 
+      # RD-16：WAL 归档的三个开关必须自洽。2026-10-30 的事故是
+      # 「archive_mode=on + 没有 archive_cleanup_command + archive_command 用
+      # `test ! -f` 做守卫」三者叠加：归档目录 9 天涨到 59GB，同时归档永久死锁
+      # （failed_count=26967、WAL 无法回收）。当时的处置只写在注释里，注释不会红。
+      # 判据：开归档 ⇒ 清理命令/幂等命令/两条告警/promtool 用例/PGDATA 外挂载齐全；
+      # 关归档 ⇒ 不得残留那两条会永久 firing 的告警。
+      - name: WAL archive switches consistent (RD-16)
+        if: ${{ !cancelled() }}
+        run: python3 scripts/ci/check_postgres_archive_invariant.py
+
       # Supply-chain hardening (cargo-deny + cargo-audit) runs in the
       # `security-audit` job, which installs both tools first. It used to be
       # invoked here as well ("for fast PR feedback"), but this job installs no

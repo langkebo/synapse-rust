@@ -198,6 +198,15 @@ run "check_test_feature_gates.py" python3 scripts/ci/check_test_feature_gates.py
 step "构建：出货 feature 串只允许一个真相源（RD-15）"
 run "check_feature_arg_consistency.py" python3 scripts/ci/check_feature_arg_consistency.py
 
+# WAL 归档的三个开关必须自洽（RD-16）。2026-10-30 的事故是"archive_mode=on + 没有
+# archive_cleanup_command + archive_command 用 `test ! -f` 做守卫"三者叠加：归档目录
+# 9 天涨到 59GB，同时归档永久死锁（failed_count=26967、WAL 无法回收）。当时的处置
+# （关归档 + 删告警 + 卸挂载）只写在注释里，注释不会红 —— 本门禁把它变成判据：
+# 开归档就必须同时有清理命令 / 幂等命令 / 两条告警 / promtool 用例 / PGDATA 外挂载；
+# 关归档就必须没有那两条会永久 firing 的告警。静态检查（<50ms），每次都跑。
+step "数据库：WAL 归档开关必须自洽（RD-16）"
+run "check_postgres_archive_invariant.py" python3 scripts/ci/check_postgres_archive_invariant.py
+
 # 「自证测试」面（NEW-05）：`*_shape_only_tests.rs` 必须登记 + 文件头声明，且登记的真覆盖文件
 # 真的发请求/碰 DB；`*_{api,route}_tests.rs` 要么调生产符号、要么发请求，否则就是"名字在
 # 声称覆盖、内容在自己造字面量"。静态检查（~40ms），与改动集无关 ⇒ 每次都跑。
