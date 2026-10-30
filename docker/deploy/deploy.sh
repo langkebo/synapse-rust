@@ -1110,7 +1110,17 @@ harden_env_permissions() {
     for file in .env ../.env; do
         [ -f "$file" ] || continue
         mode="$(env_file_mode "$file")"
-        [ -n "$mode" ] || continue
+        # 读不到权限位 ⇒ **拒绝继续**，不能 `continue` 跳过。
+        # 两种 `stat` 形态都失败时（例如目录不可搜索、`stat` 被裁剪掉），"跳过这个文件"
+        # 等于"把含全部密钥的 .env 当成已检查通过" —— 那是 fail-open，与本函数
+        # 上面那句"只要仍含 group/other 位就拒绝部署"直接矛盾。
+        # ⚠️ 2026-10-30 修：原先这里写的是 `[ -n "$mode" ] || continue`，
+        #    注释声称 fail-closed，实际在 stat 失败时静默放行。
+        if [ -z "$mode" ]; then
+            log_error "$file 存在但读不到权限位（stat 失败），无法确认密钥是否对同机其他用户可见"
+            log_error "  拒绝继续部署（fail-closed）。请确认该文件可 stat，例如: ls -l $file"
+            exit 1
+        fi
         case "$mode" in
             600 | 400) continue ;;
         esac
