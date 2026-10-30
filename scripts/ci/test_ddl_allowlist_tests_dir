@@ -20,7 +20,7 @@
 #    名单现只剩 (a) 21 键 + (c) 1 键 —— 这两类分别是"自建 DDL 即被测对象/故障注入"与
 #    性能夹具，都不该迁模板。此后本守卫对 `tests/` 与对 `src/` 同等严格。
 
-# ── (a) 机制自身 / 故障注入（24 键；原注 21 与实际不符，本次按实际数更新）──────────────────────────────────────────
+# ── (a) 机制自身 / 故障注入（25 键；2026-10-30 新增 1 键：account_deactivation_purge_tests::table_body）
 tests/integration/api_federation_transaction_tests.rs::test_presence_edu_updates_are_written_as_a_single_batch
 tests/integration/database_integrity_tests.rs::tests::ensure_public_schema_contract_repairs
 tests/integration/e2ee_device_keys_storage_tests.rs::record_device_list_change_propagates_a_changes_insert_failure
@@ -30,6 +30,11 @@ tests/integration/insert_column_coverage_tests.rs::guard_reports_a_probe_table_m
 # 用来验证 `register_user` 的**事务回滚**（残留 users 行数必须为 0）。自建 DDL 即被测对象，
 # 按本文件口径属 (a) 组；不是"该迁 IsolatedTestPool 的自建简化 schema"。
 tests/integration/registration_service_tests_migrated.rs::register_is_atomic
+# 机制自身：`table_body()` 里的 `CREATE TABLE IF NOT EXISTS {table} (` 是**解析基线 SQL
+# 用的 needle**，不建表 —— 这条用例读 `migrations/00000000_unified_schema_v12.sql`（
+# `include_str!`）核对每个 purge 目标都有 `user_id` 列；落库的那条用例走
+# `require_test_pool()`（迁移模板），本文件没有任何自建 schema。
+tests/integration/account_deactivation_purge_tests.rs::table_body
 tests/unit/cleanup_schema_script_tests.rs::cleanup_script_preserves_drop_failure_reasons
 tests/unit/migration_consistency_tests.rs::baseline_consolidation_gate_fails_closed_on_an_emptied_scan_surface
 tests/unit/migration_consistency_tests.rs::baseline_declares_each_object_exactly_once

@@ -99,7 +99,12 @@ jobs:
       #   这里只是把同一个前提在 CI 里显式化。）
       - name: Client/server major inside the drill container
         run: |
-          docker run --rm --entrypoint bash postgres:16 -c 'pg_dump --version; psql --version'
+          # 只打印 `pg_dump`（客户端）与 `postgres`（服务端）版本，**不在这里起 `psql`**：
+          # 本步骤不做任何连接，而 `tests/unit/migration_consistency_tests.rs` 的
+          # `every_ci_psql_call_supplies_an_explicit_connection` 会把工作流里每一处
+          # `psql …` 都要求带显式连接目标（URL 或 `-h` + `-U`）。版本探针没有目标可给，
+          # 与其给守卫开例外，不如不写这行 `psql`。
+          docker run --rm --entrypoint bash postgres:16 -c 'pg_dump --version; postgres --version'
 
       - name: Wait for Postgres
         run: |
@@ -112,7 +117,12 @@ jobs:
 
       - name: Apply unified baseline schema
         run: |
-          psql -X -v ON_ERROR_STOP=1 -d "$SOURCE_DB" \
+          # ⚠️ 用**显式 URL**，不写 `psql -d "$SOURCE_DB"`：后者靠 job 级 PG* 环境变量
+          # 隐式定位，而 `tests/unit/migration_consistency_tests.rs` 的
+          # `every_ci_psql_call_supplies_an_explicit_connection` 要求调用点自带目标
+          # （URL 或 `-h` + `-U`）。目标就写在这行上，读的人不必回翻 env 块。
+          psql "postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${SOURCE_DB}" \
+            -X -v ON_ERROR_STOP=1 \
             -f migrations/00000000_unified_schema_v12.sql
 
       # ⚠️ 必须跑在 postgres:16 容器里（客户端与服务端同主版本），**且在
