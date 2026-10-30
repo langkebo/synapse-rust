@@ -101,17 +101,6 @@ jobs:
         run: |
           docker run --rm --entrypoint bash postgres:16 -c 'pg_dump --version; psql --version'
 
-      - name: Run backup -> restore -> diff drill (client == server, inside postgres:16)
-        run: |
-          set -euo pipefail
-          docker run --rm \
-            --network host \
-            -e PGHOST -e PGPORT -e PGUSER -e PGPASSWORD \
-            -e SOURCE_DB -e TARGET_DB -e WORK_DIR \
-            -v "$PWD:/repo" -w /repo \
-            --entrypoint bash \
-            postgres:16 scripts/ci/backup_restore_drill.sh
-
       - name: Wait for Postgres
         run: |
           for _ in $(seq 1 30); do
@@ -126,8 +115,19 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -d "$SOURCE_DB" \
             -f migrations/00000000_unified_schema_v12.sql
 
-      - name: Run backup -> restore -> diff drill
-        run: bash scripts/ci/backup_restore_drill.sh
+      # ⚠️ 必须跑在 postgres:16 容器里（客户端与服务端同主版本），**且在
+      # "Apply unified baseline schema" 之后** —— 演练的第 1 步就会校验源库表数下限
+      # （`< 200` 直接 FAIL），顺序错了会在空库上跑并立刻红。
+      - name: Run backup -> restore -> diff drill (client == server, inside postgres:16)
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            --network host \
+            -e PGHOST -e PGPORT -e PGUSER -e PGPASSWORD \
+            -e SOURCE_DB -e TARGET_DB -e WORK_DIR \
+            -v "$PWD:/repo" -w /repo \
+            --entrypoint bash \
+            postgres:16 scripts/ci/backup_restore_drill.sh
 
       - name: Upload drill artifacts (on failure)
         if: failure()
