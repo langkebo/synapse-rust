@@ -39,6 +39,11 @@ env:
   MATRIX_HOMESERVER_URL: 'http://localhost:8008'
   SDK_REPOSITORY: langkebo/matrix-js-sdk
 
+# 顶层默认只读（与仓库 Settings → Actions → Workflow permissions 的 read-only 一致）；
+# 需要写仓库的 job 必须在该 job 上单独提权并注明原因，不要改这里的默认。
+permissions:
+  contents: read
+
 jobs:
   vodozemac-vector-roundtrip:
     # Cheap: runs the vodozemac reference test vectors inside the

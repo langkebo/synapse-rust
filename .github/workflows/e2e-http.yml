@@ -31,6 +31,11 @@ env:
   RUST_BACKTRACE: 1
   E2E_ARTIFACT_DIR: artifacts/e2e-http
 
+# 顶层默认只读（与仓库 Settings → Actions → Workflow permissions 的 read-only 一致）；
+# 需要写仓库的 job 必须在该 job 上单独提权并注明原因，不要改这里的默认。
+permissions:
+  contents: read
+
 jobs:
   live-stack:
     name: user_flow (7 ignored tests, live homeserver)

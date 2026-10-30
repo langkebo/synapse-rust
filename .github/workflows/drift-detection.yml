@@ -27,6 +27,11 @@ env:
   FLYWAY_DB_USER: ${{ vars.PGUSER || 'synapse' }}
   FLYWAY_DB_PASSWORD: ${{ secrets.PGPASSWORD || 'synapse' }}
 
+# 顶层默认只读（与仓库 Settings → Actions → Workflow permissions 的 read-only 一致）；
+# 需要写仓库的 job 必须在该 job 上单独提权并注明原因，不要改这里的默认。
+permissions:
+  contents: read
+
 jobs:
   # Detect which path groups changed so each drift job only runs when relevant,
   # avoiding the heavy migration/perf jobs on pure route-contract changes.
