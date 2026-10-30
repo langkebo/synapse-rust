@@ -19,7 +19,7 @@
 |---|---|---|---|
 | **P1-1** | P1 | 状态决议仍保留 `origin_server_ts` 兜底路径 | **已关闭（`f3a91641a`）**：读路径 fail-closed，推导入口只给播种与逃生开关用（见 §2 R-8）；逃生开关的部署清单门禁已补（R-8 ⑦） |
 | **P1-2** | P1 | 无 Redis 时拓扑校验只 `warn!`，不阻断启动 | **已关闭（`a68a93a08`）**：`write_forwarding` + 缺 `notify_fan_out` ⇒ 无条件 fatal，不看 `strict` |
-| **P1-3** | P1 | 写归属守卫不校验 handler 行为，只看路由集合与 stream 归属 | **行为维度已补（`67ffd19bc`）**：sticky 补发 tick 的归属改为运行时门；**静态扫描已补**：`check_event_writer_routes.py`（52 条事件写路由 / 18 条约一条理由的例外） |
+| **P1-3** | P1 | 写归属守卫不校验 handler 行为，只看路由集合与 stream 归属 | **行为维度已补（`67ffd19bc`）**：sticky 补发 tick 的归属改为运行时门；**静态扫描已补**：`check_event_writer_routes.py`（52 条事件写路由 / 18 条约一条理由的例外）；**后台写路径已补（本轮）**：账号注销 parting drain 循环加同款运行时门（见 §2 R-10） |
 | **P1-4** | P1 | sticky catch-up 的**服务层零测试** | **已关闭（`67ffd19bc` + 本轮）**：`StickyCatchUpIo` 接缝 + 11 条用例（含跨 destination 轮转公平性） |
 | **P2-1** | P2 | 写转发链路没有两进程 e2e | **断言已加**（脚本 + compose 开关 + `stream_writers` 声明），静态校验通过；**端到端未跑通**（镜像迁移入口，与环境有关） |
 | **P2-2** | P2 | sliding_sync 逐房 3 次查询（required_state / timeline / sticky） | **bench 已就位**：分档 [10,100,1000] + 6 项 `required_state`；基线数字需种子库（见 §4-C1） |
@@ -97,6 +97,21 @@
   用例 `forwarding_without_redis_is_always_fatal` 对 `strict ∈ {true,false}` 双跑，断言 `fatal` 必须存在且
   其文本点名修法；`warnings_alone_are_not_escalated_by_strict` 钉住"`strict` 不再吞告警级之外的东西"。
   代价与 §4-A2 预告一致：开发/单机环境必须显式关 `worker.enabled`，不能"配着玩"。
+- **R-10 P1-3 残余②（后台写路径）→ 账号注销 parting drain 循环加运行时门。**
+  `AccountDeactivationService::process_pending_parts`（上游 `_user_parter_loop`）是"**没有任何 HTTP 请求经过、
+  却周期性真写 room DAG**"的路径：它逐房写 `m.room.member` leave。多实例下 reader 也跑这一轮 ⇒
+  同房并发多条 leave 分叉、成员/summary 双写、重复联邦广播。门放在**共享入口首行**，且在
+  `pending.next()` **之前**（门放晚了行会被消费掉，而没人去 parting），非所有者返回 `Ok(0)` 且零 io 调用。
+  归属仍只由 `owns_events_dispatch(&WorkerConfig)` 判定，构造期只派生一个 `bool`；`new()` 的第 7 参数
+  **必填不默认**（默认 `true` 会静默破坏单写者，默认 `false` 会静默停止 parting）。
+  变异自证 2 条：删掉入口门 ⇒ `a_non_owner_instance_does_not_part_or_dequeue` 红（`left: 1, right: 0`）；
+  把门从入口挪到 `part_each` 首行 ⇒ 同一用例仍红，且日志出现 `dequeue:@alice:example.com`，
+  正好证明门必须在 `next()` 之前。还原后 14/14 绿。
+  请求路径不需要新门：`POST /_matrix/client/v3/account/deactivate` 在 `write_stream_map.txt` 里已登记为
+  `device_lists`（其同步拒绝 invite/knock 的 leave 走既有写转发），缺口只在无请求的后台循环。
+  文件行数：purge 这一半（`PurgedUserData` / `ACCOUNT_DEACTIVATION_PURGED_TABLES` / `UserDataPurger` /
+  `StorageUserDataPurger`）拆到 `account_deactivation_service/purger.rs`，父模块 `pub use` 重导出保持对外路径不变；
+  主文件 1175 → 1063，行数棘轮自动下压（`container.rs` 未超其 767 上限）。
 
 ## 3. 仍存在的问题
 
@@ -144,8 +159,13 @@
 有一个非 `-` 的流；确属本地写（`audit_events` / `space_events`，共 18 条）逐条登记在
 `scripts/contract/event_writer_allowlist.txt` 且**带理由**。登记项双向校验：漏登记 ⇒ 红，登记项陈旧 ⇒ 也红。
 已接入 `preflight.sh` 契约段（只读源码 + 两份清单，不与 HEAD 比，不受契约链 SKIP 分支影响）。
-**残余（仍成立）**：运行时门目前只覆盖 sticky tick **一处**，
-其余"该只由 events owner 跑"的路径尚无同款断言，需逐个补。
+**已补（本轮，后台写路径这一半）**：账号注销的 parting drain 循环
+（`AccountDeactivationService::process_pending_parts`，上游 `_user_parter_loop`）加上同款运行时门 ——
+它在 maintenance tick 上逐房写 `m.room.member` leave，且没有 HTTP 请求经过它，静态路由扫描看不到这一条。
+判据与 2 条变异见 §2 R-10。
+**残余（仍成立）**：延迟事件 dispatcher 在 `src/server/mod.rs` 已有同类判定（`select!` guard + `owns_events_dispatch`），
+但缺"非所有者零 io 调用"的断言级用例；更一般地，**新增的后台写路径**仍然不在静态路由门禁的覆盖面内
+（门禁只能看见路由表），所以本条不作为"整体已关闭"处理。
 
 ### P1-4 sticky catch-up 的服务层零测试 —— **已关闭（`67ffd19bc` + 本轮补 ②）**
 
@@ -276,6 +296,9 @@ backfill 归零重放 / backfill 本机短路与 reset 失败短路。
   `scripts/contract/event_writer_allowlist.txt`），已接入 `preflight.sh` 契约段。
   `67ffd19bc` 落的"运行时归属门"与此是两条独立补法：运行时门证明"非所有者不跑"，
   静态扫描证明"该登记的没漏登记"—— 两者都需要，缺一仍有盲区。
+- **后台写路径（本轮补）：** 静态扫描只能看见路由表，所以"没有 HTTP 请求的周期写"单独补运行时门：
+  sticky 补发 tick（`67ffd19bc`）+ 账号注销 parting drain 循环（§2 R-10）。以后新增后台写路径时，
+  同款门是默认做法，不再是可选优化。
 - 实测口径：52 条事件写路由全部有非 `-` 声明；18 条例外逐条带理由（16 条审计表、1 条 space 表、1 条审计端点本身）；
   1 条 handler 静态不可解析（根状态页 closure，`GET /`）。
 
@@ -354,6 +377,11 @@ cargo test -p synapse-services --lib --features test-utils sticky_catch_up
 
 # 运行时归属门是否仍在 tick 首行（应命中 `if !io.is_events_writer()`）
 grep -n "is_events_writer" synapse-services/src/room/sticky_catch_up.rs
+
+# 账号注销 drain 循环的运行门（§2 R-10）：门必须在 `pending.next()` 之前
+grep -n "if !self.owns_events" -A 2 synapse-services/src/account_deactivation_service.rs
+grep -c '#\[tokio::test\]' synapse-services/src/account_deactivation_service.rs   # 14
+cargo test -p synapse-services --lib --features test-utils account_deactivation_service
 
 # 守卫本体（`write_stream_map.txt` 双向棘轮）的盲区自述仍在 —— 该盲区已由下面的门禁填上
 sed -n '29,31p' scripts/contract/write_stream_map.txt
