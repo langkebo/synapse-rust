@@ -207,6 +207,12 @@ run "check_feature_arg_consistency.py" python3 scripts/ci/check_feature_arg_cons
 step "数据库：WAL 归档开关必须自洽（RD-16）"
 run "check_postgres_archive_invariant.py" python3 scripts/ci/check_postgres_archive_invariant.py
 
+# workflow 的 `run:` 里不得内插**用户可控**上下文（RD-17）。Actions 的 `${{ … }}` 是
+# 脚本落盘前的文本替换 ⇒ `FILTER="${{ inputs.x }}"` 里的 `$(…)` 照样执行，双引号挡不住。
+# 2026-10-30 实测修掉 4 处；这里守住"下一处"。零依赖（缩进扫描，不 import yaml）。
+step "CI：run 脚本不得内插用户可控上下文（RD-17）"
+run "check_run_interpolation.py" python3 scripts/ci/check_run_interpolation.py
+
 # 「自证测试」面（NEW-05）：`*_shape_only_tests.rs` 必须登记 + 文件头声明，且登记的真覆盖文件
 # 真的发请求/碰 DB；`*_{api,route}_tests.rs` 要么调生产符号、要么发请求，否则就是"名字在
 # 声称覆盖、内容在自己造字面量"。静态检查（~40ms），与改动集无关 ⇒ 每次都跑。

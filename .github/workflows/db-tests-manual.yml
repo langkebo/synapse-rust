@@ -99,8 +99,13 @@ jobs:
       - name: Run storage db_tests
         env:
           RUST_TEST_THREADS: 1
+          # ⚠️ dispatch 输入**必须走 env**，不能内插进脚本源码：
+          # `FILTER="${{ … }}"` 里 `$(…)` 仍会展开（双引号挡不住命令替换），
+          # 等于把"能 dispatch 的人"升级成"能执行任意 shell 的人"。
+          # env 的值不参与 shell 解析，天然免疫。
+          TEST_FILTER: ${{ github.event.inputs.test_filter }}
         run: |
-          FILTER="${{ github.event.inputs.test_filter }}"
+          FILTER="${TEST_FILTER:-}"
           if [ -n "$FILTER" ]; then
             cargo test -p synapse-storage --lib --features test-utils -- "$FILTER" --test-threads=1
           else

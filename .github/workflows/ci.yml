@@ -407,6 +407,13 @@ jobs:
         if: ${{ !cancelled() }}
         run: python3 scripts/ci/check_postgres_archive_invariant.py
 
+      # RD-17：`run:` 脚本里不得内插用户可控上下文。Actions 的 `${{ … }}` 是脚本
+      # 落盘前的文本替换，`FILTER="${{ inputs.x }}"` 里的 `$(…)` 照样执行 —— 双引号
+      # 只防空格不防命令替换。2026-10-30 修掉 4 处，这条守"下一处"。
+      - name: No user-controlled interpolation in run scripts (RD-17)
+        if: ${{ !cancelled() }}
+        run: python3 scripts/ci/check_run_interpolation.py
+
       # Supply-chain hardening (cargo-deny + cargo-audit) runs in the
       # `security-audit` job, which installs both tools first. It used to be
       # invoked here as well ("for fast PR feedback"), but this job installs no

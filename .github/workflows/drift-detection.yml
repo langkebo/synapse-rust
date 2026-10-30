@@ -20,12 +20,12 @@ on:
       - 'docs/synapse-rust/ROUTE_CONTRACT.md'
       - 'scripts/contract/**'
 
-env:
-  FLYWAY_DB_HOST: ${{ vars.PGHOST || 'localhost' }}
-  FLYWAY_DB_PORT: ${{ vars.PGPORT || '5432' }}
-  FLYWAY_DB_NAME: ${{ vars.PGDATABASE || 'synapse' }}
-  FLYWAY_DB_USER: ${{ vars.PGUSER || 'synapse' }}
-  FLYWAY_DB_PASSWORD: ${{ secrets.PGPASSWORD || 'synapse' }}
+# ⚠️ 2026-10-30 删掉 5 个死变量：`FLYWAY_DB_HOST/PORT/NAME/USER/PASSWORD`。
+# 它们在**整个仓库没有任何消费方**（全文无 `flyway` 命令；该 workflow 的库全是
+# `services: postgres:16` 临时容器，密码就是 `synapse`）。其中
+# `FLYWAY_DB_PASSWORD: ${{ secrets.PGPASSWORD || 'synapse' }}` 曾被审计误报为
+# "secret 缺失静默退化弱口令" —— 实际上它不是风险，只是因为死变量才看着像。
+# 真要连外部库时就地声明，不要留一个"看起来在配 flyway"的空壳。
 
 # 顶层默认只读（与仓库 Settings → Actions → Workflow permissions 的 read-only 一致）；
 # 需要写仓库的 job 必须在该 job 上单独提权并注明原因，不要改这里的默认。

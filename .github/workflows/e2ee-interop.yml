@@ -180,7 +180,12 @@ jobs:
           WAIT_SECONDS: 240
           BROWSER_ONLY_OVERLAY: '1'
           ELEMENT_HARNESS_ARTIFACT_DIR: ${{ github.workspace }}/artifacts/e2ee-interop
-          ELEMENT_HARNESS_SCRIPT: ${{ github.event.inputs.element_harness_script }}
+          # ⚠️ harness 读的是 `TEST_SCRIPT`（`scripts/test/run_element_web_browser_harness.sh:21`），
+          # 不是 `ELEMENT_HARNESS_SCRIPT`。此前键名不一致 ⇒ 这个 dispatch 输入
+          # **从未生效**（永远落到 harness 自己的默认 `smoke:login`，而输入默认值声明的是
+          # `test:basic`，两者也不一致）。改名后输入才真正起作用。
+          # 该项是 `type: choice`，取值被限制在 test:basic / smoke:login，不接受自由文本。
+          TEST_SCRIPT: ${{ github.event.inputs.element_harness_script }}
         run: |
           set -o pipefail
           mkdir -p "${E2EE_INTEROP_LOG}"

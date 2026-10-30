@@ -99,8 +99,12 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/synapse_test
           TEST_REDIS_URL: redis://localhost:6379
+          # ⚠️ dispatch 输入**必须走 env**，不能内插进脚本源码（`$(…)` 在双引号里照样展开，
+          # 与 db-tests-manual.yml 同一判据）。
+          MUTATION_FILES_INPUT: ${{ inputs.mutation_files }}
+          PACKAGE_INPUT: ${{ inputs.package }}
         run: |
-          MUTATION_FILES="${{ inputs.mutation_files }}"
+          MUTATION_FILES="${MUTATION_FILES_INPUT:-}"
           if [ -z "$MUTATION_FILES" ]; then
             MUTATION_FILES="synapse-web/src/routes/extractors/json.rs synapse-web/src/middleware/security.rs synapse-services/src/media/mod.rs synapse-storage/src/event/pagination.rs"
           fi
@@ -119,14 +123,22 @@ jobs:
             echo "==> $label: $(find mutants.out -type f | wc -l) report file(s)"
           }
 
-          if [ -n "${{ inputs.package }}" ]; then
+          # 包名只允许 [A-Za-z0-9_-]。即使已加引号也必须校验：引号只防 shell 解析，
+          # 防不住**下游参数解析** —— `--package=--timeout` 这种值会被 cargo 当成选项吃掉。
+          if [ -n "${PACKAGE_INPUT:-}" ]; then
+            case "$PACKAGE_INPUT" in
+              *[!A-Za-z0-9_-]*)
+                echo "::error::mutation-testing: --package 只接受 [A-Za-z0-9_-]，收到: ${PACKAGE_INPUT}"
+                exit 1
+                ;;
+            esac
             # `cargo mutants` exits non-zero when mutants survive — that is report
             # data, not a build failure, so the exit code is deliberately ignored;
             # the report's existence is what gets asserted.
-            cargo mutants --package "${{ inputs.package }}" \
+            cargo mutants --package "$PACKAGE_INPUT" \
               --timeout 30 \
               -- --test-threads=2 || true
-            require_mutation_report "package ${{ inputs.package }}"
+            require_mutation_report "package $PACKAGE_INPUT"
             exit 0
           fi
 
