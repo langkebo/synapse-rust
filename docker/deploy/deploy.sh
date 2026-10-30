@@ -1528,6 +1528,8 @@ build_images() {
             log_error "跳过构建但本地镜像 $(local_image_ref) 不存在"
             exit 1
         fi
+        # 与下面 build 分支同理：必须显式导出，不能靠 compose 的默认值巧合对齐。
+        export SYNAPSE_IMAGE="$(local_image_ref)"
         return
     fi
     log_info "构建新的 Docker 镜像..."
@@ -1567,7 +1569,32 @@ build_images() {
         -t "$(local_image_ref)" \
         "$PROJECT_ROOT"
     docker image inspect "$(local_image_ref)" >/dev/null
-    log_success "Docker 镜像构建完成"
+    # ⚠️ 必须**显式导出** `SYNAPSE_IMAGE`，不能靠"compose 的默认值恰好也是
+    # `synapse-rust:local`"来对齐。此前这个变量只在 `--image`（远程镜像）分支被
+    # export，正常构建分支没导 —— 于是 `docker build -t "$(local_image_ref)"` 与
+    # `docker compose up`（读 `${SYNAPSE_IMAGE:-synapse-rust:local}`）是**两个独立
+    # 来源**，只是当前字面量相同才碰巧一致。任何一侧改 tag（例如带上 version+sha
+    # 以便 `docker images` 可追溯）就会让"构建的镜像"与"起的镜像"分叉，且分叉时
+    # 不会报错 —— 只是静默跑起一个旧镜像。这里把耦合变成显式的。
+    export SYNAPSE_IMAGE="$(local_image_ref)"
+    # 部署日志留一条可追溯记录：镜像 tag 是 `:local`（compose 的默认值），
+    # 真正能回答"这台机器上跑的是哪个 commit"的是 OCI label（build-arg VCS_REF）。
+    log_success "Docker 镜像构建完成: ${SYNAPSE_IMAGE} (version=${image_version} commit=${image_vcs_ref})"
+
+    # tag 里若带 commit（如 `synapse-rust:6.3.0-61d1b4263`），那个 sha 来自
+    # `.env` 的 `SYNAPSE_IMAGE`，是**手工维护**的字符串 —— 与本次构建用的 commit
+    # 没有任何强制关系。改了代码不改 `.env`，本次镜像就会被贴上**旧 sha** 的标签，
+    # 比"tag 里没有 sha"更危险：`docker images` 会给出一个自信的错误答案。
+    # 权威值永远是 OCI label（build-arg VCS_REF 现取自 `git rev-parse`），这里比对。
+    local tag_sha=""
+    if [[ "$SYNAPSE_IMAGE" =~ [.-]([0-9a-f]{7,40})$ ]]; then
+        tag_sha="${BASH_REMATCH[1]}"
+    fi
+    if [ -n "$tag_sha" ] && [ "$tag_sha" != "$image_vcs_ref" ]; then
+        log_warning "镜像 tag 里的 commit (${tag_sha}) ≠ 本次构建的 commit (${image_vcs_ref}) —— 标签已失真"
+        log_warning "  docker/deploy/.env 的 SYNAPSE_IMAGE 是手工维护的：请同步更新，或删掉该行改用默认 tag"
+        log_warning "  权威值: docker image inspect ${SYNAPSE_IMAGE} --format '{{index .Config.Labels \"org.opencontainers.image.revision\"}}'"
+    fi
 }
 
 wait_for_container_health() {
