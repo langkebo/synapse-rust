@@ -303,7 +303,7 @@ admin_mfa_code_for_request() {
         POST | PUT | PATCH | DELETE) ;;
         *)
             case "$url" in
-                */_synapse/admin/v1/security* | */_synapse/admin/v1/server* | */_synapse/admin/v1/media/quarantine*) ;;
+                */_synapse/admin/v1/security* | */_synapse/admin/v1/server* | */_synapse/admin/v1/media/quarantine* | */_synapse/admin/v1/registration_tokens*) ;;
                 *) return 0 ;;
             esac
             ;;
@@ -3366,7 +3366,7 @@ echo "158. Admin Room Actions"
 echo "=========================================="
 if admin_ready; then
     echo "158. Admin Shutdown Room"
-    http_json POST "$SERVER_URL/_synapse/admin/v1/shutdown_room" "$ADMIN_TOKEN" '{"room_id": "'"$ROOM2_ID"'", "user_id": "'"$USER_ID"'"}'
+    http_json POST "$SERVER_URL/_synapse/admin/v1/shutdown_room" "$ADMIN_TOKEN" '{"room_id": "'"$ROOM2_ID"'"}'
     SHUTDOWN_RESP="$HTTP_BODY"
     assert_success_json "Admin Shutdown Room" "$SHUTDOWN_RESP" "$HTTP_STATUS"
 else
@@ -3723,7 +3723,7 @@ admin_endpoint_check "Federation Version" "$HTTP_BODY" "$HTTP_STATUS"
 echo ""
 echo "181. Federation Backfill"
 if [ -n "$MSG_EVENT_ID" ]; then
-    if federation_http_json "Federation Backfill" GET "$SERVER_URL/_matrix/federation/v1/backfill/$ROOM_ID?v=$MSG_EVENT_ID&limit=10"; then
+    if federation_http_json "Federation Backfill" GET "$SERVER_URL/_matrix/federation/v1/backfill/$ROOM_ID?v=12&from=$(url_encode "$MSG_EVENT_ID")&limit=10"; then
         federation_smoke "Federation Backfill" "$HTTP_STATUS" "$HTTP_BODY"
     fi
 else
@@ -5248,7 +5248,7 @@ echo "=========================================="
 echo "324. Room Event Perspective"
 echo "=========================================="
 echo "324. Get Event Perspective"
-http_json GET "$SERVER_URL/_matrix/vendor/v1/rooms/$ROOM_ID/event_perspective" "$TOKEN"
+http_json GET "$SERVER_URL/_matrix/vendor/v1/rooms/$ROOM_ID/event_perspective?event_id=$(url_encode "$MSG_EVENT_ID")" "$TOKEN"
 if [[ "$HTTP_STATUS" == 2* ]]; then
     pass "Get Event Perspective"
 elif last_body_is_unrecognized; then
@@ -7661,7 +7661,7 @@ fi
 echo ""
 echo "573. Federation Backfill"
 if [ -n "$MSG_EVENT_ID" ]; then
-    if federation_http_json "Federation Backfill" GET "$SERVER_URL/_matrix/federation/v1/backfill/$REP_ROOM_ID_FOR_FED_ENC?v=$MSG_EVENT_ID&limit=10"; then
+    if federation_http_json "Federation Backfill" GET "$SERVER_URL/_matrix/federation/v1/backfill/$REP_ROOM_ID_FOR_FED_ENC?v=12&from=$(url_encode "$MSG_EVENT_ID")&limit=10"; then
         FED_BACKFILL_RESP="$HTTP_BODY"
         if check_success_json "$FED_BACKFILL_RESP" "$HTTP_STATUS" "origin" "pdus" "origin_server_ts"; then
             pass "Federation Backfill"
