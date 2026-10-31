@@ -2194,8 +2194,14 @@ BASELINE_DYNAMIC_PRODUCTION=105
 BASELINE_DYNAMIC_TEST_INFRA=847
 BASELINE_STATIC=1360
 BASELINE_QUERY_BUILDER=17
-SQLX_CACHE_ENTRIES=1333
+SQLX_CACHE_ENTRIES=1334
 <!-- sqlx-plan-numbers:end -->
+
+> **2026-10-31 更新（BE-11：`/sync` 不再清空 presence `status_msg`）**，数字块一项：
+> - `SQLX_CACHE_ENTRIES` **1333 → 1334**（+1）：`synapse-storage/src/presence/mod.rs`
+>   新增 `touch_presence` 的单条 `INSERT … ON CONFLICT DO UPDATE … RETURNING` 静态宏，
+>   对应 `.sqlx/query-d4012964…json`。生产 105 / 测试 847 / 静态 1360 / QueryBuilder 17 不变
+>   （静态实测 1372 仍 ≥ 下限；新语句在 `synapse-storage`，不计入动态棘轮）。
 
 > **2026-10-31 更新（BE-03：`/members` 回填 `event_id`）**，数字块一项：
 > - `BASELINE_DYNAMIC_TEST_INFRA` **846 → 847**（+1）：`synapse-storage/src/membership/db_tests.rs`

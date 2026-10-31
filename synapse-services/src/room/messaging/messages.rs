@@ -105,7 +105,7 @@ impl MessagingService {
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to begin send_message transaction", e))?;
 
-        let event = self
+        let event = match self
             .create_event(
                 CreateEventParams {
                     event_id: event_id.clone(),
@@ -120,7 +120,60 @@ impl MessagingService {
                 Some(&mut tx),
             )
             .await
-            .map_err(|e| {
+        {
+            Ok(event) => event,
+            Err(e) => {
+                // BE-08：同一 `txn_id` 的并发重发会在 `events` 主键上相撞。v3+ 房间的
+                // event_id 是 reference hash（room_id / sender / type / content /
+                // prev_events / depth / origin_server_ts 全同时得到同一个 ID），两个并发
+                // 请求因此算出**同一个** event_id，后到者在这里拿到 `pk_events` 唯一键
+                // 冲突 —— 这发生在下面写 dedup marker 之前，于是被包装成 500 M_UNKNOWN，
+                // 尽管数据本身仍然幂等。
+                //
+                // `begin_txn` 在进入这里之前已确认 marker 不存在，所以此刻能查到 marker
+                // 只可能是并发同 txn 的胜者：它的 marker 与事件在同一事务提交，而唯一键
+                // 冲突只在它提交后才会报出 ⇒ 直接回放胜者的 event_id，返回 200。
+                if let Some(txn_id) = txn_id {
+                    // 必须先回滚再查：`tx` 仍占着一条池连接，而下面的查询要再借一条。
+                    // 并发数达到池容量时（测试池默认 10），所有请求都持连接等第二条连接
+                    // ⇒ 池耗尽死锁，30s 后集体 `PoolTimedOut`。回滚后连接立刻归还。
+                    if let Err(rollback_error) = tx.rollback().await {
+                        ::tracing::warn!(
+                            room_id = %room_id,
+                            user_id = %user_id,
+                            txn_id = %txn_id,
+                            error = %rollback_error,
+                            "Failed to roll back aborted send_message transaction before txn dedup lookup"
+                        );
+                    }
+
+                    match self.event_reader.get_event_id_by_txn(user_id, room_id, txn_id).await {
+                        Ok(Some(winner)) => {
+                            ::tracing::warn!(
+                                room_id = %room_id,
+                                user_id = %user_id,
+                                txn_id = %txn_id,
+                                winner_event_id = %winner,
+                                error = %e,
+                                "Concurrent duplicate txn detected during event write; returning the committed winner"
+                            );
+                            // `tx` 已在上面显式回滚（连接已归还池），这里不会提交任何行。
+                            return Ok(json!({ "event_id": winner }));
+                        }
+                        Ok(None) => {}
+                        Err(lookup_error) => {
+                            // 查不到胜者不改变结论：保留原始错误上抛。
+                            ::tracing::warn!(
+                                room_id = %room_id,
+                                user_id = %user_id,
+                                txn_id = %txn_id,
+                                error = %lookup_error,
+                                "Failed to look up txn dedup winner after event write failure"
+                            );
+                        }
+                    }
+                }
+
                 // `create_event` runs the third-party event admission gate, which
                 // refuses with `403 M_FORBIDDEN`. Wrapping *every* failure into an
                 // internal error hid that verdict behind `500 M_UNKNOWN`, so a
@@ -128,13 +181,13 @@ impl MessagingService {
                 // (2026-10-02, `third_party_rules_event_paths_tests`). Preserve
                 // verdicts that already carry a client-facing status; only
                 // unexpected failures get the "Failed to send message" context.
-                if e.kind.default_http_status().is_client_error() {
+                return Err(if e.kind.default_http_status().is_client_error() {
                     e
                 } else {
                     ApiError::internal_with_cause("Failed to send message", e)
-                }
-            })?;
-        // create_event failed: `tx` drops here → sqlx auto-rollback → pool returns clean.
+                });
+            }
+        };
 
         // The write entry owns event identity (§4.1): it may have replaced the
         // pre-write placeholder with the v3+ reference hash, so everything that

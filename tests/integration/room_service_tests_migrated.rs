@@ -514,6 +514,105 @@ async fn test_send_message_with_txn_dedups_retries() {
     assert_ne!(first["event_id"], third["event_id"], "different txn_id must create a new event");
 }
 
+/// BE-08：同一 `txn_id` 的**并发**重发必须全部返回 200 与同一个 `event_id`。
+///
+/// v3+ 房间的 event_id 由内容哈希（reference hash）决定；两个并发请求读到同一个
+/// `prev_events` / `depth` / `origin_server_ts` 时会算出同一个 event_id，后到者在
+/// `events` 主键上冲突。修复前这个冲突会以 500 `M_UNKNOWN` 冒出去（本机复现率约
+/// 11%），尽管数据本身幂等。修复后必须回放已提交胜者的 event_id。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_concurrent_same_txn_returns_committed_winner() {
+    let pool = crate::require_test_pool().await;
+
+    let id = unique_id();
+    let alice_id = format!("@alice_{id}:localhost");
+    create_test_user(&pool, &alice_id, &format!("alice_{id}")).await;
+
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let room_service = Arc::new(create_room_service_with_finalizing_writer(&pool, cache));
+
+    let config = CreateRoomConfig { room_version: Some("12".to_string()), ..Default::default() };
+    let room_val = room_service.lifecycle.create_room(&alice_id, config).await.expect("create_room must succeed");
+    let room_id = room_val["room_id"].as_str().unwrap().to_string();
+
+    // 暖场消息：让所有并发请求读到同一个 prev_events / depth，从而算出同一个
+    // reference-hash event_id —— 这正是 BE-08 的触发条件。
+    let warmup = room_service
+        .messaging
+        .send_message_with_txn(
+            &room_id,
+            &alice_id,
+            "m.room.message",
+            &json!({"msgtype": "m.text", "body": "warmup"}),
+            "txn-be08-warmup",
+        )
+        .await
+        .expect("warm-up send must succeed");
+    let warmup_event_id = warmup["event_id"].as_str().expect("warm-up event_id").to_string();
+
+    // 确定性触发 `pk_events` 冲突（而不是只撞 dedup marker）：`send_message` 用
+    // `next_event_ts(now, max_ts) = now.max(max_ts + 1)` 决定新事件的 `origin_server_ts`。
+    // 把暖场事件的 ts 推到未来后，`max_ts + 1` 恒大于墙上时钟 ⇒ 所有并发请求算出
+    // **同一个** `origin_server_ts` ⇒ 同一个 reference-hash event_id ⇒ 后到者必定在
+    // `events` 主键上相撞。否则每个请求各取自己的时钟毫秒，冲突只是偶发（生产 11%）。
+    let future_ts = current_timestamp_millis() + 10 * 60 * 1000;
+    sqlx::query("UPDATE events SET origin_server_ts = $1 WHERE event_id = $2")
+        .bind(future_ts)
+        .bind(&warmup_event_id)
+        .execute(pool.as_ref())
+        .await
+        .expect("failed to bump the warm-up event origin_server_ts");
+
+    // 并发数刻意远低于测试池容量（默认 10 条连接）：每个请求在同一时刻要占用两条
+    // 连接（事务一条 + 元数据读一条），并发一高就会在池上排队，导致部分请求在胜者
+    // 提交后才读 `max_ts`，从而算出**不同**的 `origin_server_ts` 并绕过 `pk_events`
+    // 冲突。4 条并发 ≤ 8 条连接，能保证所有请求都在任何提交之前完成 `max_ts` 读取。
+    const CONCURRENT: usize = 4;
+    let barrier = Arc::new(tokio::sync::Barrier::new(CONCURRENT));
+    let mut handles = Vec::with_capacity(CONCURRENT);
+    for _ in 0..CONCURRENT {
+        let service = room_service.clone();
+        let barrier = barrier.clone();
+        let room_id = room_id.clone();
+        let alice_id = alice_id.clone();
+        handles.push(tokio::spawn(async move {
+            barrier.wait().await;
+            service
+                .messaging
+                .send_message_with_txn(
+                    &room_id,
+                    &alice_id,
+                    "m.room.message",
+                    &json!({"msgtype": "m.text", "body": "concurrent dedup"}),
+                    "txn-be08-race",
+                )
+                .await
+        }));
+    }
+
+    let mut event_ids = Vec::with_capacity(CONCURRENT);
+    for handle in handles {
+        let result = handle.await.expect("concurrent send task panicked");
+        let value = result.expect("concurrent duplicate txn must not return an error");
+        event_ids.push(value["event_id"].as_str().expect("event_id must be a string").to_string());
+    }
+
+    let winner = event_ids.first().expect("at least one result").clone();
+    assert!(
+        event_ids.iter().all(|event_id| *event_id == winner),
+        "all concurrent duplicates must return the same event_id, got {event_ids:?}"
+    );
+
+    let messages = room_service.messaging.get_room_messages(&room_id, &alice_id, None, 50, "b").await.unwrap();
+    let matched: Vec<_> = messages["chunk"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|event| event["type"] == "m.room.message" && event["content"]["body"] == "concurrent dedup")
+        .collect();
+    assert_eq!(matched.len(), 1, "concurrent duplicates must persist exactly one event, got {matched:?}");
+}
+
 #[tokio::test]
 async fn test_get_room_messages_supports_forward_pagination_from_stream_token() {
     let pool = crate::require_test_pool().await;
