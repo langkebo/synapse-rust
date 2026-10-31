@@ -845,8 +845,13 @@ impl SynapseServer {
             //
             // Matrix 把 megolm 轮换定为**客户端**义务，服务端侧 megolm 只在 bridge /
             // server-side-Megolm 场景成立 —— 所以本任务**默认不启动**：
-            // `server.megolm_device_id` 未配置即视为"本部署不持有服务端 megolm 会话"，
-            // 只告警一次。这正是 fail-closed：不猜、不落合成设备号（§11.15.3）。
+            // `server.megolm_device_id` 未配置即视为"本部署不持有服务端 megolm 会话"。
+            // 这正是 fail-closed：不猜、不落合成设备号（§11.15.3）。
+            //
+            // 未配置时**不再单独打日志**：启动时的 security_audit 行
+            // （`server_holds_no_room_keys`, INFO，见本节上方的隐私事实上报）已经说明了
+            // 同一件事。原先这里额外打一条 WARN，把"默认配置的预期状态"写成了告警，
+            // 结果每次部署都印一遍（2026-10-31 问题清单 §1.3 的告警疲劳）。
             //
             // 只由维护节点跑（`run_global_maintenance`）⇒ 多进程部署下只有一个写入者，
             // 不会两个进程对同一房间重复轮换。
@@ -906,13 +911,6 @@ impl SynapseServer {
                         }
                     }
                 });
-            } else {
-                ::tracing::warn!(
-                    "Server-side Megolm rotation is not running: `server.megolm_device_id` is unset. \
-                     This is the expected state for deployments that keep Megolm where Matrix puts it \
-                     (on the client); set it to the device id the server should use as its own \
-                     Megolm device if this deployment holds server-side Megolm sessions."
-                );
             }
         }
 

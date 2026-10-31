@@ -26,7 +26,7 @@
    Prometheus 不报错，只把该目标永久标 `down`，依赖它的面板静默变空 ——
    本仓 `coturn` 正是这样长期 down 而无人察觉（见 A6）。
 
-因此本门禁做四件事，且**任何一步失败都必须让 CI 变红**（不允许静默跳过）：
+因此本门禁做下面这些检查，且**任何一步失败都必须让 CI 变红**（不允许静默跳过）：
 
   A. `promtool check config` —— 抓取配置语法（含 rule_files 可达性）
   B. `promtool check rules`  —— 告警/录制规则语法
@@ -38,6 +38,14 @@
      `prometheus.yml` 的 job 集合 ∪ `{mock-*}`。
      两个文件内容几乎相同却各自演进，是本仓反复出现的"配置双副本"形态
      （参见 docker-compose.yml 头部对 `docker/config/` 的单源纪律）。
+  E. `metric_relabel_configs` 的 keep/drop 语义守卫。
+  F. `amtool check-config` 校验 Alertmanager 配置。
+  G. **应用 `/metrics` 暴露面不变量**（问题清单 2026-10-31 §1.4 / §3.3）：
+     `prometheus.public: true` 只能表达"匿名可抓"，表达不了"仅授权抓取"，
+     于是"公网不可达"完全依赖两条**隐性事实**：compose 只把 9090 绑到回环、
+     nginx 不转发它。任何人加一条 `ports: ["9090:9090"]` 或一条
+     `proxy_pass http://synapse-app:9090` 就会静默把全部业务指标暴露出去，
+     而没有门禁会红。G 把这两条事实变成可检查的不变量，并自带正反例自检。
 
 ## promtool 从哪来
 
@@ -589,6 +597,244 @@ def check_external_label_kind() -> list[str]:
     return problems
 
 
+# ——— G. 应用 /metrics 暴露面不变量 —————————————————————————————————————
+#
+# `docker/config/homeserver.yaml` 的 `prometheus.public: true` 表达的是"匿名可抓"，
+# **表达不了"仅授权抓取"**（没有 bearer / mTLS / CIDR allowlist 这些手段）。
+# 于是"公网不可达"只由两条隐性事实保证：核心 compose 只把应用的 metrics 端口绑到回环、
+# nginx 不转发它。这两条事实写在注释里，谁都可能在某次改动中无意破坏，且没有任何门禁会红。
+# 这里把它们变成可检查的不变量。
+APP_COMPOSE = "docker/deploy/docker-compose.yml"
+HOMESERVER_CONFIG = "docker/config/homeserver.yaml"
+NGINX_ROOT = "docker/deploy/nginx"
+LOOPBACK_HOSTS = {"127.0.0.1", "::1", "[::1]", "localhost"}
+
+_UPSTREAM_RE = re.compile(r"upstream\s+([^\s{]+)\s*\{([^}]*)\}", re.DOTALL)
+_SERVER_RE = re.compile(r"^\s*server\s+([^\s;]+)", re.MULTILINE)
+_PROXY_PASS_RE = re.compile(r"proxy_pass\s+([^;]+);")
+
+
+def app_metrics_port() -> str:
+    """应用 metrics 端口**从 homeserver.yaml 派生**，不硬编码。"""
+    doc = yaml.safe_load((REPO / HOMESERVER_CONFIG).read_text()) or {}
+    prom = doc.get("prometheus")
+    if not isinstance(prom, dict):
+        raise Failure(
+            f"{HOMESERVER_CONFIG} 里没有 `prometheus` 段 —— 无法确定应用 metrics 端口。\n"
+            "      → 本门禁不允许硬编码默认值：端口改了而门禁没跟上，正是要防的那类静默失效。"
+        )
+    port = prom.get("port")
+    if not isinstance(port, int):
+        raise Failure(
+            f"{HOMESERVER_CONFIG} 的 `prometheus.port` 不是整数（实际：{port!r}），"
+            "无法用于暴露面检查。"
+        )
+    return str(port)
+
+
+def app_hosts() -> set[str]:
+    """应用在 compose / nginx 里可能被引用到的全部主机名。"""
+    doc = yaml.safe_load((REPO / APP_COMPOSE).read_text()) or {}
+    for svc, body in (doc.get("services") or {}).items():
+        if (
+            isinstance(body, dict)
+            and str(body.get("container_name", "")) == "synapse-app"
+        ):
+            return {str(svc), "synapse-app"} | LOOPBACK_HOSTS
+    raise Failure(
+        f"{APP_COMPOSE} 里找不到 `container_name: synapse-app` 的服务 ——\n"
+        "      → 没有它就无法判断哪些 nginx/代理目标指向应用；不允许退回空集合静默通过。"
+    )
+
+
+def _parse_port_binding(raw: object) -> tuple[str | None, str | None]:
+    """解析 compose `ports` 的短/长语法 → (host_ip, 容器端口)。
+
+    返回 `host_ip=None` 表示**未指定绑定地址**（Docker 默认绑所有接口），
+    调用方必须把它当作"对外暴露"而不是"不知道"。
+    """
+    if isinstance(raw, dict):
+        host_ip = raw.get("host_ip")
+        target = raw.get("target")
+        if target is None:
+            return (str(host_ip) if host_ip else None, None)
+        return (
+            str(host_ip) if host_ip else None,
+            str(target).split("-", 1)[0].strip(),
+        )
+
+    spec = str(raw).split("/", 1)[0].strip()
+    if not spec:
+        return (None, None)
+    if spec.startswith("["):  # IPv6 字面量：`[::1]:9090:9090`
+        host, _, rest = spec[1:].partition("]")
+        tail = rest.lstrip(":").split(":") if rest.lstrip(":") else []
+        return (f"[{host}]", tail[-1] if tail else None)
+    parts = spec.split(":")
+    if len(parts) == 1:
+        return (None, parts[0])
+    if len(parts) == 2:
+        return (None, parts[1])
+    # len >= 3：注意 `127.0.0.1:${PROMETHEUS_PORT:-9090}:9090` 里的 `:-` 也含冒号，
+    # 所以只能取**首段作 host_ip、末段作容器端口**，不能按字段位置索引。
+    return (parts[0], parts[-1])
+
+
+def _exposed_bindings(doc: dict, port: str) -> list[str]:
+    """列出把容器端口 `port` 发布到非回环地址的服务。"""
+    offenders: list[str] = []
+    for svc, body in (doc.get("services") or {}).items():
+        if not isinstance(body, dict):
+            continue
+        for raw in body.get("ports") or []:
+            host_ip, container = _parse_port_binding(raw)
+            if container != port:
+                continue
+            if host_ip is not None and host_ip in LOOPBACK_HOSTS:
+                continue
+            where = host_ip or "0.0.0.0（未写 host_ip ⇒ Docker 绑定所有接口）"
+            offenders.append(f"{svc} → {where}")
+    return offenders
+
+
+def _upstream_servers(text: str) -> dict[str, list[tuple[str, str | None]]]:
+    out: dict[str, list[tuple[str, str | None]]] = {}
+    for match in _UPSTREAM_RE.finditer(text):
+        name = match.group(1)
+        servers = [
+            _split_proxy_target(m.group(1)) for m in _SERVER_RE.finditer(match.group(2))
+        ]
+        out[name] = servers
+    return out
+
+
+def _split_proxy_target(raw: str) -> tuple[str, str | None]:
+    """`http://host:port/path` → (host, port)。无端口时 port=None。"""
+    value = raw.strip().split("://", 1)[-1]
+    hostport = value.split("/", 1)[0]
+    if hostport.startswith("["):
+        host, _, rest = hostport[1:].partition("]")
+        return (host, rest.lstrip(":").split(":")[0] or None)
+    if ":" in hostport:
+        host, port = hostport.rsplit(":", 1)
+        return (host, port or None)
+    return (hostport, None)
+
+
+def _nginx_metrics_exposures(text: str, port: str, hosts: set[str]) -> list[str]:
+    """列出把应用 metrics 端口代理到公网的 `proxy_pass` 目标。
+
+    `proxy_pass http://<裸 upstream 名>` 必须解析 upstream 块后再判定 ——
+    本仓的 `synapse_backend` 指向 `synapse:8008`，与 metrics 无关；
+    而 `prometheus.conf` 里指向 `synapse-prometheus:9090` 的**是监控栈自己的**
+    Prometheus，也不能因为"端口等于 9090"就一刀切判违规。
+    """
+    upstreams = _upstream_servers(text)
+    offenders: list[str] = []
+    for match in _PROXY_PASS_RE.finditer(text):
+        target = match.group(1).strip()
+        host, target_port = _split_proxy_target(target)
+        if target_port is not None:
+            if host in hosts and target_port == port:
+                offenders.append(target)
+            continue
+        for srv_host, srv_port in upstreams.get(host, []):
+            if srv_host in hosts and srv_port == port:
+                offenders.append(f"{target}（upstream 解析为 {srv_host}:{srv_port}）")
+    return offenders
+
+
+def _self_test_metrics_exposure(port: str, hosts: set[str]) -> list[str]:
+    """正反例自检：判定逻辑本身失效时，本轮结论不可信，必须先红。"""
+    probe = hosts | {"synapse-app"}
+    failures: list[str] = []
+
+    def expect_compose(label: str, ports: list[object], want: int) -> None:
+        got = len(_exposed_bindings({"services": {"synapse": {"ports": ports}}}, port))
+        if got != want:
+            failures.append(f"compose 自检 `{label}` 期望 {want} 条违规，实得 {got} 条")
+
+    def expect_nginx(label: str, text: str, want: int) -> None:
+        got = len(_nginx_metrics_exposures(text, port, probe))
+        if got != want:
+            failures.append(f"nginx 自检 `{label}` 期望 {want} 条违规，实得 {got} 条")
+
+    # 正例：这些写法都必须被识别为"对外暴露"
+    expect_compose("裸端口映射", [f"{port}:{port}"], 1)
+    expect_compose("显式 0.0.0.0", [f"0.0.0.0:{port}:{port}"], 1)
+    expect_compose(
+        "长语法无 host_ip", [{"target": int(port), "published": int(port)}], 1
+    )
+    expect_compose(
+        "长语法内网 IP",
+        [{"target": int(port), "published": int(port), "host_ip": "192.168.1.5"}],
+        1,
+    )
+    expect_nginx(f"代理到应用主机:{port}", f"proxy_pass http://synapse-app:{port};", 1)
+    expect_nginx(
+        "裸 upstream 指向应用 metrics",
+        f"upstream metrics_pool {{ server synapse-app:{port}; }}\n"
+        "proxy_pass http://metrics_pool;",
+        1,
+    )
+
+    # 反例：这些是当前仓里的**正确**写法，不得误报
+    expect_compose("回环绑定", [f"127.0.0.1:{port}:{port}"], 0)
+    expect_compose(
+        "回环 + 环境变量插值", [f"127.0.0.1:${{PROMETHEUS_PORT:-{port}}}:{port}"], 0
+    )
+    expect_compose("其它端口", ["8008:8008"], 0)
+    expect_nginx(
+        "监控栈自己的 Prometheus",
+        f"proxy_pass http://synapse-prometheus:{port}/api/v1/;",
+        0,
+    )
+    expect_nginx(
+        "upstream 指向 API 端口",
+        "upstream synapse_backend { server synapse:8008; }\n"
+        "proxy_pass http://synapse_backend;",
+        0,
+    )
+    return failures
+
+
+def check_metrics_exposure() -> list[str]:
+    """G: 应用 /metrics 只能绑回环，且不得被 nginx 反向代理出去。"""
+    try:
+        port = app_metrics_port()
+        hosts = app_hosts()
+    except Failure as e:
+        return [str(e)]
+
+    problems = _self_test_metrics_exposure(port, hosts)
+    if problems:
+        return ["门禁自检失败 —— 正反例未按预期判定，本轮暴露面结论不可信："] + problems
+
+    path = REPO / APP_COMPOSE
+    if not path.is_file():
+        problems.append(f"{APP_COMPOSE}: 文件不存在")
+    else:
+        doc = yaml.safe_load(path.read_text()) or {}
+        for offender in _exposed_bindings(doc, port):
+            problems.append(
+                f"{APP_COMPOSE} 的 `{offender}` 把容器端口 {port}（应用 /metrics）"
+                "发布到了非回环地址。\n"
+                "      → homeserver.yaml 里 `prometheus.public: true` 表示该端点**无鉴权**，\n"
+                "        发布即等于公网可读全部运维指标。只允许绑 127.0.0.1；\n"
+                "        跨机抓取请让抓取端直连内网地址，而不是在这里发布端口。"
+            )
+
+    for conf in sorted((REPO / NGINX_ROOT).rglob("*.conf")):
+        rel = conf.relative_to(REPO)
+        for target in _nginx_metrics_exposures(conf.read_text(), port, hosts):
+            problems.append(
+                f"{rel} 里 `proxy_pass {target}` 指向应用 /metrics（端口 {port}）。\n"
+                "      → nginx 是公网入口，这一条等于给无鉴权的 /metrics 开对外通道；\n"
+                "        `synapse-prometheus` 的 9090 是监控栈自身，与应用 metrics 无关。"
+            )
+    return problems
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -645,6 +891,12 @@ def main() -> int:
         (
             "F. alertmanager 配置（amtool check-config）",
             check_alertmanager_configs(am_kind, am_prefix),
+        )
+    )
+    sections.append(
+        (
+            "G. 应用 /metrics 暴露面不变量（只绑回环 + nginx 不转发）",
+            check_metrics_exposure(),
         )
     )
 
