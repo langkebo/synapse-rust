@@ -871,9 +871,10 @@ async fn test_thirdparty_contract_rejects_builtin_irc_placeholders() {
                 .header("Authorization", format!("Bearer {}", token))
                 .body(Body::empty())
                 .unwrap(),
-            // COMPAT-03: M_UNRECOGNIZED is spec-mapped to 404 (not 400).
+            // BE-05: "no bridge configured" answers 404 `M_NOT_FOUND`, which
+            // is distinguishable from the route-missing `M_UNRECOGNIZED`.
             StatusCode::NOT_FOUND,
-            "M_UNRECOGNIZED",
+            "M_NOT_FOUND",
         )
         .await;
     }

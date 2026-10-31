@@ -5501,9 +5501,11 @@ echo "342. Room Event Keys"
 echo "=========================================="
 echo "342. Get Event Keys"
 http_json GET "$SERVER_URL/_matrix/vendor/v1/rooms/$ROOM_ID/keys/$TEST_EVENT_ID_ENC" "$TOKEN"
-if [[ "$HTTP_STATUS" == 501 ]]; then
-    # C-1: no key storage behind this endpoint; 501 signals "not implemented"
+if [[ "$HTTP_STATUS" == 404 ]] && last_body_is_unrecognized; then
+    # BE-02: by-design unsupported ⇒ 404 M_UNRECOGNIZED (ROUTE_CONTRACT C-1),
     # instead of a success-shaped `{"keys": []}`.
+    pass "Get Event Keys (correctly not implemented)"
+elif [[ "$HTTP_STATUS" == 501 ]]; then
     pass "Get Event Keys (correctly not implemented)"
 elif last_body_is_unrecognized; then
     missing "Get Event Keys" "M_UNRECOGNIZED"
@@ -7556,6 +7558,9 @@ if [ -n "$REPRESENTATIVE_ROOM_ID" ] && [ -n "$MSG_EVENT_ID" ]; then
     EVENT_KEYS_RESP="$HTTP_BODY"
     if check_success_json "$EVENT_KEYS_RESP" "$HTTP_STATUS"; then
         pass "Get Event Keys"
+    elif last_body_is_unrecognized; then
+        # BE-02: by-design unsupported ⇒ 404 M_UNRECOGNIZED, not a server fault.
+        pass "Get Event Keys (correctly not implemented)"
     else
         if echo "$ASSERT_ERROR" | grep -q '^HTTP 5'; then
             fail "Get Event Keys" "$ASSERT_ERROR"

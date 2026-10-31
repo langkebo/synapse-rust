@@ -1350,9 +1350,9 @@ def load_ledger_annotations() -> dict:
       (see `check_annotation_fidelity`). Not serialized into the fixtures.
     * `unsupported` — the route is registered and reachable but its documented
       response is not implemented on purpose (today: the vendor
-      `.../keys/{event_id}` endpoint returns 501 `M_UNKNOWN` by the C-1
-      ruling, and voice `convert`/`optimize`/`transcription` return 501
-      `M_UNRECOGNIZED` behind `server_side_processing: false`). Marking it
+      `.../keys/{event_id}` endpoint returns 404 `M_UNRECOGNIZED` by the C-1
+      ruling since BE-02, and voice `convert`/`optimize`/`transcription` return
+      501 `M_UNRECOGNIZED` behind `server_side_processing: false`). Marking it
       keeps the gap visible on the contract surface instead of letting a
       placeholder 200 masquerade as a working feature. Not serialized into
       the fixtures.
@@ -2115,10 +2115,10 @@ EXPECTED_ANNOTATIONS = {
     ("GET", "/_matrix/vendor/v1/spaces/{space_id}/tree_path"): {"query_ignored": "*"},
     ("GET", "/_matrix/vendor/v1/spaces/room/{room_id}/parents"): {"query_ignored": "*"},
     # -- unsupported: registered, reachable, but the documented response is not
-    # implemented. The handler now answers 501 `M_UNKNOWN` (C-1) instead of a
-    # placeholder 200 with `"keys": []`, which a client could not distinguish
-    # from a real empty result; the annotation keeps the gap visible on the
-    # contract surface.
+    # implemented. The handler answers 404 `M_UNRECOGNIZED` (C-1; `501
+    # M_UNKNOWN` before BE-02) instead of a placeholder 200 with `"keys": []`,
+    # which a client could not distinguish from a real empty result; the
+    # annotation keeps the gap visible on the contract surface.
     ("GET", "/_matrix/vendor/v1/rooms/{room_id}/keys/{event_id}"): {
         "unsupported": True
     },

@@ -4308,7 +4308,7 @@ echo "=========================================="
 echo "342. Get Event Keys"
 http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$ROOM_ID/keys/$TEST_EVENT_ID_ENC" "$TOKEN"
 if [[ "$HTTP_STATUS" == 501 ]]; then
-    # C-1: the endpoint has no key storage; 501 is the correct answer.
+    # C-1 / BE-02: no key storage behind this endpoint; by-design unsupported.
     pass "Get Event Keys (correctly not implemented)"
 elif echo "$HTTP_BODY" | grep -q -E "M_UNRECOGNIZED|M_NOT_FOUND"; then
     pass "Get Event Keys"
@@ -6296,7 +6296,10 @@ if [ -n "$REPRESENTATIVE_ROOM_ID" ] && [ -n "$MSG_EVENT_ID" ]; then
     http_json GET "$SERVER_URL/_matrix/client/v3/rooms/$REPRESENTATIVE_ROOM_ID/keys/$MSG_ENC" "$TOKEN"
     EVENT_KEYS_RESP="$HTTP_BODY"
     if [[ "$HTTP_STATUS" == 501 ]]; then
-        # C-1: the endpoint has no key storage; 501 is the correct answer.
+        # C-1 / BE-02: no key storage behind this endpoint; by-design unsupported.
+        pass "Get Event Keys (correctly not implemented)"
+    elif [[ "$HTTP_STATUS" == 404 ]] && last_body_is_unrecognized; then
+        # BE-02: by-design unsupported ⇒ 404 M_UNRECOGNIZED.
         pass "Get Event Keys (correctly not implemented)"
     elif check_success_json "$EVENT_KEYS_RESP" "$HTTP_STATUS"; then
         pass "Get Event Keys"

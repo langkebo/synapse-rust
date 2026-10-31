@@ -852,8 +852,24 @@ impl RoomMemberStorage {
         let is_backward = dir.map(|d| d == "b").unwrap_or(false);
         let limit = limit.min(1000);
 
-        // Build the base SELECT with user profile join
-        let base = "SELECT rm.room_id, rm.user_id, rm.sender, rm.membership, rm.event_id, rm.event_type,
+        // BE-03: `room_memberships.event_id` is deliberately never written —
+        // the `events` row owns event identity (decision §4.1) — so selecting the
+        // raw column made `/rooms/{roomId}/members` ship `event_id: null` even
+        // though the spec marks it required. Resolve it at read time from the
+        // latest non-redacted `m.room.member` state event for this (room, user);
+        // `idx_events_type_state (room_id, event_type, state_key)` covers exactly
+        // this lookup, and historical rooms need no backfill.
+        let base = "SELECT rm.room_id, rm.user_id, rm.sender, rm.membership,
+                   COALESCE(rm.event_id, (
+                       SELECT e.event_id FROM events e
+                       WHERE e.room_id = rm.room_id
+                         AND e.event_type = 'm.room.member'
+                         AND e.state_key = rm.user_id
+                         AND e.is_redacted IS NOT TRUE
+                       ORDER BY e.origin_server_ts DESC, e.depth DESC NULLS LAST, e.event_id DESC
+                       LIMIT 1
+                   )) AS event_id,
+                   rm.event_type,
                    rm.display_name, rm.avatar_url, rm.is_banned, rm.invite_token, rm.updated_ts,
                    rm.joined_ts, rm.left_ts, rm.reason, rm.banned_by, rm.ban_reason, rm.banned_ts, rm.join_reason,
                    u.displayname as user_displayname, u.avatar_url as user_avatar_url

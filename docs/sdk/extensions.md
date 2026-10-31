@@ -363,7 +363,7 @@
 | `POST` | `/rooms/{room_id}/translate/{event_id}`、`POST /translate` | 翻译 |
 | `POST` | `/rooms/{room_id}/verify/{event_id}`、`PUT /rooms/{room_id}/sign/{event_id}` | 事件签名/校验 |
 | `GET` | `/rooms/{room_id}/summary/stats` | 摘要统计 |
-| `GET` | `/rooms/{room_id}/keys`、`/keys/{event_id}`、`/keys/count`、`/keys/version` | 房间密钥视图 |
+| `GET` | `/rooms/{room_id}/keys`、`/keys/{event_id}`、`/keys/count`、`/keys/version` | 房间密钥视图（`/keys/{event_id}` 为 by-design 未实现，恒返回 404 `M_UNRECOGNIZED`，见 [路由契约](../synapse-rust/ROUTE_CONTRACT.md)） |
 | `POST` | `/rooms/{room_id}/keys/claim` | 认领房间密钥 |
 | `GET`/`PUT` | `/rooms/{room_id}/room_keys/keys` | 房间密钥存取 |
 | `GET` | `/rooms/{room_id}/keys/distribution` | 密钥分发状态（标准面另有 `/client/v1/...`） |
@@ -552,7 +552,7 @@
 | 线程 | `capabilities.m.thread` | `true` |
 | 房间摘要 | `capabilities.m.room.summary` | `true`（探针已修；旧二进制为 `false`，功能一直可用） |
 | 扩展 profile | `capabilities.m.profile_fields` | `true` |
-| 语音（VoIP） | `capabilities.m.voice` | `true`——表示可签发 TURN 凭据（探针为 `GET /_matrix/client/v3/voip/turnServer`），与 `/_matrix/vendor/v1/voice/*` 无关 |
+| 语音消息（MSC3245） | `capabilities.m.voice` / `unstable_features["org.matrix.msc3245.voice"]` | 由 `/_matrix/vendor/v1/voice/*` 的路由面推导（探针 `GET /_matrix/vendor/v1/voice/config`）：未编译 `voice-extended` 时为 `false`。TURN 凭据可用性另由 `/voip/config` 探测 |
 | 扩展语音 | `capabilities.io.hula.voice_extended`（仅认证后） | 参考部署（`--features all-extensions`）为 `true`；需 `voice-extended` 特性 + `experimental.declare_private_extensions=true`，以 `/capabilities` 实测为准 |
 | 延迟事件 | `/versions` 的 `org.matrix.msc4140` | `true` |
 | Sticky | `/versions` 的 `org.matrix.msc4354` | 由路由面推导；早期二进制不声明 |

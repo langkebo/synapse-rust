@@ -409,11 +409,13 @@ impl CapabilityGovernance {
     }
 
     fn voice_capability(&self) -> CapabilityFlag {
-        // `m.voice` reflects whether the homeserver can issue TURN credentials.
-        // Derive from the `/voip/turnServer` route registration instead of aliasing
-        // `room_summary_capability()`, which tracks the room summary endpoint and
-        // has nothing to do with VoIP availability.
-        CapabilityFlag::route_surface(self.manifest_has_route("GET", "/_matrix/client/v3/voip/turnServer"))
+        // BE-01：`m.voice` / `org.matrix.msc3245.voice` 宣告的是**语音消息**（MSC3245）
+        // 能力，本仓由 `/_matrix/vendor/v1/voice/*` 扩展承载，而该扩展受
+        // `voice-extended` 编译期门控。此前探的是恒注册的
+        // `GET /_matrix/client/v3/voip/turnServer`，于是未编译扩展的部署仍然宣告
+        // `m.voice: true`，客户端据此展示语音入口、但每个 voice 路由都 404。
+        // TURN 凭据是另一件事，由 `/voip/config` 自行探测，不归这个能力位表达。
+        CapabilityFlag::route_surface(self.manifest_has_route("GET", "/_matrix/vendor/v1/voice/config"))
     }
 
     fn thread_capability(&self) -> CapabilityFlag {
@@ -1219,6 +1221,21 @@ mod tests {
         assert_eq!(body["capabilities"]["io.hula.friends"], false);
         assert_eq!(body["capabilities"]["io.hula.voice_extended"]["enabled"], false);
         assert_eq!(body["capabilities"]["io.hula.burn_after_read"]["enabled"], false);
+    }
+
+    /// BE-01：`m.voice` 必须随 voice 扩展的路由面变化，**不能**被恒注册的
+    /// `/voip/turnServer` 带成 `true`。正反双证：只有 TURN 路由时为 false，
+    /// 只有 voice 扩展路由时为 true。
+    #[test]
+    fn test_voice_capability_follows_voice_extension_route_not_turn_route() {
+        let g = governance_with_routes(&Config::default(), vec![("GET", "/_matrix/client/v3/voip/turnServer")]);
+        assert!(!g.voice_capability().enabled(), "turnServer must not imply voice messages");
+        let body = g.build_capabilities_response(true);
+        assert_eq!(body["capabilities"]["m.voice"]["enabled"], false);
+        assert_eq!(body["unstable_features"]["org.matrix.msc3245.voice"], false);
+
+        let g = governance_with_routes(&Config::default(), vec![("GET", "/_matrix/vendor/v1/voice/config")]);
+        assert!(g.voice_capability().enabled(), "voice extension route must declare m.voice");
     }
 
     #[test]

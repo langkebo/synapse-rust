@@ -45,8 +45,12 @@ impl SyncService {
         // A well-formed id that names no stored filter is a client error, not an
         // empty result: answering 200 without the filter would silently hand back
         // an unfiltered timeline (the client asked for something it never gets).
+        //
+        // BE-04: answer 404 `M_NOT_FOUND` (Synapse's wording and code for this
+        // case). `M_UNKNOWN` reads as "server broke, retry" and made callers
+        // retry a request that can never succeed.
         let Some(stored) = stored else {
-            return Err(ApiError::bad_request_unknown(format!("No such filter: {filter_id}")));
+            return Err(ApiError::not_found(format!("No such filter: {filter_id}")));
         };
 
         Ok(Some(Self::sync_response_filter_from_filter_json(&stored.content)))
@@ -1334,13 +1338,13 @@ mod tests {
         let sync = sync_service_with_filter_store(filter_store);
 
         // CS-API: `/sync?filter=<id>` naming a filter the user never created is a
-        // client error (`M_UNKNOWN`), not an empty result.
+        // client error (`404 M_NOT_FOUND`, matching Synapse), not an empty result.
         let err = sync
             .resolve_sync_response_filter("@alice:localhost", Some("does-not-exist"))
             .await
             .expect_err("unknown filter id must be rejected");
-        assert!(err.code_is(synapse_common::error::MatrixErrorCode::Unknown), "unexpected errcode: {err:?}");
-        assert_eq!(err.http_status(), 400);
+        assert!(err.code_is(synapse_common::error::MatrixErrorCode::NotFound), "unexpected errcode: {err:?}");
+        assert_eq!(err.http_status(), 404);
     }
 
     #[tokio::test]

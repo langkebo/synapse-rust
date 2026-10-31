@@ -470,6 +470,71 @@ async fn test_get_room_members_paginated_with_profiles_covers_every_query_shape(
     cleanup_membership_data(&pool, &suffix).await;
 }
 
+/// BE-03: `/rooms/{roomId}/members` must ship a **non-null** `event_id`.
+///
+/// `room_memberships.event_id` is never written by design (decision §4.1 — the
+/// `events` row owns event identity), so the query resolves the id at read time
+/// from the latest non-redacted `m.room.member` event. This pins all three legs
+/// of that fallback: it happens at all, it picks the newest event, and it skips
+/// redacted ones (a redacted membership event renders as `leave` client-side,
+/// contradicting the projection's `join`).
+#[tokio::test]
+async fn test_get_room_members_paginated_with_profiles_resolves_event_id() {
+    let (_isolated, pool) = test_pool().await;
+    let storage = RoomMemberStorage::new(&pool, "localhost");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
+    let room_id = format!("!room_mem_evid_{suffix}:localhost");
+    let user_id = format!("@mem_evid_{suffix}:localhost");
+    let no_event_user = format!("@mem_evid_none_{suffix}:localhost");
+
+    cleanup_membership_data(&pool, &suffix).await;
+    ensure_test_room(&pool, &room_id).await;
+    ensure_test_user(&pool, &user_id).await;
+    ensure_test_user(&pool, &no_event_user).await;
+    storage.add_member(&room_id, &user_id, "join", None, None, None, None).await.unwrap();
+    storage.add_member(&room_id, &no_event_user, "join", None, None, None, None).await.unwrap();
+
+    // `user_id`: an old join, a newer **redacted** leave, a newest join.
+    // `no_event_user`: no `m.room.member` row at all ⇒ must stay NULL.
+    let seeded = [
+        ("$old:localhost", 1_000i64, false),
+        ("$redacted:localhost", 2_000, true),
+        ("$newest:localhost", 3_000, false),
+    ];
+    for (event_id, ts, is_redacted) in seeded {
+        sqlx::query(
+            "INSERT INTO events (event_id, room_id, sender, event_type, content, origin_server_ts, state_key, is_redacted, depth) \
+             VALUES ($1, $2, $3, 'm.room.member', '{}'::jsonb, $4, $5, $6, 1)",
+        )
+        .bind(event_id)
+        .bind(&room_id)
+        .bind(&user_id)
+        .bind(ts)
+        .bind(&user_id)
+        .bind(is_redacted)
+        .execute(&*pool)
+        .await
+        .expect("seed m.room.member event");
+    }
+
+    let page = storage
+        .get_room_members_paginated_with_profiles(&room_id, Some("join"), None, 10, None, None)
+        .await
+        .expect("paginated members must resolve event_id");
+
+    let event_id_of = |user: &str| -> Option<String> {
+        page.iter().find(|(m, _, _)| m.user_id == user).and_then(|(m, _, _)| m.event_id.clone())
+    };
+    assert_eq!(
+        event_id_of(&user_id).as_deref(),
+        Some("$newest:localhost"),
+        "必须解析到最新的**非 redacted** m.room.member 事件"
+    );
+    assert_eq!(event_id_of(&no_event_user), None, "没有任何 m.room.member 事件时必须保持 NULL，不得伪造");
+
+    cleanup_membership_data(&pool, &suffix).await;
+}
+
 // ── 7. remove_member ──────────────────────────────────────────
 
 #[tokio::test]

@@ -203,11 +203,12 @@ fn test_thirdparty_routes_share_across_r0_and_v3() {
             .unwrap();
         let v3_location_response =
             ServiceExt::<Request<Body>>::oneshot(app.clone(), v3_location_request).await.unwrap();
-        // COMPAT-03: M_UNRECOGNIZED is spec-mapped to 404 (not 400).
+        // BE-05: "no bridge configured" answers 404 `M_NOT_FOUND`, which is
+        // distinguishable from the route-missing `M_UNRECOGNIZED`.
         assert_eq!(v3_location_response.status(), StatusCode::NOT_FOUND);
         let body = axum::body::to_bytes(v3_location_response.into_body(), 1024).await.unwrap();
         let v3_location_json: Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(v3_location_json["errcode"], "M_UNRECOGNIZED");
+        assert_eq!(v3_location_json["errcode"], "M_NOT_FOUND");
 
         let r0_location_request = Request::builder()
             .uri("/_matrix/client/v3/thirdparty/location?alias=%23demo:localhost")

@@ -100,7 +100,7 @@ mod tests {
     }
 
     async fn optional_number(number: Option<MatrixPath<u32>>) -> String {
-        number.map(|MatrixPath(number)| number.to_string()).unwrap_or_else(|| "none".to_string())
+        number.map_or_else(|| "none".to_string(), |MatrixPath(number)| number.to_string())
     }
 
     async fn send(app: Router, uri: &str) -> axum::response::Response {

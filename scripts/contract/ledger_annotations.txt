@@ -70,10 +70,11 @@
 #
 #   * `unsupported` — the route is registered and reachable, but the documented
 #     response is deliberately not implemented. Today: the vendor
-#     `GET /rooms/{room_id}/keys/{event_id}` (C-1, 501 `M_UNKNOWN` — it used to
-#     answer 200 with a placeholder `"keys": []`, which a client cannot
-#     distinguish from "no keys") and the three voice media-processing POSTs
-#     (501 `M_UNRECOGNIZED`, matching `server_side_processing: false`).
+#     `GET /rooms/{room_id}/keys/{event_id}` (C-1, 404 `M_UNRECOGNIZED` since
+#     BE-02 — it used to answer 200 with a placeholder `"keys": []`, which a
+#     client cannot distinguish from "no keys") and the three voice
+#     media-processing POSTs (501 `M_UNRECOGNIZED`, matching
+#     `server_side_processing: false`).
 #
 #   * `dynamic` — the `(method, path)` exists but the static extractor cannot
 #     name a single handler definition, *by construction* rather than because

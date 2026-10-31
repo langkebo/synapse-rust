@@ -1525,7 +1525,8 @@ B2-2 已删除全部 ~120 个手抄 `*_route_manifest()` 助手：路由元数�
 #### 2. `GET /_matrix/vendor/v1/rooms/{room_id}/keys/{event_id}`（C-1）
 
 - 之前返回 `200 {"keys": []}`，客户端无法区分「没有密钥」与「没实现」。
-- 现在返回 **501 `M_UNKNOWN`**，`error` 明确说明未实现；鉴权与房间可见性校验仍在返回 501 之前执行（无权限仍是 403/404）。
+- 现在返回 **404 `M_UNRECOGNIZED`**（BE-02 起；此前是 501 `M_UNKNOWN`）：这是「本服务不提供该端点」，不是「服务器故障请重试」。501 会被 ERROR 级日志记录并诱发客户端重试，语义错误。
+- 鉴权与房间可见性校验仍在返回 404 之前执行（无权限仍是 403/404）。
 - SDK 侧请把该状态识别为 `Unsupported`，不要当成空结果。
 
 ### A.6 2026-10-20 admin 列表端点分页语义（B-10 / B-11 / B-12）
@@ -2591,7 +2592,7 @@ SDK 门禁只能落到 `backend-query-unknown`；类型化后 `query` 分类为 
 | `synapse-web/src/routes/voice.rs` | 同上 ← `optimize_voice_message` | #1 | `404 M_UNRECOGNIZED` | `404 M_UNRECOGNIZED` | 保持 |
 | `synapse-web/src/routes/voice.rs` | 同上 ← `transcribe_voice_message` | #1 | `404 M_UNRECOGNIZED` | `404 M_UNRECOGNIZED` | 保持 |
 | `synapse-web/src/routes/account_compat.rs` | `reject_unsupported_account_erasure` ← `deactivate_account` | #2 | `501 M_UNKNOWN` | `501 M_UNKNOWN` | 保持：端点可用、`erase` 字段被拒。抽成函数以便钉住 |
-| `synapse-web/src/routes/handlers/room/events.rs` | `get_event_keys`（实际路径 `/_matrix/vendor/v1/rooms/{room_id}/keys/{event_id}`，见 by-design 表） | #2 | `501 M_UNKNOWN` | `501 M_UNKNOWN` | 保持：不能回 `200 {"keys": []}`（读起来像"这个事件没有密钥"） |
+| `synapse-web/src/routes/handlers/room/events.rs` | `get_event_keys`（实际路径 `/_matrix/vendor/v1/rooms/{room_id}/keys/{event_id}`，见 by-design 表） | #1 | `404 M_UNRECOGNIZED` | `404 M_UNRECOGNIZED` | BE-02 已从 `501 M_UNKNOWN` 改为 #1：这是「本服务不提供该端点」，不是服务器故障；不能回 `200 {"keys": []}`（读起来像"这个事件没有密钥"） |
 | `synapse-services/src/captcha_service.rs` | `send_email`（SMTP 未启用分支） | #1 | `404 M_UNRECOGNIZED` | `404 M_UNRECOGNIZED` | 保持：email-captcha 交付通道整体未启用 ⇒ 客户端换验证方式。**偏离登记**：Synapse 对同类情况回 `400 M_THREEPID_DENIED`；改成本表 #2（501）会动注册/三方 ID 业务分支，不属 ARCH-03 改动面 |
 | `synapse-services/src/captcha_service.rs` | `send_email`（任务队列未配置分支） | #1 | `404 M_UNRECOGNIZED` | `404 M_UNRECOGNIZED` | 同上（偏离登记同上） |
 | `synapse-services/src/captcha_service.rs` | `send_sms_async`（无 provider） | #1 | `404 M_UNRECOGNIZED` | `404 M_UNRECOGNIZED` | 同上（偏离登记同上） |

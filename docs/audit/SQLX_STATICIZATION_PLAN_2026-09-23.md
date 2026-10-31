@@ -2191,11 +2191,20 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 <!-- sqlx-plan-numbers:start -->
 <!-- 以下数字由 `scripts/ci/check_plan_numbers_fresh.sh` 与基线/实测现算比对；改基线必须同步改这里。 -->
 BASELINE_DYNAMIC_PRODUCTION=105
-BASELINE_DYNAMIC_TEST_INFRA=846
+BASELINE_DYNAMIC_TEST_INFRA=847
 BASELINE_STATIC=1360
 BASELINE_QUERY_BUILDER=17
 SQLX_CACHE_ENTRIES=1333
 <!-- sqlx-plan-numbers:end -->
+
+> **2026-10-31 更新（BE-03：`/members` 回填 `event_id`）**，数字块一项：
+> - `BASELINE_DYNAMIC_TEST_INFRA` **846 → 847**（+1）：`synapse-storage/src/membership/db_tests.rs`
+>   新增 `test_get_room_members_paginated_with_profiles_resolves_event_id` 的 1 处
+>   `INSERT INTO events … VALUES` 播种语句。该用例要同时钉住「解析到最新」「跳过 redacted」
+>   「无事件保持 NULL」「分页信封不变」四条腿，就必须先造出三行 `m.room.member` 事件；
+>   `#[cfg(test)]` 内的 `query!` 不进 `cargo sqlx prepare`（默认 target 集），`--all-targets` 会 E0432，
+>   故只能用动态 `sqlx::query`。生产 105 / 静态 1360 / QueryBuilder 17 / 缓存条数 1333 不变。
+>   `BASELINE_DYNAMIC` 同步 951 → 952（仅保持"总数 = 生产 + 测试"一致，本身不入棘轮）。
 
 > **2026-10-29 更新（审计 #1：注销数据清理补齐 5 张表）**，数字块一项：
 > - `SQLX_CACHE_ENTRIES` **1328 → 1333**（净 +5，与新增的 5 条静态宏一一对应）：

@@ -36,7 +36,7 @@
 {
   "unstable_features": {
     "org.matrix.msc4143": true,          // RTC transports 路由存在
-    "org.matrix.msc3245.voice": true     // /voip/turnServer 路由存在
+    "org.matrix.msc3245.voice": true     // voice 扩展（/_matrix/vendor/v1/voice/config）路由存在
   }
 }
 ```
@@ -51,8 +51,10 @@
 ```
 
 两者的判定都来自**路由探针**（`synapse-services/src/capability_governance.rs`），
-不是配置开关：路由没注册就是 `false`。`m.voice` 只表示“能签发 TURN 凭据”，
-**不表示**服务端已配置可用的 TURN/STUN，是否真的拿到服务器要调用 `/voip/config` 才知道。
+不是配置开关：路由没注册就是 `false`。`m.voice` / `org.matrix.msc3245.voice`
+宣告的是**语音消息**（MSC3245）能力，探针为 `GET /_matrix/vendor/v1/voice/config`；
+未编译 `voice-extended` 特性时两者均为 `false`。**TURN 凭据是另一件事**：
+是否真的拿到服务器要调用 `/voip/config` 才知道（见下一节）。
 
 ---
 

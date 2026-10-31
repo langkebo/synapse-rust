@@ -52,8 +52,10 @@ pub(crate) async fn get_single_event(
 /// C-1: this endpoint has no key storage behind it. It used to answer
 /// `200 {"keys": []}`, which is indistinguishable from "this event has no keys"
 /// — a caller would conclude the feature works and the event simply carries
-/// nothing. Answer 501 `M_UNKNOWN` instead, so the caller knows the endpoint is
-/// not implemented here.
+/// nothing. Answer 404 `M_UNRECOGNIZED` instead (BE-02): a 5xx would be logged
+/// at ERROR and told the client "the server is broken, retry", while the truth
+/// is "this endpoint is not part of this server's surface". This matches the
+/// existing by-design-unsupported style of `/_matrix/vendor/v1/voice/*`.
 pub(crate) async fn get_event_keys(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -67,7 +69,7 @@ pub(crate) async fn get_event_keys(
 
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    Err(ApiError::not_supported("Event keys are not implemented by this server"))
+    Err(ApiError::unrecognized("Event keys are not implemented by this server"))
 }
 
 /// See [`get_room_thread`].
@@ -1382,11 +1384,12 @@ mod tests {
 
     #[test]
     fn test_event_keys_semantics_are_not_a_success_shaped_empty_array() {
-        // C-1: `GET /rooms/{room_id}/keys/{event_id}` has no storage behind it.
-        // Answering `200 {"keys": []}` reads as "this event has no keys", so the
-        // handler answers 501 `M_UNKNOWN` instead.
-        let err = ApiError::not_supported("Event keys are not implemented by this server");
-        assert!(err.code_is(synapse_common::MatrixErrorCode::Unknown));
+        // C-1 / BE-02: `GET /rooms/{room_id}/keys/{event_id}` has no storage
+        // behind it. Answering `200 {"keys": []}` reads as "this event has no
+        // keys", so the handler answers 404 `M_UNRECOGNIZED` instead — a 5xx
+        // would read as a server fault and be logged at ERROR.
+        let err = ApiError::unrecognized("Event keys are not implemented by this server");
+        assert!(err.code_is(synapse_common::MatrixErrorCode::Unrecognized));
     }
 
     #[test]

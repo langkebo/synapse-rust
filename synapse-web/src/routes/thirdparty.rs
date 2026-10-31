@@ -81,21 +81,26 @@ pub struct LocationQuery {
     pub channel: Option<String>,
 }
 
-// The four `location`/`user` query endpoints below are registered but always
-// answer `M_UNRECOGNIZED`. This is by-design, not a phantom route: the spec
-// defines these as the "no bridge configured" surface, and `M_UNRECOGNIZED` is
-// the sanctioned reply when no third-party bridge resolves the query. They are
-// kept in the ledger so the route surface stays complete and clients get a
-// well-formed spec error rather than a 404. This mirrors the voice endpoints in
-// `_matrix/vendor/v1/voice` (which likewise stay registered and return a
-// spec-sanctioned error; see the by-design note there / FN-05).
+// The four `location`/`user` query endpoints below are registered but have no
+// bridge to answer them. They stay registered by-design (see the 2026-10-09
+// ruling) so the route surface stays complete and clients get a well-formed
+// spec error rather than a route-missing one.
+//
+// BE-05: they answer `M_NOT_FOUND` (404), not `M_UNRECOGNIZED`. The latter is
+// exactly what this server returns for a route that does not exist, so a
+// client could not tell "no bridge configured" from "endpoint missing" — the
+// whole point of keeping the routes registered. `get_protocol` above already
+// uses `M_NOT_FOUND` for its own "nothing registered" condition, so this is
+// also the local precedent. The ledger's `unsupported=true` annotation is
+// unaffected: `check_unsupported_endpoints.py` keys on "the handler always
+// fails", not on which constructor it fails with.
 async fn get_location(
     State(_ctx): State<RoomContext>,
     _auth_user: AuthenticatedUser,
     MatrixPath(_protocol): MatrixPath<String>,
     MatrixQuery(_query): MatrixQuery<LocationQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
-    Err(ApiError::unrecognized("No third-party location bridges configured"))
+    Err(ApiError::not_found("No third-party location bridges configured"))
 }
 
 async fn get_location_by_alias(
@@ -103,7 +108,7 @@ async fn get_location_by_alias(
     _auth_user: AuthenticatedUser,
     MatrixQuery(_query): MatrixQuery<LocationQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
-    Err(ApiError::unrecognized("No third-party location bridges configured"))
+    Err(ApiError::not_found("No third-party location bridges configured"))
 }
 
 /// The `UserQuery` struct.
@@ -126,7 +131,7 @@ async fn get_user(
     MatrixPath(_protocol): MatrixPath<String>,
     MatrixQuery(_query): MatrixQuery<UserQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
-    Err(ApiError::unrecognized("No third-party user bridges configured"))
+    Err(ApiError::not_found("No third-party user bridges configured"))
 }
 
 async fn get_user_by_id(
@@ -134,7 +139,7 @@ async fn get_user_by_id(
     _auth_user: AuthenticatedUser,
     MatrixQuery(_query): MatrixQuery<UserQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
-    Err(ApiError::unrecognized("No third-party user bridges configured"))
+    Err(ApiError::not_found("No third-party user bridges configured"))
 }
 
 #[cfg(test)]
