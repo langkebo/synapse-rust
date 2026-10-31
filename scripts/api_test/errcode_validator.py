@@ -344,7 +344,8 @@ _RULES: list[tuple[str, set[str], set[str]]] = [
     ("/threads", {"GET", "POST"}, _BASE_AUTH),
     ("/presence", {"POST"}, _BASE_AUTH),
     ("/friendships", {"GET", "POST"}, _BASE_AUTH),
-    ("/friends", {"GET", "POST"}, _BASE_AUTH | {"M_NOT_FOUND"}),
+    # M_INVALID_PARAM: `/friends?limit=` 越界（1..=200 之外）与非法 user_id 均按参数错误返回
+    ("/friends", {"GET", "POST"}, _BASE_AUTH | {"M_NOT_FOUND", "M_INVALID_PARAM"}),
     ("/appservice", {"GET"}, _BASE_AUTH),
     ("/translate", {"POST"}, _BASE_AUTH),
     ("/widgets", {"POST"}, _BASE_AUTH),

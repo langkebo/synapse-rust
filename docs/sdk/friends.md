@@ -62,7 +62,7 @@ REST 语义——**不要**直接读写那个房间的状态事件。
 
 | 参数 | 默认 | 说明 |
 |---|---|---|
-| `limit` | `50` | 夹在 `1..=200` |
+| `limit` | `50` | **必须** `1..=200`，越界返回 `400 M_INVALID_PARAM`；合法值原样生效，响应 `limit` 恒等于请求值 |
 | `from` | 无 | **Keyset 游标**，取上次响应的 `next_batch` |
 | `sort_by` | `alphabet` | 排序字段 |
 | `offset` | 无 | ⚠️ **已废弃**：`offset > 0` 且没给 `from` → **400 `M_BAD_JSON`**（`Legacy offset pagination is no longer supported; use from cursor`） |

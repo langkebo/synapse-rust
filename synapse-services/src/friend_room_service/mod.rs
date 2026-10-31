@@ -1046,7 +1046,9 @@ impl FriendRoomService {
         let content = merge_friend_list_shards(&shards);
 
         let version = content.get("version").and_then(|v| v.as_i64()).unwrap_or(1);
-        let safe_limit = request.limit.clamp(1, 100);
+        // BE-10：上限与 HTTP 层校验口径统一为 200（原为 100，会让 `limit=150` 被静默
+        // 截成 100）。web 层已严格校验 1..=200，这里保留 clamp 仅作纵深防御。
+        let safe_limit = request.limit.clamp(1, 200);
         if let Some(cursor) = request.from.as_ref() {
             if cursor.sort_by != request.sort_by {
                 return Err(FriendRoomError::InvalidInput(

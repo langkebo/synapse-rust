@@ -232,6 +232,25 @@ pub enum FriendRequestStatus {
     Cancelled,
 }
 
+/// `/friends` 分页 `limit` 的合法区间与缺省值（BE-10）。
+const FRIEND_LIST_MIN_LIMIT: usize = 1;
+const FRIEND_LIST_MAX_LIMIT: usize = 200;
+const FRIEND_LIST_DEFAULT_LIMIT: usize = 50;
+
+/// 校验 `/friends` 的 `limit` 查询参数。
+///
+/// 缺省为 50；显式给出时必须落在 `1..=200`，越界返回 400 `M_INVALID_PARAM`，
+/// 而不是静默 clamp —— 静默改写会让响应里的 `limit` 与请求值不一致。
+fn resolve_friend_list_limit(limit: Option<usize>) -> Result<usize, ApiError> {
+    let limit = limit.unwrap_or(FRIEND_LIST_DEFAULT_LIMIT);
+    if !(FRIEND_LIST_MIN_LIMIT..=FRIEND_LIST_MAX_LIMIT).contains(&limit) {
+        return Err(ApiError::invalid_param(format!(
+            "limit must be between {FRIEND_LIST_MIN_LIMIT} and {FRIEND_LIST_MAX_LIMIT} (got {limit})"
+        )));
+    }
+    Ok(limit)
+}
+
 async fn get_friends(
     State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
@@ -249,12 +268,17 @@ async fn get_friends(
     if params.from.is_some() && cursor.is_none() && legacy_offset.is_none() {
         return Err(ApiError::bad_request("Invalid friend list pagination cursor"));
     }
+    // BE-10：`limit` 必须显式落在 1..=200。此前 web 层 `clamp(1, 200)`、service 层
+    // 又 `clamp(1, 100)`，导致 `limit=0` 回显 1、`limit=10001` 回显 100 —— 回显值与
+    // 请求值不一致，客户端无法判断自己的参数被静默改写。改为严格校验，越界即 400，
+    // 合法值原样透传，响应 `limit` 恒等于请求值。
+    let limit = resolve_friend_list_limit(params.limit)?;
     let page = ctx
         .friend_room_service
         .get_friends_page(
             &auth_user.user_id,
             synapse_services::friend_room_service::FriendListRequest {
-                limit: params.limit.unwrap_or(50).clamp(1, 200),
+                limit,
                 offset: legacy_offset.map(|offset| offset.clamp(0, 10000)),
                 from: cursor,
                 sort_by: params.sort_by.unwrap_or_else(|| "alphabet".to_string()),
@@ -913,5 +937,21 @@ mod tests {
         assert!(serde_json::from_str::<CreateFriendDmRequest>(r#"{"is_private":true}"#).is_ok());
         assert!(serde_json::from_str::<CreateFriendDmRequest>(r#"{}"#).is_ok());
         assert!(serde_json::from_str::<CreateFriendDmRequest>(r#"{"is_private":true,"other":1}"#).is_err());
+    }
+
+    /// BE-10：`limit` 必须严格落在 `1..=200`，越界返回 400 `M_INVALID_PARAM`，
+    /// 而不是被静默 clamp 成 1/200 —— 后者会让响应 `limit` 与请求值不一致。
+    #[test]
+    fn test_friend_list_limit_is_validated_not_clamped() {
+        assert_eq!(resolve_friend_list_limit(None).unwrap(), FRIEND_LIST_DEFAULT_LIMIT);
+        assert_eq!(resolve_friend_list_limit(Some(1)).unwrap(), 1);
+        assert_eq!(resolve_friend_list_limit(Some(200)).unwrap(), 200);
+
+        for out_of_range in [0usize, 201, 10_001] {
+            let error = resolve_friend_list_limit(Some(out_of_range)).expect_err("out-of-range limit must be rejected");
+            assert_eq!(error.kind, synapse_common::ApiErrorKind::BadRequest);
+            assert_eq!(error.code, synapse_common::MatrixErrorCode::InvalidParam);
+            assert!(error.message.contains(&out_of_range.to_string()), "message should mention {out_of_range}");
+        }
     }
 }
