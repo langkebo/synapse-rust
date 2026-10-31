@@ -239,6 +239,9 @@ impl MembershipService {
         // Invalidate room-state cache after membership state change.
         crate::room_state_cache::invalidate_room_state(&self.cache, room_id).await;
 
+        // P0-2: fold the committed join into the room's resolved-state record.
+        self.project_member_state(room_id, &join_event.event_id, user_id).await;
+
         // Enqueue the join event for matching application services.
         self.dispatch_appservice_event(&join_event).await;
 
@@ -337,6 +340,9 @@ impl MembershipService {
 
         // Invalidate room-state cache after membership state change.
         crate::room_state_cache::invalidate_room_state(&self.cache, room_id).await;
+
+        // P0-2: fold the committed leave into the room's resolved-state record.
+        self.project_member_state(room_id, &leave_event.event_id, user_id).await;
 
         // Best-effort: sign and broadcast the leave event to federation peers.
         if let Err(e) = self.sign_and_broadcast_event(&leave_event).await {
@@ -611,6 +617,9 @@ impl MembershipService {
             .map_err(|e| ApiError::internal_with_cause("Failed to record m.room.member leave event", e))?;
 
         crate::room_state_cache::invalidate_room_state(&self.cache, room_id).await;
+
+        // P0-2: fold the committed leave into the room's resolved-state record.
+        self.project_member_state(room_id, &leave_event.event_id, user_id).await;
 
         if let Err(e) = self.sign_and_broadcast_event(&leave_event).await {
             ::tracing::warn!(

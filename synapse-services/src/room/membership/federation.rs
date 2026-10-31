@@ -525,6 +525,10 @@ impl MembershipService {
                 ::tracing::warn!(error = %e, "Failed to persist join event after federation join");
                 return Err(ApiError::internal_with_cause("Failed to persist join event after federation join", e));
             }
+
+            // P0-2: the join event was not part of the resident server's state
+            // batch above, so fold it into the resolved-state record here.
+            self.project_member_state(room_id, &join_event_id, user_id).await;
         }
 
         // Invalidate room-state cache after membership state change.
@@ -727,7 +731,7 @@ impl MembershipService {
             .event_writer
             .create_event(
                 CreateEventParams {
-                    event_id,
+                    event_id: event_id.clone(),
                     room_id: room_id.to_string(),
                     user_id: leave_sender,
                     event_type: "m.room.member".to_string(),
@@ -746,6 +750,9 @@ impl MembershipService {
 
         // Invalidate room-state cache after membership state change.
         crate::room_state_cache::invalidate_room_state(&self.cache, room_id).await;
+
+        // P0-2: fold the committed leave into the room's resolved-state record.
+        self.project_member_state(room_id, &event_id, user_id).await;
 
         // 4. Update local membership.
         let existing_member = self
@@ -982,7 +989,7 @@ impl MembershipService {
             .event_writer
             .create_event(
                 CreateEventParams {
-                    event_id: persisted_event_id,
+                    event_id: persisted_event_id.clone(),
                     room_id: room_id.to_string(),
                     user_id: persisted_sender,
                     event_type: "m.room.member".to_string(),
@@ -999,6 +1006,8 @@ impl MembershipService {
         } else {
             // Invalidate room-state cache after membership state change.
             crate::room_state_cache::invalidate_room_state(&self.cache, room_id).await;
+            // P0-2: fold the committed invite into the resolved-state record.
+            self.project_member_state(room_id, &persisted_event_id, invitee_id).await;
         }
 
         Ok(())
@@ -1091,12 +1100,12 @@ impl MembershipService {
             .event_writer
             .create_event(
                 CreateEventParams {
-                    event_id,
+                    event_id: event_id.clone(),
                     room_id: room_id.to_string(),
                     user_id: sender,
                     event_type: "m.room.member".to_string(),
                     content,
-                    state_key,
+                    state_key: state_key.clone(),
                     origin_server_ts,
                     redacts: None,
                 },
@@ -1108,6 +1117,10 @@ impl MembershipService {
         } else {
             // Invalidate room-state cache after membership state change.
             crate::room_state_cache::invalidate_room_state(&self.cache, room_id).await;
+            // P0-2: fold the committed invite into the resolved-state record.
+            if let Some(state_key) = state_key.as_deref() {
+                self.project_member_state(room_id, &event_id, state_key).await;
+            }
         }
 
         Ok(signed_event)

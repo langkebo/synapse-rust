@@ -71,6 +71,11 @@ LOG_FILE="$LOG_DIR/deploy_${TIMESTAMP}.log"
 LOG_PIPE=""
 LOG_TEE_PID=""
 
+# 部署开始时间（Unix 秒），日志门禁用它作为 `compose logs --since` 的下界。
+# 为什么不用 `--tail=400`：那只覆盖启动窗口，健康检查之后才出现的运行期
+# ERROR（例如 /state 的 500）全在视野之外（问题清单 §1.5 第 2 点）。
+DEPLOY_START_EPOCH="${DEPLOY_START_EPOCH:-$(date +%s)}"
+
 ROLLBACK_BACKUP=""
 ROLLBACK_IMAGE_TAG=""
 ROLLBACK_ENABLED=true
@@ -621,6 +626,15 @@ load_env() {
             value="${value:1:${#value}-2}"
         fi
 
+        if [[ "$key" == "SYNAPSE_IMAGE" ]]; then
+            # 镜像 tag 由 derive_image_tag 现算；`.env` 里的手写值只会造成
+            # "tag 里的 sha ≠ 实际构建的 commit"的失真，这里直接丢弃并提示。
+            if [[ -n "$value" ]]; then
+                log_warning ".env 中的 SYNAPSE_IMAGE=${value} 已忽略：镜像 tag 由 deploy.sh 按 <version>-<commit> 现算"
+            fi
+            continue
+        fi
+
         export "$key=$value"
     done <.env
 
@@ -631,8 +645,25 @@ load_env() {
     fi
 }
 
+# 镜像 tag 的唯一真相源：Cargo.toml 版本 + 当前 git HEAD（工作区不干净时追加
+# `-dirty`）。过去 tag 来自 `.env` 里手工维护的 `SYNAPSE_IMAGE`，改了代码不改
+# `.env` 就会把新镜像贴上**旧 sha**，`docker images` 于是给出一个自信的错误答案。
+# 现算之后，tag、`git rev-parse` 和 OCI label 的 `VCS_REF` 用的是同一个值。
+derive_image_tag() {
+    local version sha dirty=""
+    version="$(awk -F'"' '/^version = /{print $2; exit}' "$PROJECT_ROOT/Cargo.toml" 2>/dev/null)"
+    version="${version:-dev}"
+    sha="$(git -C "$PROJECT_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+    if [ -n "$(git -C "$PROJECT_ROOT" status --porcelain 2>/dev/null)" ]; then
+        dirty="-dirty"
+    fi
+    echo "synapse-rust:${version}-${sha}${dirty}"
+}
+
 local_image_ref() {
-    echo "${SYNAPSE_IMAGE:-synapse-rust:local}"
+    # `SYNAPSE_IMAGE` 只在远程镜像分支（`--image`）由 deploy.sh 自己导出；
+    # `.env` 里的同名变量在 load_env 阶段会被剃掉（见下）。
+    echo "${SYNAPSE_IMAGE:-$(derive_image_tag)}"
 }
 
 docker_feature_args() {
@@ -1006,13 +1037,40 @@ check_local_turn() {
 # 监控栈启动（prometheus / alertmanager / grafana / node-exporter / alert-handler）
 # =============================================================================
 # 监控栈通过独立的 `docker-compose.monitoring.yml` 编排（此前是裸 `docker run`
-# 手工起的，配置能改、栈无法重建）。它复用核心栈创建的网络，因此必须在核心栈
-# 起来之后再启动。
+# 手工起的，配置能改、栈无法重建）。监控容器之间走自有网络，只有 prometheus /
+# postgres-exporter 额外接入核心栈网络，因此仍需在核心栈起来之后再启动。
 #
 # **非致命**：监控不在对外服务关键路径上，任一环节失败只告警、返回 0，
 # 不触发核心栈回滚。用 `--no-monitoring` 可整体跳过。
 MONITORING_COMPOSE_FILE="docker-compose.monitoring.yml"
 MONITORING_PROJECT="synapse-monitoring"
+
+# 拆除核心栈之前先停监控栈。
+#
+# 为什么必须先停：prometheus 与 postgres-exporter 需要访问业务容器，因此仍
+# 接入 `synapse_network`；只要它们在跑，核心栈的 `compose down` 就无法回收
+# 该网络（network has active endpoints），`remove_existing_deployment` 只能
+# 打一条"仍被占用"的告警了事（问题清单 §2.7）。停掉监控栈即断开全部
+# attachment，网络才能被真正删除。`down` 不会删 external 网络本身，安全。
+#
+# **非致命**：这里失败只告警；随后的网络清理会再次检查占用情况。
+stop_monitoring() {
+    DEPLOYMENT_PHASE="stop-monitoring"
+    if [ ! -f "$DEPLOY_ROOT/$MONITORING_COMPOSE_FILE" ]; then
+        return 0
+    fi
+    if ! compose -p "$MONITORING_PROJECT" -f "$MONITORING_COMPOSE_FILE" ps -q 2>/dev/null | grep -q .; then
+        log_info "监控栈未在运行，跳过停止"
+        return 0
+    fi
+    log_info "停止监控栈以释放业务网络 (project=$MONITORING_PROJECT)..."
+    if compose -p "$MONITORING_PROJECT" -f "$MONITORING_COMPOSE_FILE" down --remove-orphans >/dev/null 2>&1; then
+        log_success "监控栈已停止，业务网络已释放"
+    else
+        log_warning "监控栈停止失败（不影响核心栈）；网络可能仍被占用"
+    fi
+    return 0
+}
 
 start_monitoring() {
     DEPLOYMENT_PHASE="monitoring"
@@ -1569,30 +1627,24 @@ build_images() {
         -t "$(local_image_ref)" \
         "$PROJECT_ROOT"
     docker image inspect "$(local_image_ref)" >/dev/null
-    # ⚠️ 必须**显式导出** `SYNAPSE_IMAGE`，不能靠"compose 的默认值恰好也是
-    # `synapse-rust:local`"来对齐。此前这个变量只在 `--image`（远程镜像）分支被
-    # export，正常构建分支没导 —— 于是 `docker build -t "$(local_image_ref)"` 与
-    # `docker compose up`（读 `${SYNAPSE_IMAGE:-synapse-rust:local}`）是**两个独立
-    # 来源**，只是当前字面量相同才碰巧一致。任何一侧改 tag（例如带上 version+sha
-    # 以便 `docker images` 可追溯）就会让"构建的镜像"与"起的镜像"分叉，且分叉时
-    # 不会报错 —— 只是静默跑起一个旧镜像。这里把耦合变成显式的。
+    # 必须**显式导出** `SYNAPSE_IMAGE`：`docker build -t` 与 `docker compose up`
+    # （读 `${SYNAPSE_IMAGE:-...}`）是两条独立取值路径，只靠默认值相等会让
+    # "构建的镜像"与"起的镜像"在任一侧改 tag 后静默分叉 —— 跑起旧镜像却不报错。
     export SYNAPSE_IMAGE="$(local_image_ref)"
-    # 部署日志留一条可追溯记录：镜像 tag 是 `:local`（compose 的默认值），
-    # 真正能回答"这台机器上跑的是哪个 commit"的是 OCI label（build-arg VCS_REF）。
+    # tag 与 OCI label 的 `VCS_REF` 同源（都取自 git HEAD），可用于事后追溯。
     log_success "Docker 镜像构建完成: ${SYNAPSE_IMAGE} (version=${image_version} commit=${image_vcs_ref})"
 
-    # tag 里若带 commit（如 `synapse-rust:6.3.0-61d1b4263`），那个 sha 来自
-    # `.env` 的 `SYNAPSE_IMAGE`，是**手工维护**的字符串 —— 与本次构建用的 commit
-    # 没有任何强制关系。改了代码不改 `.env`，本次镜像就会被贴上**旧 sha** 的标签，
-    # 比"tag 里没有 sha"更危险：`docker images` 会给出一个自信的错误答案。
-    # 权威值永远是 OCI label（build-arg VCS_REF 现取自 `git rev-parse`），这里比对。
+    # 兜底自检：tag 里的 commit 必须等于本次构建的 commit。tag 由
+    # derive_image_tag 现算，正常情况下恒等；一旦不等，说明有人用外部环境变量
+    # 覆盖了 `SYNAPSE_IMAGE`（例如 `SYNAPSE_IMAGE=... ./deploy.sh`），
+    # `docker images` 就会给出自信的错误答案，这里必须喊出来。
     local tag_sha=""
-    if [[ "$SYNAPSE_IMAGE" =~ [.-]([0-9a-f]{7,40})$ ]]; then
+    if [[ "$SYNAPSE_IMAGE" =~ [.-]([0-9a-f]{7,40})(-dirty)?$ ]]; then
         tag_sha="${BASH_REMATCH[1]}"
     fi
     if [ -n "$tag_sha" ] && [ "$tag_sha" != "$image_vcs_ref" ]; then
         log_warning "镜像 tag 里的 commit (${tag_sha}) ≠ 本次构建的 commit (${image_vcs_ref}) —— 标签已失真"
-        log_warning "  docker/deploy/.env 的 SYNAPSE_IMAGE 是手工维护的：请同步更新，或删掉该行改用默认 tag"
+        log_warning "  SYNAPSE_IMAGE 被外部环境变量覆盖；请 unset 后重跑，让 deploy.sh 现算 tag"
         log_warning "  权威值: docker image inspect ${SYNAPSE_IMAGE} --format '{{index .Config.Labels \"org.opencontainers.image.revision\"}}'"
     fi
 }
@@ -1867,29 +1919,63 @@ verify_health_endpoints() {
 # 已知告警白名单（格式: 匹配子串|原因）。
 # 这些告警来自基础镜像或宿主 Docker 环境，与本次部署正确性无关；任何不在白名单
 # 内的 WARNING 都被视为"需要修复的问题"。新增条目必须写明可核实的原因。
-# 日志级别匹配用**跨 grep 实现一致**的写法（POSIX 字符类），刻意不用 `\b`：
-# `\b` 不属于 POSIX ERE —— GNU grep（CI）与 macOS BSD grep 支持它，但 toybox / busybox
-# 的某些构建会**静默失配**。实测 2026-10-15：同一条含 `WARN`/`ERROR` 的样本，
-# `/usr/bin/grep -Ei '\b(ERROR)\b'` 命中，而 PATH 更靠前的另一实现报"无匹配"
-# ⇒ 这道门禁会**什么都没匹配到却打印通过**（假绿），比直接报错危险得多。
-LOG_LEVEL_RE_ERROR='(^|[^A-Za-z])(ERROR)([^A-Za-z]|$)'
-LOG_LEVEL_RE_WARN='(^|[^A-Za-z])(WARN(ING)?)([^A-Za-z]|$)'
+#
+# ⚠️ 级别判据锚定在**级别字段**上，不是"消息里出现了 WARN/ERROR 这个词"。
+# 旧写法 `(^|[^A-Za-z])(WARN(ING)?)([^A-Za-z]|$)` 会把 INFO 文案里的
+# "Topology validation WARNING …"/"PASSED with 1 warning(s)" 当成告警，
+# 白名单因此被迫为噪音写条目，真告警与假告警混在一张表里就没人看了。
+#
+# 支持的两种落盘形态（docker compose 会在行首加 `container  | ` 前缀，
+# 因此不锚定行首，改为锚定 timer / `"level"` 字段）：
+#   1) text：tracing fmt + uptime timer，可能带 ANSI 颜色
+#      `0.123456789s  WARN synapse_web::x: src/x.rs:1: msg`
+#   2) json：`logging.format=json`
+#      `{"timestamp":"0.1s","level":"WARN","fields":{...}}`
+#
+# 保持 POSIX ERE（刻意不用 `\b`，也不依赖 GNU 扩展）：`\b` 不属于 POSIX ERE ——
+# GNU grep（CI）与 macOS BSD grep 支持它，但 toybox / busybox 的某些构建会**静默
+# 失配**（实测 2026-10-15）。静默失配会让门禁"什么都没匹配到却打印通过"（假绿），
+# 比直接报错危险得多 —— 这正是下面 verify_log_filters_are_live 存在的原因。
+LOG_LEVEL_ANSI='([[:cntrl:]]\[[0-9;]*m)*'
+LOG_LEVEL_RE_ERROR="([0-9]+(\\.[0-9]+)?s[[:space:]]*${LOG_LEVEL_ANSI}[[:space:]]*ERROR[^A-Za-z]|\"level\"[[:space:]]*:[[:space:]]*\"ERROR\")"
+LOG_LEVEL_RE_WARN="([0-9]+(\\.[0-9]+)?s[[:space:]]*${LOG_LEVEL_ANSI}[[:space:]]*WARN(ING)?[^A-Za-z]|\"level\"[[:space:]]*:[[:space:]]*\"WARN(ING)?\")"
 
-# 过滤器**自检**：用一个必然含 ERROR/WARN 的样本证明匹配真的生效。
-# 没有这一步，"过滤器坏了"与"日志很干净"在输出上完全不可区分 —— 而两者的运维含义相反。
+# 过滤器**自检**：用必然含 ERROR/WARN 的样本证明匹配真的生效，并用一条"INFO 文案
+# 里带 warning 字样"的反例证明判据没有退化成按单词匹配。没有这一步，"过滤器坏了"
+# 与"日志很干净"在输出上完全不可区分 —— 而两者的运维含义相反。
 verify_log_filters_are_live() {
-    local sample='  0.100000000s  WARN probe: canary  0.200000000s  ERROR probe: canary'
-    local hit
-    hit="$(printf '%s\n' "$sample" | grep -Eo "$LOG_LEVEL_RE_ERROR" | head -1)"
-    if [ -z "$hit" ]; then
-        log_error "日志级别过滤器自检失败：含 ERROR 的样本未被匹配到（过滤器失效 ⇒ 日志门禁不可信）"
-        return 1
-    fi
-    hit="$(printf '%s\n' "$sample" | grep -Eo "$LOG_LEVEL_RE_WARN" | head -1)"
-    if [ -z "$hit" ]; then
-        log_error "日志级别过滤器自检失败：含 WARN 的样本未被匹配到（过滤器失效 ⇒ 日志门禁不可信）"
-        return 1
-    fi
+    # 正例：text（无 ANSI / 带 ANSI）与 json 三种真实落盘形态 + compose 前缀
+    local positives=(
+        'synapse-app  | 0.100000000s  WARN synapse_web::probe: src/probe.rs:1: canary'
+        $'synapse-app  | 0.100000000s \033[33m WARN\033[0m synapse_web::probe: src/probe.rs:1: canary'
+        '{"timestamp":"0.1s","level":"WARN","fields":{"message":"canary"}}'
+        'synapse-app  | 0.100000000s ERROR synapse_web::probe: src/probe.rs:1: canary'
+        $'synapse-app  | 0.100000000s \033[31mERROR\033[0m synapse_web::probe: src/probe.rs:1: canary'
+        '{"timestamp":"0.1s","level":"ERROR","fields":{"message":"canary"}}'
+    )
+    local sample
+    for sample in "${positives[@]}"; do
+        # 与主判据同口径（-Ei）：主路径是大小写不敏感的，自检必须一致。
+        if ! printf '%s\n' "$sample" | grep -Eqi "$LOG_LEVEL_RE_ERROR|$LOG_LEVEL_RE_WARN"; then
+            log_error "日志级别过滤器自检失败：正例未被匹配到（过滤器失效 ⇒ 日志门禁不可信）"
+            log_error "  样本: ${sample}"
+            return 1
+        fi
+    done
+
+    # 反例：INFO 级别、但文案里出现 WARNING/warning 的行 **不得** 被判为告警
+    local negatives=(
+        'synapse-app  | 0.100000000s  INFO topology_validator: src/x.rs:107: Topology validation WARNING warning=worker.stream_writers'
+        'synapse-app  | 0.100000000s  INFO topology_validator: src/x.rs:111: Topology validation: PASSED with 1 warning(s)'
+        '{"timestamp":"0.1s","level":"INFO","fields":{"message":"warning: canary"}}'
+    )
+    for sample in "${negatives[@]}"; do
+        if printf '%s\n' "$sample" | grep -Eqi "$LOG_LEVEL_RE_ERROR|$LOG_LEVEL_RE_WARN"; then
+            log_error "日志级别过滤器自检失败：INFO 行里的 'warning' 被误判为告警（判据退化为按单词匹配）"
+            log_error "  样本: ${sample}"
+            return 1
+        fi
+    done
     return 0
 }
 
@@ -1906,8 +1992,6 @@ LOG_WARNING_ALLOWLIST=(
     'Prometheus /metrics 允许匿名抓取|SEC-04 的显式设计：部署栈 Prometheus 走容器内网直连 synapse-app:9090 抓取，故 homeserver.yaml 声明 public=true；docker-compose.yml 已将 9090 仅绑定 127.0.0.1，nginx 也未代理该端口，公网不可达'
     'Rate limiting is DISABLED|测试/联调阶段显式关闭 rate_limit.enabled（审计 §6.5）；恢复 true 后该告警自动消失'
     'Login lockout is DISABLED|测试/联调阶段显式关闭 security.login_lockout_enabled（审计 §6.5）；恢复 true 后该告警自动消失'
-    'worker.stream_writers 已偏离默认值|部署栈是单进程（docker/deploy/.env 走 docker/config/homeserver.yaml，worker.enabled=false + write_forwarding=false），而该文件里的 stream_writers（events/device_lists → event_persister）是给两进程写转发烟测 scripts/test/worker_topology_smoke.sh 用的（它才把 write_forwarding 打开）。topology_validator.rs 有意把这条判断放在 `!enabled` 早退之前，所以单进程栈每次启动都会打这一条；此时声明确实不生效，是预期状态，不是配置错误'
-    'Topology validation: PASSED with 1 warning(s)|上一行那条已知 warning 的汇总行。写成固定 "1 warning(s)" 是有意的：一旦出现别的告警，计数变成 n≠1，本行随即失配并让门禁变红'
 )
 
 # 日志告警分析：区分 ERROR（一律阻断）、已知 WARNING（附原因，仅提示）、
@@ -1920,7 +2004,10 @@ verify_logs_clean() {
     verify_log_filters_are_live || return 1
 
     local log_dump
-    log_dump="$(compose logs --no-color --tail=400 2>&1 || true)"
+    # `--since` 从**本次部署开始**算起，覆盖启动 + 健康检查 + 冒烟流量产生的全部
+    # 运行期日志；`--tail=400` 只看最后 400 行，会把启动后几十秒才出现的 ERROR
+    # 漏掉（2026-10-31 实测：脚本报"无 ERROR"，55 秒后容器打出 500）。
+    log_dump="$(compose logs --no-color --since "$DEPLOY_START_EPOCH" 2>&1 || true)"
 
     local errors
     errors="$(echo "$log_dump" | grep -Ei "$LOG_LEVEL_RE_ERROR" |
@@ -2047,6 +2134,10 @@ rollback_deployment() {
         fi
     fi
 
+    # 4) 监控栈在部署开始时已被停止（见 stop_monitoring）；核心栈恢复后一并拉起。
+    # 非致命：start_monitoring 自身失败只告警。
+    start_monitoring
+
     log_warning "回滚流程结束；若服务仍异常，请查看 ${LOG_FILE} 与 'docker compose ps'"
 }
 
@@ -2098,6 +2189,9 @@ main() {
 
     # --- 安全下线旧部署 ---
     run_step "优雅停止后端容器" stop_services_gracefully
+    # 监控栈必须在核心栈拆除前停止：prometheus/postgres-exporter 仍挂着业务网络，
+    # 不停则 `compose down` 收不回 `synapse_network`（§2.7）。
+    run_step "停止监控栈" stop_monitoring
     run_step "移除旧部署资源" remove_existing_deployment
     run_step "清理旧项目镜像" remove_old_project_images
 

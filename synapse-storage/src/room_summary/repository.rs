@@ -62,8 +62,11 @@ impl RoomSummaryStorage {
         .fetch_optional(&*self.pool)
         .await?;
 
+        // A missing summary is an ordinary cache-miss on a read path, not a
+        // degraded state: callers fall back to the authoritative tables. WARN
+        // here would flood the log (and the deploy log gate) for every cold read.
         if row.is_none() {
-            tracing::warn!(room_id = %room_id, "Room summary not found");
+            tracing::debug!(room_id = %room_id, "Room summary not found");
         }
 
         Ok(row)

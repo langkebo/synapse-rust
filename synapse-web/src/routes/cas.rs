@@ -141,17 +141,24 @@ async fn cas_sso_redirect(
     MatrixQuery(params): MatrixQuery<SsoRedirectQuery>,
 ) -> Result<axum::response::Response, ApiError> {
     if ctx.cas_service.is_configured().await {
-        let redirect_url = match params.redirect_after.as_deref() {
-            // An empty value means "no redirect requested", same as omitting it.
-            None | Some("") => "/login".to_string(),
-            Some(redirect) if is_same_origin_path(redirect) => {
-                format!("/login?service={}", urlencoding::encode(redirect))
-            }
-            Some(_) => {
-                // Deliberately not echoing the value back: it is attacker-controlled.
-                return Err(ApiError::invalid_param("redirect_after must be a same-origin path"));
-            }
-        };
+        // `redirect_after` is required: this endpoint exists to hand the browser
+        // to CAS and then back to a chosen page. Defaulting to `/login` turned
+        // "the caller forgot the parameter" into a silent redirect at 302, which
+        // hides the integration bug and looks like a successful SSO start.
+        // Synapse answers `M_MISSING_PARAM` here; so do we. An empty value is
+        // the same omission, not a path.
+        let redirect = params
+            .redirect_after
+            .as_deref()
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| ApiError::missing_param("Missing required query parameter: redirect_after"))?;
+
+        if !is_same_origin_path(redirect) {
+            // Deliberately not echoing the value back: it is attacker-controlled.
+            return Err(ApiError::invalid_param("redirect_after must be a same-origin path"));
+        }
+
+        let redirect_url = format!("/login?service={}", urlencoding::encode(redirect));
         return Ok((StatusCode::FOUND, [(header::LOCATION, redirect_url)]).into_response());
     }
     Err(ApiError::bad_request("CAS SSO is not configured".to_string()))

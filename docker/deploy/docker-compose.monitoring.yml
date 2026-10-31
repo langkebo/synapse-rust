@@ -7,10 +7,14 @@
 #   监控服务，而监控容器此前是用裸 `docker run` 手工起的（无 compose 标签），
 #   配置能改、栈却无法重建。本文件把监控栈变成可重建、可提交的一等公民。
 #
-# 与核心栈的关系：
-#   - 复用核心栈创建的网络 `synapse_network`（external），因此必须**在核心栈
-#     之后**启动，否则网络不存在。
-#   - 抓取目标 `synapse-app:9090`、`coturn:9641` 等都在该网络上。
+# 与核心栈的关系（2026-10-31 起解耦）：
+#   - 监控容器之间走本文件**自有**的网络 `synapse_monitoring_network`；
+#     只有真正需要访问业务容器的两个服务（prometheus 抓 `synapse-app:9090`、
+#     postgres-exporter 连 `postgres:5432`）才额外接入核心栈的
+#     `synapse_network`（external，因此必须**在核心栈之后**启动）。
+#   - 解耦前 8 个监控容器全部挂在 `synapse_network` 上，核心栈 `compose down`
+#     收不回该网络（仍有 active endpoint），只能靠告警兜底。现在依赖面收敛到
+#     2 个容器，且 deploy.sh 在拆除核心栈前会先停监控栈。
 #
 # 启动：
 #   docker compose -p synapse-monitoring \
@@ -61,6 +65,8 @@ services:
     # 显式声明 host-gateway，避免依赖 Docker Desktop/OrbStack 的隐式 DNS。
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # 两个网络：`monitoring` 访问 alertmanager/exporters 等监控同伴，
+    # `synapse-network` 仅用于抓取业务容器的 /metrics（synapse-app:9090）。
     healthcheck:
       test: [ "CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9090/-/healthy || exit 1" ]
       interval: 30s
@@ -74,6 +80,7 @@ services:
         max-size: "10m"
         max-file: "5"
     networks:
+      - monitoring
       - synapse-network
 
   # -------------------------------------------------------------- Alertmanager
@@ -103,7 +110,7 @@ services:
         max-size: "10m"
         max-file: "5"
     networks:
-      - synapse-network
+      - monitoring
 
   # ------------------------------------------------------------------ Grafana
   synapse-grafana:
@@ -132,7 +139,7 @@ services:
         max-size: "10m"
         max-file: "5"
     networks:
-      - synapse-network
+      - monitoring
 
   # ------------------------------------------------------------- Node Exporter
   synapse-node-exporter:
@@ -163,7 +170,7 @@ services:
         max-size: "10m"
         max-file: "5"
     networks:
-      - synapse-network
+      - monitoring
 
   # ------------------------------------------------- postgres_exporter（DB 观测）
   # 为什么现在才有：`prometheus.yml` 顶部写着一条纪律 —— "只声明真实存在的目标"，
@@ -203,7 +210,9 @@ services:
       options:
         max-size: "10m"
         max-file: "5"
+    # 直连核心栈的 `postgres:5432`，因此必须同时接入业务网络。
     networks:
+      - monitoring
       - synapse-network
 
   # ------------------------------------------------------------- Pushgateway
@@ -236,7 +245,7 @@ services:
         max-size: "10m"
         max-file: "5"
     networks:
-      - synapse-network
+      - monitoring
 
   # ------------------------------------------------------------ Alert Handler
   # alertmanager.yml 把通知投递到 http://alert-handler:8080/api/v1/alerts*，
@@ -275,7 +284,7 @@ services:
         max-size: "10m"
         max-file: "5"
     networks:
-      - synapse-network
+      - monitoring
 
   # ---------------------------------------------------------- Nginx Proxy (P4 Security)
   nginx-proxy:
@@ -300,7 +309,7 @@ services:
       - synapse-alertmanager
       - synapse-grafana
     networks:
-      - synapse-network
+      - monitoring
     logging:
       driver: json-file
       options:
@@ -308,6 +317,14 @@ services:
         max-file: "5"
 
 networks:
+  # 监控栈自有网络：prometheus / alertmanager / grafana / exporters / alert-handler /
+  # nginx-proxy 之间的流量全在这张网上，与业务栈解耦。
+  # 显式固定 `name:`：本文件以 `-p synapse-monitoring` 启动，若用默认名会被
+  # 项目前缀污染成 `synapse-monitoring_monitoring`，且改名即断流。
+  monitoring:
+    name: ${SYNAPSE_MONITORING_NETWORK_NAME:-synapse_monitoring_network}
+    driver: bridge
+
   synapse-network:
     # 由核心栈 `docker-compose.yml` 创建（name: ${SYNAPSE_NETWORK_NAME:-synapse_network}）。
     # 这里只引用，不拥有 —— 两个 compose 声明同名非 external 网络会让 Docker 报

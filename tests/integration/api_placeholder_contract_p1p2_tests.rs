@@ -613,6 +613,74 @@ async fn test_get_state_event_with_state_key_returns_raw_content_only() {
     assert!(json.get("sender").is_none());
 }
 
+/// `GET /rooms/{roomId}/state` is a **bare array** per CS-API. An `{"events": …}`
+/// envelope makes `res.json().filter(...)` throw on every client.
+#[tokio::test]
+async fn test_get_room_state_returns_bare_array() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+
+    let alice = format!("full_state_reader_{}", rand::random::<u32>());
+    let (alice_token, _) = register_user(&app, &alice).await;
+    let room_id = create_room(&app, &alice_token, "Full State Array Contract").await;
+
+    for uri in [
+        format!("/_matrix/client/v3/rooms/{room_id}/state"),
+        format!("/_matrix/client/v3/rooms/{room_id}/state?type=m.room.create"),
+    ] {
+        let response = ServiceExt::<Request<Body>>::oneshot(
+            app.clone(),
+            Request::builder()
+                .method("GET")
+                .uri(uri.clone())
+                .header("Authorization", format!("Bearer {}", alice_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{uri}");
+
+        let body = axum::body::to_bytes(response.into_body(), 1 << 20).await.unwrap();
+        let json: Value = serde_json::from_slice(&body).unwrap();
+        let events = json.as_array().unwrap_or_else(|| panic!("{uri} must return a bare array, got {json}"));
+        assert!(!events.is_empty(), "{uri}");
+        assert!(events.iter().all(|event| event.get("type").is_some()), "{uri}");
+    }
+}
+
+/// `GET /rooms/{roomId}/state/{eventType}` reads `state_key=""` only. A type that
+/// exists solely under non-empty keys (`m.room.member` — one per member) is a
+/// 404, not an `{"events": …}` collection.
+#[tokio::test]
+async fn test_get_state_by_type_does_not_fall_back_to_keyed_events() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+
+    let alice = format!("keyed_only_reader_{}", rand::random::<u32>());
+    let (alice_token, _) = register_user(&app, &alice).await;
+    let room_id = create_room(&app, &alice_token, "State By Type Keyed Contract").await;
+
+    let response = ServiceExt::<Request<Body>>::oneshot(
+        app,
+        Request::builder()
+            .method("GET")
+            .uri(format!("/_matrix/client/v3/rooms/{room_id}/state/m.room.member"))
+            .header("Authorization", format!("Bearer {}", alice_token))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+    let body = axum::body::to_bytes(response.into_body(), 16 * 1024).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["errcode"], "M_NOT_FOUND");
+}
+
 #[tokio::test]
 async fn test_invite_only_join_contract_rejects_uninvited_user() {
     let Some(app) = super::setup_fresh_test_app().await else {

@@ -40,6 +40,19 @@ impl UserIdParseExt for UserId {
     }
 }
 
+/// Records a rejection's underlying detail at debug level and returns the
+/// client-facing error unchanged.
+///
+/// `serde`'s rejection text names internal struct fields and byte offsets
+/// (``missing field `user_id` at line 1 column 2``). Echoing that back leaks the
+/// request struct layout and turns `error` into an unstable contract, so the
+/// detail stays in the server log and the response body carries a fixed
+/// sentence (I-20).
+pub(crate) fn log_rejection(detail: impl std::fmt::Display, error: ApiError) -> ApiError {
+    tracing::debug!(code = %error.code_str(), detail = %detail, "rejected malformed request payload");
+    error
+}
+
 // ============== Typed ID re-exports ==============
 
 // extract_token_from_headers removed — use crate::utils::auth::bearer_token directly

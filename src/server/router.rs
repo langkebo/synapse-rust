@@ -1,4 +1,6 @@
 use axum::Router;
+use std::time::Duration;
+use tower_http::classify::ServerErrorsFailureClass;
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::trace::TraceLayer;
 
@@ -110,7 +112,25 @@ pub fn build_router(app_state: AppState, config: &Config) -> Router {
         .layer(axum::middleware::from_fn_with_state(server_metrics, http_metrics_middleware))
         .layer(axum::middleware::from_fn(request_debug_middleware))
         .layer(axum::middleware::from_fn_with_state(request_timeouts, request_timeout_middleware))
-        .layer(TraceLayer::new_for_http())
+        // `TraceLayer`'s stock `on_failure` logs **every** 5xx at ERROR. A 501 is
+        // this server answering by design (`M_UNRECOGNIZED` placeholders, see
+        // ROUTE_CONTRACT「有意不实现」), so it is a WARN: the request was
+        // deliberately refused, not broken. Everything else — 500, 502, 503,
+        // 504 — stays at ERROR, because those are the lines the deploy log gate
+        // exists to catch.
+        .layer(TraceLayer::new_for_http().on_failure(
+            |failure: ServerErrorsFailureClass, latency: Duration, _span: &::tracing::Span| {
+                if matches!(&failure, ServerErrorsFailureClass::StatusCode(status) if status.as_u16() == 501) {
+                    ::tracing::warn!(
+                        failure = %failure,
+                        latency_ms = latency.as_millis(),
+                        "Request answered 501 (declared not-implemented)"
+                    );
+                } else {
+                    ::tracing::error!(failure = %failure, latency_ms = latency.as_millis(), "Request failed");
+                }
+            },
+        ))
         // ISSUE-07: 最外层兜底——body limit 层产生的裸 413（text/plain）
         // 统一改写为 M_TOO_LARGE JSON，客户端可识别 errcode
         .layer(axum::middleware::from_fn(payload_too_large_json_middleware))

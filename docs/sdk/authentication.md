@@ -274,10 +274,12 @@ interface SamlCallback {
 
 | 方法 | 端点 | 响应 |
 |---|---|---|
-| `GET` | `/_matrix/client/v3/login/sso/redirect/cas?redirect_after=` | **302** `Location: /login?service=<urlencoded redirect_after>`；未配置 CAS → **500** `M_UNKNOWN` |
+| `GET` | `/_matrix/client/v3/login/sso/redirect/cas?redirect_after=/room/!abc:example.org` | **302** `Location: /login?service=<urlencoded redirect_after>`；未配置 CAS → **500** `M_UNKNOWN`；缺 `redirect_after` 或值为空 → **400** `M_MISSING_PARAM`；非站内路径 → **400** `M_INVALID_PARAM` |
 
 > 注意：CAS 的 SSO 重定向**不指向外部 IdP**，而是回到本服务自己的 `/login?service=...`。
 > 未配置 CAS 时是 **500**（配置中间件拦截），不是 400/403。
+> `redirect_after` 是必填参数：省略它意味着调用方拼错了 URL，服务端不再用 `/login` 兜底
+> （那会让集成错误看起来像一次成功的 SSO 启动）。
 
 **CAS 协议面**（`/_synapse/cas/*`，由 CAS 服务端/IdP 调用，SDK 不应直接依赖）：
 

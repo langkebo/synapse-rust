@@ -258,6 +258,43 @@ impl MembershipService {
         Ok(params.content)
     }
 
+    /// Project a **committed** `m.room.member` event onto the room's resolved
+    /// state record (MSC4297 v2.1).
+    ///
+    /// Every membership path in this module persists its event through
+    /// [`EventWriter::create_event`](synapse_storage::event::EventWriter::create_event)
+    /// directly, bypassing `MessagingService::create_event_with_graph` — the seam
+    /// that normally maintains the record. Without this call the record freezes at
+    /// the room's last non-membership state write, so `/state`, `/sync` and the
+    /// history-visibility lookup keep serving the *old* membership (P0-2 / I-13:
+    /// invite succeeds but the invitee never appears in current state).
+    ///
+    /// Callers must only pass events that are already committed; the record walk
+    /// reads the DAG through the pool. Best-effort: the event is durable, so a
+    /// projection failure is logged and degrades to the event-log derivation.
+    pub(crate) async fn project_member_state(&self, room_id: &str, event_id: &str, state_key: &str) {
+        if !self.room_storage.room_exists(room_id).await.unwrap_or(false) {
+            // The event for a non-existent room cannot be part of any record.
+            return;
+        }
+        let state_groups = synapse_storage::state_groups::StateGroupStorage::new(self.event_writer.pool());
+        let record = crate::room::state_record::StateRecord {
+            event_reader: self.event_reader.as_ref(),
+            room_storage: self.room_storage.as_ref(),
+            state_groups: &state_groups,
+            resolution_cache: &self.resolution_cache,
+        };
+        if let Err(error) = record.after_state_event(room_id, event_id, "m.room.member", state_key).await {
+            ::tracing::warn!(
+                room_id = %room_id,
+                event_id = %event_id,
+                state_key = %state_key,
+                error = %error,
+                "Failed to project the membership event onto the room's resolved-state record"
+            );
+        }
+    }
+
     // =========================================================================
     // MSC4284: Policy server enforcement helpers
     // =========================================================================

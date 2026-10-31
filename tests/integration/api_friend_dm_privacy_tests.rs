@@ -74,8 +74,8 @@ async fn state_content(app: &axum::Router, token: &str, room_id: &str, event_typ
     }
     let bytes = axum::body::to_bytes(response.into_body(), 1 << 20).await.unwrap();
     let body: Value = serde_json::from_slice(&bytes).ok()?;
-    body["events"]
-        .as_array()?
+    // CS-API: the full-state endpoint answers with a bare array of state events.
+    body.as_array()?
         .iter()
         .find(|event| event["type"].as_str() == Some(event_type))
         .map(|event| event["content"].clone())

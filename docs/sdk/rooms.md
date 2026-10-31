@@ -135,18 +135,14 @@ leave + forget，事后单独调 `/forget` 不会与它竞争。
 
 | 方法 | 端点 | 说明 |
 |---|---|---|
-| `GET` | `/rooms/{room_id}/state` | 全部状态事件，**包在 `{"events": [...]}` 里**（见下方⚠️） |
-| `GET` | `/rooms/{room_id}/state?type={event_type}` | MSC4497：按类型过滤（精确匹配） |
-| `GET` | `/rooms/{room_id}/state/{event_type}` | 该类型 `state_key=""` 事件的 **content** |
+| `GET` | `/rooms/{room_id}/state` | 全部状态事件，**裸数组** `[{…}, …]` |
+| `GET` | `/rooms/{room_id}/state?type={event_type}` | MSC4497：按类型过滤（精确匹配），同样返回裸数组 |
+| `GET` | `/rooms/{room_id}/state/{event_type}` | 该类型 `state_key=""` 事件的 **content**；该空键事件不存在 → 404 `M_NOT_FOUND` |
 | `GET` | `/rooms/{room_id}/state/{event_type}/` | 同上（尾斜杠形式，等价） |
 | `GET` | `/rooms/{room_id}/state/{event_type}/{state_key}` | 指定状态键的 **content**；不存在 → 404 `M_NOT_FOUND` |
 
-> ⚠️ **`GET /rooms/{id}/state` 返回的是对象 `{"events": [...]}`，不是规范要求的裸数组。**
-> 客户端写 `const state = await res.json(); state.filter(...)` 会抛
-> `state.filter is not a function`。稳妥写法：`const events = res.events ?? res;`
->
-> 这是本仓与 Matrix 规范的一处实际偏离（`handlers/room/state.rs` 直接 `json!({"events": ...})`）。
-> 单事件读（`/state/{type}/{key}`）则符合规范：**只返回 content**，不含 `event_id` / `type`。
+> 三个读取端点均与 CS-API 一致：全量状态是裸数组；单事件读**只返回 content**，不含 `event_id` / `type`。
+> `/state/{event_type}` 只认 `state_key=""` 的事件，同类型的其它状态键（如各用户自己的 `m.room.member`）不会被当作答案。
 
 ### 写入
 

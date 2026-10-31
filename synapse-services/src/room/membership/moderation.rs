@@ -122,6 +122,9 @@ impl MembershipService {
         // Invalidate room-state cache after membership state change.
         crate::room_state_cache::invalidate_room_state(&self.cache, room_id).await;
 
+        // P0-2: fold the committed invite into the room's resolved-state record.
+        self.project_member_state(room_id, &invite_event.event_id, invitee_id).await;
+
         // Enqueue the invite event for matching application services.
         self.dispatch_appservice_event(&invite_event).await;
 
@@ -252,6 +255,9 @@ impl MembershipService {
 
         // Invalidate room-state cache after membership state change.
         crate::room_state_cache::invalidate_room_state(&self.cache, room_id).await;
+
+        // P0-2: fold the committed knock into the room's resolved-state record.
+        self.project_member_state(room_id, &knock_event.event_id, user_id).await;
 
         // Best-effort: sign and broadcast the knock event to federation peers.
         if let Err(e) = self.sign_and_broadcast_event(&knock_event).await {
@@ -487,6 +493,9 @@ impl MembershipService {
 
         // Invalidate room-state cache after membership state change.
         crate::room_state_cache::invalidate_room_state(&self.cache, room_id).await;
+
+        // P0-2: fold the committed moderation event into the resolved-state record.
+        self.project_member_state(room_id, &event.event_id, target).await;
 
         // Best-effort: sign and broadcast to federation peers.
         if let Err(e) = self.sign_and_broadcast_event(&event).await {

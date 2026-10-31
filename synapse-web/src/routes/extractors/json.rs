@@ -1,6 +1,8 @@
 use axum::extract::rejection::JsonRejection;
 use synapse_common::ApiError;
 
+use super::log_rejection;
+
 /// The `MatrixJson` struct.
 pub struct MatrixJson<T>(pub T);
 
@@ -26,14 +28,21 @@ impl<T> std::ops::DerefMut for MatrixJson<T> {
 ///                  (syntax error, wrong/absent Content-Type, unreadable body)
 ///   M_BAD_JSON   — the body *is* valid JSON but does not match the
 ///                  expected structure/type (deserialization error)
+///
+/// The rejection's own text (`missing field \`x\` at line 1 column 2`) is only
+/// logged — see [`log_rejection`](super::log_rejection).
 fn map_json_rejection(rejection: JsonRejection) -> ApiError {
     match rejection {
-        JsonRejection::JsonDataError(e) => ApiError::bad_request(format!("Invalid JSON data: {e}")),
-        JsonRejection::JsonSyntaxError(e) => ApiError::not_json(format!("JSON syntax error: {e}")),
-        JsonRejection::MissingJsonContentType(e) => {
-            ApiError::not_json(format!("Missing Content-Type: application/json: {e}"))
+        JsonRejection::JsonDataError(detail) => {
+            log_rejection(detail, ApiError::bad_request("The request body does not match the expected JSON structure"))
         }
-        _ => ApiError::not_json(format!("JSON error: {rejection}")),
+        JsonRejection::JsonSyntaxError(detail) => {
+            log_rejection(detail, ApiError::not_json("Request body is not valid JSON"))
+        }
+        JsonRejection::MissingJsonContentType(detail) => {
+            log_rejection(detail, ApiError::not_json("Missing Content-Type: application/json"))
+        }
+        other => log_rejection(other, ApiError::not_json("Request body could not be read")),
     }
 }
 
@@ -119,7 +128,8 @@ mod tests {
 
         assert_eq!(error.http_status(), StatusCode::BAD_REQUEST);
         assert_eq!(error.code, MatrixErrorCode::NotJson, "syntax errors are M_NOT_JSON");
-        assert!(error.message().contains("JSON syntax error"));
+        assert_eq!(error.message(), "Request body is not valid JSON");
+        assert!(!error.message().contains("line 1 column"), "serde detail must not leak: {}", error.message());
     }
 
     #[tokio::test]
@@ -137,7 +147,8 @@ mod tests {
 
         assert_eq!(error.http_status(), StatusCode::BAD_REQUEST);
         assert_eq!(error.code, MatrixErrorCode::BadJson, "shape errors are M_BAD_JSON");
-        assert!(error.message().contains("Invalid JSON data"));
+        assert_eq!(error.message(), "The request body does not match the expected JSON structure");
+        assert!(!error.message().contains("invalid type"), "serde detail must not leak: {}", error.message());
     }
 
     #[tokio::test]
@@ -171,7 +182,7 @@ mod tests {
 
         assert_eq!(error.http_status(), StatusCode::BAD_REQUEST);
         assert_eq!(error.code, MatrixErrorCode::NotJson, "unreadable body is M_NOT_JSON");
-        assert!(error.message().contains("JSON error"));
-        assert!(error.message().contains("broken body stream"));
+        assert_eq!(error.message(), "Request body could not be read");
+        assert!(!error.message().contains("broken body stream"), "I/O detail must not leak: {}", error.message());
     }
 }

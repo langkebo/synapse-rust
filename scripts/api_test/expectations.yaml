@@ -146,9 +146,10 @@ overrides:
   "GET /_matrix/client/v3/account/whoami":
     force_auth: true
 
-  # CAS SSO 重定向：302/303/307 为正常的浏览器跳转，非错误状态码
+  # CAS SSO 重定向：302/303/307 为正常的浏览器跳转，非错误状态码；
+  # 不带 redirect_after（或值为空）时是 400 M_MISSING_PARAM，不再静默 302。
   "GET /_matrix/client/v3/login/sso/redirect/cas":
-    expect_status: [302, 303, 307]
+    expect_status: [302, 303, 307, 400]
 
   # 注册/验证码系列：受频率限制，429 与参数校验 4xx 均为预期结果
   "GET /_matrix/client/v3/register/available":

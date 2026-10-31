@@ -195,7 +195,7 @@ docker/deploy/
 |------|--------|------|
 | SERVER_NAME | matrix.test | 服务器域名 |
 | PUBLIC_BASEURL | https://matrix.test | 对外公开 URL |
-| SYNAPSE_IMAGE | synapse-rust:local | 镜像引用 |
+| SYNAPSE_IMAGE | 自动推导 | **不要手工设置**。deploy.sh 按 `synapse-rust:<Cargo.toml version>-<git short HEAD>[-dirty]` 现算；`.env` 里的同名项会被忽略并告警。远程镜像走 `--image <ref>` |
 | POSTGRES_PASSWORD | (必填) | 数据库密码。**弱口令会被拒绝部署**（见下"数据库口令的三条约定"） |
 | REDIS_PASSWORD | (必填) | Redis 密码 |
 | SSL_CERT / SSL_KEY | cert.pem / key.pem | ssl/ 目录下证书文件名 |

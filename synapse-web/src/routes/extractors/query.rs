@@ -4,6 +4,8 @@ use axum::{
 };
 use synapse_common::ApiError;
 
+use super::log_rejection;
+
 /// Drop-in replacement for `axum::extract::Query` in extractor position.
 ///
 /// Handlers keep destructuring `MatrixQuery(params)` exactly like they did with
@@ -31,15 +33,18 @@ impl<T> std::ops::DerefMut for MatrixQuery<T> {
 ///   M_MISSING_PARAM — a required query parameter is absent
 ///   M_INVALID_PARAM — the query string is present but cannot be deserialized
 ///                     (wrong type, duplicate field, unsupported variant, …)
+///
+/// `serde` only distinguishes the two cases through its own prose, so the
+/// classification still reads the rejection text; the text itself goes to the
+/// log rather than the response body — see [`log_rejection`](super::log_rejection).
 fn map_query_rejection(rejection: QueryRejection) -> ApiError {
-    let detail = rejection.to_string();
     // `serde` phrases an absent required field as ``missing field `<name>` ``;
     // every other deserialization failure means a parameter *is* present but
     // its value cannot be interpreted.
-    if detail.contains("missing field") {
-        ApiError::missing_param(format!("Missing required query parameter: {detail}"))
+    if rejection.to_string().contains("missing field") {
+        log_rejection(rejection, ApiError::missing_param("Missing required query parameter"))
     } else {
-        ApiError::invalid_param(format!("Invalid query parameter: {detail}"))
+        log_rejection(rejection, ApiError::invalid_param("Invalid query parameter"))
     }
 }
 
@@ -111,8 +116,8 @@ mod tests {
 
         assert_eq!(error.http_status(), StatusCode::BAD_REQUEST);
         assert_eq!(error.code, MatrixErrorCode::MissingParam);
-        assert!(error.message().contains("Missing required query parameter"));
-        assert!(error.message().contains("missing field"));
+        assert_eq!(error.message(), "Missing required query parameter");
+        assert!(!error.message().contains("missing field"), "serde detail must not leak: {}", error.message());
     }
 
     #[tokio::test]
@@ -124,8 +129,12 @@ mod tests {
 
         assert_eq!(error.http_status(), StatusCode::BAD_REQUEST);
         assert_eq!(error.code, MatrixErrorCode::InvalidParam);
-        assert!(error.message().contains("Invalid query parameter"));
-        assert!(error.message().contains("invalid digit found in string"));
+        assert_eq!(error.message(), "Invalid query parameter");
+        assert!(
+            !error.message().contains("invalid digit found in string"),
+            "serde detail must not leak: {}",
+            error.message()
+        );
     }
 
     #[test]

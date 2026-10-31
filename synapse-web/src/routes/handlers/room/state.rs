@@ -53,9 +53,10 @@ pub(crate) async fn get_room_state(
         _ => state_events,
     };
 
-    Ok(Json(json!({
-        "events": filtered_events
-    })))
+    // CS-API `GET /rooms/{roomId}/state` answers with a **bare array** of state
+    // events. An `{"events": [...]}` envelope is the shape of layered/sync
+    // responses, not this endpoint — clients (matrix-js-sdk included) reject it.
+    Ok(Json(Value::Array(filtered_events)))
 }
 
 /// Filters a list of state events by event type (MSC4497 `?type=` query parameter).
@@ -85,18 +86,18 @@ pub(crate) async fn get_state_by_type(
 
     let events = ctx.room_service.messaging().get_state_events_by_type(&room_id, &final_event_type).await?;
 
-    let event_with_empty_key =
-        events.iter().find(|e| e.get("state_key").and_then(|v| v.as_str()) == Some("") || e.get("state_key").is_none());
+    // `GET /rooms/{roomId}/state/{eventType}` is the empty-state-key endpoint:
+    // it answers with the *content* of the event whose `state_key` is `""`, and
+    // 404s when no such event exists. Events of the same type under a non-empty
+    // key (`m.room.member`, `m.room.power_levels` per-user overrides, …) are not
+    // an answer here — Synapse reads state_key `""` and raises NotFound
+    // otherwise, and inventing an `{"events": …}` envelope breaks every client.
+    let event_with_empty_key = events
+        .iter()
+        .find(|e| e.get("state_key").and_then(|v| v.as_str()).is_none_or(str::is_empty))
+        .ok_or_else(|| ApiError::not_found("State event not found".to_string()))?;
 
-    if let Some(event) = event_with_empty_key {
-        Ok(Json(state_event_content_response(event.get("content").unwrap_or(&json!({})))))
-    } else if events.len() == 1 {
-        Ok(Json(state_event_content_response(events[0].get("content").unwrap_or(&json!({})))))
-    } else if events.is_empty() {
-        Err(ApiError::not_found("State event not found".to_string()))
-    } else {
-        Ok(Json(json!({ "events": events })))
-    }
+    Ok(Json(state_event_content_response(event_with_empty_key.get("content").unwrap_or(&json!({})))))
 }
 
 /// See [`get_state_event`].

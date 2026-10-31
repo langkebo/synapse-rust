@@ -12,7 +12,10 @@ impl SyncService {
         user_id: &str,
         filter_id: Option<&str>,
     ) -> ApiResult<Option<SyncResponseFilter>> {
-        let Some(filter_id) = filter_id else {
+        // An absent `?filter=` and an empty one mean the same thing to a client
+        // ("no filter"), so treat whitespace-only ids as not provided instead of
+        // looking up a filter named "".
+        let Some(filter_id) = filter_id.filter(|id| !id.trim().is_empty()) else {
             return Ok(None);
         };
 
@@ -38,7 +41,15 @@ impl SyncService {
                     fetched
                 }
             };
-        Ok(stored.as_ref().map(|filter| Self::sync_response_filter_from_filter_json(&filter.content)))
+
+        // A well-formed id that names no stored filter is a client error, not an
+        // empty result: answering 200 without the filter would silently hand back
+        // an unfiltered timeline (the client asked for something it never gets).
+        let Some(stored) = stored else {
+            return Err(ApiError::bad_request_unknown(format!("No such filter: {filter_id}")));
+        };
+
+        Ok(Some(Self::sync_response_filter_from_filter_json(&stored.content)))
     }
 
     /// See [`sync_response_filter_from_filter_json`].
@@ -1303,5 +1314,58 @@ mod tests {
 
         // Storage is hit exactly once; the second read is served from cache.
         assert_eq!(calls.load(Ordering::SeqCst), 1, "second resolve must be served from cache, not storage");
+    }
+
+    #[tokio::test]
+    async fn resolve_sync_filter_rejects_unknown_filter_id() {
+        use std::sync::atomic::AtomicUsize;
+        use std::sync::Arc;
+
+        let stored = synapse_storage::filter::Filter {
+            id: 1,
+            user_id: "@alice:localhost".to_string(),
+            filter_id: "filterid".to_string(),
+            content: serde_json::json!({"room": {"timeline": {"limit": 10}}}),
+            created_ts: 0,
+        };
+        let filter_store: Arc<dyn synapse_storage::filter::FilterStoreApi> =
+            Arc::new(CountingFilterStore { calls: Arc::new(AtomicUsize::new(0)), filter: stored });
+
+        let sync = sync_service_with_filter_store(filter_store);
+
+        // CS-API: `/sync?filter=<id>` naming a filter the user never created is a
+        // client error (`M_UNKNOWN`), not an empty result.
+        let err = sync
+            .resolve_sync_response_filter("@alice:localhost", Some("does-not-exist"))
+            .await
+            .expect_err("unknown filter id must be rejected");
+        assert!(err.code_is(synapse_common::error::MatrixErrorCode::Unknown), "unexpected errcode: {err:?}");
+        assert_eq!(err.http_status(), 400);
+    }
+
+    #[tokio::test]
+    async fn resolve_sync_filter_treats_empty_filter_id_as_absent() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let stored = synapse_storage::filter::Filter {
+            id: 1,
+            user_id: "@alice:localhost".to_string(),
+            filter_id: "filterid".to_string(),
+            content: serde_json::json!({"room": {"timeline": {"limit": 10}}}),
+            created_ts: 0,
+        };
+        let filter_store: Arc<dyn synapse_storage::filter::FilterStoreApi> =
+            Arc::new(CountingFilterStore { calls: calls.clone(), filter: stored });
+
+        let sync = sync_service_with_filter_store(filter_store);
+
+        for empty in ["", "   "] {
+            let resolved = sync.resolve_sync_response_filter("@alice:localhost", Some(empty)).await.unwrap();
+            assert!(resolved.is_none(), "blank filter id {empty:?} must behave like no filter");
+        }
+
+        assert_eq!(calls.load(Ordering::SeqCst), 0, "blank filter ids must not hit storage");
     }
 }

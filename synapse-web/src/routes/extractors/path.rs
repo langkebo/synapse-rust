@@ -4,6 +4,8 @@ use axum::{
 };
 use synapse_common::ApiError;
 
+use super::log_rejection;
+
 /// Drop-in replacement for `axum::extract::Path` in extractor position.
 ///
 /// Handlers keep destructuring `MatrixPath(params)` exactly like they did with
@@ -32,15 +34,18 @@ impl<T> std::ops::DerefMut for MatrixPath<T> {
 ///                     (wrong type, wrong arity, invalid UTF-8, …)
 ///   M_INTERNAL      — the route matched but Axum's path-parameter extension is
 ///                     missing (a router wiring bug, not a client error)
+///
+/// The rejection's own text (which names the expected type and the captured
+/// value) goes to the log only — see [`log_rejection`](super::log_rejection).
 fn map_path_rejection(rejection: PathRejection) -> ApiError {
     match rejection {
-        PathRejection::FailedToDeserializePathParams(error) => {
-            ApiError::invalid_param(format!("Invalid path parameter: {error}"))
+        PathRejection::FailedToDeserializePathParams(detail) => {
+            log_rejection(detail, ApiError::invalid_param("Invalid path parameter"))
         }
-        PathRejection::MissingPathParams(error) => {
-            ApiError::internal(format!("Missing path parameters for matched route: {error}"))
+        PathRejection::MissingPathParams(detail) => {
+            log_rejection(detail, ApiError::internal("Missing path parameters for matched route"))
         }
-        _ => ApiError::invalid_param(format!("Invalid path parameter: {rejection}")),
+        other => log_rejection(other, ApiError::invalid_param("Invalid path parameter")),
     }
 }
 
@@ -126,10 +131,7 @@ mod tests {
         let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
         let json: Value = serde_json::from_slice(&body).expect("body should be valid JSON");
         assert_eq!(json["errcode"], "M_INVALID_PARAM");
-        assert!(
-            json["error"].as_str().unwrap_or("").contains("Invalid path parameter"),
-            "unexpected error message: {json}"
-        );
+        assert_eq!(json["error"], "Invalid path parameter", "serde detail must not leak: {json}");
     }
 
     #[tokio::test]

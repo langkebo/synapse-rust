@@ -23,7 +23,9 @@ cd /Users/ljf/Desktop/hu_ts/synapse-rust/docker/deploy
 
 **正常路径**：由 `docker/deploy/deploy.sh` 的最后一步「启动监控栈」自动调用，一般不需要手动执行。
 
-**手动启动**（必须在核心栈之后，因为监控栈复用核心栈创建的网络 `synapse_network`，声明为 `external`）：
+**手动启动**（必须在核心栈之后：监控栈自建网络 `synapse_monitoring_network` 承载监控容器之间的流量，
+但 prometheus 与 postgres-exporter 仍需接入核心栈的 `synapse_network`（`external`）访问
+`synapse-app:9090` / `postgres:5432`）：
 
 ```bash
 cd /Users/ljf/Desktop/hu_ts/synapse-rust/docker/deploy && \
@@ -236,7 +238,8 @@ Grafana 10.4.2 用 webpack（产物是 `/public/build/*.js`），**永远不会�
 
 ### Q3: 启动报 `network synapse_network ... not found`
 
-监控栈复用核心栈创建的网络，属于 `external`。先启动核心栈：
+监控栈中 prometheus / postgres-exporter 仍需接入核心栈创建的 `synapse_network`（`external`），
+其余监控容器只挂在自有网络 `synapse_monitoring_network` 上。先启动核心栈：
 
 ```bash
 cd /Users/ljf/Desktop/hu_ts/synapse-rust/docker/deploy && \
