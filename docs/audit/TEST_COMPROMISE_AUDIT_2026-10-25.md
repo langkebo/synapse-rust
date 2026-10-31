@@ -2346,6 +2346,11 @@ G 说清了"0.0 是 bootstrap 冻结值"，但**只记录不改**等于棘轮对
 
 1. **`was no baseline` 的 6 条 core-path**：这是"从未进过基线"的**新分母**，0% 的三条要么缺测试、
    要么与 §7.5 的"跨 crate 转发层 / 无消费者"同类 —— 按 §7.5 的方法逐条定性，不能一概补测试。
+   **✅ 已定性（2026-10-31）**：4 条达标（`cascade` 98.65% ≥ 95、`history_boundary` 100% ≥ 100、
+   `msc4512_proxy` 79.61% ≥ 75、`worker_topology` 96.34% ≥ 95，均有真实测试出处），2 条
+   （`credential_auth.rs` / `token_auth.rs`，各 `LF 2 / LH 0`）为**声明文件**、走 `[DECL-ONLY]` 豁免；
+   6 条均无需补测试或改写基线。明细见
+   [`TEST_QUALITY_FINDINGS_2026-10-28.md` §4.1](TEST_QUALITY_FINDINGS_2026-10-28.md)。
 2. **`was 74.6% → 19.4%` 这种大幅负 delta**：单文件掉 55 个点不像"代码变差了"，更像**测量口径变了**
    —— 本轮 `run_coverage.sh` 的 `STORAGE_FEATURES` 增加了 `friends,widgets,burn-after-read`
    （三个此前**从不编译**的 feature 现在被编进分母），而 lcov 的分母随编译单元变化。
@@ -2357,8 +2362,9 @@ G 说清了"0.0 是 bootstrap 冻结值"，但**只记录不改**等于棘轮对
 是同一个坑，只是方向反过来。**先证实口径，再谈抬/降。**
 
 **下一步（未做）**：①取同一 commit 的两次 lcov 做逐文件对比，判定第 2 类是口径还是真实下降；
-②对 6 条 core-path 按 §7.5 的方法逐条定性（缺测试 / 无消费者 / 跨 crate / feature 关）；
-③只有①②结论明确后，才允许动 `scripts/ci/coverage_baseline.json`。
+~~②对 6 条 core-path 按 §7.5 的方法逐条定性~~ → **✅ 已完成（2026-10-31）**，结论见本小节第 1 条；
+③只有①②结论明确后，才允许动 `scripts/ci/coverage_baseline.json`（②已明确、①仍未做 ⇒ 禁令对
+第 2 类与 `DROP 101` 继续有效；6 条 core-path 属新增条目，已在 `2f9ff9ed0` 用当轮实测值入库）。
 
 #### 7.7.1 补记：第 2 类的性质有了第一条**不依赖 lcov** 的硬证据（2026-10-27 晚）
 

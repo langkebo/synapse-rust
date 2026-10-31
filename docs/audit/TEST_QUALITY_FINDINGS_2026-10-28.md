@@ -109,10 +109,10 @@ advisories ok
 **2026-10-29 复核更新**：`134 + 6` 这个口径已被**脚本实测**取代（本节末尾「实测分档」）。
 它的价值只在于「不许 `--update`」这条禁令——**该禁令仍然有效**，理由没变：`DROP` 那一类
 （101 条）仍无法归因到具体成因，按当前测量重写基线等于把未定性的值永久固化成新地板。
-6 条 core-path 全部是 `was no baseline`：
+6 条 core-path 在 `0a5310346` 全部是 `was no baseline`（当时读数 / 门槛）：
 
-| 文件 | 读数 | 门槛 |
-|------|------|------|
+| 文件 | 当时读数 | 门槛 |
+|------|----------|------|
 | `synapse-services/auth/credential_auth.rs` | 0.0% | 70% |
 | `synapse-services/auth/token_auth.rs` | 0.0% | 70% |
 | `synapse-storage/event/history_boundary.rs` | 0.0% | 70% |
@@ -120,8 +120,42 @@ advisories ok
 | `synapse-web/routes/msc4512_proxy.rs` | 24.8% | 70% |
 | `synapse-web/routes/worker/worker_topology.rs` | 45.1% | 70% |
 
-三条 `0.0%` 必须先按 §7.5 的方法逐条分流（缺测试 / 无消费者 / 跨 crate / `feature` 关），
-**不能一律补测试** —— 对"无可测行"的文件补测试是无效劳动。
+**分流结论（2026-10-31，按 §7.5 四类定性）**：`2f9ff9ed0`（2026-10-29）已把这 6 条实测值
+写入基线（带 `line_pct` + `lines_found`）。`--update` 禁令约束的是**已有条目**的重写，
+这 6 条是新增条目，用当轮实测值入库不属于该禁令范围。
+
+| 文件 | 定性 | 实测 | 基线 / target | 处置 |
+|------|------|------|---------------|------|
+| `synapse-services/auth/credential_auth.rs` | **声明文件**（`pub trait` 只有签名；`LF 2` 是 `#[async_trait]` 展开的垫片，不可达） | `LF 2 / LH 0` | 0.0 / 30（惰性） | `[DECL-ONLY]` 豁免，**不补测试** |
+| `synapse-services/auth/token_auth.rs` | 同上 | `LF 2 / LH 0` | 0.0 / 30（惰性） | 同上 |
+| `synapse-storage/event/cascade.rs` | **已覆盖**（storage 单元测试） | `LF 74 / LH 73` = 98.65% | 98.57 / 95 | 达标，不动 |
+| `synapse-storage/event/history_boundary.rs` | **已覆盖**（storage 单元测试） | `13 / 13` = 100% | 100 / 100 | 达标，不动 |
+| `synapse-web/routes/msc4512_proxy.rs` | **已覆盖**（集成测试） | `206 / 164` = 79.61% | 79.61 / 75 | 达标，不动 |
+| `synapse-web/routes/worker/worker_topology.rs` | **已覆盖**（内联单测） | `82 / 79` = 96.34% | 96.34 / 95 | 达标，不动 |
+
+逐条测试出处：
+
+- `cascade.rs` → [`db_tests.rs`](../../synapse-storage/src/event/db_tests.rs) 的
+  `test_find_related_events_and_cascade_targets` 与
+  `test_find_related_events_single_layer_filters_by_rel_type_wildcard_and_redaction`；
+- `history_boundary.rs` → [`trait_object_dispatch_tests.rs`](../../synapse-storage/src/event/trait_object_dispatch_tests.rs)
+  的 invite / join / outsider / 另一房间 四场景；
+- `msc4512_proxy.rs` → [`api_msc4512_proxy_tests.rs`](../../tests/integration/api_msc4512_proxy_tests.rs)
+  （入站 fallback + `fed_proxy` 的守卫子句）；
+- `worker_topology.rs` → [`worker.rs`](../../synapse-web/src/routes/worker.rs) 的 `mod tests`。
+
+**两条 trait 文件为何不补测试**：`[DECL-ONLY]` 判定自 2026-10-28 起对**基线已知文件同样生效**
+（`check_file_coverage.py` L641-650：`lines_found ≤ 3` + `cur == 0` + `prev == 0`），实测跑棘轮时
+这两条以 `[DECL-ONLY]` 打印、且**不进** `core_known_total`。因此其 `target: 30` 是**惰性值**——
+该分支先 `continue`，永远到不了 `floor = min(target, prev)`。保留该字段只为满足
+`--seed-targets` 的 fail-closed（core 条目缺 `target` 直接 `exit 2`），**不是待达标项**。
+这也与 §3.1.5 的既有决策一致：trait 没有函数体可测，唯一默认体是刻意不走的 `M_UNRECOGNIZED` 分支。
+
+⇒ 6 条**无需任何补测试或基线改写**：4 条达标，2 条结构性 0% 已豁免。
+当年 0.0 / 48.6 / 24.8 / 45.1 与当前读数的差异成因**未逐条证实**（候选是采集口径：leg 拆分 /
+`feature` 组合 / 报告合并范围），但可以确定**不是缺测试** —— 4 条都有可直接点名的用例。
+本次本地读数（`coverage/lcov.info`，2026-10-29 10:19 合并报告）另报 34 条 core 文件低于基线，
+属 §4.2 / §4.3 的棘轮与测量口径问题，与本节 6 条无关。
 
 > **实测分档（2026-10-29，`classify_coverage_drift.py` 跑在本地完整 lcov 上）**：
 > 报告 677 文件 / 基线 683 条目 / 磁盘源码 3394 文件。低于基线的共 181 条（其中 55 条落在
@@ -148,6 +182,14 @@ advisories ok
 从未成功过。后果：**任何合法的"减少代码"都会把旧高水位永久冻成红**，且没有机械通道自愈。
 C4 是第一个案例。可选方向：基线改为"随改动一起评审的可写文件"，或给棘轮加"分母变化时
 允许重算"的显式入口（需设计，不能放开 `--update`）。
+
+**补记（2026-10-31）：写回是隐式的。** `check_file_coverage.py` L1214-1224
+（`save_path = args.save_baseline or args.baseline`）在**每次正常运行**时都会把结果写回
+`--baseline` 指向的文件 —— 不需要 `--save-baseline`。实测：按模块 docstring 的推荐命令
+本地跑一次，`scripts/ci/coverage_baseline.json` 立刻产生 71 增 / 64 删的改动并已按 `max`
+抬高了若干 `line_pct`（已回滚）。这与"禁止 `--update`"的纪律直接冲突：禁令防的是显式
+`--update` / `--save-baseline`，防不住这条隐式通道。**核对基线是否被污染，要看
+`git status` 而不是看命令行里有没有 `--update`。**
 
 ### 4.3 大盘无绿
 

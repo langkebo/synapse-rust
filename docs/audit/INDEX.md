@@ -304,7 +304,12 @@
     / `:170`），实测 **84/85 = 98.82% > 74.59%**，棘轮自然转绿，基线未动
   - **§7.7.3**：`--exclude` → `--exclude-from-test` **本轮不采纳**（不解释本轮的红；§⑤/⑦ 已用
     补测试路线关掉；本地无法验证 + 两个未验证风险），重开条件见原文
-  - **下一步**：6 条 core-path 按 §7.5 方法逐条定性；口径判定明确后才允许动 `coverage_baseline.json`
+  - ✅ **6 条 core-path 已分流（2026-10-31）**：4 条达标（`cascade` 98.65 ≥ 95、`history_boundary` 100 ≥ 100、
+    `msc4512_proxy` 79.61 ≥ 75、`worker_topology` 96.34 ≥ 95，均有真实测试出处）；2 条
+    （`credential_auth.rs` / `token_auth.rs`，各 `LF 2 / LH 0`）是**声明文件**，走 `[DECL-ONLY]` 豁免
+    （2026-10-28 起对基线已知文件生效），其 `target: 30` 为惰性值、仅为满足 `--seed-targets` 的 fail-closed。
+    ⇒ **不补测试、不改基线**。明细见
+    [`TEST_QUALITY_FINDINGS_2026-10-28.md` §4.1](TEST_QUALITY_FINDINGS_2026-10-28.md)
 - ✅ **[TEST_COMPROMISE_AUDIT_2026-10-25.md](TEST_COMPROMISE_AUDIT_2026-10-25.md)** 第 9 轮：**最后一个开口（原 ⑦ 类 8 个 0%）关掉**，代价 6 分钟。
   - **改判**：`synapse-web/routes/**` 那 8 个不是"只能等 CI 的 integration 腿"，而是**陈旧（地板冻结）**。
     8 个文件都在 `synapse-web` crate、模块**无条件**编译、**每个都自带内联 `#[cfg(test)] mod tests`**
