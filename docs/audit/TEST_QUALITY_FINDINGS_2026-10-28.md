@@ -77,10 +77,10 @@ advisories ok
 
 | 编号 | 问题 | 判据（实测） | 状态 |
 |------|------|--------------|------|
-| B1 | `Security Audit` 是**路径过滤**触发。近 12 次 `ci.yml` 里 **5 次 `skipped`、5 次 `failure`** ⇒ 供应链检查多数提交上根本不跑 | 因此下面的 C1/C2 从 10-22 起就在树里、没人读到 | ⚠️ 未修（结构性） |
+| B1 | `Security Audit` 是**路径过滤**触发。近 12 次 `ci.yml` 里 **5 次 `skipped`、5 次 `failure`** ⇒ 供应链检查多数提交上根本不跑 | 因此下面的 C1/C2 从 10-22 起就在树里、没人读到 | ✅ 已修（解耦 `needs` + 哨兵要求"该跑就跑"）`见 §6.11` |
 | B2 | 没有任何东西在验"**pin 落后**"：`Digest Pin Integrity` 只验 pin 在 registry 上仍有效 | — | ✅ 已加 `resolve-base-image-digests`（`workflow_dispatch` 专用，不影响 push/PR）`1670d1876` |
 | B3 | per-file 覆盖率棘轮**从未在 CI 跑过**（30 次运行 `Code Coverage` 恒 `skipped`），608 条基线来自本地产出、从未被 CI 复现 | `c952ee2b0` 提交说明自述 | ✅ 已跑通（首次），但红转移到棘轮数据本身（见 §4.1） |
-| B4 | `Benchmark` / `Run benchmarks` 红：`##[error]The runner has received a shutdown signal` + `exit 143`，日志停在 `Compiling synapse-rust`；该 job **没配 `timeout-minutes`** | 两次同型 ⇒ runner 被回收，不是断言失败也不是超时 | ⚠️ 未处理 |
+| B4 | `Benchmark` / `Run benchmarks` 红：`##[error]The runner has received a shutdown signal` + `exit 143`，日志停在 `Compiling synapse-rust`；该 job **没配 `timeout-minutes`** | 两次同型 ⇒ runner 被回收，不是断言失败也不是超时 | ✅ 6 个 job 已加 `timeout-minutes` 与归因指纹（§6.7）`21881328f` |
 
 ## 3 C 类：门禁修对之后浮出来的真实缺陷
 
@@ -216,6 +216,10 @@ C4 是第一个案例。可选方向：基线改为"随改动一起评审的可�
 ### 4.7 `Benchmark` 的 runner 回收（同 B4）
 
 未处理。该 job 没有 `timeout-minutes`，无法区分"被环境杀"与"自己卡死"。
+
+> **已处置（2026-10-28 第二轮，提交 `21881328f`）**：`benchmark.yml` 6 个 job 全部加上
+> 按实测耗时 ×~1.35 的 `timeout-minutes`，两种情形从此日志指纹不同（超时 vs 平台回收），
+> 见 §6.7。**不能**修掉平台回收本身（外部条件），只能让它可归因。
 
 ### 4.8 `ROUTE_CONTRACT.md` 的跨午夜日期漂移（设计缺陷）
 
@@ -748,6 +752,37 @@ run 40603416972 的 `Run benchmarks` 只跑了 11 min 就收到
 守卫 `tests/unit/require_tests_ran_mechanism_tests.rs`（6 例，用假 cargo，不嵌套真 cargo
 以免抢 target 锁）。两次变异各证一次红：去掉 `--no-tests=fail` 注入 ⇒ 对应用例 FAILED；
 让空集不再判红 ⇒ 对应用例 FAILED。
+
+### 6.11 `Security Audit` 的"没跑"与"跑了没证据"（B1）
+
+B 类问题的判据是"**skip 不等于绿**"。`Security Audit` 同时踩了三个遮蔽形态：
+
+| # | 形态 | 后果 |
+|---|------|------|
+| 1 | `needs: [test, changes]` | `Test & Lint` 一红 ⇒ 本 job 默认 skipped ⇒ `Supply-chain gate` / `rand::rng()` 棘轮 / geiger / cargo-outdated **四个门禁一次都不执行**，而 run 只显示"Test & Lint 红" |
+| 2 | `non-docs` 输出为空串 | `Detect Changes` 失败、output 改名或 `if` 写错时，GitHub 给的是空串，而所有门禁都写 `== 'true'` ⇒ 安静 skip，没人报 |
+| 3 | 没人检查"该不该跑" | skip 在摘要里只是一行灰字，抽样 12 次 run 有 5 次 skipped |
+
+处置分三处，都**不改** job 的 `if`（docs-only 改动确实动不了 `Cargo.lock` / `deny.toml`）：
+
+1. `security-audit.needs` 收为 `[changes]`，与 `coverage` 对齐 —— 供应链判据不依赖单测结论。
+   "谁先绿"与"要不要跑"是两件事，前者不能再短路后者（同 §6.4 / §6.4.1 的形态）。
+2. `CI Summary` 的哨兵增加 `Security Audit`：条件与 `security-audit.if` **逐字一致**
+   （schedule / dispatch 强制慢速 / 非 docs 的 main push / 非 docs 的 PR），该跑而结果是
+   `skipped`/`cancelled` 即红。
+3. 哨兵对 `non-docs` 做**空值 fail-closed**：PR/push 上它必须是 `true` 或 `false`。
+   空串不是"没有非 docs 改动"，是"不知道有没有" —— 不能在未知上放行。
+
+验证（不需要等 CI）：
+
+- 5 组事件模拟直接跑哨兵脚本：空 `non-docs` push ⇒ 红；非 docs push 而 audit skipped ⇒ 红；
+  docs-only push ⇒ 绿；非 docs PR 且 audit 跑过 ⇒ 绿；非 docs PR 而 audit skipped ⇒ 红。
+- 变异自证：把 `SECURITY_AUDIT_RESULT` 指向不存在的 job ⇒
+  `check_ci_summary_dependencies.py` 报 `sentinel reads needs.<x>.result but ... not list`
+  （rc=1）；还原 ⇒ rc=0。
+
+> 未闭环部分：这些改动要等下一轮 CI 才能看到真实读数。"哨兵能报"与"CI 真跑过"是两件事，
+> 与 §6.3.1 的说明同口径。
 
 ## 7 两条「刻意不设门槛」的决定（2026-10-29）
 

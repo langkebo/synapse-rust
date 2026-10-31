@@ -1364,7 +1364,14 @@ jobs:
   security-audit:
     name: Security Audit
     runs-on: ubuntu-latest
-    needs: [test, changes]
+    # `needs: [test, changes]` 曾让本 job 的 4 条供应链门禁一起被单元测试短路：
+    # `test` 一红 ⇒ 本 job 默认 skipped ⇒ `Supply-chain gate` / `rand::rng()` 棘轮 /
+    # geiger / cargo-outdated **一次都不执行**，而 run 结论仍只是"Test & Lint 红"，
+    # 看不出供应链从未被检查（与 §6.4、§6.4.1 同一个遮蔽形态）。
+    # 供应链判据与单元测试结论**互不依赖**：`Cargo.lock` / `deny.toml` 的检查不需要
+    # 单测先绿。`coverage` 早已是 `needs: [changes]`，此处对齐。job 的 `if` 仍然是
+    # "非 docs + PR 或 push 到 main"，那只决定"要不要跑"，不决定"谁先绿"。
+    needs: [changes]
     if: >-
       github.event_name == 'schedule' ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.run_slow_tier == 'true') ||
@@ -2022,6 +2029,7 @@ jobs:
         if: always()
         env:
           EVENT_NAME: ${{ github.event_name }}
+          GIT_REF: ${{ github.ref }}
           NON_DOCS: ${{ needs.changes.outputs.non-docs }}
           FORCED_SLOW_TIER: ${{ github.event.inputs.run_slow_tier }}
           TEST_RESULT: ${{ needs.test.result }}
@@ -2029,10 +2037,25 @@ jobs:
           COVERAGE_RESULT: ${{ needs.coverage.result }}
           PR_COVERAGE_RESULT: ${{ needs.pr-coverage.result }}
           BUILD_RESULT: ${{ needs.build.result }}
+          SECURITY_AUDIT_RESULT: ${{ needs.security-audit.result }}
         run: |
           set -euo pipefail
-          echo "event=$EVENT_NAME non-docs=$NON_DOCS forced=$FORCED_SLOW_TIER"
-          echo "test=$TEST_RESULT integration=$INTEGRATION_RESULT coverage=$COVERAGE_RESULT build=$BUILD_RESULT"
+          echo "event=$EVENT_NAME ref=$GIT_REF non-docs=$NON_DOCS forced=$FORCED_SLOW_TIER"
+          echo "test=$TEST_RESULT integration=$INTEGRATION_RESULT coverage=$COVERAGE_RESULT build=$BUILD_RESULT security-audit=$SECURITY_AUDIT_RESULT"
+
+          # `non-docs` 是**所有**非 docs 门禁（含 Security Audit）的唯一开关。
+          # 它来自 `Detect Changes` job 的 `dorny/paths-filter` 输出：该 job 失败、
+          # 步骤被改名、或 output 名字写错时，GitHub 给的是**空串**，而下面每个
+          # 门禁的条件都写成 `== 'true'` ⇒ 全部安静 skip，run 却只显示"某个 job 红"。
+          # 空串不是"没有非 docs 改动"，是"不知道有没有" —— 不能在未知上放行。
+          # 用 if 而不是嵌套 case：本文件的门禁禁止嵌套 case
+          # （`scripts/ci/check_ci_summary_dependencies.py` 无法归因内层条件）。
+          if [ "$EVENT_NAME" = "pull_request" ] || [ "$EVENT_NAME" = "push" ]; then
+            if [ "$NON_DOCS" != "true" ] && [ "$NON_DOCS" != "false" ]; then
+              echo "::error::Detect Changes did not produce non-docs (got '$NON_DOCS') — the path filter failed, so every non-docs gate would be silently skipped"
+              exit 1
+            fi
+          fi
 
           if [ "$TEST_RESULT" != "success" ] && [ "$TEST_RESULT" != "failure" ]; then
             echo "::error::fast tier did not execute (Test & Lint result='$TEST_RESULT') — an empty run must not look like a verification"
@@ -2078,6 +2101,30 @@ jobs:
             # 它同样是"空跑看起来像验证"的高危位 —— 车道的价值全在"真的采到了数据"，
             # 而 skip 在摘要里只是一行灰字。docs-only PR 上它必然 skipped，故不在此要求。
             require_lane "PR Coverage" "$PR_COVERAGE_RESULT"
+          fi
+
+          # Security Audit：判据结构上"看不到"的那条（B1）。
+          # 它的 `if` 决定了"多数提交上根本不跑"，而 **skip 不是绿**：抽样 12 次 run
+          # 里 5 次 skipped、5 次 failure，供应链检查实际只覆盖了少数提交。
+          # 这里不改 `if`（docs-only 改动确实动不了 `Cargo.lock` / `deny.toml`），
+          # 而是把"该跑时到底跑没跑"变成退出码 —— 条件与 `security-audit.if` 逐字一致：
+          # 非 docs 的 main push、非 docs 的 PR、或 schedule。
+          # 注意本 job 的 `needs` 只有 `changes`，已与单元测试解耦，所以这里
+          # 不被 `TEST_RESULT` 短路（那正是 §6.4 里"一个门禁遮蔽另外三个"的形态）。
+          need_security_audit=0
+          if [ "$EVENT_NAME" = "schedule" ]; then
+            need_security_audit=1
+          elif [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$FORCED_SLOW_TIER" = "true" ]; then
+            need_security_audit=1
+          elif [ "$EVENT_NAME" = "push" ] && [ "$GIT_REF" = "refs/heads/main" ] && [ "$NON_DOCS" = "true" ]; then
+            need_security_audit=1
+          elif [ "$EVENT_NAME" = "pull_request" ] && [ "$NON_DOCS" = "true" ]; then
+            need_security_audit=1
+          fi
+          if [ "$need_security_audit" = "1" ]; then
+            require_lane "Security Audit" "$SECURITY_AUDIT_RESULT"
+          else
+            echo "info: this event does not require Security Audit (docs-only change)"
           fi
 
           echo "sentinel OK: every lane required by this event actually ran"
