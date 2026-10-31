@@ -174,6 +174,25 @@ impl Config {
         for instance in self.worker.instance_map.values_mut() {
             instance.host = resolve_env_in_string(&instance.host)?;
         }
+        // `worker.stream_writers` 的每个元素也走同一条插值路径：`docker/config/homeserver.yaml`
+        // 把 `events` / `device_lists` 写成 `${WORKER_EVENT_WRITER:-master}`，让同一份配置
+        // 既服务单进程部署（不设变量 ⇒ `master` = 默认值 ⇒ 拓扑校验零告警），也服务
+        // `docker-compose.workers.yml`（设为 `event_persister` ⇒ 声明与真实拓扑一致）。
+        // 不解析就会把整个字面量当实例名，拓扑校验会报 unknown instance。
+        for writers in [
+            &mut self.worker.stream_writers.events,
+            &mut self.worker.stream_writers.typing,
+            &mut self.worker.stream_writers.to_device,
+            &mut self.worker.stream_writers.account_data,
+            &mut self.worker.stream_writers.receipts,
+            &mut self.worker.stream_writers.presence,
+            &mut self.worker.stream_writers.push_rules,
+            &mut self.worker.stream_writers.device_lists,
+        ] {
+            for writer in writers.iter_mut() {
+                *writer = resolve_env_in_string(writer)?;
+            }
+        }
         self.worker.replication.server_name = resolve_env_in_string(&self.worker.replication.server_name)?;
         self.worker.replication.http.host = resolve_env_in_string(&self.worker.replication.http.host)?;
         self.worker.replication.http.secret =

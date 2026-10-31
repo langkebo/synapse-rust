@@ -287,11 +287,22 @@ worker:
   # B1 的两进程 e2e（`scripts/test/worker_topology_smoke.sh` 的写转发断言）依赖这份声明：
   # 写打到 `client_reader`，由 `event_persister` 落库，再直查 DB 佐证。
   # ⚠️ `events` 与 `device_lists` 必须指向同一实例：联邦 `send` 一个请求同时写这两路。
+  #
+  # ⚠️ 写者必须是 `${WORKER_EVENT_WRITER:-master}` 占位符，**不能**写成字面量
+  #    `event_persister`：本文件同时服务「单进程部署」与「多进程烟测栈」。字面量写法下，
+  #    单进程部署（`write_forwarding: false`）每次启动都会命中拓扑校验的
+  #    「stream_writers 已偏离默认值，但 write_forwarding 为 false」提示 —— 那条提示
+  #    存在的意义正是发现「配置声明与运行拓扑不一致」，常驻噪声会让它彻底失效。
+  #    同一套占位符机制（`resolve_env_variables` 解析）已在 `worker.instance_name` 上使用：
+  #      - 单进程部署不设变量 ⇒ 解析为 `master`（= 默认值）⇒ 零告警；
+  #      - `docker/docker-compose.workers.yml` 把变量设成 `event_persister` ⇒ 声明生效。
+  #    两路共用**同一个**变量是故意的：拆成两个变量就有了把 `events` 与 `device_lists`
+  #    配到不同实例的空间（上面那条 ⚠️ 说明为什么不行）。
   stream_writers:
     events:
-      - event_persister
+      - "${WORKER_EVENT_WRITER:-master}"
     device_lists:
-      - event_persister
+      - "${WORKER_EVENT_WRITER:-master}"
   # ── 参考多进程拓扑（W-D）─────────────────────────────────────────────────
   # 以下键**只在 SYNAPSE__WORKER__ENABLED=true 时生效**：单进程部署走
   # `worker.enabled: false` 的早退分支（校验直接 valid），instance_map 没有消费者。

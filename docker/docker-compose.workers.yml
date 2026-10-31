@@ -71,6 +71,12 @@ x-worker-base: &worker-base
     # `SMOKE_WRITE_FORWARDING=1` 打开，才能断言"写打到 reader、由 writer 落库"。
     # ⚠️ 打开后 `events` 是通知绑定流 ⇒ 必须有 Redis，否则启动直接 fatal（A2）。
     SYNAPSE__WORKER__WRITE_FORWARDING: ${SMOKE_WRITE_FORWARDING:-false}
+    # 写者声明。`docker/config/homeserver.yaml` 的 `worker.stream_writers` 写的是
+    # `${WORKER_EVENT_WRITER:-master}`（env 只能覆盖标量，覆盖不了数组，所以只能靠
+    # 配置里的占位符）。本栈由 `event_persister` 承担写转发目标 —— 与
+    # `worker.instance_map` 里声明的那个实例一致。**所有进程必须读到同一个值**
+    # （`events` 与 `device_lists` 必须指向同一实例），所以放在公共锚点里。
+    WORKER_EVENT_WRITER: event_persister
     # HTTP 角色实例必须打开准入（写在每个服务里，避免误加到队列消费者上：
     # `synapse_worker` 只有 `/metrics`，开不开都一样，但语义上不该开）。
     # worker 进程不做迁移：6 个 worker 抢着建表是并发 DDL，不是"更保险"。
@@ -123,6 +129,10 @@ services:
       SYNAPSE__WORKER__WRITE_FORWARDING: ${SMOKE_WRITE_FORWARDING:-false}
       # 建议同时打开（W-B）：配置错误就不要起。想先观察再收紧就先留 false。
       SYNAPSE__WORKER__TOPOLOGY__STRICT: ${WORKER_TOPOLOGY_STRICT:-false}
+      # 与 `&worker-environment` 里的同名变量保持一致：master 不继承那个锚点，
+      # 但拓扑校验是由它执行的 —— 它读到的写者必须和 worker 侧相同，
+      # 否则「声明」与「实际转发目标」会分属两个实例。
+      WORKER_EVENT_WRITER: event_persister
 
   # ---------------------------------------------------------------------------
   # worker 进程：同一二进制 + 不同实例名。名字必须能在
@@ -138,7 +148,7 @@ services:
     <<: *worker-base
     container_name: ${COMPOSE_PROJECT_NAME:-synapse}-client-reader
     # 根二进制：提供本角色的 Matrix 子面（其余路径由 surface_gate 拒 404）。
-    command: ["/app/synapse-rust"]
+    command: [ "/app/synapse-rust" ]
     # 只绑回环：端口是给烟测「直接证明准入」用的，不该对外。
     ports:
       - "127.0.0.1:${WORKER_CLIENT_READER_PORT:-18009}:8008"
@@ -154,7 +164,7 @@ services:
   event_persister:
     <<: *worker-base
     container_name: ${COMPOSE_PROJECT_NAME:-synapse}-event-persister
-    command: ["/app/synapse_worker"]
+    command: [ "/app/synapse_worker" ]
     environment:
       <<: *worker-environment
       WORKER_INSTANCE_NAME: event_persister
@@ -164,7 +174,7 @@ services:
     <<: *worker-base
     container_name: ${COMPOSE_PROJECT_NAME:-synapse}-sync-worker
     # 根二进制：提供本角色的 Matrix 子面（其余路径由 surface_gate 拒 404）。
-    command: ["/app/synapse-rust"]
+    command: [ "/app/synapse-rust" ]
     # 只绑回环：端口是给烟测「直接证明准入」用的，不该对外。
     ports:
       - "127.0.0.1:${WORKER_SYNC_WORKER_PORT:-18010}:8008"
@@ -178,7 +188,7 @@ services:
     <<: *worker-base
     container_name: ${COMPOSE_PROJECT_NAME:-synapse}-federation-reader
     # 根二进制：提供本角色的 Matrix 子面（其余路径由 surface_gate 拒 404）。
-    command: ["/app/synapse-rust"]
+    command: [ "/app/synapse-rust" ]
     # 只绑回环：端口是给烟测「直接证明准入」用的，不该对外。
     ports:
       - "127.0.0.1:${WORKER_FEDERATION_READER_PORT:-18011}:8008"
@@ -192,7 +202,7 @@ services:
     <<: *worker-base
     container_name: ${COMPOSE_PROJECT_NAME:-synapse}-media-repository
     # 根二进制：提供本角色的 Matrix 子面（其余路径由 surface_gate 拒 404）。
-    command: ["/app/synapse-rust"]
+    command: [ "/app/synapse-rust" ]
     # 只绑回环：端口是给烟测「直接证明准入」用的，不该对外。
     ports:
       - "127.0.0.1:${WORKER_MEDIA_REPOSITORY_PORT:-18012}:8008"

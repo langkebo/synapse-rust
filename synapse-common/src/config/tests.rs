@@ -612,6 +612,42 @@ fn test_resolve_env_variables_resolves_redis_password() -> Result<(), String> {
     Ok(())
 }
 
+/// `docker/config/homeserver.yaml` 的 `worker.stream_writers` 写成
+/// `${WORKER_EVENT_WRITER:-master}`（env 只能覆盖标量，覆盖不了数组，所以只能靠
+/// 加载期的占位符）。两件事必须成立：
+///
+/// * 变量未设置 ⇒ 解析成 `master` = `StreamWriters` 的默认值。否则单进程部署
+///   （`write_forwarding: false`）每次启动都命中拓扑校验的「stream_writers 偏离
+///   默认值但不生效」提示 —— 那条提示正是用来看「配置声明与运行拓扑不一致」的，
+///   常驻噪声等于让它失效；
+/// * 变量设置 ⇒ 真的变成该实例名（多进程栈把 `event_persister` 交给写转发）。
+///
+/// 不解析的话整个字面量会被当成实例名，拓扑校验会报 unknown instance。
+#[test]
+fn test_resolve_env_variables_resolves_stream_writer_placeholders() -> Result<(), String> {
+    test_env::set("TEST_STREAM_WRITER", "event_persister");
+
+    let mut config = Config::default();
+    config.worker.stream_writers.events = vec!["${TEST_STREAM_WRITER:-master}".to_string()];
+    config.worker.stream_writers.device_lists = vec!["${TEST_STREAM_WRITER:-master}".to_string()];
+    // 未设置变量的形态（单进程部署）必须落回默认值，而不是保留占位符原文。
+    config.worker.stream_writers.typing = vec!["${TEST_STREAM_WRITER_UNSET:-master}".to_string()];
+    // 多元素列表要逐项解析，不能只处理第一个。
+    config.worker.stream_writers.receipts =
+        vec!["${TEST_STREAM_WRITER_UNSET:-master}".to_string(), "${TEST_STREAM_WRITER:-master}".to_string()];
+
+    config.resolve_env_variables()?;
+
+    test_env::remove("TEST_STREAM_WRITER");
+
+    assert_eq!(config.worker.stream_writers.events, vec!["event_persister".to_string()]);
+    assert_eq!(config.worker.stream_writers.device_lists, vec!["event_persister".to_string()]);
+    assert_eq!(config.worker.stream_writers.typing, vec!["master".to_string()]);
+    assert_eq!(config.worker.stream_writers.receipts, vec!["master".to_string(), "event_persister".to_string()]);
+
+    Ok(())
+}
+
 // 部署实测（2026）：`homeserver.yaml` 里
 // `signing_key_master_key: "${FEDERATION_MASTER_KEY:-}"` 在变量未设置时
 // 解析为**空字符串**，而不是"未配置"。`Some("")` 会让密钥管理器走加密分支，

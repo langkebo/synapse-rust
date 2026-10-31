@@ -21,7 +21,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::PathBuf;
 
@@ -115,6 +115,54 @@ fn config_declared_instances(yaml: &str) -> BTreeSet<String> {
     names
 }
 
+/// The `worker.stream_writers` mapping in the homeserver config, as
+/// `stream name -> declared owners`.
+///
+/// Same indentation-aware scan as [`config_declared_instances`]: `stream_writers:`
+/// sits at two spaces, each stream key at four, each list item (`- value`) at six.
+fn config_stream_writers(yaml: &str) -> BTreeMap<String, Vec<String>> {
+    let mut streams: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut inside = false;
+    let mut current: Option<String> = None;
+    for line in yaml.lines() {
+        if line.trim_start().starts_with('#') {
+            continue;
+        }
+        let indent = line.len() - line.trim_start().len();
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if trimmed == "stream_writers:" {
+            assert_eq!(indent, 2, "{HOMESERVER}: worker.stream_writers must sit at two spaces");
+            inside = true;
+            continue;
+        }
+        if !inside {
+            continue;
+        }
+        if indent <= 2 {
+            break;
+        }
+        if indent == 4 {
+            let stream = trimmed.trim_end_matches(':').to_string();
+            assert!(!stream.is_empty(), "{HOMESERVER}: empty stream key in worker.stream_writers");
+            streams.entry(stream.clone()).or_default();
+            current = Some(stream);
+            continue;
+        }
+        if indent == 6 {
+            let item = trimmed
+                .strip_prefix("- ")
+                .unwrap_or_else(|| panic!("{HOMESERVER}: unexpected line in worker.stream_writers: {trimmed:?}"));
+            let stream = current.clone().expect("a list item cannot precede its stream key");
+            streams.entry(stream).or_default().push(item.trim().trim_matches('"').to_string());
+        }
+    }
+    assert!(!streams.is_empty(), "{HOMESERVER}: worker.stream_writers is missing or empty");
+    streams
+}
+
 /// Every instance name the codebase can classify, drawn from the same table the
 /// validator uses (`WorkerType::instance_map_keys`).
 fn known_instance_names() -> BTreeSet<String> {
@@ -136,6 +184,61 @@ fn the_compose_config_and_smoke_script_declare_the_same_instances() {
          instance, a config-only name is a permanently `missing` one"
     );
     assert_eq!(smoke, config, "{SMOKE} asserts on {smoke:?} but {HOMESERVER} declares {config:?}");
+}
+
+/// The single env variable that names the writer for both `events` and
+/// `device_lists`.
+///
+/// One variable for two streams is deliberate: `PUT /_matrix/federation/v1/send/{txn}`
+/// writes both in a single request, so the validator rejects a split
+/// (`events` and `device_lists` must name the same instance).
+const EVENT_WRITER_PLACEHOLDER: &str = "${WORKER_EVENT_WRITER:-master}";
+
+#[test]
+fn stream_writers_default_to_master_so_a_single_process_deploy_is_silent() {
+    // `homeserver.yaml` serves two topologies: the single-process deploy and the
+    // multi-process stack. Written as a literal `event_persister`, every single-process
+    // start (write_forwarding: false) hits the validator's "stream_writers deviates from
+    // the default but has no effect" notice — the very signal meant to catch a real
+    // config/runtime mismatch. The placeholder resolves to `master` (the default) when
+    // the variable is unset, so the check goes back to being meaningful.
+    let writers = config_stream_writers(&read(HOMESERVER));
+    for (stream, owners) in &writers {
+        assert_eq!(
+            owners,
+            &vec![EVENT_WRITER_PLACEHOLDER.to_string()],
+            "{HOMESERVER}: worker.stream_writers.{stream} must be `{EVENT_WRITER_PLACEHOLDER}` — a literal writer makes \
+             the single-process deploy warn on every start, drowning out the mismatch signal it is supposed to raise"
+        );
+    }
+    for required in ["events", "device_lists"] {
+        assert!(writers.contains_key(required), "{HOMESERVER}: worker.stream_writers must declare `{required}`");
+    }
+}
+
+#[test]
+fn the_worker_stack_tells_every_process_the_same_writer() {
+    // The writer is resolved by each process from its own environment. Master validates
+    // the topology while the readers forward to the writer; if the two sides disagree the
+    // declaration and the forwarding target are different instances, with no error.
+    let compose = read(COMPOSE);
+    let declared = config_declared_instances(&read(HOMESERVER));
+    let mut assignments = 0;
+    for line in compose.lines() {
+        let Some(value) = line.trim().strip_prefix("WORKER_EVENT_WRITER:") else { continue };
+        assignments += 1;
+        let writer = value.trim();
+        assert_eq!(writer, "event_persister", "{COMPOSE}: the worker stack must name `event_persister` as the writer");
+        assert!(
+            declared.contains(writer),
+            "{COMPOSE} names `{writer}` as the writer but {HOMESERVER}: worker.instance_map does not declare it"
+        );
+    }
+    assert!(
+        assignments >= 2,
+        "{COMPOSE} must set WORKER_EVENT_WRITER for the master (which validates the topology) and for the worker \
+         services via the shared environment anchor; found {assignments} assignment(s)"
+    );
 }
 
 #[test]
@@ -252,8 +355,10 @@ fn http_role_instances_run_the_root_binary_with_the_surface_gate_on() {
     let compose = read(COMPOSE);
     for service in ["client_reader", "sync_worker", "federation_reader", "media_repository"] {
         let block = service_block(&compose, service);
+        // 比较时去掉空白：compose 允许 `command: [ "/app/synapse-rust" ]`，
+        // 这类纯格式差异不该让守卫失败（格式化工具会加这个空格）。
         assert!(
-            block.contains("command: [\"/app/synapse-rust\"]"),
+            block.replace(' ', "").contains("command:[\"/app/synapse-rust\"]"),
             "{service} must run the root binary; `synapse_worker` has no `/_matrix/*` listener"
         );
         assert!(
