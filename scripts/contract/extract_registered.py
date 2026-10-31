@@ -539,7 +539,10 @@ _SERDE_DENY_UNKNOWN = re.compile(r"(?:^|[(,\s])deny_unknown_fields(?=[,)\s]|$)")
 # `pub(crate)`, `pub(super)`, `pub(in crate::foo)`. Stepped over by
 # [`_attrs_before`] so container attributes are still found.
 _VIS_TAIL = re.compile(r"(?:\bpub\s*(?:\([^()]*\))?)\s*$")
-_QUERY_HEAD = re.compile(r"\bQuery\s*<")
+# `Query<T>` and the project's `MatrixQuery<T>` share the same query semantics
+# (I-16 wraps Axum's extractor to unify the rejection envelope). The negative
+# lookbehind matters: `MatrixQuery<` also contains `Query<`.
+_QUERY_HEAD = re.compile(r"(?<![A-Za-z0-9_])(?:Query|MatrixQuery)\s*<")
 # `RawQuery` is a query extractor with no addressable field list (the handler
 # parses the raw `&k=v` string itself). It must not be reported as `query: none`.
 _RAW_QUERY_HEAD = re.compile(r"\bRawQuery\b")
@@ -723,6 +726,16 @@ def _match_angle(text: str, start: int) -> int:
     return -1
 
 
+def _type_arg_text(raw: str) -> str:
+    """One generic argument as written, minus layout noise.
+
+    rustfmt wraps a long generic over several lines and leaves a trailing comma
+    (`Query<\n    Foo,\n>`), which is valid Rust but not part of the type name;
+    leaving it on makes the struct lookup miss and the route read as `foreign`.
+    """
+    return raw.strip().rstrip(",").rstrip()
+
+
 def query_extractor_types(params: str) -> list:
     """Every `Query<T>` type argument in a function signature, in order.
 
@@ -734,7 +747,7 @@ def query_extractor_types(params: str) -> list:
         lt = params.index("<", m.start())
         gt = _match_angle(params, lt)
         if gt != -1:
-            out.append(params[lt + 1 : gt].strip())
+            out.append(_type_arg_text(params[lt + 1 : gt]))
     return out
 
 
@@ -749,7 +762,7 @@ def json_body_extractor_types(params: str) -> list:
         lt = params.index("<", m.start())
         gt = _match_angle(params, lt)
         if gt != -1:
-            out.append(params[lt + 1 : gt].strip())
+            out.append(_type_arg_text(params[lt + 1 : gt]))
     return out
 
 
@@ -815,8 +828,8 @@ def _is_dynamic_query_type(text: str) -> bool:
 # over by a guessed key set.
 
 _QUERY_BINDING = re.compile(
-    r"\bQuery\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)\s*:\s*"
-    r"(?:[A-Za-z_][A-Za-z0-9_]*\s*::\s*)*Query\s*<"
+    r"\b(?:MatrixQuery|Query)\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)\s*:\s*"
+    r"(?:[A-Za-z_][A-Za-z0-9_]*\s*::\s*)*(?:MatrixQuery|Query)\s*<"
 )
 _PARAM_NAME = re.compile(r"^\s*(?:mut\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*:")
 _CLOSURE_PAIR_HEAD = re.compile(r"\|\s*(?:&\s*)?\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*,")

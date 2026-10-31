@@ -167,3 +167,26 @@ async fn friend_endpoints_require_authentication() {
     assert_eq!(status, StatusCode::UNAUTHORIZED, "未认证必须 401：{value}");
     assert_eq!(value["errcode"], "M_UNAUTHORIZED", "本仓 auth 中间件的 errcode：{value}");
 }
+
+/// I-14：目标用户不存在 ⇒ 404 `M_NOT_FOUND`（曾因 `ApiError` 经 `?` 被降级成
+/// `FriendRoomError::Internal` 而返回 500 `M_UNKNOWN`）。
+#[tokio::test]
+async fn friend_request_to_unknown_user_is_not_found() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+    let (token, _) = register(&app, "friend_ghost_sender").await;
+
+    let (status, value) = call(
+        &app,
+        post_json(
+            "/_matrix/vendor/v1/friends/request",
+            Some(&token),
+            &json!({ "user_id": "@friend_no_such_user:example.com", "message": "probe" }),
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::NOT_FOUND, "目标用户不存在必须是 404：{value}");
+    assert_eq!(value["errcode"], "M_NOT_FOUND", "errcode 必须是 M_NOT_FOUND：{value}");
+}

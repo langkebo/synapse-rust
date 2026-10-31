@@ -4,10 +4,12 @@ use super::{
     state_event_content_response, RoomWriteQuery,
 };
 use crate::routes::context::RoomContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::extractors::RoomId;
 use crate::routes::MatrixJson;
 use crate::routes::{validate_room_id, AuthenticatedUser};
-use axum::extract::{Json, Path, Query, State};
+use axum::extract::{Json, State};
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 use synapse_common::map_internal;
@@ -30,8 +32,8 @@ pub(crate) struct GetRoomStateQuery {
 pub(crate) async fn get_room_state(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
-    Query(query): Query<GetRoomStateQuery>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
+    MatrixQuery(query): MatrixQuery<GetRoomStateQuery>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -67,7 +69,7 @@ pub(crate) fn filter_state_events_by_type(events: &[Value], event_type: &str) ->
 pub(crate) async fn get_state_by_type(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_type)): Path<(RoomId, String)>,
+    MatrixPath((room_id, event_type)): MatrixPath<(RoomId, String)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -101,7 +103,7 @@ pub(crate) async fn get_state_by_type(
 pub(crate) async fn get_state_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_type, state_key)): Path<(RoomId, String, String)>,
+    MatrixPath((room_id, event_type, state_key)): MatrixPath<(RoomId, String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -203,8 +205,8 @@ fn is_beacon_info_event(event_type: &str) -> bool {
 pub(crate) async fn send_state_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_type)): Path<(RoomId, String)>,
-    Query(query): Query<RoomWriteQuery>,
+    MatrixPath((room_id, event_type)): MatrixPath<(RoomId, String)>,
+    MatrixQuery(query): MatrixQuery<RoomWriteQuery>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -319,8 +321,8 @@ pub(crate) async fn send_state_event(
 pub(crate) async fn put_state_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_type, state_key)): Path<(RoomId, String, String)>,
-    Query(query): Query<RoomWriteQuery>,
+    MatrixPath((room_id, event_type, state_key)): MatrixPath<(RoomId, String, String)>,
+    MatrixQuery(query): MatrixQuery<RoomWriteQuery>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -407,7 +409,7 @@ pub(crate) async fn put_state_event(
 pub(crate) async fn get_state_event_empty_key(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_type)): Path<(RoomId, String)>,
+    MatrixPath((room_id, event_type)): MatrixPath<(RoomId, String)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -433,7 +435,7 @@ pub(crate) async fn get_state_event_empty_key(
 pub(crate) async fn get_power_levels(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -460,16 +462,16 @@ pub(crate) async fn get_power_levels(
 pub(crate) async fn put_power_levels(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
-    Query(query): Query<RoomWriteQuery>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
+    MatrixQuery(query): MatrixQuery<RoomWriteQuery>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     // Delegate to put_state_event_empty_key with event_type hardcoded
     put_state_event_empty_key(
         State(ctx),
         auth_user,
-        Path((room_id, "m.room.power_levels".to_string())),
-        Query(query),
+        MatrixPath((room_id, "m.room.power_levels".to_string())),
+        MatrixQuery(query),
         MatrixJson(body),
     )
     .await
@@ -479,8 +481,8 @@ pub(crate) async fn put_power_levels(
 pub(crate) async fn put_state_event_empty_key(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_type)): Path<(RoomId, String)>,
-    Query(query): Query<RoomWriteQuery>,
+    MatrixPath((room_id, event_type)): MatrixPath<(RoomId, String)>,
+    MatrixQuery(query): MatrixQuery<RoomWriteQuery>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -548,8 +550,8 @@ pub(crate) async fn put_state_event_empty_key(
 pub(crate) async fn put_state_event_no_key(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_type)): Path<(RoomId, String)>,
-    Query(query): Query<RoomWriteQuery>,
+    MatrixPath((room_id, event_type)): MatrixPath<(RoomId, String)>,
+    MatrixQuery(query): MatrixQuery<RoomWriteQuery>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -617,7 +619,7 @@ pub(crate) async fn put_state_event_no_key(
 pub(crate) async fn get_room_permissions(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;

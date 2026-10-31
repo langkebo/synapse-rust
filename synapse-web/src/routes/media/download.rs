@@ -1,9 +1,11 @@
 use crate::routes::context::MediaContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::extractors::{MediaId, ServerName};
 use crate::{AuthenticatedUser, OptionalAuthenticatedUser};
 use axum::{
     body::Body,
-    extract::{Path, Query, State},
+    extract::State,
     http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
 };
@@ -316,7 +318,7 @@ pub(crate) async fn thumbnail_response_common(
 pub(crate) async fn download_media(
     State(ctx): State<MediaContext>,
     auth_user: OptionalAuthenticatedUser,
-    Path((server_name, media_id)): Path<(ServerName, MediaId)>,
+    MatrixPath((server_name, media_id)): MatrixPath<(ServerName, MediaId)>,
 ) -> Result<Response, ApiError> {
     ctx.media_domain_service.ensure_media_not_quarantined(auth_user.is_admin, &server_name, &media_id).await?;
     let (status, headers, body) = download_media_stream_common(&ctx, &server_name, &media_id, None).await?;
@@ -327,7 +329,7 @@ pub(crate) async fn download_media(
 pub(crate) async fn download_media_with_filename(
     State(ctx): State<MediaContext>,
     auth_user: OptionalAuthenticatedUser,
-    Path((server_name, media_id, filename)): Path<(ServerName, MediaId, String)>,
+    MatrixPath((server_name, media_id, filename)): MatrixPath<(ServerName, MediaId, String)>,
 ) -> Result<Response, ApiError> {
     ctx.media_domain_service.ensure_media_not_quarantined(auth_user.is_admin, &server_name, &media_id).await?;
     let (status, headers, body) = download_media_stream_common(&ctx, &server_name, &media_id, Some(&filename)).await?;
@@ -337,8 +339,8 @@ pub(crate) async fn download_media_with_filename(
 /// Signed media download — verifies HMAC signature before serving.
 pub(crate) async fn download_media_signed(
     State(ctx): State<MediaContext>,
-    Path((server_name, media_id)): Path<(ServerName, MediaId)>,
-    Query(query): Query<SignedMediaQuery>,
+    MatrixPath((server_name, media_id)): MatrixPath<(ServerName, MediaId)>,
+    MatrixQuery(query): MatrixQuery<SignedMediaQuery>,
 ) -> Result<Response, ApiError> {
     let signature =
         query.signature.as_deref().ok_or_else(|| ApiError::unauthorized("Missing signature parameter".to_string()))?;
@@ -359,8 +361,8 @@ pub(crate) async fn download_media_signed(
 /// Signed media download with filename.
 pub(crate) async fn download_media_signed_with_filename(
     State(ctx): State<MediaContext>,
-    Path((server_name, media_id, filename)): Path<(ServerName, MediaId, String)>,
-    Query(query): Query<SignedMediaQuery>,
+    MatrixPath((server_name, media_id, filename)): MatrixPath<(ServerName, MediaId, String)>,
+    MatrixQuery(query): MatrixQuery<SignedMediaQuery>,
 ) -> Result<Response, ApiError> {
     let signature =
         query.signature.as_deref().ok_or_else(|| ApiError::unauthorized("Missing signature parameter".to_string()))?;
@@ -382,7 +384,7 @@ pub(crate) async fn download_media_signed_with_filename(
 pub(crate) async fn download_media_authenticated(
     State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
-    Path((server_name, media_id)): Path<(ServerName, MediaId)>,
+    MatrixPath((server_name, media_id)): MatrixPath<(ServerName, MediaId)>,
 ) -> Result<Response, ApiError> {
     ctx.media_domain_service.ensure_media_not_quarantined(auth_user.is_admin, &server_name, &media_id).await?;
     let (status, headers, body) = download_media_stream_common(&ctx, &server_name, &media_id, None).await?;
@@ -393,7 +395,7 @@ pub(crate) async fn download_media_authenticated(
 pub(crate) async fn download_media_authenticated_with_filename(
     State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
-    Path((server_name, media_id, filename)): Path<(ServerName, MediaId, String)>,
+    MatrixPath((server_name, media_id, filename)): MatrixPath<(ServerName, MediaId, String)>,
 ) -> Result<Response, ApiError> {
     ctx.media_domain_service.ensure_media_not_quarantined(auth_user.is_admin, &server_name, &media_id).await?;
     let (status, headers, body) = download_media_stream_common(&ctx, &server_name, &media_id, Some(&filename)).await?;
@@ -404,7 +406,7 @@ pub(crate) async fn download_media_authenticated_with_filename(
 pub(crate) async fn download_media_v1(
     State(ctx): State<MediaContext>,
     auth_user: OptionalAuthenticatedUser,
-    Path((server_name, media_id)): Path<(ServerName, MediaId)>,
+    MatrixPath((server_name, media_id)): MatrixPath<(ServerName, MediaId)>,
 ) -> Response {
     if let Err(error) =
         ctx.media_domain_service.ensure_media_not_quarantined(auth_user.is_admin, &server_name, &media_id).await
@@ -425,7 +427,7 @@ pub(crate) async fn download_media_v1(
 pub(crate) async fn download_media_v1_with_filename(
     State(ctx): State<MediaContext>,
     auth_user: OptionalAuthenticatedUser,
-    Path((server_name, media_id, filename)): Path<(ServerName, MediaId, String)>,
+    MatrixPath((server_name, media_id, filename)): MatrixPath<(ServerName, MediaId, String)>,
 ) -> Response {
     if let Err(error) =
         ctx.media_domain_service.ensure_media_not_quarantined(auth_user.is_admin, &server_name, &media_id).await
@@ -450,8 +452,8 @@ pub(crate) async fn download_media_v1_with_filename(
 pub(crate) async fn get_thumbnail(
     State(ctx): State<MediaContext>,
     auth_user: OptionalAuthenticatedUser,
-    Path((server_name, media_id)): Path<(ServerName, MediaId)>,
-    Query(query): Query<ThumbnailQuery>,
+    MatrixPath((server_name, media_id)): MatrixPath<(ServerName, MediaId)>,
+    MatrixQuery(query): MatrixQuery<ThumbnailQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     ctx.media_domain_service.ensure_media_not_quarantined(auth_user.is_admin, &server_name, &media_id).await?;
     let response = thumbnail_response_common(&ctx, &server_name, &media_id, &query).await?;
@@ -463,8 +465,8 @@ pub(crate) async fn get_thumbnail(
 pub(crate) async fn get_thumbnail_authenticated(
     State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
-    Path((server_name, media_id)): Path<(ServerName, MediaId)>,
-    Query(query): Query<ThumbnailQuery>,
+    MatrixPath((server_name, media_id)): MatrixPath<(ServerName, MediaId)>,
+    MatrixQuery(query): MatrixQuery<ThumbnailQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     ctx.media_domain_service.ensure_media_not_quarantined(auth_user.is_admin, &server_name, &media_id).await?;
     let response = thumbnail_response_common(&ctx, &server_name, &media_id, &query).await?;

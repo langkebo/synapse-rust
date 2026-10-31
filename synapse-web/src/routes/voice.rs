@@ -4,12 +4,14 @@
 )]
 use super::{ensure_room_member_ctx, validate_user_id, AppState, AuthenticatedUser};
 use crate::routes::context::RoomContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::extractors::MediaId;
 use crate::routes::extractors::RoomId;
 use crate::routes::extractors::UserId;
 use crate::routes::MatrixJson;
 use axum::{
-    extract::{DefaultBodyLimit, Multipart, Path, Query, State},
+    extract::{DefaultBodyLimit, Multipart, State},
     routing::{delete, get, post},
     Json, Router,
 };
@@ -259,7 +261,7 @@ async fn get_voice_stats(
 async fn get_room_voice_stats(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_room_member_ctx(&ctx, &auth_user, &room_id, "You must be a member of this room to view voice stats").await?;
     let stats = ctx.voice_service.get_room_voice_stats(&room_id).await?;
@@ -270,7 +272,7 @@ async fn get_room_voice_stats(
 async fn get_user_voice_stats(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
     if auth_user.user_id.as_str() != user_id.as_str() {
@@ -284,8 +286,8 @@ async fn get_user_voice_stats(
 async fn get_room_voice_messages(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
-    Query(query): Query<VoiceListQuery>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
+    MatrixQuery(query): MatrixQuery<VoiceListQuery>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_room_member_ctx(&ctx, &auth_user, &room_id, "You must be a member of this room to view voice messages")
         .await?;
@@ -298,8 +300,8 @@ async fn get_room_voice_messages(
 async fn get_user_voice_messages(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(user_id): Path<UserId>,
-    Query(query): Query<VoiceListQuery>,
+    MatrixPath(user_id): MatrixPath<UserId>,
+    MatrixQuery(query): MatrixQuery<VoiceListQuery>,
 ) -> Result<Json<Value>, ApiError> {
     if auth_user.user_id.as_str() != user_id.as_str() {
         return Err(ApiError::forbidden("Cannot view another user's voice messages"));
@@ -313,7 +315,7 @@ async fn get_user_voice_messages(
 async fn get_voice_message_content(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(media_id): Path<MediaId>,
+    MatrixPath(media_id): MatrixPath<MediaId>,
 ) -> Result<Json<Value>, ApiError> {
     // FT-105: 先取出内容（含归属信息），在返回给调用者之前完成所有权校验，防止 IDOR
     let result = ctx.voice_service.get_voice_message_content(&media_id).await?;
@@ -360,7 +362,7 @@ async fn get_voice_message_content(
 async fn delete_voice_message(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(media_id): Path<MediaId>,
+    MatrixPath(media_id): MatrixPath<MediaId>,
 ) -> Result<Json<Value>, ApiError> {
     let result =
         ctx.voice_service.delete_voice_message(&media_id, auth_user.user_id.as_str(), auth_user.is_admin).await?;
@@ -379,7 +381,7 @@ fn voice_operation_not_provided(operation: &str, client_hint: &str) -> ApiError 
 async fn convert_voice_message(
     _state: State<RoomContext>,
     _auth_user: AuthenticatedUser,
-    Path(_media_id): Path<MediaId>,
+    MatrixPath(_media_id): MatrixPath<MediaId>,
 ) -> Result<Json<Value>, ApiError> {
     Err(voice_operation_not_provided("conversion", "Server-side processing is not supported"))
 }
@@ -388,7 +390,7 @@ async fn convert_voice_message(
 async fn optimize_voice_message(
     _state: State<RoomContext>,
     _auth_user: AuthenticatedUser,
-    Path(_media_id): Path<MediaId>,
+    MatrixPath(_media_id): MatrixPath<MediaId>,
 ) -> Result<Json<Value>, ApiError> {
     Err(voice_operation_not_provided("optimization", "Server-side processing is not supported"))
 }
@@ -397,7 +399,7 @@ async fn optimize_voice_message(
 async fn transcribe_voice_message(
     _state: State<RoomContext>,
     _auth_user: AuthenticatedUser,
-    Path(_media_id): Path<MediaId>,
+    MatrixPath(_media_id): MatrixPath<MediaId>,
 ) -> Result<Json<Value>, ApiError> {
     Err(voice_operation_not_provided("transcription", "Use Web Speech API or local Whisper model on the client"))
 }

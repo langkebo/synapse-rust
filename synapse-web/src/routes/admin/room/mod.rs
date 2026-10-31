@@ -1,4 +1,5 @@
 /// The `management` module.
+use crate::routes::extractors::MatrixPath;
 pub mod management;
 use crate::routes::MatrixJson;
 /// The `spaces` module.
@@ -11,7 +12,7 @@ use crate::routes::context::AdminContext;
 use crate::routes::extractors::{EventId, RoomId};
 use crate::routes::{AdminUser, AppState};
 use axum::{
-    extract::{Path, State},
+    extract::State,
     routing::{delete, get, post, put},
     Json, Router,
 };
@@ -310,7 +311,7 @@ pub fn create_room_router(_state: AppState) -> Router<AppState> {
 pub async fn get_room_aliases_admin(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     if !ctx.room_service.state().room_exists(&room_id).await.map_err(ApiError::from)? {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -328,7 +329,7 @@ pub async fn get_room_aliases_admin(
 pub async fn get_rooms(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    axum::extract::Query(params): axum::extract::Query<RoomsQuery>,
+    crate::routes::extractors::MatrixQuery(params): crate::routes::extractors::MatrixQuery<RoomsQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let legacy_offset = params.offset.as_deref().and_then(|v| v.parse::<i64>().ok());
     let limit = params
@@ -389,7 +390,7 @@ pub async fn get_rooms(
 pub async fn get_room(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     let room = ctx.room_service.state().get_room_record(&room_id).await.map_err(ApiError::from)?;
 
@@ -428,7 +429,7 @@ pub async fn get_room(
 pub async fn delete_room(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     ctx.room_service.state().delete_room(&room_id, &admin.user_id).await?;
 
@@ -443,8 +444,8 @@ pub async fn delete_room(
 pub async fn get_room_members_admin(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<RoomId>,
-    axum::extract::Query(params): axum::extract::Query<RoomMembersQuery>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
+    crate::routes::extractors::MatrixQuery(params): crate::routes::extractors::MatrixQuery<RoomMembersQuery>,
 ) -> Result<Json<Value>, ApiError> {
     if !ctx.room_service.state().room_exists(&room_id).await.map_err(ApiError::from)? {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -493,7 +494,7 @@ pub async fn get_room_members_admin(
 pub async fn get_room_state_admin(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     if !ctx.room_service.state().room_exists(&room_id).await.map_err(ApiError::from)? {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -522,8 +523,8 @@ pub async fn get_room_state_admin(
 pub async fn get_room_messages_admin(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<RoomId>,
-    axum::extract::Query(params): axum::extract::Query<RoomMessagesQuery>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
+    crate::routes::extractors::MatrixQuery(params): crate::routes::extractors::MatrixQuery<RoomMessagesQuery>,
 ) -> Result<Json<Value>, ApiError> {
     if !ctx.room_service.state().room_exists(&room_id).await.map_err(ApiError::from)? {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -597,7 +598,7 @@ pub async fn shutdown_room(
 pub async fn get_event_context_admin(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path((room_id, event_id)): Path<(RoomId, EventId)>,
+    MatrixPath((room_id, event_id)): MatrixPath<(RoomId, EventId)>,
 ) -> Result<Json<Value>, ApiError> {
     let room_id = room_id.replace("%21", "!").replace("%3A", ":");
     let event_id = event_id.replace("%24", "$").replace("%3A", ":");
@@ -614,8 +615,8 @@ pub async fn get_event_context_admin(
 pub async fn get_room_token_sync_admin(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<RoomId>,
-    axum::extract::Query(params): axum::extract::Query<RoomTokenSyncQueryParams>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
+    crate::routes::extractors::MatrixQuery(params): crate::routes::extractors::MatrixQuery<RoomTokenSyncQueryParams>,
 ) -> Result<Json<Value>, ApiError> {
     if !ctx.room_service.state().room_exists(&room_id).await.map_err(ApiError::from)? {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -705,7 +706,7 @@ pub async fn get_room_token_sync_admin(
 pub async fn search_room_messages_admin(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     MatrixJson(body): MatrixJson<SearchRoomMessagesRequest>,
 ) -> Result<Json<Value>, ApiError> {
     if !ctx.room_service.state().room_exists(&room_id).await.map_err(ApiError::from)? {
@@ -745,7 +746,7 @@ pub async fn search_room_messages_admin(
 pub async fn get_room_version(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     let version = ctx.room_service.state().get_room_version(&room_id).await.map_err(ApiError::from)?;
 
@@ -763,7 +764,7 @@ pub async fn get_room_version(
 pub async fn get_room_forward_extremities(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     if !ctx.room_service.state().room_exists(&room_id).await.map_err(ApiError::from)? {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -792,7 +793,7 @@ pub async fn search_all_rooms(
 pub async fn search_all_rooms_query(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    axum::extract::Query(query): axum::extract::Query<SearchAllRoomsRequest>,
+    crate::routes::extractors::MatrixQuery(query): crate::routes::extractors::MatrixQuery<SearchAllRoomsRequest>,
 ) -> Result<Json<Value>, ApiError> {
     search_all_rooms_impl(&ctx, query).await
 }
@@ -855,7 +856,7 @@ async fn search_all_rooms_impl(ctx: &AdminContext, body: SearchAllRoomsRequest) 
 pub async fn cascade_redact_event(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     MatrixJson(body): MatrixJson<CascadeRedactEventRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let event_id =

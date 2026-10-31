@@ -1,8 +1,10 @@
 use crate::routes::context::AdminContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::AdminUser;
 use crate::routes::MatrixJson;
 use axum::{
-    extract::{Path, Query, State},
+    extract::State,
     routing::{delete, get, post},
     Json, Router,
 };
@@ -76,7 +78,7 @@ pub struct RegistrationTokenListQuery {
 pub async fn get_registration_tokens(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Query(query): Query<RegistrationTokenListQuery>,
+    MatrixQuery(query): MatrixQuery<RegistrationTokenListQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = query.limit.unwrap_or(100).clamp(MIN_PAGINATION_LIMIT, MAX_PAGINATION_LIMIT);
     let from = decode_registration_token_cursor(query.from.as_deref());
@@ -138,7 +140,7 @@ pub async fn create_registration_token(
 pub async fn get_registration_token(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(token): Path<String>,
+    MatrixPath(token): MatrixPath<String>,
 ) -> Result<Json<Value>, ApiError> {
     let result = ctx.admin_token_service.get_registration_token(&token).await?;
 
@@ -160,7 +162,7 @@ pub async fn get_registration_token(
 pub async fn delete_registration_token(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(token): Path<String>,
+    MatrixPath(token): MatrixPath<String>,
 ) -> Result<Json<Value>, ApiError> {
     ctx.admin_token_service.delete_registration_token(&token).await?;
 
@@ -172,7 +174,7 @@ pub async fn delete_registration_token(
 pub async fn update_registration_token(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(token): Path<String>,
+    MatrixPath(token): MatrixPath<String>,
     MatrixJson(body): MatrixJson<UpdateTokenRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let row = ctx.admin_token_service.update_registration_token(&token, body.uses_allowed, body.expiry_time).await?;
@@ -192,7 +194,7 @@ pub async fn update_registration_token(
 pub async fn get_user_tokens(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&ctx, &user_id).await?;
 
@@ -219,7 +221,7 @@ pub async fn get_user_tokens(
 pub async fn delete_user_token(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path((user_id, token_id)): Path<(UserId, i64)>,
+    MatrixPath((user_id, token_id)): MatrixPath<(UserId, i64)>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&ctx, user_id.as_str()).await?;
 
@@ -233,7 +235,7 @@ pub async fn delete_user_token(
 pub async fn get_user_refresh_tokens(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&ctx, &user_id).await?;
 
@@ -260,7 +262,7 @@ pub async fn get_user_refresh_tokens(
 pub async fn delete_refresh_token(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path((user_id, token_id)): Path<(UserId, i64)>,
+    MatrixPath((user_id, token_id)): MatrixPath<(UserId, i64)>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&ctx, user_id.as_str()).await?;
 

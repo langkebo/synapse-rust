@@ -2,13 +2,11 @@
 // Matrix spec: https://matrix.org/docs/spec/client_server/latest#get-matrix-client-v3-rooms-room-id-ephemeral
 
 use crate::routes::context::RoomContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::extractors::RoomId;
 use crate::routes::{ensure_room_member_ctx, ApiError, AppState, AuthenticatedUser};
-use axum::{
-    extract::{Path, Query, State},
-    routing::get,
-    Json, Router,
-};
+use axum::{extract::State, routing::get, Json, Router};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -41,8 +39,8 @@ pub struct EphemeralResponse {
 pub async fn get_ephemeral_events(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
-    Query(params): Query<EphemeralParams>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
+    MatrixQuery(params): MatrixQuery<EphemeralParams>,
 ) -> Result<Json<EphemeralResponse>, ApiError> {
     ensure_room_member_ctx(&ctx, &auth_user, &room_id, "User is not in the room").await?;
 

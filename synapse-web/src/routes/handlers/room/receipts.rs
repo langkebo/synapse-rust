@@ -1,11 +1,12 @@
 use super::{ensure_room_view_access, get_room_event};
 use crate::routes::context::RoomContext;
+use crate::routes::extractors::MatrixPath;
 use crate::routes::MatrixJson;
 use crate::routes::{
     ensure_room_member_ctx, is_member_or_creator_ctx, validate_event_id, validate_receipt_type, validate_room_id,
     AuthenticatedUser,
 };
-use axum::extract::{Json, Path, State};
+use axum::extract::{Json, State};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
@@ -15,7 +16,7 @@ use synapse_common::ApiError;
 pub(crate) async fn send_receipt(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, receipt_type, event_id)): Path<(RoomId, String, EventId)>,
+    MatrixPath((room_id, receipt_type, event_id)): MatrixPath<(RoomId, String, EventId)>,
     body: String,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -58,7 +59,7 @@ pub(crate) async fn send_receipt(
 pub(crate) async fn get_receipts(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, receipt_type, event_id)): Path<(RoomId, String, EventId)>,
+    MatrixPath((room_id, receipt_type, event_id)): MatrixPath<(RoomId, String, EventId)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     validate_receipt_type(&receipt_type)?;
@@ -104,7 +105,7 @@ pub struct SetReadMarkersBody {
 pub(crate) async fn set_read_markers(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     MatrixJson(body): MatrixJson<SetReadMarkersBody>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;

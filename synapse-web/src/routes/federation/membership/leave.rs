@@ -1,8 +1,9 @@
 use crate::middleware::FederationRequestAuth;
 use crate::routes::context::FederationContext;
+use crate::routes::extractors::MatrixPath;
 use crate::utils::auth::resolve_request_id;
 use axum::{
-    extract::{Extension, Json, Path, State},
+    extract::{Extension, Json, State},
     http::HeaderMap,
 };
 use serde_json::{json, Value};
@@ -19,7 +20,7 @@ use crate::routes::MatrixJson;
 pub(crate) async fn make_leave(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Path((room_id, user_id)): Path<(String, String)>,
+    MatrixPath((room_id, user_id)): MatrixPath<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     super::validate_federation_user_origin(&auth.origin, &user_id)?;
 
@@ -60,7 +61,7 @@ pub(crate) async fn send_leave(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     headers: HeaderMap,
-    Path((room_id, event_id)): Path<(String, String)>,
+    MatrixPath((room_id, event_id)): MatrixPath<(String, String)>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
@@ -132,7 +133,7 @@ pub(crate) async fn send_leave_v2(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     headers: HeaderMap,
-    Path((room_id, event_id)): Path<(String, String)>,
+    MatrixPath((room_id, event_id)): MatrixPath<(String, String)>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);

@@ -2,14 +2,13 @@
 // Allows clients to get and set sticky (pinned) event metadata
 
 use crate::routes::context::RoomContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::extractors::RoomId;
 use crate::routes::response_helpers::empty_json;
 use crate::routes::MatrixJson;
 use crate::routes::{ensure_room_member_ctx, validate_event_id, validate_room_id, ApiError, AuthenticatedUser};
-use axum::{
-    extract::{Path, Query, State},
-    Json,
-};
+use axum::{extract::State, Json};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -80,8 +79,8 @@ fn sticky_duration_from_event(event: &Value) -> Result<Option<i64>, ApiError> {
 pub async fn get_sticky_events(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
-    Query(query): Query<StickyEventQuery>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
+    MatrixQuery(query): MatrixQuery<StickyEventQuery>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     ensure_room_member_ctx(&ctx, &auth_user, &room_id, "Not a member of this room").await?;
@@ -134,7 +133,7 @@ pub async fn get_sticky_events(
 pub async fn set_sticky_events(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -197,7 +196,7 @@ pub async fn set_sticky_events(
 pub async fn clear_sticky_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_type)): Path<(String, String)>,
+    MatrixPath((room_id, event_type)): MatrixPath<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     ensure_room_member_ctx(&ctx, &auth_user, &room_id, "Not a member of this room").await?;

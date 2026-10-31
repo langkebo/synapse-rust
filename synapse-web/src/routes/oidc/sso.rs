@@ -1,12 +1,9 @@
 // OIDC SSO redirect and callback handlers.
 
 use crate::routes::context::SsoContext;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::formatting::format_token_response;
-use axum::{
-    extract::{Query, State},
-    response::Redirect,
-    Json,
-};
+use axum::{extract::State, response::Redirect, Json};
 use serde::Deserialize;
 use synapse_common::error::ApiError;
 use synapse_services::oidc_service::OidcService;
@@ -107,7 +104,7 @@ fn resolve_sso_redirect_url(ctx: &SsoContext, query: &SsoRedirectQuery) -> Strin
 /// See [`sso_redirect`].
 pub(crate) async fn sso_redirect(
     State(ctx): State<SsoContext>,
-    Query(query): Query<SsoRedirectQuery>,
+    MatrixQuery(query): MatrixQuery<SsoRedirectQuery>,
 ) -> Result<Redirect, ApiError> {
     let redirect_uri: String = resolve_sso_redirect_url(&ctx, &query);
 
@@ -153,7 +150,7 @@ pub(crate) struct OidcCallbackRequest {
 /// OIDC Callback handler - processes the callback from the OIDC provider after user authorization
 pub(crate) async fn oidc_callback(
     State(ctx): State<SsoContext>,
-    query: axum::extract::Query<OidcCallbackRequest>,
+    query: crate::routes::extractors::MatrixQuery<OidcCallbackRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // Check that OIDC service is enabled
     let oidc_service: &synapse_services::oidc_service::OidcService =

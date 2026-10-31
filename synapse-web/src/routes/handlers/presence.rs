@@ -1,11 +1,12 @@
 use crate::routes::context::RoomContext;
+use crate::routes::extractors::MatrixPath;
 use crate::routes::extractors::UserId;
 use crate::routes::response_helpers::filter_users_with_shared_rooms;
 use crate::routes::MatrixJson;
 use crate::routes::{validate_user_id, AuthenticatedUser};
 use crate::utils::auth::resolve_request_id;
 use axum::{
-    extract::{Json, Path, State},
+    extract::{Json, State},
     http::HeaderMap,
 };
 use serde::Deserialize;
@@ -70,7 +71,7 @@ async fn filter_visible_presence_targets(ctx: &RoomContext, current_user_id: &st
 pub(crate) async fn get_presence(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_presence_enabled(&ctx)?;
     validate_user_id(&user_id)?;
@@ -119,7 +120,7 @@ pub struct SetPresenceBody {
 pub(crate) async fn set_presence(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
     MatrixJson(body): MatrixJson<SetPresenceBody>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_presence_enabled(&ctx)?;
@@ -299,7 +300,7 @@ pub(crate) async fn get_presence_list_no_path(
 pub(crate) async fn get_presence_list(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_presence_enabled(&ctx)?;
     validate_user_id(&user_id)?;

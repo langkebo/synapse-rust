@@ -1,6 +1,8 @@
 use crate::routes::context::AdminContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use axum::{
-    extract::{Path, Query, State},
+    extract::State,
     http::StatusCode,
     middleware,
     response::IntoResponse,
@@ -316,7 +318,7 @@ pub async fn register_worker(
 /// See [`get_worker`].
 pub async fn get_worker(
     State(ctx): State<AdminContext>,
-    Path(worker_id): Path<String>,
+    MatrixPath(worker_id): MatrixPath<String>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let worker: Option<WorkerInfo> = ctx.worker_manager.get(&worker_id).await?;
@@ -337,7 +339,7 @@ pub async fn list_workers(
 /// See [`list_workers_by_type`].
 pub async fn list_workers_by_type(
     State(ctx): State<AdminContext>,
-    Path(worker_type): Path<String>,
+    MatrixPath(worker_type): MatrixPath<String>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let wtype: WorkerType = WorkerType::from_str(&worker_type).map_err(ApiError::bad_request)?;
@@ -350,7 +352,7 @@ pub async fn list_workers_by_type(
 /// See [`heartbeat`].
 pub async fn heartbeat(
     State(ctx): State<AdminContext>,
-    Path(worker_id): Path<String>,
+    MatrixPath(worker_id): MatrixPath<String>,
     MatrixJson(body): MatrixJson<HeartbeatBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let status: WorkerStatus = WorkerStatus::from_str(&body.status).map_err(ApiError::bad_request)?;
@@ -367,7 +369,7 @@ pub async fn heartbeat(
 /// See [`unregister_worker`].
 pub async fn unregister_worker(
     State(ctx): State<AdminContext>,
-    Path(worker_id): Path<String>,
+    MatrixPath(worker_id): MatrixPath<String>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     ctx.worker_manager.unregister(&worker_id).await?;
@@ -378,7 +380,7 @@ pub async fn unregister_worker(
 /// See [`send_command`].
 pub async fn send_command(
     State(ctx): State<AdminContext>,
-    Path(worker_id): Path<String>,
+    MatrixPath(worker_id): MatrixPath<String>,
     _admin_user: AdminUser,
     MatrixJson(body): MatrixJson<SendCommandBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -392,8 +394,8 @@ pub async fn send_command(
 /// See [`get_pending_commands`].
 pub async fn get_pending_commands(
     State(ctx): State<AdminContext>,
-    Path(worker_id): Path<String>,
-    Query(query): Query<QueryLimit>,
+    MatrixPath(worker_id): MatrixPath<String>,
+    MatrixQuery(query): MatrixQuery<QueryLimit>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit: i64 = query.limit.unwrap_or(100);
     let commands: Vec<WorkerCommand> = ctx.worker_manager.get_pending_commands(&worker_id, limit).await?;
@@ -408,7 +410,7 @@ pub async fn get_pending_commands(
 /// See [`complete_command`].
 pub async fn complete_command(
     State(ctx): State<AdminContext>,
-    Path(command_id): Path<String>,
+    MatrixPath(command_id): MatrixPath<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     ctx.worker_manager.complete_command(&command_id).await?;
 
@@ -418,7 +420,7 @@ pub async fn complete_command(
 /// See [`fail_command`].
 pub async fn fail_command(
     State(ctx): State<AdminContext>,
-    Path(command_id): Path<String>,
+    MatrixPath(command_id): MatrixPath<String>,
     MatrixJson(body): MatrixJson<FailTaskBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     ctx.worker_manager.fail_command(&command_id, &body.error).await?;
@@ -443,7 +445,7 @@ pub async fn assign_task(
 pub async fn get_pending_tasks(
     State(ctx): State<AdminContext>,
     _admin_user: AdminUser,
-    Query(query): Query<QueryLimit>,
+    MatrixQuery(query): MatrixQuery<QueryLimit>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit: i64 = query.limit.unwrap_or(100);
     let tasks: Vec<WorkerTaskAssignment> = ctx.worker_manager.get_pending_tasks(limit).await?;
@@ -458,7 +460,7 @@ pub async fn get_pending_tasks(
 /// See [`claim_next_task`].
 pub async fn claim_next_task(
     State(ctx): State<AdminContext>,
-    Path(worker_id): Path<String>,
+    MatrixPath(worker_id): MatrixPath<String>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let task: WorkerTaskAssignment = ctx.worker_manager.claim_next_pending_task(&worker_id).await?;
@@ -469,7 +471,7 @@ pub async fn claim_next_task(
 /// See [`claim_task`].
 pub async fn claim_task(
     State(ctx): State<AdminContext>,
-    Path((task_id, worker_id)): Path<(String, String)>,
+    MatrixPath((task_id, worker_id)): MatrixPath<(String, String)>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     ctx.worker_manager.claim_task(&task_id, &worker_id).await?;
@@ -480,7 +482,7 @@ pub async fn claim_task(
 /// See [`complete_task`].
 pub async fn complete_task(
     State(ctx): State<AdminContext>,
-    Path(task_id): Path<String>,
+    MatrixPath(task_id): MatrixPath<String>,
     MatrixJson(body): MatrixJson<CompleteTaskBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     ctx.worker_manager.complete_task(&task_id, body.result).await?;
@@ -491,7 +493,7 @@ pub async fn complete_task(
 /// See [`fail_task`].
 pub async fn fail_task(
     State(ctx): State<AdminContext>,
-    Path(task_id): Path<String>,
+    MatrixPath(task_id): MatrixPath<String>,
     MatrixJson(body): MatrixJson<FailTaskBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     ctx.worker_manager.fail_task(&task_id, &body.error).await?;
@@ -502,7 +504,7 @@ pub async fn fail_task(
 /// See [`connect_worker`].
 pub async fn connect_worker(
     State(ctx): State<AdminContext>,
-    Path(worker_id): Path<String>,
+    MatrixPath(worker_id): MatrixPath<String>,
     MatrixJson(body): MatrixJson<ConnectWorkerBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     ctx.worker_manager.connect_to_worker(&worker_id, &body.address).await?;
@@ -513,7 +515,7 @@ pub async fn connect_worker(
 /// See [`disconnect_worker`].
 pub async fn disconnect_worker(
     State(ctx): State<AdminContext>,
-    Path(worker_id): Path<String>,
+    MatrixPath(worker_id): MatrixPath<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     ctx.worker_manager.disconnect_from_worker(&worker_id).await?;
 
@@ -523,8 +525,8 @@ pub async fn disconnect_worker(
 /// See [`get_replication_position`].
 pub async fn get_replication_position(
     State(ctx): State<AdminContext>,
-    Path(worker_id): Path<String>,
-    Query(query): Query<QueryPosition>,
+    MatrixPath(worker_id): MatrixPath<String>,
+    MatrixQuery(query): MatrixQuery<QueryPosition>,
 ) -> Result<impl IntoResponse, ApiError> {
     let position_opt: Option<i64> = ctx.worker_manager.get_replication_position(&worker_id, &query.stream_name).await?;
     let position = position_opt.unwrap_or(0);
@@ -539,7 +541,7 @@ pub async fn get_replication_position(
 /// See [`update_replication_position`].
 pub async fn update_replication_position(
     State(ctx): State<AdminContext>,
-    Path((worker_id, stream_name)): Path<(String, String)>,
+    MatrixPath((worker_id, stream_name)): MatrixPath<(String, String)>,
     MatrixJson(body): MatrixJson<StreamPosition>,
 ) -> Result<impl IntoResponse, ApiError> {
     ctx.worker_manager.update_replication_position(&worker_id, &stream_name, body.position).await?;
@@ -550,7 +552,7 @@ pub async fn update_replication_position(
 /// See [`get_events`].
 pub async fn get_events(
     State(ctx): State<AdminContext>,
-    Query(query): Query<QueryStream>,
+    MatrixQuery(query): MatrixQuery<QueryStream>,
 ) -> Result<impl IntoResponse, ApiError> {
     let stream_id: i64 = query.stream_id.unwrap_or(0);
     let limit: i64 = 100;
@@ -563,7 +565,7 @@ pub async fn get_events(
 pub async fn get_statistics(
     State(ctx): State<AdminContext>,
     _admin_user: AdminUser,
-    Query(query): Query<QueryLimit>,
+    MatrixQuery(query): MatrixQuery<QueryLimit>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit: i64 = query.limit.unwrap_or(100).clamp(1, 1000);
     let stats = ctx.worker_manager.get_statistics(limit).await?;
@@ -584,7 +586,7 @@ pub async fn get_type_statistics(
 /// See [`select_worker`].
 pub async fn select_worker(
     State(ctx): State<AdminContext>,
-    Path(task_type): Path<String>,
+    MatrixPath(task_type): MatrixPath<String>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let worker_id_opt: Option<String> = ctx.worker_manager.select_worker_for_task(&task_type).await?;

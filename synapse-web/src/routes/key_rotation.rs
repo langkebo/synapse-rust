@@ -1,8 +1,10 @@
 use crate::routes::context::DeviceContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::MatrixJson;
 use crate::routes::{AdminUser, ApiError, AppState};
 use axum::{
-    extract::{Path, Query, State},
+    extract::State,
     routing::{get, post, put},
     Json, Router,
 };
@@ -146,8 +148,8 @@ fn parse_rotation_cursor(from: Option<&str>) -> Result<Option<(i64, i64)>, ApiEr
 pub async fn get_rotation_history(
     State(ctx): State<DeviceContext>,
     admin_user: AdminUser,
-    Path(device_id): Path<DeviceId>,
-    Query(query): Query<RotationHistoryQuery>,
+    MatrixPath(device_id): MatrixPath<DeviceId>,
+    MatrixQuery(query): MatrixQuery<RotationHistoryQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = query.limit.unwrap_or(100).clamp(1, 500);
     let cursor = parse_rotation_cursor(query.from.as_deref())?;
@@ -320,7 +322,7 @@ pub struct KeyRotationCheckParams {
 pub async fn check_needs_rotation(
     State(ctx): State<DeviceContext>,
     admin_user: AdminUser,
-    Query(params): Query<KeyRotationCheckParams>,
+    MatrixQuery(params): MatrixQuery<KeyRotationCheckParams>,
 ) -> Result<Json<Value>, ApiError> {
     // If key_id is provided, check if that specific key needs rotation
     let key_id_filter = params.key_id.as_deref();
@@ -367,9 +369,9 @@ pub async fn check_needs_rotation(
 pub async fn check_needs_rotation_post(
     State(ctx): State<DeviceContext>,
     admin_user: AdminUser,
-    Query(params): Query<KeyRotationCheckParams>,
+    MatrixQuery(params): MatrixQuery<KeyRotationCheckParams>,
 ) -> Result<Json<Value>, ApiError> {
-    check_needs_rotation(State(ctx), admin_user, Query(params)).await
+    check_needs_rotation(State(ctx), admin_user, MatrixQuery(params)).await
 }
 
 /// See [`create_key_rotation_router`].

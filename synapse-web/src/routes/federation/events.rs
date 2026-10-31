@@ -1,10 +1,12 @@
 use crate::middleware::FederationRequestAuth;
 use crate::routes::context::FederationContext;
 use crate::routes::directory_reporting::{decode_public_rooms_cursor, encode_public_rooms_cursor};
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::extractors::UserId;
 use crate::routes::public_rooms_filter::parse_public_rooms_filter;
 use crate::routes::validate_room_alias;
-use axum::extract::{Extension, Json, Path, Query, State};
+use axum::extract::{Extension, Json, State};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
@@ -17,7 +19,7 @@ use crate::routes::MatrixJson;
 pub(super) async fn get_room_auth(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
 
@@ -38,7 +40,7 @@ pub(super) async fn get_room_auth(
 pub(super) async fn get_missing_events(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
@@ -79,7 +81,7 @@ pub(super) async fn get_missing_events(
 pub(super) async fn get_event_auth(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Path((room_id, event_id)): Path<(String, String)>,
+    MatrixPath((room_id, event_id)): MatrixPath<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
 
@@ -105,7 +107,7 @@ pub(super) async fn get_event_auth(
 pub(super) async fn get_event(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Path(event_id): Path<EventId>,
+    MatrixPath(event_id): MatrixPath<EventId>,
 ) -> Result<Json<Value>, ApiError> {
     let event = ctx.room_service.messaging().get_event_record(&event_id).await?;
 
@@ -122,7 +124,7 @@ pub(super) async fn get_event(
 pub(super) async fn get_room_event(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Path((room_id, event_id)): Path<(String, String)>,
+    MatrixPath((room_id, event_id)): MatrixPath<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
 
@@ -143,8 +145,8 @@ pub(super) async fn get_room_event(
 pub(super) async fn get_state(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Path(room_id): Path<RoomId>,
-    Query(query): Query<FederationStateAtEventQuery>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
+    MatrixQuery(query): MatrixQuery<FederationStateAtEventQuery>,
 ) -> Result<Json<Value>, ApiError> {
     super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
 
@@ -163,8 +165,8 @@ pub(super) async fn get_state(
 pub(super) async fn get_state_ids(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Path(room_id): Path<RoomId>,
-    Query(query): Query<FederationStateAtEventQuery>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
+    MatrixQuery(query): MatrixQuery<FederationStateAtEventQuery>,
 ) -> Result<Json<Value>, ApiError> {
     super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
 
@@ -193,7 +195,7 @@ pub(super) async fn get_state_ids(
 pub(super) async fn room_directory_query(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     let room = ctx.room_service.state().get_room_record(&room_id).await.map_err(ApiError::from)?;
 
@@ -242,7 +244,7 @@ pub(super) struct FederationHierarchyQueryParams {
 pub(super) async fn profile_query(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Query(params): Query<FederationProfileQueryParams>,
+    MatrixQuery(params): MatrixQuery<FederationProfileQueryParams>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = params.user_id.ok_or_else(|| ApiError::bad_request("Missing user_id query parameter".to_string()))?;
 
@@ -254,8 +256,8 @@ pub(super) async fn profile_query(
 pub(super) async fn profile_query_legacy(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Path(user_id): Path<UserId>,
-    Query(params): Query<FederationProfileFieldQuery>,
+    MatrixPath(user_id): MatrixPath<UserId>,
+    MatrixQuery(params): MatrixQuery<FederationProfileFieldQuery>,
 ) -> Result<Json<Value>, ApiError> {
     build_profile_query_response(&ctx, &auth.origin, &user_id, params.field.as_deref()).await
 }
@@ -315,7 +317,7 @@ pub(super) struct PublicRoomsQuery {
 /// See [`get_public_rooms`].
 pub(super) async fn get_public_rooms(
     State(ctx): State<FederationContext>,
-    Query(params): Query<PublicRoomsQuery>,
+    MatrixQuery(params): MatrixQuery<PublicRoomsQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = params.limit.as_deref().and_then(|v| v.parse::<u64>().ok()).unwrap_or(20).clamp(1, 1000) as i64;
     // `since` 与客户端 `/publicRooms` 共用同一个 keyset 游标（`<created_ts>|<room_id>`）；
@@ -446,7 +448,7 @@ pub(super) struct DirectoryQueryParams {
 pub(super) async fn query_directory(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Query(params): Query<DirectoryQueryParams>,
+    MatrixQuery(params): MatrixQuery<DirectoryQueryParams>,
 ) -> Result<Json<Value>, ApiError> {
     let room_alias =
         params.room_alias.as_deref().ok_or_else(|| ApiError::bad_request("Missing room_alias parameter"))?;
@@ -497,7 +499,7 @@ pub(super) struct QueryDestinationQuery {
 /// See [`query_destination`].
 pub(super) async fn query_destination(
     State(ctx): State<FederationContext>,
-    Query(params): Query<QueryDestinationQuery>,
+    MatrixQuery(params): MatrixQuery<QueryDestinationQuery>,
 ) -> Result<Json<Value>, ApiError> {
     // Spec shape `{default, available}` — the builder already carries `default`.
     let room_versions = federation_room_versions_capability();
@@ -528,8 +530,8 @@ pub(super) struct TimestampToEventQuery {
 pub(super) async fn timestamp_to_event(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Path(room_id): Path<RoomId>,
-    Query(params): Query<TimestampToEventQuery>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
+    MatrixQuery(params): MatrixQuery<TimestampToEventQuery>,
 ) -> Result<Json<Value>, ApiError> {
     if !synapse_common::room_id::is_well_formed_room_id(&room_id) {
         return Err(ApiError::bad_request("Invalid room_id format"));
@@ -570,8 +572,8 @@ pub(super) async fn timestamp_to_event(
 pub(super) async fn get_room_hierarchy(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Path(room_id): Path<RoomId>,
-    Query(params): Query<FederationHierarchyQueryParams>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
+    MatrixQuery(params): MatrixQuery<FederationHierarchyQueryParams>,
 ) -> Result<Json<Value>, ApiError> {
     if !synapse_common::room_id::is_well_formed_room_id(&room_id) {
         return Err(ApiError::bad_request("Invalid room_id format"));
@@ -629,8 +631,8 @@ pub(super) struct BackfillQuery {
 pub(super) async fn backfill(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Path(room_id): Path<RoomId>,
-    Query(query): Query<BackfillQuery>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
+    MatrixQuery(query): MatrixQuery<BackfillQuery>,
 ) -> Result<Json<Value>, ApiError> {
     super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
 

@@ -1,9 +1,10 @@
 use crate::routes::context::AdminContext;
+use crate::routes::extractors::MatrixPath;
 use crate::routes::extractors::{RoomId, UserId};
 use crate::routes::MatrixJson;
 use crate::routes::{AppState, AuthenticatedUser};
 use axum::{
-    extract::{Json, Path, State},
+    extract::{Json, State},
     routing::{get, put},
     Router,
 };
@@ -100,7 +101,7 @@ async fn sync_secret_storage_account_data_best_effort(
 async fn list_account_data(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id.as_str();
     if user_id != auth_user.user_id {
@@ -117,7 +118,7 @@ async fn list_account_data(
 async fn set_account_data(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path((user_id, data_type)): Path<(UserId, String)>,
+    MatrixPath((user_id, data_type)): MatrixPath<(UserId, String)>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id.as_str();
@@ -134,7 +135,7 @@ async fn set_account_data(
 async fn get_account_data(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path((user_id, data_type)): Path<(UserId, String)>,
+    MatrixPath((user_id, data_type)): MatrixPath<(UserId, String)>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id.as_str();
     if user_id != auth_user.user_id {
@@ -195,7 +196,7 @@ async fn get_account_data(
 async fn set_room_account_data(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path((user_id, room_id, data_type)): Path<(UserId, RoomId, String)>,
+    MatrixPath((user_id, room_id, data_type)): MatrixPath<(UserId, RoomId, String)>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id.as_str();
@@ -211,7 +212,7 @@ async fn set_room_account_data(
 async fn get_room_account_data(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path((user_id, room_id, data_type)): Path<(UserId, RoomId, String)>,
+    MatrixPath((user_id, room_id, data_type)): MatrixPath<(UserId, RoomId, String)>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id.as_str();
     if user_id != auth_user.user_id {
@@ -229,7 +230,7 @@ async fn get_room_account_data(
 async fn create_filter(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id.as_str();
@@ -247,7 +248,7 @@ async fn create_filter(
 async fn get_filter(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path((user_id, filter_id)): Path<(UserId, String)>,
+    MatrixPath((user_id, filter_id)): MatrixPath<(UserId, String)>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id.as_str();
     if user_id != auth_user.user_id {
@@ -265,7 +266,7 @@ async fn get_filter(
 async fn delete_account_data(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path((user_id, data_type)): Path<(UserId, String)>,
+    MatrixPath((user_id, data_type)): MatrixPath<(UserId, String)>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id.as_str();
     if user_id != auth_user.user_id {
@@ -284,7 +285,7 @@ async fn delete_account_data(
 async fn delete_room_account_data(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path((user_id, room_id, data_type)): Path<(UserId, RoomId, String)>,
+    MatrixPath((user_id, room_id, data_type)): MatrixPath<(UserId, RoomId, String)>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id.as_str();
     if user_id != auth_user.user_id {
@@ -303,7 +304,7 @@ async fn delete_room_account_data(
 async fn delete_filter(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path((user_id, filter_id)): Path<(UserId, String)>,
+    MatrixPath((user_id, filter_id)): MatrixPath<(UserId, String)>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id.as_str();
     if user_id != auth_user.user_id {
@@ -322,7 +323,7 @@ async fn delete_filter(
 async fn get_openid_token(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id.as_str();
     if user_id != auth_user.user_id {

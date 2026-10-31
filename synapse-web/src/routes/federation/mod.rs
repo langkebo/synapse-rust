@@ -1,7 +1,8 @@
 use crate::routes::context::FederationContext;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::AppState;
 use axum::{
-    extract::{FromRef, Json, Query, State},
+    extract::{FromRef, Json, State},
     http::{header::HeaderName, HeaderValue},
     middleware,
     response::IntoResponse,
@@ -313,7 +314,7 @@ pub(crate) struct OpenIdUserinfoQuery {
 
 async fn openid_userinfo(
     State(ctx): State<FederationContext>,
-    Query(params): Query<OpenIdUserinfoQuery>,
+    MatrixQuery(params): MatrixQuery<OpenIdUserinfoQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let access_token =
         params.access_token.as_deref().ok_or_else(|| ApiError::bad_request("Missing access_token parameter"))?;

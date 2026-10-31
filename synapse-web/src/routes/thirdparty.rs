@@ -1,9 +1,7 @@
 use crate::routes::context::RoomContext;
-use axum::{
-    extract::{Path, Query, State},
-    routing::get,
-    Json, Router,
-};
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
+use axum::{extract::State, routing::get, Json, Router};
 use serde::Deserialize;
 
 use crate::routes::AppState;
@@ -53,7 +51,7 @@ async fn get_protocols(
 async fn get_protocol(
     State(ctx): State<RoomContext>,
     _auth_user: AuthenticatedUser,
-    Path(protocol): Path<String>,
+    MatrixPath(protocol): MatrixPath<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let services = ctx
         .app_service_manager
@@ -94,8 +92,8 @@ pub struct LocationQuery {
 async fn get_location(
     State(_ctx): State<RoomContext>,
     _auth_user: AuthenticatedUser,
-    Path(_protocol): Path<String>,
-    Query(_query): Query<LocationQuery>,
+    MatrixPath(_protocol): MatrixPath<String>,
+    MatrixQuery(_query): MatrixQuery<LocationQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
     Err(ApiError::unrecognized("No third-party location bridges configured"))
 }
@@ -103,7 +101,7 @@ async fn get_location(
 async fn get_location_by_alias(
     State(_ctx): State<RoomContext>,
     _auth_user: AuthenticatedUser,
-    Query(_query): Query<LocationQuery>,
+    MatrixQuery(_query): MatrixQuery<LocationQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
     Err(ApiError::unrecognized("No third-party location bridges configured"))
 }
@@ -125,8 +123,8 @@ pub struct UserQuery {
 async fn get_user(
     State(_ctx): State<RoomContext>,
     _auth_user: AuthenticatedUser,
-    Path(_protocol): Path<String>,
-    Query(_query): Query<UserQuery>,
+    MatrixPath(_protocol): MatrixPath<String>,
+    MatrixQuery(_query): MatrixQuery<UserQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
     Err(ApiError::unrecognized("No third-party user bridges configured"))
 }
@@ -134,7 +132,7 @@ async fn get_user(
 async fn get_user_by_id(
     State(_ctx): State<RoomContext>,
     _auth_user: AuthenticatedUser,
-    Query(_query): Query<UserQuery>,
+    MatrixQuery(_query): MatrixQuery<UserQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
     Err(ApiError::unrecognized("No third-party user bridges configured"))
 }

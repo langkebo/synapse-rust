@@ -5,15 +5,13 @@
 //! the user logs in from a new device without having their old device available.
 
 use crate::routes::context::RoomContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::ApiError;
 use crate::routes::AppState;
 use crate::routes::AuthenticatedUser;
 use crate::routes::MatrixJson;
-use axum::{
-    extract::{Path, Query, State},
-    routing::get,
-    Json, Router,
-};
+use axum::{extract::State, routing::get, Json, Router};
 use serde_json::json;
 use synapse_common::types::DeviceId;
 
@@ -211,8 +209,8 @@ pub struct DehydratedDeviceEventsQuery {
 pub async fn get_dehydrated_device_events(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(device_id): Path<DeviceId>,
-    Query(query): Query<DehydratedDeviceEventsQuery>,
+    MatrixPath(device_id): MatrixPath<DeviceId>,
+    MatrixQuery(query): MatrixQuery<DehydratedDeviceEventsQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // Synapse v1.157 #19896 (兼容别名): GET 把游标与页长都放 query
     let next_batch = query.next_batch.as_deref();
@@ -238,7 +236,7 @@ pub struct ClaimEventsBody {
 pub async fn post_dehydrated_device_events(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(device_id): Path<DeviceId>,
+    MatrixPath(device_id): MatrixPath<DeviceId>,
     body: Option<MatrixJson<ClaimEventsBody>>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let next_batch = body.and_then(|MatrixJson(b)| b.next_batch);

@@ -2,11 +2,11 @@
 // Self-destructing messages with automatic deletion
 
 use crate::routes::context::RoomContext;
+use crate::routes::extractors::MatrixPath;
 use crate::routes::room_access::ensure_room_member_ctx;
 use crate::routes::MatrixJson;
 use crate::routes::{validators, ApiError, AppState, AuthenticatedUser};
 use axum::{
-    extract::Path,
     extract::State,
     routing::{get, post, put},
     Json, Router,
@@ -61,7 +61,7 @@ pub fn create_burn_after_read_router(state: AppState) -> Router<AppState> {
 pub async fn enable_burn(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     MatrixJson(body): MatrixJson<EnableBurnRequest>,
 ) -> Result<Json<Value>, ApiError> {
     validators::validate_room_id(&room_id)?;
@@ -102,7 +102,7 @@ pub async fn enable_burn(
 pub async fn get_burn_settings(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validators::validate_room_id(&room_id)?;
     let room_exists: bool = ctx
@@ -142,7 +142,7 @@ pub async fn get_burn_settings(
 pub async fn mark_burn_read(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_id)): Path<(RoomId, EventId)>,
+    MatrixPath((room_id, event_id)): MatrixPath<(RoomId, EventId)>,
 ) -> Result<Json<Value>, ApiError> {
     validators::validate_room_id(&room_id)?;
     let room_exists: bool = ctx
@@ -204,7 +204,7 @@ pub async fn mark_burn_read(
 pub async fn get_pending_burns(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validators::validate_room_id(&room_id)?;
     let room_exists: bool = ctx
@@ -257,7 +257,7 @@ pub async fn get_pending_burns(
 pub async fn cancel_burn(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_id)): Path<(RoomId, EventId)>,
+    MatrixPath((room_id, event_id)): MatrixPath<(RoomId, EventId)>,
 ) -> Result<Json<Value>, ApiError> {
     validators::validate_room_id(&room_id)?;
     let room_exists: bool = ctx

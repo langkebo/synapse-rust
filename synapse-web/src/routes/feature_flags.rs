@@ -1,12 +1,9 @@
 use crate::routes::context::AdminContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::MatrixJson;
 use crate::routes::{AdminUser, AppState};
-use axum::{
-    extract::{Path, Query, State},
-    http::HeaderMap,
-    response::IntoResponse,
-    Json,
-};
+use axum::{extract::State, http::HeaderMap, response::IntoResponse, Json};
 use serde::{Deserialize, Serialize};
 use synapse_common::ApiError;
 use synapse_services::feature_flag_service::{CreateFeatureFlagRequest, FeatureFlagFilters, UpdateFeatureFlagRequest};
@@ -84,7 +81,7 @@ pub async fn update_feature_flag(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
     admin_user: AdminUser,
-    Path(flag_key): Path<String>,
+    MatrixPath(flag_key): MatrixPath<String>,
     MatrixJson(body): MatrixJson<UpdateFeatureFlagRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request_id = request_id(&headers);
@@ -97,7 +94,7 @@ pub async fn delete_feature_flag(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
     admin_user: AdminUser,
-    Path(flag_key): Path<String>,
+    MatrixPath(flag_key): MatrixPath<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request_id = request_id(&headers);
     ctx.feature_flag_service.delete_flag(&admin_user.user_id, &request_id, &flag_key).await?;
@@ -107,7 +104,7 @@ pub async fn delete_feature_flag(
 /// See [`get_feature_flag`].
 pub async fn get_feature_flag(
     State(ctx): State<AdminContext>,
-    Path(flag_key): Path<String>,
+    MatrixPath(flag_key): MatrixPath<String>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let flag = ctx.feature_flag_service.get_flag(&flag_key).await?;
@@ -117,7 +114,7 @@ pub async fn get_feature_flag(
 /// See [`list_feature_flags`].
 pub async fn list_feature_flags(
     State(ctx): State<AdminContext>,
-    Query(query): Query<FeatureFlagListQuery>,
+    MatrixQuery(query): MatrixQuery<FeatureFlagListQuery>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let cursor = decode_feature_flag_cursor(query.from.as_deref());

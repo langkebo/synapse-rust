@@ -1,5 +1,6 @@
 use crate::routes::context::RoomContext;
 use crate::routes::extractors::auth::AuthenticatedUser;
+use crate::routes::extractors::MatrixPath;
 use crate::routes::extractors::RoomId;
 use crate::routes::handlers::room::management::query::get_mutual_rooms;
 use crate::routes::handlers::room::{
@@ -24,7 +25,7 @@ use crate::routes::{
     unban_user, verify_room_event, AppState,
 };
 use axum::{
-    extract::{Path, State},
+    extract::State,
     routing::{delete, get, post, put},
     Json, Router,
 };
@@ -228,7 +229,7 @@ struct AntiScreenshotPayload {
 async fn get_anti_screenshot(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     ensure_room_member_ctx(&ctx, &auth_user, &room_id, "You must be a room member to get anti-screenshot").await?;
 
@@ -248,7 +249,7 @@ async fn get_anti_screenshot(
 async fn set_anti_screenshot(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     MatrixJson(payload): MatrixJson<AntiScreenshotPayload>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // This writes a room STATE event (`com.hula.privacy`, empty state key), so

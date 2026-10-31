@@ -1,13 +1,13 @@
 use crate::routes::context::RoomContext;
 #[cfg(feature = "voip-tracking")]
+use crate::routes::extractors::MatrixPath;
+#[cfg(feature = "voip-tracking")]
 use crate::routes::response_helpers::empty_json;
 use crate::routes::AuthenticatedUser;
 #[cfg(feature = "voip-tracking")]
 use crate::routes::MatrixJson;
 #[cfg(feature = "voip-tracking")]
 use crate::routes::{ensure_room_member_ctx, validate_room_id};
-#[cfg(feature = "voip-tracking")]
-use axum::extract::Path;
 use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "voip-tracking")]
@@ -196,7 +196,7 @@ async fn ensure_call_room_member(
 pub async fn call_invite(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, _txn_id)): Path<(String, String)>,
+    MatrixPath((room_id, _txn_id)): MatrixPath<(String, String)>,
     MatrixJson(content): MatrixJson<CallInviteEvent>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     ensure_call_room_member(&ctx, &auth_user, &room_id).await?;
@@ -241,7 +241,7 @@ pub async fn call_invite(
 pub async fn call_candidates(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, _txn_id)): Path<(String, String)>,
+    MatrixPath((room_id, _txn_id)): MatrixPath<(String, String)>,
     MatrixJson(content): MatrixJson<CallCandidatesEvent>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     ensure_call_room_member(&ctx, &auth_user, &room_id).await?;
@@ -257,7 +257,7 @@ pub async fn call_candidates(
 pub async fn call_answer(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, _txn_id)): Path<(String, String)>,
+    MatrixPath((room_id, _txn_id)): MatrixPath<(String, String)>,
     MatrixJson(content): MatrixJson<CallAnswerEvent>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     ensure_call_room_member(&ctx, &auth_user, &room_id).await?;
@@ -302,7 +302,7 @@ pub async fn call_answer(
 pub async fn call_hangup(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, _txn_id)): Path<(String, String)>,
+    MatrixPath((room_id, _txn_id)): MatrixPath<(String, String)>,
     MatrixJson(content): MatrixJson<CallHangupEvent>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     ensure_call_room_member(&ctx, &auth_user, &room_id).await?;
@@ -318,7 +318,7 @@ pub async fn call_hangup(
 pub async fn get_call_session(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, call_id)): Path<(String, String)>,
+    MatrixPath((room_id, call_id)): MatrixPath<(String, String)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     ensure_call_room_member(&ctx, &auth_user, &room_id).await?;
 

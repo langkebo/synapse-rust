@@ -1,9 +1,10 @@
 use crate::middleware::FederationRequestAuth;
 use crate::routes::context::FederationContext;
+use crate::routes::extractors::MatrixPath;
 use crate::routes::extractors::ServerName;
 use crate::routes::MatrixJson;
 use crate::utils::encoding::decode_base64_32;
-use axum::extract::{Extension, Json, Path, State};
+use axum::extract::{Extension, Json, State};
 use base64::Engine;
 use serde_json::{json, Value};
 use synapse_common::check_url_and_resolve;
@@ -25,7 +26,7 @@ pub(super) async fn server_key(State(ctx): State<FederationContext>) -> Result<J
 /// See [`key_query`].
 pub(super) async fn key_query(
     State(ctx): State<FederationContext>,
-    Path((server_name, key_id)): Path<(ServerName, String)>,
+    MatrixPath((server_name, key_id)): MatrixPath<(ServerName, String)>,
 ) -> Result<Json<Value>, ApiError> {
     // P2-16: Spec-compliant notary query returns { "server_keys": [Server Keys] }
     // wrapped in an array. This is required for interoperability with
@@ -64,7 +65,7 @@ pub(super) async fn key_query(
 /// fetches from the origin server (or serves from cache).
 pub(super) async fn key_query_all(
     State(ctx): State<FederationContext>,
-    Path(server_name): Path<ServerName>,
+    MatrixPath(server_name): MatrixPath<ServerName>,
 ) -> Result<Json<Value>, ApiError> {
     // Local server: return own keys.
     if server_name == ctx.server_name.as_str() || server_name == ctx.config.federation.server_name.as_str() {

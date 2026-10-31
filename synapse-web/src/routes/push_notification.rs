@@ -1,11 +1,9 @@
 use crate::routes::context::AdminContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::MatrixJson;
 use crate::routes::{AdminUser, AppState, AuthenticatedUser};
-use axum::{
-    extract::{Path, Query, State},
-    response::IntoResponse,
-    Json,
-};
+use axum::{extract::State, response::IntoResponse, Json};
 use serde::{Deserialize, Serialize};
 use synapse_common::error::ApiError;
 use synapse_common::types::DeviceId;
@@ -133,7 +131,7 @@ pub async fn register_device(
 pub async fn unregister_device(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(device_id): Path<DeviceId>,
+    MatrixPath(device_id): MatrixPath<DeviceId>,
 ) -> Result<impl IntoResponse, ApiError> {
     ctx.push_notification_service.unregister_device(&auth_user.user_id, device_id.as_str()).await?;
 
@@ -183,7 +181,7 @@ pub async fn send_notification(
 pub async fn process_queue(
     State(ctx): State<AdminContext>,
     _admin: AdminUser,
-    Query(query): Query<ProcessQueueQuery>,
+    MatrixQuery(query): MatrixQuery<ProcessQueueQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let batch_size: i32 = query.batch_size.unwrap_or(100).clamp(1, 500);
 
@@ -200,7 +198,7 @@ pub async fn process_queue(
 pub async fn cleanup_logs(
     State(ctx): State<AdminContext>,
     _admin: AdminUser,
-    Query(query): Query<CleanupQuery>,
+    MatrixQuery(query): MatrixQuery<CleanupQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let days: i32 = query.days.unwrap_or(30).clamp(1, 200);
 

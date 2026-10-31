@@ -1,7 +1,8 @@
 use super::super::{ensure_room_state_write_access, UpgradeRoomRequest, UpgradeRoomResponse};
+use crate::routes::extractors::MatrixPath;
 use crate::routes::extractors::RoomId;
 use crate::routes::{validate_room_id, validate_user_id, AuthenticatedUser};
-use axum::extract::{Json, Path, State};
+use axum::extract::{Json, State};
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
@@ -13,7 +14,7 @@ use crate::routes::MatrixJson;
 pub(crate) async fn upgrade_room(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     MatrixJson(body): MatrixJson<UpgradeRoomRequest>,
 ) -> Result<Json<UpgradeRoomResponse>, ApiError> {
     validate_room_id(&room_id)?;
@@ -38,7 +39,7 @@ pub(crate) async fn upgrade_room(
 pub(crate) async fn get_room_version(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -65,7 +66,7 @@ pub(crate) async fn get_room_version(
 pub(crate) async fn forget_room(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 

@@ -74,6 +74,37 @@ async fn test_register_and_login_routes_work_across_r0_and_v3() {
     assert_eq!(r0_login_json, v3_login_json);
 }
 
+/// I-15: an unknown login `type` must not be treated as a password login —
+/// it is a 400 `M_UNKNOWN` (previously returned 200 + access token).
+#[tokio::test]
+async fn test_login_with_unknown_type_is_rejected() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/login")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "type": "m.login.nonexistent",
+                "identifier": { "type": "m.id.user", "user": "sdk_testuser" },
+                "password": "Password123!"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST, "未知登录 type 必须 400");
+
+    let body = axum::body::to_bytes(response.into_body(), 2048).await.unwrap();
+    let payload: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(payload["errcode"], "M_UNKNOWN", "errcode 必须是 M_UNKNOWN：{payload}");
+    assert!(payload.get("access_token").is_none(), "不得签发 token：{payload}");
+}
+
 #[tokio::test]
 async fn test_auth_router_preserves_qr_and_refresh_boundaries() {
     let Some(app) = setup_test_app().await else {

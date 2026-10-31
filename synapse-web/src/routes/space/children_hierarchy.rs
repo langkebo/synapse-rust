@@ -1,5 +1,7 @@
 use super::*;
 use crate::routes::context::RoomContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::extractors::RoomId;
 use crate::routes::MatrixJson;
 
@@ -19,7 +21,7 @@ pub(crate) struct HierarchyV1Query {
 /// See [`get_space_children`].
 pub(super) async fn get_space_children(
     State(ctx): State<RoomContext>,
-    Path(space_id): Path<RoomId>,
+    MatrixPath(space_id): MatrixPath<RoomId>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     with_visible_space(ctx, space_id.to_string(), auth_user, |ctx, space, _auth_user| async move {
@@ -33,7 +35,7 @@ pub(super) async fn get_space_children(
 /// See [`add_child`].
 pub(super) async fn add_child(
     State(ctx): State<RoomContext>,
-    Path(space_id): Path<RoomId>,
+    MatrixPath(space_id): MatrixPath<RoomId>,
     auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<AddChildBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -52,7 +54,7 @@ pub(super) async fn add_child(
 /// See [`remove_child`].
 pub(super) async fn remove_child(
     State(ctx): State<RoomContext>,
-    Path((space_id, room_id)): Path<(String, String)>,
+    MatrixPath((space_id, room_id)): MatrixPath<(String, String)>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     with_resolved_space(ctx, space_id, |ctx, space| async move {
@@ -66,8 +68,8 @@ pub(super) async fn remove_child(
 /// See [`get_space_hierarchy`].
 pub(super) async fn get_space_hierarchy(
     State(ctx): State<RoomContext>,
-    Path(space_id): Path<RoomId>,
-    Query(query): Query<HierarchyQuery>,
+    MatrixPath(space_id): MatrixPath<RoomId>,
+    MatrixQuery(query): MatrixQuery<HierarchyQuery>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let max_depth = query.max_depth.unwrap_or(1).clamp(1, 10);
@@ -92,8 +94,8 @@ pub(super) async fn get_space_hierarchy(
 /// See [`get_space_hierarchy_v1`].
 pub(super) async fn get_space_hierarchy_v1(
     State(ctx): State<RoomContext>,
-    Path(space_id): Path<RoomId>,
-    Query(query): Query<HierarchyV1Query>,
+    MatrixPath(space_id): MatrixPath<RoomId>,
+    MatrixQuery(query): MatrixQuery<HierarchyV1Query>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let max_depth = query.max_depth.unwrap_or(1);
@@ -133,7 +135,7 @@ async fn retain_visible_spaces(
 /// See [`get_parent_spaces`].
 pub(super) async fn get_parent_spaces(
     State(ctx): State<RoomContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let spaces = ctx.space_service.get_parent_spaces(&room_id).await?;
@@ -145,7 +147,7 @@ pub(super) async fn get_parent_spaces(
 /// See [`get_space_tree_path`].
 pub(super) async fn get_space_tree_path(
     State(ctx): State<RoomContext>,
-    Path(space_id): Path<RoomId>,
+    MatrixPath(space_id): MatrixPath<RoomId>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     with_visible_space(ctx, space_id.to_string(), auth_user, |ctx, space, auth_user| async move {

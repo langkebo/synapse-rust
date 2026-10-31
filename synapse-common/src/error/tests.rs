@@ -767,6 +767,7 @@ fn test_matrix_error_code_http_status_all_variants() {
 fn all_fixed_api_error_constructors() -> Vec<(&'static str, ApiError)> {
     vec![
         ("bad_request", ApiError::bad_request("x")),
+        ("bad_request_unknown", ApiError::bad_request_unknown("x")),
         ("unknown_pos", ApiError::unknown_pos("x")),
         ("bad_pagination", ApiError::bad_pagination("x")),
         ("key_too_large", ApiError::key_too_large("x")),

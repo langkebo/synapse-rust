@@ -1,10 +1,11 @@
 use crate::routes::context::AuthContext;
+use crate::routes::extractors::MatrixPath;
 use crate::routes::extractors::SessionId;
 use crate::routes::MatrixJson;
 use crate::routes::{AppState, OptionalAuthenticatedUser};
 use crate::utils::auth::resolve_request_id;
 use axum::{
-    extract::{Json, Path, State},
+    extract::{Json, State},
     http::HeaderMap,
     routing::{delete, get, post, put},
     Router,
@@ -108,7 +109,7 @@ async fn get_session(
     State(ctx): State<AuthContext>,
     headers: HeaderMap,
     auth_user: OptionalAuthenticatedUser,
-    Path(session_id): Path<SessionId>,
+    MatrixPath(session_id): MatrixPath<SessionId>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     let session =
@@ -136,7 +137,7 @@ async fn update_session(
     State(ctx): State<AuthContext>,
     headers: HeaderMap,
     auth_user: OptionalAuthenticatedUser,
-    Path(session_id): Path<SessionId>,
+    MatrixPath(session_id): MatrixPath<SessionId>,
     MatrixJson(body): MatrixJson<UpdateSessionBody>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
@@ -187,7 +188,7 @@ async fn delete_session(
     State(ctx): State<AuthContext>,
     headers: HeaderMap,
     auth_user: OptionalAuthenticatedUser,
-    Path(session_id): Path<SessionId>,
+    MatrixPath(session_id): MatrixPath<SessionId>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     ensure_rendezvous_session_access(&ctx, &request_id, &headers, &auth_user, &session_id, "delete").await?;
@@ -213,7 +214,7 @@ async fn send_message(
     State(ctx): State<AuthContext>,
     headers: HeaderMap,
     auth_user: OptionalAuthenticatedUser,
-    Path(session_id): Path<SessionId>,
+    MatrixPath(session_id): MatrixPath<SessionId>,
     MatrixJson(body): MatrixJson<SendMessageBody>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
@@ -242,7 +243,7 @@ async fn get_messages(
     State(ctx): State<AuthContext>,
     headers: HeaderMap,
     auth_user: OptionalAuthenticatedUser,
-    Path(session_id): Path<SessionId>,
+    MatrixPath(session_id): MatrixPath<SessionId>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     ensure_rendezvous_session_access(&ctx, &request_id, &headers, &auth_user, &session_id, "read messages").await?;

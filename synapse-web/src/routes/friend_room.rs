@@ -1,4 +1,6 @@
 use crate::routes::context::FriendContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::extractors::UserId;
 use crate::routes::MatrixJson;
 use crate::routes::{
@@ -6,7 +8,7 @@ use crate::routes::{
 };
 use crate::utils::auth::resolve_request_id;
 use axum::{
-    extract::{Path, Query, State},
+    extract::State,
     http::HeaderMap,
     routing::{delete, get, post, put},
     Json, Router,
@@ -233,7 +235,7 @@ pub enum FriendRequestStatus {
 async fn get_friends(
     State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
-    Query(params): Query<FriendListQueryParams>,
+    MatrixQuery(params): MatrixQuery<FriendListQueryParams>,
 ) -> Result<Json<Value>, ApiError> {
     let cursor = synapse_services::friend_room_service::decode_friend_list_cursor(params.from.as_deref());
     let legacy_offset = match (params.from.as_deref(), cursor.as_ref(), params.offset) {
@@ -279,7 +281,7 @@ async fn get_friends(
 async fn search_friend_directory(
     State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
-    Query(query): Query<FriendSearchQuery>,
+    MatrixQuery(query): MatrixQuery<FriendSearchQuery>,
     bytes: axum::body::Bytes,
 ) -> Result<Json<Value>, ApiError> {
     // Manually parse the body so that an empty JSON body (Content-Type: application/json
@@ -380,7 +382,7 @@ async fn accept_friend_request(
     State(ctx): State<FriendContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Path(requester_id): Path<String>,
+    MatrixPath(requester_id): MatrixPath<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&requester_id)?;
 
@@ -398,7 +400,7 @@ async fn reject_friend_request(
     State(ctx): State<FriendContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Path(requester_id): Path<String>,
+    MatrixPath(requester_id): MatrixPath<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&requester_id)?;
 
@@ -412,7 +414,7 @@ async fn cancel_friend_request(
     State(ctx): State<FriendContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Path(target_id): Path<String>,
+    MatrixPath(target_id): MatrixPath<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&target_id)?;
 
@@ -443,7 +445,7 @@ async fn get_outgoing_requests(
 async fn remove_friend(
     State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
-    Path(friend_id): Path<String>,
+    MatrixPath(friend_id): MatrixPath<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&friend_id)?;
 
@@ -459,7 +461,7 @@ async fn remove_friend(
 async fn update_friend_note(
     State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
-    Path(friend_id): Path<String>,
+    MatrixPath(friend_id): MatrixPath<String>,
     MatrixJson(body): MatrixJson<UpdateNoteRequest>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&friend_id)?;
@@ -480,7 +482,7 @@ async fn update_friend_note(
 async fn update_friend_status(
     State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
-    Path(friend_id): Path<String>,
+    MatrixPath(friend_id): MatrixPath<String>,
     MatrixJson(body): MatrixJson<UpdateStatusRequest>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&friend_id)?;
@@ -502,7 +504,7 @@ async fn update_friend_status(
 async fn get_friend_info(
     State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
-    Path(friend_id): Path<String>,
+    MatrixPath(friend_id): MatrixPath<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&friend_id)?;
 
@@ -516,7 +518,7 @@ async fn get_friend_info(
 async fn update_friend_displayname(
     State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
-    Path(friend_id): Path<String>,
+    MatrixPath(friend_id): MatrixPath<String>,
     MatrixJson(body): MatrixJson<UpdateDisplaynameRequest>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&friend_id)?;
@@ -537,7 +539,7 @@ async fn update_friend_displayname(
 async fn get_friend_status(
     State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
-    Path(friend_id): Path<String>,
+    MatrixPath(friend_id): MatrixPath<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&friend_id)?;
 
@@ -549,7 +551,7 @@ async fn get_friend_status(
 async fn check_friendship(
     State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
-    Path(target_id): Path<String>,
+    MatrixPath(target_id): MatrixPath<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&target_id)?;
 
@@ -573,7 +575,7 @@ pub struct FriendSuggestionsQuery {
 async fn get_friend_suggestions(
     State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
-    Query(query): Query<FriendSuggestionsQuery>,
+    MatrixQuery(query): MatrixQuery<FriendSuggestionsQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let suggestions: Vec<serde_json::Value> =
         ctx.friend_room_service.get_friend_suggestions(&auth_user.user_id, query.limit).await?;
@@ -629,7 +631,7 @@ async fn create_friend_group(
 async fn delete_friend_group(
     State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
-    Path(group_id): Path<String>,
+    MatrixPath(group_id): MatrixPath<String>,
 ) -> Result<Json<Value>, ApiError> {
     ctx.friend_room_service.delete_friend_group(&auth_user.user_id, &group_id).await?;
 
@@ -643,7 +645,7 @@ async fn delete_friend_group(
 async fn rename_friend_group(
     State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
-    Path(group_id): Path<String>,
+    MatrixPath(group_id): MatrixPath<String>,
     MatrixJson(body): MatrixJson<RenameGroupRequest>,
 ) -> Result<Json<Value>, ApiError> {
     if body.name.is_empty() || body.name.len() > 50 {
@@ -662,7 +664,7 @@ async fn rename_friend_group(
 async fn add_friend_to_group(
     State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
-    Path((group_id, user_id)): Path<(String, String)>,
+    MatrixPath((group_id, user_id)): MatrixPath<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
 
@@ -678,7 +680,7 @@ async fn add_friend_to_group(
 async fn remove_friend_from_group(
     State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
-    Path((group_id, user_id)): Path<(String, String)>,
+    MatrixPath((group_id, user_id)): MatrixPath<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
 
@@ -694,7 +696,7 @@ async fn remove_friend_from_group(
 async fn get_friends_in_group(
     State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
-    Path(group_id): Path<String>,
+    MatrixPath(group_id): MatrixPath<String>,
 ) -> Result<Json<Value>, ApiError> {
     let friends: Vec<serde_json::Value> =
         ctx.friend_room_service.get_friends_in_group(&auth_user.user_id, &group_id).await?;
@@ -707,7 +709,7 @@ async fn get_friends_in_group(
 async fn get_groups_for_user(
     State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
 
@@ -722,7 +724,7 @@ async fn get_groups_for_user(
 async fn get_friend_dm(
     State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
     let room_id: Option<String> = ctx.friend_room_service.get_existing_dm_room_id(&auth_user.user_id, &user_id).await?;
@@ -788,7 +790,7 @@ fn build_friend_dm_room_config(
 async fn create_friend_dm(
     State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
     body: Option<MatrixJson<CreateFriendDmRequest>>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;

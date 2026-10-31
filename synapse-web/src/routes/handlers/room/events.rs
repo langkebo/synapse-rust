@@ -2,12 +2,14 @@ use super::{
     ensure_room_view_access, get_room_event, parse_pagination_direction, parse_room_messages_from_token, RoomWriteQuery,
 };
 use crate::routes::context::RoomContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::extractors::{EventId, RoomId, UserId};
 use crate::routes::MatrixJson;
 use crate::routes::{validate_event_id, validate_room_id, AuthenticatedUser};
 use crate::utils::auth::resolve_request_id;
 use axum::{
-    extract::{Json, Path, Query, State},
+    extract::{Json, State},
     http::HeaderMap,
 };
 use serde::Deserialize;
@@ -26,7 +28,7 @@ use synapse_services::event::CreateEventParams;
 pub(crate) async fn get_single_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_id)): Path<(RoomId, EventId)>,
+    MatrixPath((room_id, event_id)): MatrixPath<(RoomId, EventId)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
@@ -55,7 +57,7 @@ pub(crate) async fn get_single_event(
 pub(crate) async fn get_event_keys(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_id)): Path<(RoomId, EventId)>,
+    MatrixPath((room_id, event_id)): MatrixPath<(RoomId, EventId)>,
 ) -> Result<Json<Value>, ApiError> {
     let room_id = room_id.replace("%21", "!").replace("%3A", ":");
     let event_id = event_id.replace("%24", "$");
@@ -72,7 +74,7 @@ pub(crate) async fn get_event_keys(
 pub(crate) async fn get_room_thread(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_id)): Path<(RoomId, EventId)>,
+    MatrixPath((room_id, event_id)): MatrixPath<(RoomId, EventId)>,
 ) -> Result<Json<Value>, ApiError> {
     let room_id = room_id.replace("%21", "!").replace("%3A", ":");
     let event_id = event_id.replace("%24", "$");
@@ -229,8 +231,8 @@ pub(crate) struct RoomTimelineQuery {
 pub(crate) async fn get_room_notifications(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
-    Query(query): Query<RoomNotificationsQuery>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
+    MatrixQuery(query): MatrixQuery<RoomNotificationsQuery>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -254,8 +256,8 @@ pub(crate) async fn get_room_notifications(
 pub(crate) async fn get_messages(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
-    Query(query): Query<RoomMessagesQuery>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
+    MatrixQuery(query): MatrixQuery<RoomMessagesQuery>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -330,8 +332,8 @@ pub(crate) async fn get_messages(
 pub(crate) async fn send_message(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_type, txn_id)): Path<(RoomId, String, String)>,
-    Query(query): Query<RoomWriteQuery>,
+    MatrixPath((room_id, event_type, txn_id)): MatrixPath<(RoomId, String, String)>,
+    MatrixQuery(query): MatrixQuery<RoomWriteQuery>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -460,8 +462,8 @@ pub(crate) struct MessageQueueQuery {
 pub(crate) async fn get_room_message_queue(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
-    Query(query): Query<MessageQueueQuery>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
+    MatrixQuery(query): MatrixQuery<MessageQueueQuery>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !ctx.room_service.state().room_exists(&room_id).await? {
@@ -510,8 +512,8 @@ pub(crate) async fn get_room_message_queue(
 pub(crate) async fn get_room_timeline(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
-    Query(query): Query<RoomTimelineQuery>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
+    MatrixQuery(query): MatrixQuery<RoomTimelineQuery>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -546,7 +548,7 @@ pub(crate) async fn get_room_timeline(
 pub(crate) async fn get_room_unread_count(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -580,8 +582,8 @@ pub(crate) struct EncryptedEventsQuery {
 pub(crate) async fn get_room_encrypted_events(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
-    Query(query): Query<EncryptedEventsQuery>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
+    MatrixQuery(query): MatrixQuery<EncryptedEventsQuery>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !ctx.room_service.state().room_exists(&room_id).await.map_err(map_internal!("Failed to check room existence"))? {
@@ -651,8 +653,8 @@ pub(crate) struct EventPerspectiveQuery {
 pub(crate) async fn get_room_event_perspective(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
-    Query(query): Query<EventPerspectiveQuery>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
+    MatrixQuery(query): MatrixQuery<EventPerspectiveQuery>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     validate_event_id(&query.event_id)?;
@@ -719,7 +721,7 @@ pub(crate) async fn get_room_event_perspective(
 pub(crate) async fn get_room_user_fragments(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, user_id)): Path<(RoomId, UserId)>,
+    MatrixPath((room_id, user_id)): MatrixPath<(RoomId, UserId)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     crate::routes::validate_user_id(&user_id)?;
@@ -761,7 +763,7 @@ pub(crate) async fn get_room_user_fragments(
 pub(crate) async fn get_room_reduced_events(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !ctx.room_service.state().room_exists(&room_id).await.map_err(map_internal!("Failed to check room existence"))? {
@@ -804,7 +806,7 @@ pub(crate) async fn get_room_reduced_events(
 pub(crate) async fn get_room_event_url(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_id)): Path<(RoomId, EventId)>,
+    MatrixPath((room_id, event_id)): MatrixPath<(RoomId, EventId)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
@@ -895,7 +897,7 @@ pub(crate) struct TranslateRequest {
 pub(crate) async fn sign_room_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_id)): Path<(RoomId, EventId)>,
+    MatrixPath((room_id, event_id)): MatrixPath<(RoomId, EventId)>,
     MatrixJson(body): MatrixJson<SignRoomEventRequest>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -947,7 +949,7 @@ pub(crate) async fn sign_room_event(
 pub(crate) async fn verify_room_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_id)): Path<(RoomId, EventId)>,
+    MatrixPath((room_id, event_id)): MatrixPath<(RoomId, EventId)>,
     MatrixJson(body): MatrixJson<VerifyRoomEventRequest>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -997,7 +999,7 @@ pub(crate) async fn translate_room_event(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_id)): Path<(RoomId, EventId)>,
+    MatrixPath((room_id, event_id)): MatrixPath<(RoomId, EventId)>,
     MatrixJson(body): MatrixJson<TranslateRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
@@ -1092,7 +1094,7 @@ pub(crate) async fn translate_text(
 pub(crate) async fn convert_room_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_id)): Path<(RoomId, EventId)>,
+    MatrixPath((room_id, event_id)): MatrixPath<(RoomId, EventId)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
@@ -1176,7 +1178,7 @@ pub(crate) async fn redact_event(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_id, _txn_id)): Path<(RoomId, EventId, String)>,
+    MatrixPath((room_id, event_id, _txn_id)): MatrixPath<(RoomId, EventId, String)>,
     MatrixJson(mut body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);

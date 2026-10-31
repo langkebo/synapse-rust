@@ -6,6 +6,7 @@
 
 use crate::routes::account_compat;
 use crate::routes::context::RoomContext;
+use crate::routes::extractors::MatrixPath;
 use crate::routes::extractors::UserId;
 use crate::routes::validators;
 use crate::routes::ApiError;
@@ -13,11 +14,7 @@ use crate::routes::AuthenticatedUser;
 use synapse_services::account_data_service::EXTENDED_PROFILE_DATA_TYPE;
 
 use crate::routes::MatrixJson;
-use axum::{
-    extract::{Path, State},
-    http::HeaderMap,
-    Json,
-};
+use axum::{extract::State, http::HeaderMap, Json};
 use serde_json::json;
 
 /// MSC4133 — extended profile properties.
@@ -104,7 +101,7 @@ async fn save_extended_profile_document(
 pub async fn get_extended_profile(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
-    Path(_user_id): Path<UserId>,
+    MatrixPath(_user_id): MatrixPath<UserId>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let user_id = _user_id;
     validators::validate_user_id(&user_id)?;
@@ -123,7 +120,7 @@ pub async fn get_extended_profile(
 pub async fn get_extended_profile_field(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
-    Path((user_id, key_name)): Path<(String, String)>,
+    MatrixPath((user_id, key_name)): MatrixPath<(String, String)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     validators::validate_user_id(&user_id)?;
     account_compat::enforce_profile_visibility(
@@ -150,7 +147,7 @@ pub async fn get_extended_profile_field(
 pub async fn put_extended_profile_field(
     State(ctx): State<RoomContext>,
     _auth_user: AuthenticatedUser,
-    Path((user_id, key_name)): Path<(String, String)>,
+    MatrixPath((user_id, key_name)): MatrixPath<(String, String)>,
     MatrixJson(body): MatrixJson<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let auth_user = _auth_user;
@@ -177,7 +174,7 @@ pub async fn put_extended_profile_field(
 pub async fn delete_extended_profile_field(
     State(ctx): State<RoomContext>,
     _auth_user: AuthenticatedUser,
-    Path((user_id, key_name)): Path<(String, String)>,
+    MatrixPath((user_id, key_name)): MatrixPath<(String, String)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let auth_user = _auth_user;
     validators::validate_user_id(&user_id)?;

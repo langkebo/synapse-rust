@@ -5,13 +5,15 @@
 //! Spec: <https://spec.matrix.org/v1.8/client-server-api/#relationship-types>
 
 use crate::routes::context::RoomContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::extractors::{EventId, RoomId};
 use crate::routes::room_access::ensure_room_member_ctx;
 use crate::routes::validators::{validate_event_id, validate_room_id};
 use crate::routes::MatrixJson;
 use crate::routes::{AppState, AuthenticatedUser};
 use axum::{
-    extract::{Path, Query, State},
+    extract::State,
     routing::{get, put},
     Json, Router,
 };
@@ -172,8 +174,8 @@ pub struct RelationTarget {
 async fn get_relations_by_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_id)): Path<(String, String)>,
-    Query(query): Query<RelationsQuery>,
+    MatrixPath((room_id, event_id)): MatrixPath<(String, String)>,
+    MatrixQuery(query): MatrixQuery<RelationsQuery>,
 ) -> Result<Json<RelationsResponse>, ApiError> {
     relations_response(&ctx, &auth_user, &room_id, &event_id, None, None, query).await
 }
@@ -183,8 +185,8 @@ async fn get_relations_by_event(
 async fn get_relations(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_id, rel_type)): Path<(RoomId, EventId, String)>,
-    Query(query): Query<RelationsQuery>,
+    MatrixPath((room_id, event_id, rel_type)): MatrixPath<(RoomId, EventId, String)>,
+    MatrixQuery(query): MatrixQuery<RelationsQuery>,
 ) -> Result<Json<RelationsResponse>, ApiError> {
     relations_response(&ctx, &auth_user, &room_id, &event_id, Some(rel_type), None, query).await
 }
@@ -194,8 +196,8 @@ async fn get_relations(
 async fn get_relations_by_type(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_id, rel_type, event_type)): Path<(RoomId, EventId, String, String)>,
-    Query(query): Query<RelationsQuery>,
+    MatrixPath((room_id, event_id, rel_type, event_type)): MatrixPath<(RoomId, EventId, String, String)>,
+    MatrixQuery(query): MatrixQuery<RelationsQuery>,
 ) -> Result<Json<RelationsResponse>, ApiError> {
     relations_response(&ctx, &auth_user, &room_id, &event_id, Some(rel_type), Some(event_type), query).await
 }
@@ -257,7 +259,7 @@ async fn relations_response(
 async fn send_relation(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_id, rel_type, txn_id)): Path<(String, String, String, String)>,
+    MatrixPath((room_id, event_id, rel_type, txn_id)): MatrixPath<(String, String, String, String)>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<RelationSendResponse>, ApiError> {
     validate_room_id(&room_id)?;
@@ -401,8 +403,8 @@ struct AggregationsResponse {
 async fn get_aggregations(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_id, rel_type)): Path<(RoomId, EventId, String)>,
-    Query(query): Query<AggregationsQuery>,
+    MatrixPath((room_id, event_id, rel_type)): MatrixPath<(RoomId, EventId, String)>,
+    MatrixQuery(query): MatrixQuery<AggregationsQuery>,
 ) -> Result<Json<AggregationsResponse>, ApiError> {
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;

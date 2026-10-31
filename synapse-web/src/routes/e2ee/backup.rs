@@ -1,12 +1,11 @@
 use super::devices::{decode_key_request_cursor, encode_key_request_cursor};
 use crate::routes::context::E2eeRoomContext;
 use crate::routes::extractors::BackupId;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::response_helpers::empty_json;
 use crate::routes::{AuthenticatedUser, MatrixJson};
-use axum::{
-    extract::{Path, Query, State},
-    Json,
-};
+use axum::{extract::State, Json};
 use serde::Deserialize;
 use serde_json::Value;
 use synapse_common::ApiError;
@@ -77,7 +76,7 @@ pub(crate) async fn create_secure_backup(
 pub(crate) async fn get_secure_backup(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(backup_id): Path<BackupId>,
+    MatrixPath(backup_id): MatrixPath<BackupId>,
 ) -> Result<Json<Value>, ApiError> {
     let response = ctx.secure_backup_service.get_backup_info(&auth_user.user_id, &backup_id).await?;
 
@@ -98,7 +97,7 @@ pub(crate) async fn get_secure_backup(
 pub(crate) async fn store_secure_backup_keys(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(backup_id): Path<BackupId>,
+    MatrixPath(backup_id): MatrixPath<BackupId>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     // ISSUE-6.3: session_key is client-side ciphertext (no passphrase, no server-side encryption).
@@ -138,7 +137,7 @@ pub(crate) async fn store_secure_backup_keys(
 pub(crate) async fn restore_secure_backup(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(backup_id): Path<BackupId>,
+    MatrixPath(backup_id): MatrixPath<BackupId>,
     MatrixJson(body): MatrixJson<RestoreSecureBackupRequest>,
 ) -> Result<Json<Value>, ApiError> {
     // ISSUE-6.3: return ciphertext; the client decrypts locally with its recovery key.
@@ -158,7 +157,7 @@ pub(crate) async fn restore_secure_backup(
 pub(crate) async fn verify_secure_backup_passphrase(
     _state: State<E2eeRoomContext>,
     _auth_user: AuthenticatedUser,
-    _path: Path<String>,
+    _path: MatrixPath<String>,
     _body: MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     // ISSUE-6.3: passphrase verification is no longer possible server-side
@@ -171,7 +170,7 @@ pub(crate) async fn verify_secure_backup_passphrase(
 pub(crate) async fn delete_secure_backup(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(backup_id): Path<BackupId>,
+    MatrixPath(backup_id): MatrixPath<BackupId>,
 ) -> Result<Json<Value>, ApiError> {
     ctx.secure_backup_service.delete_backup(&auth_user.user_id, &backup_id).await?;
 
@@ -190,7 +189,7 @@ pub(crate) struct AuditPaginationQuery {
 pub(crate) async fn get_key_history(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Query(params): Query<AuditPaginationQuery>,
+    MatrixQuery(params): MatrixQuery<AuditPaginationQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = params.limit.unwrap_or(100).clamp(1, 1000);
     let cursor = params.from.as_deref().and_then(decode_key_request_cursor);

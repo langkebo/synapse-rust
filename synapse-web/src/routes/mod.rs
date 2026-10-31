@@ -200,7 +200,7 @@ pub use event_report::create_event_report_router;
 pub use external_service::create_external_service_router;
 pub use synapse_common::ApiError;
 // extract_token_from_headers removed — use crate::utils::auth::bearer_token directly
-pub use extractors::{AdminUser, AuthenticatedUser, MatrixJson, OptionalAuthenticatedUser};
+pub use extractors::{AdminUser, AuthenticatedUser, MatrixJson, MatrixPath, MatrixQuery, OptionalAuthenticatedUser};
 pub use feature_flags::create_feature_flags_router;
 pub use federation::create_federation_router;
 #[cfg(feature = "friends")]

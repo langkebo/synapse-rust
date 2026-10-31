@@ -425,7 +425,7 @@ pub(crate) async fn oidc_token(
 /// Note: This endpoint does NOT require authentication — it's the first step in OIDC login
 pub(crate) async fn oidc_authorize(
     State(ctx): State<SsoContext>,
-    query: axum::extract::Query<OidcAuthorizeRequest>,
+    query: crate::routes::extractors::MatrixQuery<OidcAuthorizeRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let oidc_service: &synapse_services::oidc_service::OidcService =
         ctx.oidc_service.as_ref().ok_or_else(|| ApiError::bad_request("OIDC is not enabled".to_string()))?;

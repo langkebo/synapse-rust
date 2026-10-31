@@ -1,9 +1,8 @@
 use crate::routes::context::FederationContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::extractors::{MediaId, ServerName};
-use axum::{
-    extract::{Path, Query, State},
-    response::IntoResponse,
-};
+use axum::{extract::State, response::IntoResponse};
 use synapse_common::*;
 
 /// Query parameters accepted by [`media_thumbnail`].
@@ -32,7 +31,7 @@ fn parse_federation_query_i64(raw: Option<&str>, key: &str, default: i64) -> Res
 /// See [`media_download`].
 pub(super) async fn media_download(
     State(ctx): State<FederationContext>,
-    Path((server_name, media_id)): Path<(ServerName, MediaId)>,
+    MatrixPath((server_name, media_id)): MatrixPath<(ServerName, MediaId)>,
 ) -> Result<impl IntoResponse, ApiError> {
     validate_federation_media_server_name(&ctx, &server_name)?;
 
@@ -46,8 +45,8 @@ pub(super) async fn media_download(
 /// See [`media_thumbnail`].
 pub(super) async fn media_thumbnail(
     State(ctx): State<FederationContext>,
-    Path((server_name, media_id)): Path<(ServerName, MediaId)>,
-    Query(query): Query<FederationThumbnailQuery>,
+    MatrixPath((server_name, media_id)): MatrixPath<(ServerName, MediaId)>,
+    MatrixQuery(query): MatrixQuery<FederationThumbnailQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     validate_federation_media_server_name(&ctx, &server_name)?;
 

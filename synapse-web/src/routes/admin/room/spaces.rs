@@ -1,10 +1,9 @@
 use crate::routes::context::AdminContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::extractors::RoomId;
 use crate::routes::AdminUser;
-use axum::{
-    extract::{Path, Query, State},
-    Json,
-};
+use axum::{extract::State, Json};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use synapse_common::ApiError;
@@ -56,7 +55,7 @@ async fn resolve_space_id(ctx: &AdminContext, identifier: &str) -> Result<String
 pub async fn get_spaces(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Query(query): Query<SpaceListQuery>,
+    MatrixQuery(query): MatrixQuery<SpaceListQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = page_limit(query.limit);
     let cursor = parse_space_cursor(query.from.as_deref())?;
@@ -85,7 +84,7 @@ pub async fn get_spaces(
 pub async fn get_space(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(space_id): Path<RoomId>,
+    MatrixPath(space_id): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     let space = ctx.space_service.get_space_by_identifier(&space_id).await?;
 
@@ -107,7 +106,7 @@ pub async fn get_space(
 pub async fn delete_space(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(space_id): Path<RoomId>,
+    MatrixPath(space_id): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     let resolved_space_id = resolve_space_id(&ctx, &space_id).await?;
     let rows_affected = ctx.space_service.delete_space_returning_count(&resolved_space_id).await?;
@@ -124,8 +123,8 @@ pub async fn delete_space(
 pub async fn get_space_users(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(space_id): Path<RoomId>,
-    Query(query): Query<SpaceListQuery>,
+    MatrixPath(space_id): MatrixPath<RoomId>,
+    MatrixQuery(query): MatrixQuery<SpaceListQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let resolved_space_id = resolve_space_id(&ctx, &space_id).await?;
     let limit = page_limit(query.limit);
@@ -141,8 +140,8 @@ pub async fn get_space_users(
 pub async fn get_space_rooms(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(space_id): Path<RoomId>,
-    Query(query): Query<SpaceListQuery>,
+    MatrixPath(space_id): MatrixPath<RoomId>,
+    MatrixQuery(query): MatrixQuery<SpaceListQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let resolved_space_id = resolve_space_id(&ctx, &space_id).await?;
     let limit = page_limit(query.limit);
@@ -158,7 +157,7 @@ pub async fn get_space_rooms(
 pub async fn get_space_stats(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(space_id): Path<RoomId>,
+    MatrixPath(space_id): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     let resolved_space_id = resolve_space_id(&ctx, &space_id).await?;
 
@@ -184,7 +183,7 @@ pub async fn get_room_stats(_admin: AdminUser, State(ctx): State<AdminContext>) 
 pub async fn get_single_room_stats(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     let stats = ctx.room_service.state().get_single_room_stats(&room_id).await?;
 
@@ -199,7 +198,7 @@ pub async fn get_single_room_stats(
 pub async fn get_room_listings(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     let listing = ctx.room_service.state().get_room_listings_status(&room_id).await?;
 
@@ -219,7 +218,7 @@ pub async fn get_room_listings(
 pub async fn set_room_public(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     let found = ctx.room_service.state().set_room_public_with_directory(&room_id).await?;
 
@@ -238,7 +237,7 @@ pub async fn set_room_public(
 pub async fn set_room_private(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     let found = ctx.room_service.state().set_room_private_with_directory(&room_id).await?;
 

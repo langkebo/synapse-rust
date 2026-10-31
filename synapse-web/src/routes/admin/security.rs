@@ -1,9 +1,10 @@
 use super::audit::{record_audit_event, resolve_request_id};
 use crate::routes::context::AdminContext;
+use crate::routes::extractors::MatrixPath;
 use crate::routes::AdminUser;
 use crate::routes::MatrixJson;
 use axum::{
-    extract::{Path, State},
+    extract::State,
     http::HeaderMap,
     routing::{delete, get, post, put},
     Json, Router,
@@ -51,7 +52,7 @@ async fn ensure_user_exists(ctx: &AdminContext, user_id: &str) -> Result<(), Api
 pub async fn get_shadow_ban_user(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     let shadow_banned = ctx.admin_security_service.get_shadow_ban(&user_id).await?;
 
@@ -63,7 +64,7 @@ pub async fn get_shadow_ban_user(
 pub async fn shadow_ban_user(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     // 对管理员 shadow ban 等于让其静默失声（消息对他人不可见），可逆但不该由同级 admin 决定。
@@ -90,7 +91,7 @@ pub async fn shadow_ban_user(
 pub async fn unshadow_ban_user(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     // 与 shadow ban 对称：普通 admin 也不该替管理员解除/重设这一状态。
@@ -117,7 +118,7 @@ pub async fn unshadow_ban_user(
 pub async fn get_user_rate_limit(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&ctx, &user_id).await?;
 
@@ -134,7 +135,7 @@ pub async fn get_user_rate_limit(
 pub async fn set_user_rate_limit(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
     headers: HeaderMap,
     MatrixJson(body): MatrixJson<RateLimitRequest>,
 ) -> Result<Json<Value>, ApiError> {
@@ -170,7 +171,7 @@ pub async fn set_user_rate_limit(
 pub async fn delete_user_rate_limit(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&ctx, &user_id).await?;
@@ -196,9 +197,9 @@ pub async fn delete_user_rate_limit(
 pub async fn get_user_override_rate_limit(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<Json<Value>, ApiError> {
-    get_user_rate_limit(admin, State(ctx), Path(user_id)).await
+    get_user_rate_limit(admin, State(ctx), MatrixPath(user_id)).await
 }
 
 /// See [`set_user_override_rate_limit`].
@@ -206,11 +207,11 @@ pub async fn get_user_override_rate_limit(
 pub async fn set_user_override_rate_limit(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
     headers: HeaderMap,
     body: MatrixJson<RateLimitRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    set_user_rate_limit(admin, State(ctx), Path(user_id), headers, body).await
+    set_user_rate_limit(admin, State(ctx), MatrixPath(user_id), headers, body).await
 }
 
 /// See [`delete_user_override_rate_limit`].
@@ -218,10 +219,10 @@ pub async fn set_user_override_rate_limit(
 pub async fn delete_user_override_rate_limit(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
-    delete_user_rate_limit(admin, State(ctx), Path(user_id), headers).await
+    delete_user_rate_limit(admin, State(ctx), MatrixPath(user_id), headers).await
 }
 
 #[cfg(test)]

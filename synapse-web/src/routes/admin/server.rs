@@ -1,4 +1,5 @@
 use crate::routes::context::AdminContext;
+use crate::routes::extractors::MatrixPath;
 use crate::routes::{AdminUser, AppState};
 // Q1（2026-10-16）：邀请名单的 handler 全部搬进 `admin/invite_lists.rs`
 // （行数棘轮 + 内聚），这里只保留路由注册。
@@ -9,7 +10,7 @@ use super::invite_lists::{
 };
 use crate::routes::MatrixJson;
 use axum::{
-    extract::{Path, State},
+    extract::State,
     routing::{delete, get, post},
     Json, Router,
 };
@@ -229,7 +230,7 @@ pub async fn get_status(_admin: AdminUser, State(ctx): State<AdminContext>) -> R
 pub async fn whois(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     let user = ctx
         .account_identity_service
@@ -262,7 +263,7 @@ pub async fn whois(
 pub async fn whois_device(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path((user_id, device_id)): Path<(String, DeviceId)>,
+    MatrixPath((user_id, device_id)): MatrixPath<(String, DeviceId)>,
 ) -> Result<Json<Value>, ApiError> {
     let user = ctx
         .account_identity_service

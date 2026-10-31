@@ -1,11 +1,8 @@
 use crate::routes::context::AdminContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::{AdminUser, AppState};
-use axum::{
-    extract::{Path, Query, State},
-    http::HeaderMap,
-    response::IntoResponse,
-    Json,
-};
+use axum::{extract::State, http::HeaderMap, response::IntoResponse, Json};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
@@ -304,7 +301,7 @@ pub async fn health_check(
 /// See [`list_alerts`].
 pub async fn list_alerts(
     State(ctx): State<AdminContext>,
-    Query(query): Query<TelemetryAlertQuery>,
+    MatrixQuery(query): MatrixQuery<TelemetryAlertQuery>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     if query.refresh.unwrap_or(true) {
@@ -322,7 +319,7 @@ pub async fn list_alerts(
 pub async fn acknowledge_alert(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
-    Path(alert_id): Path<String>,
+    MatrixPath(alert_id): MatrixPath<String>,
     admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let alert = ctx.telemetry_alert_service.acknowledge_alert(&alert_id, &admin_user.user_id)?;

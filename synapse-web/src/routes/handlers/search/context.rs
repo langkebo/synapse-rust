@@ -1,6 +1,8 @@
 use crate::routes::context::RoomContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::{ensure_room_member_strict_ctx, AuthenticatedUser};
-use axum::extract::{Json, Path, Query, State};
+use axum::extract::{Json, State};
 use serde_json::{json, Value};
 use std::collections::HashSet;
 use synapse_common::ApiError;
@@ -154,8 +156,8 @@ pub(crate) struct TimestampToEventQuery {
 pub(crate) async fn get_event_context(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_id)): Path<(RoomId, EventId)>,
-    Query(query): Query<EventContextQuery>,
+    MatrixPath((room_id, event_id)): MatrixPath<(RoomId, EventId)>,
+    MatrixQuery(query): MatrixQuery<EventContextQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let room_id = room_id.replace("%21", "!").replace("%3A", ":");
     let event_id = event_id.replace("%24", "$");
@@ -240,8 +242,8 @@ pub(crate) async fn get_event_context(
 pub(crate) async fn timestamp_to_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
-    Query(query): Query<TimestampToEventQuery>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
+    MatrixQuery(query): MatrixQuery<TimestampToEventQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let ts: i64 = query
         .ts

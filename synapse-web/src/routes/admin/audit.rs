@@ -1,9 +1,11 @@
 use crate::routes::context::AdminContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::AdminUser;
 use crate::routes::MatrixJson;
 use crate::utils::auth::resolve_request_id as resolve_request_id_from_headers;
 use axum::{
-    extract::{Path, Query, State},
+    extract::State,
     http::HeaderMap,
     routing::{get, post},
     Json, Router,
@@ -88,7 +90,7 @@ pub async fn create_audit_event(
 pub async fn list_audit_events(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Query(params): Query<AuditEventQueryParams>,
+    MatrixQuery(params): MatrixQuery<AuditEventQueryParams>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = params.limit.unwrap_or(100).clamp(1, 200);
     // Synapse-compatible fallback: some older callers use `from=0` to mean
@@ -131,7 +133,7 @@ pub async fn list_audit_events(
 pub async fn get_audit_event(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(event_id): Path<EventId>,
+    MatrixPath(event_id): MatrixPath<EventId>,
 ) -> Result<Json<Value>, ApiError> {
     let event = ctx
         .admin_audit_service

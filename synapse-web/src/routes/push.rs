@@ -1,8 +1,9 @@
 use crate::routes::context::AdminContext;
+use crate::routes::extractors::MatrixPath;
 use crate::routes::MatrixJson;
 use crate::routes::{AppState, AuthenticatedUser};
 use axum::{
-    extract::{Json, Path, State},
+    extract::{Json, State},
     routing::{get, post, put},
     Router,
 };
@@ -325,7 +326,7 @@ async fn get_push_rules(
 }
 
 async fn get_push_rules_scope(
-    Path(scope): Path<String>,
+    MatrixPath(scope): MatrixPath<String>,
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
@@ -361,7 +362,7 @@ async fn get_push_rules_scope(
 }
 
 async fn get_push_rules_kind(
-    Path((scope, kind)): Path<(String, String)>,
+    MatrixPath((scope, kind)): MatrixPath<(String, String)>,
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
@@ -373,7 +374,7 @@ async fn get_push_rules_kind(
 }
 
 async fn get_push_rule(
-    Path((scope, kind, rule_id)): Path<(String, String, String)>,
+    MatrixPath((scope, kind, rule_id)): MatrixPath<(String, String, String)>,
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
@@ -453,27 +454,27 @@ async fn upsert_push_rule_from_body(
 }
 
 async fn set_push_rule(
-    Path((scope, kind, rule_id)): Path<(String, String, String)>,
+    MatrixPath((scope, kind, rule_id)): MatrixPath<(String, String, String)>,
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    axum::extract::Query(order): axum::extract::Query<PushRuleOrderQuery>,
+    crate::routes::extractors::MatrixQuery(order): crate::routes::extractors::MatrixQuery<PushRuleOrderQuery>,
     MatrixJson(body): MatrixJson<SetPushRuleBody>,
 ) -> Result<Json<Value>, ApiError> {
     upsert_push_rule_from_body(ctx, auth_user, scope, kind, rule_id, order, body).await
 }
 
 async fn create_push_rule(
-    Path((scope, kind, rule_id)): Path<(String, String, String)>,
+    MatrixPath((scope, kind, rule_id)): MatrixPath<(String, String, String)>,
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    axum::extract::Query(order): axum::extract::Query<PushRuleOrderQuery>,
+    crate::routes::extractors::MatrixQuery(order): crate::routes::extractors::MatrixQuery<PushRuleOrderQuery>,
     MatrixJson(body): MatrixJson<SetPushRuleBody>,
 ) -> Result<Json<Value>, ApiError> {
     upsert_push_rule_from_body(ctx, auth_user, scope, kind, rule_id, order, body).await
 }
 
 async fn delete_push_rule(
-    Path((scope, kind, rule_id)): Path<(String, String, String)>,
+    MatrixPath((scope, kind, rule_id)): MatrixPath<(String, String, String)>,
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
@@ -487,7 +488,7 @@ async fn delete_push_rule(
 }
 
 async fn set_push_rule_actions(
-    Path((scope, kind, rule_id)): Path<(String, String, String)>,
+    MatrixPath((scope, kind, rule_id)): MatrixPath<(String, String, String)>,
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<Value>,
@@ -505,7 +506,7 @@ async fn set_push_rule_actions(
 }
 
 async fn get_push_rule_enabled(
-    Path((scope, kind, rule_id)): Path<(String, String, String)>,
+    MatrixPath((scope, kind, rule_id)): MatrixPath<(String, String, String)>,
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
@@ -529,7 +530,7 @@ pub struct SetPushRuleEnabledBody {
 }
 
 async fn set_push_rule_enabled(
-    Path((scope, kind, rule_id)): Path<(String, String, String)>,
+    MatrixPath((scope, kind, rule_id)): MatrixPath<(String, String, String)>,
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<SetPushRuleEnabledBody>,
@@ -548,7 +549,7 @@ async fn set_push_rule_enabled(
 async fn get_notifications(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    axum::extract::Query(query): axum::extract::Query<NotificationsQuery>,
+    crate::routes::extractors::MatrixQuery(query): crate::routes::extractors::MatrixQuery<NotificationsQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = match query.limit.as_deref() {
         Some(raw) => Some(
@@ -571,7 +572,7 @@ async fn get_notifications(
 }
 
 async fn ack_notification(
-    Path(notification_id): Path<i64>,
+    MatrixPath(notification_id): MatrixPath<i64>,
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
@@ -735,7 +736,7 @@ mod tests {
 
     fn parse_notifications_query(query: &str) -> NotificationsQuery {
         let uri: axum::http::Uri = format!("/_matrix/client/v3/notifications{query}").parse().unwrap();
-        axum::extract::Query::<NotificationsQuery>::try_from_uri(&uri)
+        crate::routes::extractors::MatrixQuery::<NotificationsQuery>::try_from_uri(&uri)
             .expect("notifications query should deserialize")
             .0
     }

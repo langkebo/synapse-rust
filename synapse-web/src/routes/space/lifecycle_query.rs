@@ -1,5 +1,7 @@
 use super::*;
 use crate::routes::context::RoomContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::extractors::RoomId;
 use crate::routes::MatrixJson;
 
@@ -51,7 +53,7 @@ pub(super) async fn create_space(
 /// See [`get_space`].
 pub(super) async fn get_space(
     State(ctx): State<RoomContext>,
-    Path(space_id): Path<RoomId>,
+    MatrixPath(space_id): MatrixPath<RoomId>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     with_visible_space(
@@ -68,7 +70,7 @@ pub(super) async fn get_space(
 /// See [`get_space_by_room`].
 pub(super) async fn get_space_by_room(
     State(ctx): State<RoomContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     with_visible_space(
@@ -85,7 +87,7 @@ pub(super) async fn get_space_by_room(
 /// See [`update_space`].
 pub(super) async fn update_space(
     State(ctx): State<RoomContext>,
-    Path(space_id): Path<RoomId>,
+    MatrixPath(space_id): MatrixPath<RoomId>,
     auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<UpdateSpaceBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -104,7 +106,7 @@ pub(super) async fn update_space(
 /// See [`delete_space`].
 pub(super) async fn delete_space(
     State(ctx): State<RoomContext>,
-    Path(space_id): Path<RoomId>,
+    MatrixPath(space_id): MatrixPath<RoomId>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     with_resolved_space(ctx, space_id.to_string(), |ctx, space: synapse_services::room::space::Space| async move {
@@ -129,7 +131,7 @@ pub(super) async fn get_user_spaces(
 /// See [`get_public_spaces`].
 pub(super) async fn get_public_spaces(
     State(ctx): State<RoomContext>,
-    Query(query): Query<PaginationQuery>,
+    MatrixQuery(query): MatrixQuery<PaginationQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit: i64 = query.limit.unwrap_or(100).clamp(1, 500);
     let cursor: Option<(i64, &str)> = decode_public_space_cursor(query.from.as_deref());
@@ -159,7 +161,7 @@ pub(super) async fn get_public_spaces(
 /// See [`search_spaces`].
 pub(super) async fn search_spaces(
     State(ctx): State<RoomContext>,
-    Query(query): Query<SearchQuery>,
+    MatrixQuery(query): MatrixQuery<SearchQuery>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit: i64 = query.limit.unwrap_or(10).clamp(1, 100);
@@ -173,7 +175,7 @@ pub(super) async fn search_spaces(
 /// See [`get_space_statistics`].
 pub(super) async fn get_space_statistics(
     State(ctx): State<RoomContext>,
-    Query(query): Query<StatisticsQuery>,
+    MatrixQuery(query): MatrixQuery<StatisticsQuery>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit: i64 = query.limit.unwrap_or(100).clamp(1, 500);

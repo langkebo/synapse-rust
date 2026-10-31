@@ -1,8 +1,9 @@
 use crate::middleware::FederationRequestAuth;
 use crate::routes::context::FederationContext;
+use crate::routes::extractors::MatrixPath;
 use crate::utils::auth::resolve_request_id;
 use axum::{
-    extract::{Extension, Json, Path, State},
+    extract::{Extension, Json, State},
     http::HeaderMap,
 };
 use serde_json::{json, Value};
@@ -103,7 +104,7 @@ pub(crate) async fn invite_v2(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     headers: HeaderMap,
-    Path((room_id, path_event_id)): Path<(String, String)>,
+    MatrixPath((room_id, path_event_id)): MatrixPath<(String, String)>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
@@ -437,7 +438,7 @@ pub(crate) async fn invite(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     headers: HeaderMap,
-    Path((room_id, event_id)): Path<(String, String)>,
+    MatrixPath((room_id, event_id)): MatrixPath<(String, String)>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
@@ -466,7 +467,7 @@ pub(crate) async fn invite(
 pub(crate) async fn exchange_third_party_invite(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     if !synapse_common::room_id::is_well_formed_room_id(&room_id) {

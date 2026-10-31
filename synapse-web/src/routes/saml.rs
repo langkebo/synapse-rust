@@ -1,9 +1,11 @@
 use crate::routes::context::SsoContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::AppState;
 use crate::routes::MatrixJson;
 use crate::AuthenticatedUser;
 use axum::{
-    extract::{Path, Query, State},
+    extract::State,
     http::header,
     middleware,
     response::{IntoResponse, Redirect},
@@ -122,7 +124,7 @@ pub async fn saml_login(
 /// See [`saml_login_redirect`].
 pub async fn saml_login_redirect(
     State(ctx): State<SsoContext>,
-    Query(query): Query<SamlLoginQuery>,
+    MatrixQuery(query): MatrixQuery<SamlLoginQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     if !ctx.saml_service.is_enabled() {
         return Err(ApiError::forbidden("SAML authentication is not enabled"));
@@ -144,7 +146,7 @@ pub async fn saml_callback_post(
 /// See [`saml_callback_get`].
 pub async fn saml_callback_get(
     State(ctx): State<SsoContext>,
-    Query(query): Query<SamlCallbackQuery>,
+    MatrixQuery(query): MatrixQuery<SamlCallbackQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     handle_saml_callback(&ctx, query.saml_response.as_deref(), query.relay_state.as_deref()).await
 }
@@ -226,7 +228,7 @@ pub async fn saml_logout(
 /// See [`saml_logout_callback`].
 pub async fn saml_logout_callback(
     State(ctx): State<SsoContext>,
-    Query(query): Query<SamlCallbackQuery>,
+    MatrixQuery(query): MatrixQuery<SamlCallbackQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     if !ctx.saml_service.is_enabled() {
         return Err(ApiError::forbidden("SAML authentication is not enabled"));
@@ -400,7 +402,7 @@ pub struct SamlLogoutAdminResponse {
 /// See [`list_saml_mappings_admin`].
 pub async fn list_saml_mappings_admin(
     State(ctx): State<SsoContext>,
-    Query(query): Query<SamlMappingListQuery>,
+    MatrixQuery(query): MatrixQuery<SamlMappingListQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(50).clamp(1, 500);
     let rows = ctx.saml_service.list_user_mappings(limit, query.from.as_deref()).await?;
@@ -413,7 +415,7 @@ pub async fn list_saml_mappings_admin(
 /// See [`get_saml_mapping_admin`].
 pub async fn get_saml_mapping_admin(
     State(ctx): State<SsoContext>,
-    Path(name_id): Path<String>,
+    MatrixPath(name_id): MatrixPath<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let row = ctx
         .saml_service
@@ -426,7 +428,7 @@ pub async fn get_saml_mapping_admin(
 /// See [`update_saml_mapping_admin`].
 pub async fn update_saml_mapping_admin(
     State(ctx): State<SsoContext>,
-    Path(name_id): Path<String>,
+    MatrixPath(name_id): MatrixPath<String>,
     MatrixJson(body): MatrixJson<UpdateSamlMappingBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     if body.user_id.is_none() && body.attributes.is_none() {
@@ -443,7 +445,7 @@ pub async fn update_saml_mapping_admin(
 /// See [`delete_saml_mapping_admin`].
 pub async fn delete_saml_mapping_admin(
     State(ctx): State<SsoContext>,
-    Path(name_id): Path<String>,
+    MatrixPath(name_id): MatrixPath<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let removed = ctx.saml_service.delete_user_mapping_by_name_id(&name_id).await?;
     if removed == 0 {

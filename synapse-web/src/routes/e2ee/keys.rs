@@ -1,8 +1,10 @@
 use crate::routes::context::DeviceContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::response_helpers::filter_users_with_shared_rooms;
 use crate::routes::{AppState, AuthenticatedUser, MatrixJson};
 use axum::{
-    extract::{Path, Query, State},
+    extract::State,
     routing::{delete, get, post, put},
     Json, Router,
 };
@@ -61,11 +63,11 @@ pub fn create_e2ee_router(state: AppState) -> Router<AppState> {
 async fn upload_keys(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
-    path_device_id: Option<Path<DeviceId>>,
+    path_device_id: Option<MatrixPath<DeviceId>>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let device_id: DeviceId = path_device_id
-        .map(|Path(id)| id)
+        .map(|MatrixPath(id)| id)
         .or(auth_user.device_id.as_ref().map(DeviceId::new_unchecked))
         .ok_or_else(|| ApiError::bad_request("Device ID required".to_string()))?;
 
@@ -534,7 +536,7 @@ pub(crate) struct KeyChangesParams {
 async fn key_changes(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
-    Query(params): Query<KeyChangesParams>,
+    MatrixQuery(params): MatrixQuery<KeyChangesParams>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     let KeyChangesParams { from, to } = params;
     let from = from.as_deref().and_then(parse_stream_id).unwrap_or(0);

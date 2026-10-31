@@ -1,8 +1,10 @@
 use crate::routes::context::AdminContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::AdminUser;
 use crate::routes::MatrixJson;
 use axum::{
-    extract::{Path, Query, State},
+    extract::State,
     routing::{delete, get, post},
     Json, Router,
 };
@@ -112,7 +114,7 @@ pub fn create_media_router() -> Router<crate::routes::AppState> {
 pub async fn get_all_media(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    axum::extract::Query(params): axum::extract::Query<MediaPageQuery>,
+    crate::routes::extractors::MatrixQuery(params): crate::routes::extractors::MatrixQuery<MediaPageQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = params.limit.as_deref().and_then(|v| v.parse().ok()).unwrap_or(100_i64).clamp(1, 500);
     let cursor = decode_media_cursor(params.from.as_deref());
@@ -148,7 +150,7 @@ pub async fn get_all_media(
 pub async fn get_media_info(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(media_id): Path<MediaId>,
+    MatrixPath(media_id): MatrixPath<MediaId>,
 ) -> Result<Json<Value>, ApiError> {
     let media = ctx.admin_media_service.get_media_info(&media_id).await?;
 
@@ -172,7 +174,7 @@ pub async fn get_media_info(
 pub async fn delete_media(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(media_id): Path<MediaId>,
+    MatrixPath(media_id): MatrixPath<MediaId>,
 ) -> Result<Json<Value>, ApiError> {
     ctx.admin_media_service.delete_media(&media_id).await?;
 
@@ -188,9 +190,9 @@ pub async fn delete_media(
 pub async fn get_media_info_by_server(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path((_server_name, media_id)): Path<(ServerName, MediaId)>,
+    MatrixPath((_server_name, media_id)): MatrixPath<(ServerName, MediaId)>,
 ) -> Result<Json<Value>, ApiError> {
-    get_media_info(admin, State(ctx), Path(media_id)).await
+    get_media_info(admin, State(ctx), MatrixPath(media_id)).await
 }
 
 /// Upstream-shaped two-segment alias of [`delete_media`].
@@ -202,9 +204,9 @@ pub async fn get_media_info_by_server(
 pub async fn delete_media_by_server(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path((_server_name, media_id)): Path<(ServerName, MediaId)>,
+    MatrixPath((_server_name, media_id)): MatrixPath<(ServerName, MediaId)>,
 ) -> Result<Json<Value>, ApiError> {
-    delete_media(admin, State(ctx), Path(media_id)).await
+    delete_media(admin, State(ctx), MatrixPath(media_id)).await
 }
 
 /// See [`get_media_quota`].
@@ -225,8 +227,8 @@ pub async fn get_media_quota(_admin: AdminUser, State(ctx): State<AdminContext>)
 pub async fn get_user_media(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
-    Query(params): Query<MediaPageQuery>,
+    MatrixPath(user_id): MatrixPath<UserId>,
+    MatrixQuery(params): MatrixQuery<MediaPageQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = params.limit.as_deref().and_then(|v| v.parse().ok()).unwrap_or(100_i64).clamp(1, 500);
     let cursor = decode_media_cursor(params.from.as_deref());
@@ -255,7 +257,7 @@ pub async fn get_user_media(
 pub async fn delete_user_media(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     let deleted = ctx.admin_media_service.delete_user_media(&user_id).await?;
 
@@ -267,8 +269,8 @@ pub async fn delete_user_media(
 pub async fn get_media_quarantine_changes(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(media_id): Path<MediaId>,
-    axum::extract::Query(params): axum::extract::Query<MediaQuarantineChangesQuery>,
+    MatrixPath(media_id): MatrixPath<MediaId>,
+    crate::routes::extractors::MatrixQuery(params): crate::routes::extractors::MatrixQuery<MediaQuarantineChangesQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let since = params.from.as_deref().and_then(|v| v.parse::<i64>().ok()).unwrap_or(0).max(0);
     let limit = params.limit.as_deref().and_then(|v| v.parse().ok()).unwrap_or(100_i64).clamp(1, 500);
@@ -302,7 +304,9 @@ pub async fn get_media_quarantine_changes(
 pub async fn get_global_media_quarantine_changes(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    axum::extract::Query(params): axum::extract::Query<GlobalMediaQuarantineChangesQuery>,
+    crate::routes::extractors::MatrixQuery(params): crate::routes::extractors::MatrixQuery<
+        GlobalMediaQuarantineChangesQuery,
+    >,
 ) -> Result<Json<Value>, ApiError> {
     let from_id = params.from.as_deref().and_then(|v| v.parse::<i64>().ok()).unwrap_or(0).max(0);
     let limit = 100_i64;
@@ -333,7 +337,7 @@ pub async fn get_global_media_quarantine_changes(
 pub async fn quarantine_media(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path((server_name, media_id)): Path<(ServerName, MediaId)>,
+    MatrixPath((server_name, media_id)): MatrixPath<(ServerName, MediaId)>,
 ) -> Result<Json<Value>, ApiError> {
     let stream_id = ctx.admin_media_service.quarantine_media(&server_name, &media_id, &admin.user_id).await?;
 
@@ -353,7 +357,7 @@ pub async fn quarantine_media(
 pub async fn unquarantine_media(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path((server_name, media_id)): Path<(ServerName, MediaId)>,
+    MatrixPath((server_name, media_id)): MatrixPath<(ServerName, MediaId)>,
 ) -> Result<Json<Value>, ApiError> {
     let stream_id = ctx.admin_media_service.unquarantine_media(&server_name, &media_id, &admin.user_id).await?;
 
@@ -374,8 +378,8 @@ pub async fn unquarantine_media(
 pub async fn get_room_media(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<RoomId>,
-    axum::extract::Query(params): axum::extract::Query<MediaPageQuery>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
+    crate::routes::extractors::MatrixQuery(params): crate::routes::extractors::MatrixQuery<MediaPageQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = params.limit.as_deref().and_then(|v| v.parse().ok()).unwrap_or(100_i64).clamp(1, 500);
     let cursor = decode_media_cursor(params.from.as_deref());
@@ -411,7 +415,7 @@ pub async fn get_room_media(
 pub async fn delete_room_media(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path((room_id, media_id)): Path<(RoomId, MediaId)>,
+    MatrixPath((room_id, media_id)): MatrixPath<(RoomId, MediaId)>,
 ) -> Result<Json<Value>, ApiError> {
     ctx.admin_media_service.delete_room_media(&room_id, &media_id).await?;
 
@@ -426,7 +430,7 @@ pub async fn delete_room_media(
 pub async fn quarantine_room_media(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     MatrixJson(body): MatrixJson<QuarantineRoomMediaRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let stream_id =
@@ -448,7 +452,7 @@ pub async fn quarantine_room_media(
 pub async fn unquarantine_room_media(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     MatrixJson(body): MatrixJson<QuarantineRoomMediaRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let stream_id =
@@ -469,7 +473,7 @@ pub async fn unquarantine_room_media(
 pub async fn protect_media(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path((server_name, media_id)): Path<(ServerName, MediaId)>,
+    MatrixPath((server_name, media_id)): MatrixPath<(ServerName, MediaId)>,
 ) -> Result<Json<Value>, ApiError> {
     let stream_id = ctx.admin_media_service.protect_media(&server_name, &media_id, &admin.user_id).await?;
 
@@ -491,7 +495,7 @@ pub async fn protect_media(
 pub async fn protect_media_by_id(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(media_id): Path<MediaId>,
+    MatrixPath(media_id): MatrixPath<MediaId>,
 ) -> Result<Json<Value>, ApiError> {
     let stream_id = ctx.admin_media_service.protect_media(&ctx.server_name, &media_id, &admin.user_id).await?;
 
@@ -515,7 +519,7 @@ pub async fn protect_media_by_id(
 pub async fn quarantine_user_media(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     let stream_id = ctx.admin_media_service.quarantine_user_media(&user_id, &admin.user_id).await?;
 
@@ -555,7 +559,7 @@ pub async fn delete_media_by_policy(
 pub async fn unprotect_media_by_id(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(media_id): Path<MediaId>,
+    MatrixPath(media_id): MatrixPath<MediaId>,
 ) -> Result<Json<Value>, ApiError> {
     let stream_id = ctx.admin_media_service.unprotect_media(&media_id, &admin.user_id).await?;
 
@@ -580,7 +584,7 @@ pub async fn unprotect_media_by_id(
 pub async fn purge_media_cache(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    axum::extract::Query(params): axum::extract::Query<PurgeMediaCacheQuery>,
+    crate::routes::extractors::MatrixQuery(params): crate::routes::extractors::MatrixQuery<PurgeMediaCacheQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let before_ts = params.before_ts.as_deref().and_then(|v| v.parse::<i64>().ok()).unwrap_or(0);
 

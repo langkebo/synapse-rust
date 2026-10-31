@@ -1,6 +1,8 @@
 use crate::routes::context::AdminContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use axum::{
-    extract::{Path, Query, State},
+    extract::State,
     http::StatusCode,
     response::IntoResponse,
     routing::{delete, get, post, put},
@@ -173,7 +175,7 @@ pub async fn create_report(
 pub async fn get_report(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(id): Path<i64>,
+    MatrixPath(id): MatrixPath<i64>,
 ) -> Result<impl IntoResponse, ApiError> {
     let report =
         ctx.event_report_service.get_report(id).await?.ok_or_else(|| ApiError::not_found("Report not found"))?;
@@ -185,7 +187,7 @@ pub async fn get_report(
 pub async fn get_reports_by_event(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(event_id): Path<EventId>,
+    MatrixPath(event_id): MatrixPath<EventId>,
 ) -> Result<impl IntoResponse, ApiError> {
     let reports = ctx.event_report_service.get_reports_by_event(&event_id).await?;
 
@@ -198,8 +200,8 @@ pub async fn get_reports_by_event(
 pub async fn get_reports_by_room(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(room_id): Path<RoomId>,
-    Query(query): Query<QueryParams>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
+    MatrixQuery(query): MatrixQuery<QueryParams>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100);
 
@@ -214,8 +216,8 @@ pub async fn get_reports_by_room(
 pub async fn get_reports_by_reporter(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(reporter_user_id): Path<UserId>,
-    Query(query): Query<QueryParams>,
+    MatrixPath(reporter_user_id): MatrixPath<UserId>,
+    MatrixQuery(query): MatrixQuery<QueryParams>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100);
 
@@ -233,8 +235,8 @@ pub async fn get_reports_by_reporter(
 pub async fn get_reports_by_status(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(status): Path<RoomId>,
-    Query(query): Query<QueryParams>,
+    MatrixPath(status): MatrixPath<RoomId>,
+    MatrixQuery(query): MatrixQuery<QueryParams>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100);
 
@@ -252,7 +254,7 @@ pub async fn get_reports_by_status(
 pub async fn get_all_reports(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Query(query): Query<QueryParams>,
+    MatrixQuery(query): MatrixQuery<QueryParams>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100);
 
@@ -268,7 +270,7 @@ pub async fn get_all_reports(
 pub async fn update_report(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(id): Path<i64>,
+    MatrixPath(id): MatrixPath<i64>,
     MatrixJson(body): MatrixJson<UpdateReportBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request =
@@ -283,7 +285,7 @@ pub async fn update_report(
 pub async fn resolve_report(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(id): Path<i64>,
+    MatrixPath(id): MatrixPath<i64>,
     MatrixJson(body): MatrixJson<ResolveReportBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let report = ctx.event_report_service.resolve_report(id, &_auth_user.user_id, &body.reason).await?;
@@ -295,7 +297,7 @@ pub async fn resolve_report(
 pub async fn dismiss_report(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(id): Path<i64>,
+    MatrixPath(id): MatrixPath<i64>,
     MatrixJson(body): MatrixJson<DismissReportBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let report = ctx.event_report_service.dismiss_report(id, &_auth_user.user_id, &body.reason).await?;
@@ -307,7 +309,7 @@ pub async fn dismiss_report(
 pub async fn escalate_report(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(id): Path<i64>,
+    MatrixPath(id): MatrixPath<i64>,
     body: Option<MatrixJson<EscalateReportBody>>,
 ) -> Result<impl IntoResponse, ApiError> {
     let body = body.map(|MatrixJson(body)| body).unwrap_or_default();
@@ -320,7 +322,7 @@ pub async fn escalate_report(
 pub async fn delete_report(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(id): Path<i64>,
+    MatrixPath(id): MatrixPath<i64>,
 ) -> Result<impl IntoResponse, ApiError> {
     ctx.event_report_service.delete_report(id).await?;
 
@@ -331,7 +333,7 @@ pub async fn delete_report(
 pub async fn check_rate_limit(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<impl IntoResponse, ApiError> {
     let check = ctx.event_report_service.check_rate_limit(&user_id).await?;
 
@@ -346,7 +348,7 @@ pub async fn check_rate_limit(
 pub async fn block_user(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
     MatrixJson(body): MatrixJson<BlockUserBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     ctx.event_report_service.block_user_reports(&user_id, body.blocked_until, &body.reason).await?;
@@ -358,7 +360,7 @@ pub async fn block_user(
 pub async fn unblock_user(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<impl IntoResponse, ApiError> {
     ctx.event_report_service.unblock_user_reports(&user_id).await?;
 
@@ -369,7 +371,7 @@ pub async fn unblock_user(
 pub async fn count_by_status(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(status): Path<RoomId>,
+    MatrixPath(status): MatrixPath<RoomId>,
 ) -> Result<impl IntoResponse, ApiError> {
     let count = ctx.event_report_service.count_reports_by_status(&status).await?;
 

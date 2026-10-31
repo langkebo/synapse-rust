@@ -1,9 +1,10 @@
 use super::audit::{record_audit_event, resolve_request_id};
 use crate::routes::context::AdminContext;
+use crate::routes::extractors::MatrixPath;
 use crate::routes::AdminUser;
 use crate::routes::MatrixJson;
 use axum::{
-    extract::{Path, State},
+    extract::State,
     http::HeaderMap,
     routing::{delete, get, post, put},
     Json, Router,
@@ -115,7 +116,7 @@ pub fn create_user_router() -> Router<crate::routes::AppState> {
 async fn evict_user(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id.as_str();
     let user = resolve_user(&ctx, user_id).await?;
@@ -218,7 +219,7 @@ pub struct AdminUsersV2Query {
 pub async fn get_users(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    axum::extract::Query(params): axum::extract::Query<AdminUsersQuery>,
+    crate::routes::extractors::MatrixQuery(params): crate::routes::extractors::MatrixQuery<AdminUsersQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = params
         .limit
@@ -281,7 +282,7 @@ pub async fn get_users(
 async fn get_user(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     let user = ctx.user_service.get_user_by_identifier(&user_id).await?;
 
@@ -304,7 +305,7 @@ async fn get_user(
 async fn delete_user(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&ctx, &user_id).await?;
@@ -365,7 +366,7 @@ async fn delete_user(
 pub async fn get_admin_status(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&ctx, &user_id).await?;
 
@@ -377,7 +378,7 @@ pub async fn get_admin_status(
 pub async fn set_admin(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
     headers: HeaderMap,
     MatrixJson(body): MatrixJson<SetAdminRequest>,
 ) -> Result<Json<Value>, ApiError> {
@@ -440,7 +441,7 @@ pub async fn set_admin(
 pub async fn deactivate_user(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     // A4 (API 路由审计 2026-09-04): 拒绝 admin 停用自己——单 admin 部署会失去全部管理
@@ -514,7 +515,7 @@ pub async fn deactivate_user(
 pub async fn reset_user_password(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
     MatrixJson(body): MatrixJson<ResetPasswordBody>,
 ) -> Result<Json<Value>, ApiError> {
     ctx.validator.validate_password(&body.new_password)?;
@@ -544,8 +545,8 @@ pub async fn reset_user_password(
 pub async fn get_user_rooms_admin(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
-    axum::extract::Query(params): axum::extract::Query<UserRoomsQuery>,
+    MatrixPath(user_id): MatrixPath<UserId>,
+    crate::routes::extractors::MatrixQuery(params): crate::routes::extractors::MatrixQuery<UserRoomsQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&ctx, &user_id).await?;
 
@@ -568,7 +569,7 @@ pub async fn get_user_rooms_admin(
 pub async fn get_user_devices_admin(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&ctx, &user_id).await?;
     let devices = ctx.admin_user_service.get_user_devices(&user.user_id).await?;
@@ -596,7 +597,7 @@ pub async fn get_user_devices_admin(
 pub async fn delete_user_device_admin(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path((user_id, device_id)): Path<(String, DeviceId)>,
+    MatrixPath((user_id, device_id)): MatrixPath<(String, DeviceId)>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&ctx, &user_id).await?;
@@ -633,7 +634,7 @@ pub async fn delete_user_device_admin(
 pub async fn delete_user_device_admin_compat(
     admin: AdminUser,
     state: State<AdminContext>,
-    path: Path<(String, DeviceId)>,
+    path: MatrixPath<(String, DeviceId)>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     delete_user_device_admin(admin, state, path, headers).await
@@ -644,7 +645,7 @@ pub async fn delete_user_device_admin_compat(
 pub async fn login_as_user(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     let user = ctx.user_service.get_user_or_not_found(&user_id).await?;
@@ -717,7 +718,7 @@ pub async fn login_as_user(
 pub async fn logout_user_devices(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&ctx, &user_id).await?;
 
@@ -751,7 +752,7 @@ pub async fn logout_user_devices(
 pub async fn get_users_v2(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    axum::extract::Query(params): axum::extract::Query<AdminUsersV2Query>,
+    crate::routes::extractors::MatrixQuery(params): crate::routes::extractors::MatrixQuery<AdminUsersV2Query>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = params
         .limit
@@ -799,7 +800,7 @@ pub async fn get_users_v2(
 pub async fn get_user_v2(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     let user = ctx.admin_user_service.get_user_v2(&user_id).await?;
 
@@ -841,7 +842,7 @@ pub async fn get_user_v2(
 pub async fn create_or_update_user_v2(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
     MatrixJson(body): MatrixJson<CreateUpdateUserRequest>,
 ) -> Result<Json<Value>, ApiError> {
     if body.admin.is_some() || body.user_type.is_some() {
@@ -889,7 +890,7 @@ pub async fn get_user_stats(_admin: AdminUser, State(ctx): State<AdminContext>) 
 pub async fn get_single_user_stats(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     let stats = ctx.admin_user_service.get_single_user_stats(&user_id).await?;
 
@@ -1006,7 +1007,7 @@ pub async fn batch_deactivate_users(
 pub async fn get_user_sessions(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&ctx, &user_id).await?;
 
@@ -1037,7 +1038,7 @@ pub async fn get_user_sessions(
 pub async fn invalidate_user_sessions(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&ctx, &user_id).await?;
 
@@ -1060,7 +1061,7 @@ pub async fn invalidate_user_sessions(
 pub async fn get_account_details(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&ctx, &user_id).await?;
     let canonical_user_id = &user.user_id;
@@ -1098,7 +1099,7 @@ pub struct UpdateAccountRequest {
 pub async fn update_account(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
     headers: HeaderMap,
     MatrixJson(body): MatrixJson<UpdateAccountRequest>,
 ) -> Result<Json<Value>, ApiError> {

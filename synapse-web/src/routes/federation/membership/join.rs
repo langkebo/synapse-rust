@@ -1,8 +1,9 @@
 use crate::middleware::FederationRequestAuth;
 use crate::routes::context::FederationContext;
+use crate::routes::extractors::MatrixPath;
 use crate::utils::auth::resolve_request_id;
 use axum::{
-    extract::{Extension, Json, Path, State},
+    extract::{Extension, Json, State},
     http::HeaderMap,
 };
 use serde_json::{json, Value};
@@ -53,7 +54,7 @@ pub(crate) fn build_join_event_template(
 pub(crate) async fn make_join(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Path((room_id, user_id)): Path<(String, String)>,
+    MatrixPath((room_id, user_id)): MatrixPath<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     super::increment_gauge(&ctx, "federation_join_in_flight");
     let (permit, wait_ms) = match super::acquire_with_timeout(
@@ -115,7 +116,7 @@ pub(crate) async fn send_join(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     headers: HeaderMap,
-    Path((room_id, event_id)): Path<(String, String)>,
+    MatrixPath((room_id, event_id)): MatrixPath<(String, String)>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
@@ -267,7 +268,7 @@ pub(crate) async fn send_join_v2(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     headers: HeaderMap,
-    Path((room_id, event_id)): Path<(String, String)>,
+    MatrixPath((room_id, event_id)): MatrixPath<(String, String)>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);

@@ -247,17 +247,25 @@ impl FriendRoomService {
             // Edge case: pending request disappeared between check and fetch
         }
 
+        // I-14: a non-existent receiver used to surface as 500 — the mapped
+        // `ApiError::not_found` was funnelled back through
+        // `From<ApiError> for FriendRoomError` (→ `Internal`) by `?`.
+        // Map at the domain-error level so the 404 survives to the HTTP layer.
         let friend_request_id =
-            self.friend_storage.create_friend_request_with_user_ensure(sender_id, receiver_id, message).await.map_err(
-                |e| {
-                    let error_msg = e.to_string();
-                    if error_msg.contains("foreign key") || error_msg.contains("no rows returned") {
-                        ApiError::not_found(format!("Cannot send friend request: user not found - {receiver_id}"))
-                    } else {
-                        ApiError::database_with_context("Failed to create friend request", &error_msg)
+            match self.friend_storage.create_friend_request_with_user_ensure(sender_id, receiver_id, message).await {
+                Ok(id) => id,
+                Err(sqlx::Error::RowNotFound) => {
+                    return Err(FriendRoomError::NotFound(format!("User not found - {receiver_id}")));
+                }
+                Err(e) => {
+                    // A foreign-key violation means the row vanished between the
+                    // existence pre-check and the insert: still "user not found".
+                    if e.to_string().contains("foreign key") {
+                        return Err(FriendRoomError::NotFound(format!("User not found - {receiver_id}")));
                     }
-                },
-            )?;
+                    return Err(FriendRoomError::Database(e));
+                }
+            };
 
         if self.is_remote_user(receiver_id) {
             tracing::info!(

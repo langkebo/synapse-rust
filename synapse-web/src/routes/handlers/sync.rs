@@ -1,7 +1,8 @@
 use crate::routes::context::SyncContext;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::AuthenticatedUser;
 use axum::{
-    extract::{Json, Query, State},
+    extract::{Json, State},
     http::HeaderMap,
 };
 use serde::Deserialize;
@@ -89,7 +90,7 @@ pub(crate) async fn sync(
     State(ctx): State<SyncContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Query(query): Query<SyncQuery>,
+    MatrixQuery(query): MatrixQuery<SyncQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = auth_user.user_id;
     let device_id = auth_user.device_id;
@@ -234,7 +235,7 @@ pub(crate) struct EventsParams {
 pub(crate) async fn get_events(
     State(ctx): State<SyncContext>,
     auth_user: AuthenticatedUser,
-    Query(params): Query<EventsParams>,
+    MatrixQuery(params): MatrixQuery<EventsParams>,
 ) -> Result<Json<Value>, ApiError> {
     let EventsParams { from, timeout } = params;
     let from = from.as_deref().unwrap_or("0");

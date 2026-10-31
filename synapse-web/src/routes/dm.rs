@@ -2,11 +2,12 @@
 // DM room creation and management
 
 use crate::routes::context::RoomContext;
+use crate::routes::extractors::MatrixPath;
 use crate::routes::extractors::RoomId;
 use crate::routes::MatrixJson;
 use crate::routes::{ApiError, AppState, AuthenticatedUser};
 use axum::{
-    extract::{Path, State},
+    extract::State,
     routing::{get, post, put},
     Json, Router,
 };
@@ -635,7 +636,7 @@ pub async fn get_dm_rooms(
 pub async fn update_dm_room(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     MatrixJson(body): MatrixJson<UpdateDmRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let (mut direct_map, mut users, _) = load_direct_room_snapshot(&ctx, &auth_user.user_id, &room_id).await?;
@@ -658,7 +659,7 @@ pub async fn update_dm_room(
 pub async fn check_room_dm(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     let (_, _, is_dm) = load_direct_room_snapshot(&ctx, &auth_user.user_id, &room_id).await?;
 
@@ -676,7 +677,7 @@ pub async fn check_room_dm(
 pub async fn get_dm_partner_route(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     let (partner_user_id, display_name, avatar_url) = load_dm_partner_info(&ctx, &auth_user.user_id, &room_id).await?;
 

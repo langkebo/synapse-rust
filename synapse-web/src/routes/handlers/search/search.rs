@@ -1,7 +1,8 @@
 use crate::routes::account_compat::can_view_profile_for_requester_batch;
 use crate::routes::context::RoomContext;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::AuthenticatedUser;
-use axum::extract::{Json, Query, State};
+use axum::extract::{Json, State};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use synapse_common::ApiError;
@@ -184,7 +185,7 @@ pub(crate) fn validate_search_request(body: &SearchRequest) -> Result<(), ApiErr
 pub(crate) async fn search(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Query(query): Query<SearchQuery>,
+    MatrixQuery(query): MatrixQuery<SearchQuery>,
     MatrixJson(body): MatrixJson<SearchRequest>,
 ) -> Result<Json<Value>, ApiError> {
     validate_search_request(&body)?;

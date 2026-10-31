@@ -1,6 +1,8 @@
 use crate::routes::context::RoomContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use axum::{
-    extract::{Path, Query, State},
+    extract::State,
     http::StatusCode,
     response::IntoResponse,
     routing::{delete, get, post, put},
@@ -237,7 +239,7 @@ async fn ensure_room_summary_manage_access(
 /// See [`get_room_summary`].
 pub async fn get_room_summary(
     State(ctx): State<RoomContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_room_summary_read_access(&ctx, &auth_user, &room_id).await?;
@@ -266,7 +268,7 @@ pub async fn get_user_summaries(
 /// See [`create_room_summary`].
 pub async fn create_room_summary(
     State(ctx): State<RoomContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<CreateRoomSummaryRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -293,7 +295,7 @@ pub async fn create_internal_room_summary(
 /// See [`update_room_summary`].
 pub async fn update_room_summary(
     State(ctx): State<RoomContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<UpdateSummaryBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -310,7 +312,7 @@ pub async fn update_room_summary(
 /// See [`delete_room_summary`].
 pub async fn delete_room_summary(
     State(ctx): State<RoomContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_room_summary_manage_access(&ctx, &auth_user, &room_id).await?;
@@ -323,7 +325,7 @@ pub async fn delete_room_summary(
 /// See [`sync_room_summary`].
 pub async fn sync_room_summary(
     State(ctx): State<RoomContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_room_summary_manage_access(&ctx, &auth_user, &room_id).await?;
@@ -336,7 +338,7 @@ pub async fn sync_room_summary(
 /// See [`get_members`].
 pub async fn get_members(
     State(ctx): State<RoomContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_room_summary_read_access(&ctx, &auth_user, &room_id).await?;
@@ -349,7 +351,7 @@ pub async fn get_members(
 /// See [`add_member`].
 pub async fn add_member(
     State(ctx): State<RoomContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<CreateSummaryMemberRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -365,7 +367,7 @@ pub async fn add_member(
 /// See [`update_member`].
 pub async fn update_member(
     State(ctx): State<RoomContext>,
-    Path((room_id, user_id)): Path<(String, String)>,
+    MatrixPath((room_id, user_id)): MatrixPath<(String, String)>,
     auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<UpdateMemberBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -382,7 +384,7 @@ pub async fn update_member(
 /// See [`remove_member`].
 pub async fn remove_member(
     State(ctx): State<RoomContext>,
-    Path((room_id, user_id)): Path<(String, String)>,
+    MatrixPath((room_id, user_id)): MatrixPath<(String, String)>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_room_summary_manage_access(&ctx, &auth_user, &room_id).await?;
@@ -395,7 +397,7 @@ pub async fn remove_member(
 /// See [`get_state`].
 pub async fn get_state(
     State(ctx): State<RoomContext>,
-    Path((room_id, event_type, state_key)): Path<(String, String, String)>,
+    MatrixPath((room_id, event_type, state_key)): MatrixPath<(String, String, String)>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_room_summary_read_access(&ctx, &auth_user, &room_id).await?;
@@ -409,7 +411,7 @@ pub async fn get_state(
 /// See [`update_state`].
 pub async fn update_state(
     State(ctx): State<RoomContext>,
-    Path((room_id, event_type, state_key)): Path<(String, String, String)>,
+    MatrixPath((room_id, event_type, state_key)): MatrixPath<(String, String, String)>,
     auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<UpdateStateBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -427,7 +429,7 @@ pub async fn update_state(
 /// See [`get_all_state`].
 pub async fn get_all_state(
     State(ctx): State<RoomContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_room_summary_read_access(&ctx, &auth_user, &room_id).await?;
@@ -452,7 +454,7 @@ pub async fn get_all_state(
 /// See [`get_stats`].
 pub async fn get_stats(
     State(ctx): State<RoomContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_room_summary_read_access(&ctx, &auth_user, &room_id).await?;
@@ -470,7 +472,7 @@ pub async fn get_stats(
 /// See [`recalculate_stats`].
 pub async fn recalculate_stats(
     State(ctx): State<RoomContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_room_summary_manage_access(&ctx, &auth_user, &room_id).await?;
@@ -484,7 +486,7 @@ pub async fn recalculate_stats(
 pub async fn process_updates(
     State(ctx): State<RoomContext>,
     _admin: AdminUser,
-    Query(query): Query<QueryLimit>,
+    MatrixQuery(query): MatrixQuery<QueryLimit>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit: i64 = query.limit.unwrap_or(100).clamp(1, 500);
     let processed_val: usize = ctx.room_service.room_summary_service().process_pending_updates(limit).await?;
@@ -498,7 +500,7 @@ pub async fn process_updates(
 /// See [`recalculate_heroes`].
 pub async fn recalculate_heroes(
     State(ctx): State<RoomContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_room_summary_manage_access(&ctx, &auth_user, &room_id).await?;
@@ -513,7 +515,7 @@ pub async fn recalculate_heroes(
 /// See [`clear_unread`].
 pub async fn clear_unread(
     State(ctx): State<RoomContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_room_summary_manage_access(&ctx, &auth_user, &room_id).await?;

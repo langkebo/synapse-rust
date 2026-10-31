@@ -1,6 +1,7 @@
 use crate::routes::context::MediaContext;
+use crate::routes::extractors::MatrixPath;
 use crate::AuthenticatedUser;
-use axum::extract::{Json, Path, State};
+use axum::extract::{Json, State};
 use serde_json::{json, Value};
 use synapse_common::ApiError;
 
@@ -77,7 +78,7 @@ pub(crate) async fn quota_alerts(
 pub(crate) async fn delete_media(
     State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
-    Path((server_name, media_id)): Path<(ServerName, MediaId)>,
+    MatrixPath((server_name, media_id)): MatrixPath<(ServerName, MediaId)>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_local_media_server_name(&ctx, &server_name)?;
 

@@ -8,11 +8,8 @@
 //! `e2ee_audit_log`（`operation = "verify_device"`）。做成 GET 的话，管理面板一刷新就多一条
 //! 审计记录，审计表会被"读操作"撑大，反而让真正的验证动作淹没在里面。
 
-use axum::{
-    extract::{Path, State},
-    routing::post,
-    Json, Router,
-};
+use crate::routes::extractors::MatrixPath;
+use axum::{extract::State, routing::post, Json, Router};
 use synapse_common::types::DeviceId;
 use synapse_common::ApiError;
 use synapse_services::e2ee_audit::DeviceVerificationStatus;
@@ -36,7 +33,7 @@ pub fn create_device_verify_router() -> Router<crate::routes::AppState> {
 pub async fn verify_user_device_admin(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path((user_id, device_id)): Path<(String, DeviceId)>,
+    MatrixPath((user_id, device_id)): MatrixPath<(String, DeviceId)>,
 ) -> Result<Json<DeviceVerificationStatus>, ApiError> {
     // 先按路径里的 `user_id` 解析用户：用户不存在 ⇒ 404，且后续只在该用户的设备表里找设备
     // （设备 id 全局唯一，但不用它直接定位 —— 否则路径与响应里的 owner 可能对不上）。

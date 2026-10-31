@@ -1,5 +1,7 @@
 use super::ensure_room_view_access;
 use crate::routes::context::RoomContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::MatrixJson;
 use crate::routes::{
     extractors::{RoomId, UserId},
@@ -8,7 +10,7 @@ use crate::routes::{
 };
 use crate::utils::auth::resolve_request_id;
 use axum::{
-    extract::{Json, Path, Query, State},
+    extract::{Json, State},
     http::HeaderMap,
 };
 use serde::Deserialize;
@@ -104,7 +106,7 @@ pub struct JoinRoomBody {
 pub(crate) async fn join_room(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     body: Option<MatrixJson<JoinRoomBody>>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -144,8 +146,8 @@ pub(crate) async fn join_room_by_id_or_alias(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Path(room_id_or_alias): Path<String>,
-    Query(query): Query<ViaQuery>,
+    MatrixPath(room_id_or_alias): MatrixPath<String>,
+    MatrixQuery(query): MatrixQuery<ViaQuery>,
     body: Option<MatrixJson<JoinRoomByIdOrAliasBody>>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
@@ -237,7 +239,7 @@ pub(crate) async fn leave_room(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     body: Option<MatrixJson<LeaveRoomBody>>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
@@ -287,8 +289,8 @@ pub(crate) async fn knock_room(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Path(room_id_or_alias): Path<String>,
-    Query(query): Query<ViaQuery>,
+    MatrixPath(room_id_or_alias): MatrixPath<String>,
+    MatrixQuery(query): MatrixQuery<ViaQuery>,
     MatrixJson(body): MatrixJson<KnockRoomBody>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
@@ -364,7 +366,7 @@ pub struct InviteUserBody {
 pub(crate) async fn invite_user(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     MatrixJson(body): MatrixJson<InviteUserBody>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -483,8 +485,8 @@ pub(crate) async fn get_room_members(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
-    Query(query): Query<RoomMembersQuery>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
+    MatrixQuery(query): MatrixQuery<RoomMembersQuery>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     let request_id = resolve_request_id(&headers);
@@ -555,8 +557,8 @@ pub(crate) async fn get_room_members(
 pub(crate) async fn get_room_members_recent(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
-    Query(query): Query<RoomMembersRecentQuery>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
+    MatrixQuery(query): MatrixQuery<RoomMembersRecentQuery>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     let members = ctx.room_service.membership().get_room_members(&room_id, &auth_user.user_id).await?;
@@ -585,7 +587,7 @@ pub(crate) async fn get_room_members_recent(
 pub(crate) async fn get_joined_members(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -628,7 +630,7 @@ pub(crate) async fn get_joined_members(
 pub(crate) async fn get_room_membership(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, target_user_id)): Path<(RoomId, UserId)>,
+    MatrixPath((room_id, target_user_id)): MatrixPath<(RoomId, UserId)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     validate_user_id(target_user_id.as_str())?;
@@ -663,7 +665,7 @@ pub(crate) struct MembershipEventsRequest {
 pub(crate) async fn get_membership_events(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     MatrixJson(body): MatrixJson<MembershipEventsRequest>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -699,7 +701,7 @@ pub(crate) async fn get_membership_events(
 pub(crate) async fn get_room_invites(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !ctx.room_service.state().room_exists(&room_id).await? {
@@ -748,7 +750,7 @@ pub struct KickUserBody {
 pub(crate) async fn kick_user(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     MatrixJson(body): MatrixJson<KickUserBody>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -777,7 +779,7 @@ pub struct BanUserBody {
 pub(crate) async fn ban_user(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     MatrixJson(body): MatrixJson<BanUserBody>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -810,7 +812,7 @@ pub struct UnbanUserBody {
 pub(crate) async fn unban_user(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     MatrixJson(body): MatrixJson<UnbanUserBody>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -841,13 +843,14 @@ mod via_servers_tests {
     //! parameter) and MSC4156 ("Migrate server_name to via").
 
     use super::{extract_via_servers, ViaQuery};
-    use axum::extract::Query;
+    use crate::routes::extractors::MatrixQuery;
+
     use serde_json::json;
 
     /// Parses a query string the way Axum does for the handlers under test.
     fn parse_via_query(query: &str) -> Vec<String> {
         let uri: axum::http::Uri = format!("/_matrix/client/v3/join/x{query}").parse().expect("valid uri");
-        Query::<ViaQuery>::try_from_uri(&uri).expect("query parses").0.via
+        MatrixQuery::<ViaQuery>::try_from_uri(&uri).expect("query parses").0.via
     }
 
     // ------------------------------------------------------------------

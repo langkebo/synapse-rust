@@ -1,6 +1,8 @@
 use crate::routes::context::AdminContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use axum::{
-    extract::{Path, Query, State},
+    extract::State,
     http::StatusCode,
     response::IntoResponse,
     routing::{delete, get, post},
@@ -224,7 +226,7 @@ pub async fn create_update(
 pub async fn get_update(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(job_name): Path<String>,
+    MatrixPath(job_name): MatrixPath<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let update = ctx
         .background_update_service
@@ -239,7 +241,7 @@ pub async fn get_update(
 pub async fn get_all_updates(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Query(query): Query<QueryParams>,
+    MatrixQuery(query): MatrixQuery<QueryParams>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100).clamp(1, 500);
 
@@ -281,7 +283,7 @@ pub async fn get_running_updates(
 pub async fn start_update(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(job_name): Path<String>,
+    MatrixPath(job_name): MatrixPath<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let update = ctx.background_update_service.start_update(&job_name).await?;
 
@@ -292,7 +294,7 @@ pub async fn start_update(
 pub async fn update_progress(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(job_name): Path<String>,
+    MatrixPath(job_name): MatrixPath<String>,
     MatrixJson(body): MatrixJson<UpdateProgressBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let update =
@@ -305,7 +307,7 @@ pub async fn update_progress(
 pub async fn complete_update(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(job_name): Path<String>,
+    MatrixPath(job_name): MatrixPath<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let update = ctx.background_update_service.complete_update(&job_name).await?;
 
@@ -316,7 +318,7 @@ pub async fn complete_update(
 pub async fn fail_update(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(job_name): Path<String>,
+    MatrixPath(job_name): MatrixPath<String>,
     MatrixJson(body): MatrixJson<FailUpdateBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let update = ctx.background_update_service.fail_update(&job_name, &body.error_message).await?;
@@ -328,7 +330,7 @@ pub async fn fail_update(
 pub async fn cancel_update(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(job_name): Path<String>,
+    MatrixPath(job_name): MatrixPath<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let update = ctx.background_update_service.cancel_update(&job_name).await?;
 
@@ -339,7 +341,7 @@ pub async fn cancel_update(
 pub async fn delete_update(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(job_name): Path<String>,
+    MatrixPath(job_name): MatrixPath<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     ctx.background_update_service.delete_update(&job_name).await?;
 
@@ -350,8 +352,8 @@ pub async fn delete_update(
 pub async fn get_history(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(job_name): Path<String>,
-    Query(query): Query<QueryParams>,
+    MatrixPath(job_name): MatrixPath<String>,
+    MatrixQuery(query): MatrixQuery<QueryParams>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100).clamp(1, 500);
 
@@ -390,7 +392,7 @@ pub async fn cleanup_locks(
 pub async fn count_by_status(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(status): Path<String>,
+    MatrixPath(status): MatrixPath<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let count = ctx.background_update_service.count_by_status(&status).await?;
 
@@ -413,7 +415,7 @@ pub async fn count_all(State(ctx): State<AdminContext>, _auth_user: AdminUser) -
 pub async fn get_stats(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Query(query): Query<QueryParams>,
+    MatrixQuery(query): MatrixQuery<QueryParams>,
 ) -> Result<impl IntoResponse, ApiError> {
     let days = query.limit.unwrap_or(30) as i32;
 

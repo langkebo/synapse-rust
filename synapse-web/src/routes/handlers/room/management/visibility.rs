@@ -1,6 +1,7 @@
+use crate::routes::extractors::MatrixPath;
 use crate::routes::extractors::RoomId;
 use crate::routes::{ensure_room_member_ctx, AuthenticatedUser, OptionalAuthenticatedUser};
-use axum::extract::{Json, Path, State};
+use axum::extract::{Json, State};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
@@ -15,7 +16,7 @@ use crate::routes::MatrixJson;
 pub(crate) async fn get_room_visibility(
     State(ctx): State<RoomContext>,
     _auth_user: OptionalAuthenticatedUser,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     if !ctx.room_service.state().room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -44,7 +45,7 @@ pub struct SetRoomVisibilityBody {
 pub(crate) async fn set_room_visibility(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     MatrixJson(body): MatrixJson<SetRoomVisibilityBody>,
 ) -> Result<Json<Value>, ApiError> {
     if !ctx.room_service.state().room_exists(&room_id).await? {

@@ -1,6 +1,7 @@
 use crate::middleware::FederationRequestAuth;
 use crate::routes::context::FederationContext;
-use axum::extract::{Extension, Json, Path, State};
+use crate::routes::extractors::MatrixPath;
+use axum::extract::{Extension, Json, State};
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 use synapse_common::*;
@@ -15,7 +16,7 @@ use crate::routes::MatrixJson;
 pub(crate) async fn knock_room(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Path((room_id, user_id)): Path<(String, String)>,
+    MatrixPath((room_id, user_id)): MatrixPath<(String, String)>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_federation_user_origin(&auth.origin, &user_id)?;

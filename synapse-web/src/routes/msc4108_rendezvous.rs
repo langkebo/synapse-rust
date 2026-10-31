@@ -11,11 +11,12 @@
 //!   DELETE /_matrix/client/unstable/org.matrix.msc4108/rendezvous/{id}     — close session
 
 use crate::routes::context::AuthContext;
+use crate::routes::extractors::MatrixPath;
 use crate::routes::extractors::SessionId;
 use crate::routes::AppState;
 use axum::{
     body::Body,
-    extract::{Path, State},
+    extract::State,
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -98,7 +99,7 @@ async fn create_session(
 /// Returns `text/plain` body + standard MSC4108 caching headers, or 304 if not modified.
 async fn get_session(
     State(ctx): State<AuthContext>,
-    Path(session_id): Path<SessionId>,
+    MatrixPath(session_id): MatrixPath<SessionId>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     let result = ctx.rendezvous_service.msc4108_data(&session_id).await?;
@@ -156,7 +157,7 @@ async fn get_session(
 /// `org.matrix.msc4108.errcode: M_CONCURRENT_WRITE` field.
 async fn update_session(
     State(ctx): State<AuthContext>,
-    Path(session_id): Path<SessionId>,
+    MatrixPath(session_id): MatrixPath<SessionId>,
     headers: HeaderMap,
     body: String,
 ) -> Result<Response, ApiError> {
@@ -232,7 +233,7 @@ async fn update_session(
 /// session ids respond with `404 Not Found`.
 async fn delete_session(
     State(ctx): State<AuthContext>,
-    Path(session_id): Path<SessionId>,
+    MatrixPath(session_id): MatrixPath<SessionId>,
 ) -> Result<Response, ApiError> {
     let deleted = ctx.rendezvous_service.delete_msc4108(&session_id).await?;
 

@@ -1,11 +1,8 @@
 use crate::routes::context::AdminContext;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::MatrixJson;
 use crate::routes::{AdminUser, AppState};
-use axum::{
-    extract::{Query, State},
-    response::IntoResponse,
-    Json,
-};
+use axum::{extract::State, response::IntoResponse, Json};
 use serde::{Deserialize, Serialize};
 use synapse_common::error::ApiError;
 use synapse_services::captcha_service::{SendCaptchaRequest, VerifyCaptchaRequest};
@@ -95,7 +92,7 @@ pub async fn verify_captcha(
 /// See [`get_captcha_status`].
 pub async fn get_captcha_status(
     State(ctx): State<AdminContext>,
-    Query(query): Query<CaptchaIdQuery>,
+    MatrixQuery(query): MatrixQuery<CaptchaIdQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let captcha = ctx
         .captcha_service

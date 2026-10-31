@@ -21,6 +21,8 @@
 //! See: <https://github.com/matrix-org/matrix-spec-proposals/pull/4140>
 
 use crate::routes::context::{AdminContext, RoomContext};
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::extractors::{AuthenticatedUser, RoomId};
 use crate::routes::handlers::room::{
     ensure_message_write_access, ensure_room_state_write_access, msc4354_sticky_duration, normalize_room_event_type,
@@ -30,7 +32,7 @@ use crate::routes::validate_room_id;
 use crate::routes::AppState;
 use crate::routes::MatrixJson;
 use axum::{
-    extract::{Json, Path, Query, State},
+    extract::{Json, State},
     http::HeaderMap,
     routing::{get, post, put},
     Router,
@@ -63,8 +65,8 @@ use synapse_services::delayed_event_service::{DelayedEvent, DelayedEventAction};
 pub(crate) async fn schedule_delayed_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_type, txn_id)): Path<(RoomId, String, String)>,
-    Query(query): Query<RoomWriteQuery>,
+    MatrixPath((room_id, event_type, txn_id)): MatrixPath<(RoomId, String, String)>,
+    MatrixQuery(query): MatrixQuery<RoomWriteQuery>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -216,7 +218,7 @@ pub(crate) async fn get_delayed_event(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Path(delay_id): Path<i64>,
+    MatrixPath(delay_id): MatrixPath<i64>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = crate::utils::auth::resolve_request_id(&headers);
     let event = ctx.delayed_event_service.get(delay_id, &auth_user.user_id, &request_id).await?;
@@ -283,7 +285,7 @@ pub(crate) async fn manage_delayed_event(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Path(delay_id): Path<i64>,
+    MatrixPath(delay_id): MatrixPath<i64>,
     MatrixJson(body): MatrixJson<ManageDelayedEventBody>,
 ) -> Result<Json<Value>, ApiError> {
     // A missing or non-string `action` is a typed deserialization failure, which
@@ -326,7 +328,7 @@ pub(crate) async fn cancel_delayed_event(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Path(delay_id): Path<i64>,
+    MatrixPath(delay_id): MatrixPath<i64>,
 ) -> Result<Json<Value>, ApiError> {
     apply_action(&ctx, &headers, &auth_user.user_id, delay_id, DelayedEventAction::Cancel).await
 }
@@ -336,7 +338,7 @@ pub(crate) async fn restart_delayed_event(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Path(delay_id): Path<i64>,
+    MatrixPath(delay_id): MatrixPath<i64>,
 ) -> Result<Json<Value>, ApiError> {
     apply_action(&ctx, &headers, &auth_user.user_id, delay_id, DelayedEventAction::Restart).await
 }
@@ -346,7 +348,7 @@ pub(crate) async fn send_delayed_event(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Path(delay_id): Path<i64>,
+    MatrixPath(delay_id): MatrixPath<i64>,
 ) -> Result<Json<Value>, ApiError> {
     apply_action(&ctx, &headers, &auth_user.user_id, delay_id, DelayedEventAction::Send).await
 }

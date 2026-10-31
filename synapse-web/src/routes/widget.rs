@@ -1,10 +1,11 @@
 use crate::routes::context::AdminContext;
+use crate::routes::extractors::MatrixPath;
 use crate::routes::extractors::RoomId;
 use crate::routes::room_access::ensure_room_member_strict_admin;
 use crate::routes::MatrixJson;
 use crate::routes::{AppState, AuthenticatedUser};
 use axum::{
-    extract::{Path, State},
+    extract::State,
     routing::{delete, get, post, put},
     Json, Router,
 };
@@ -201,7 +202,7 @@ async fn create_widget(
 async fn get_widget(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(widget_id): Path<String>,
+    MatrixPath(widget_id): MatrixPath<String>,
 ) -> Result<Json<WidgetApiResponse>, ApiError> {
     let widget = get_widget_with_access(&ctx, &auth_user, &widget_id, "read").await?;
 
@@ -211,7 +212,7 @@ async fn get_widget(
 async fn update_widget(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(widget_id): Path<String>,
+    MatrixPath(widget_id): MatrixPath<String>,
     MatrixJson(body): MatrixJson<UpdateWidgetBody>,
 ) -> Result<Json<WidgetApiResponse>, ApiError> {
     let _widget = get_widget_with_access(&ctx, &auth_user, &widget_id, "write").await?;
@@ -229,7 +230,7 @@ async fn update_widget(
 async fn delete_widget(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(widget_id): Path<String>,
+    MatrixPath(widget_id): MatrixPath<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let _widget = get_widget_with_access(&ctx, &auth_user, &widget_id, "write").await?;
     let deleted = ctx.widget_service.delete_widget(&widget_id).await?;
@@ -244,7 +245,7 @@ async fn delete_widget(
 async fn get_room_widgets(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
 ) -> Result<Json<WidgetListResponse>, ApiError> {
     ensure_room_widget_access(&ctx, &auth_user, &room_id).await?;
     let widgets = ctx.widget_service.get_room_widgets(&room_id).await?;
@@ -255,7 +256,7 @@ async fn get_room_widgets(
 async fn get_widget_config(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(widget_id): Path<String>,
+    MatrixPath(widget_id): MatrixPath<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let widget = get_widget_with_access(&ctx, &auth_user, &widget_id, "read").await?;
 
@@ -272,7 +273,7 @@ async fn get_widget_config(
 async fn get_jitsi_config(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     ensure_room_widget_access(&ctx, &auth_user, &room_id).await?;
 
@@ -288,7 +289,7 @@ async fn get_jitsi_config(
 async fn set_widget_permission(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(widget_id): Path<String>,
+    MatrixPath(widget_id): MatrixPath<String>,
     MatrixJson(body): MatrixJson<SetPermissionBody>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let _widget = get_widget_with_access(&ctx, &auth_user, &widget_id, "write").await?;
@@ -302,7 +303,7 @@ async fn set_widget_permission(
 async fn get_widget_permissions(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(widget_id): Path<String>,
+    MatrixPath(widget_id): MatrixPath<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let _widget = get_widget_with_access(&ctx, &auth_user, &widget_id, "read").await?;
     let permissions = ctx.widget_service.get_permissions(&widget_id).await?;
@@ -313,7 +314,7 @@ async fn get_widget_permissions(
 async fn delete_widget_permission(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path((widget_id, user_id)): Path<(String, String)>,
+    MatrixPath((widget_id, user_id)): MatrixPath<(String, String)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let _widget = get_widget_with_access(&ctx, &auth_user, &widget_id, "write").await?;
     let deleted = ctx.widget_service.delete_permission(&widget_id, &user_id).await?;
@@ -324,7 +325,7 @@ async fn delete_widget_permission(
 async fn create_widget_session(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(widget_id): Path<String>,
+    MatrixPath(widget_id): MatrixPath<String>,
     MatrixJson(body): MatrixJson<CreateSessionBody>,
 ) -> Result<Json<SessionResponse>, ApiError> {
     let _widget = get_widget_with_access(&ctx, &auth_user, &widget_id, "read").await?;
@@ -347,7 +348,7 @@ async fn create_widget_session(
 async fn get_widget_session(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(session_id): Path<String>,
+    MatrixPath(session_id): MatrixPath<String>,
 ) -> Result<Json<SessionResponse>, ApiError> {
     let session = ctx.widget_service.get_session(&session_id).await?.ok_or(ApiError::not_found("Session not found"))?;
     ensure_session_access(&ctx, &auth_user, &session).await?;
@@ -358,7 +359,7 @@ async fn get_widget_session(
 async fn get_widget_sessions(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(widget_id): Path<String>,
+    MatrixPath(widget_id): MatrixPath<String>,
 ) -> Result<Json<SessionListResponse>, ApiError> {
     let _widget = get_widget_with_access(&ctx, &auth_user, &widget_id, "write").await?;
     let sessions = ctx.widget_service.get_widget_sessions(&widget_id).await?;
@@ -369,7 +370,7 @@ async fn get_widget_sessions(
 async fn terminate_widget_session(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(session_id): Path<String>,
+    MatrixPath(session_id): MatrixPath<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let session = ctx.widget_service.get_session(&session_id).await?.ok_or(ApiError::not_found("Session not found"))?;
     ensure_session_access(&ctx, &auth_user, &session).await?;
@@ -483,7 +484,7 @@ pub struct WidgetCapabilitiesBody {
 async fn get_room_widget_capabilities(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, widget_id)): Path<(String, String)>,
+    MatrixPath((room_id, widget_id)): MatrixPath<(String, String)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     ensure_room_member_strict_admin(
         &ctx,
@@ -509,7 +510,7 @@ async fn get_room_widget_capabilities(
 async fn set_room_widget_capabilities(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, widget_id)): Path<(String, String)>,
+    MatrixPath((room_id, widget_id)): MatrixPath<(String, String)>,
     MatrixJson(body): MatrixJson<WidgetCapabilitiesBody>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     ensure_room_member_strict_admin(

@@ -1,6 +1,7 @@
+use crate::routes::extractors::MatrixPath;
 use crate::routes::extractors::{RoomId, UserId};
 use crate::routes::{validate_room_id, validate_user_id, AuthenticatedUser};
-use axum::extract::{Json, Path, State};
+use axum::extract::{Json, State};
 use serde_json::{json, Value};
 use synapse_common::ApiError;
 
@@ -18,7 +19,7 @@ pub(crate) struct MutualRoomsQuery {
 pub(crate) async fn get_room_info(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -102,7 +103,7 @@ pub(crate) async fn get_my_rooms(
 pub(crate) async fn get_user_rooms(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = user_id.as_str();
     if user_id != auth_user.user_id {
@@ -135,7 +136,7 @@ pub(crate) async fn get_user_rooms(
 pub(crate) async fn get_mutual_rooms(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    axum::extract::Query(query): axum::extract::Query<MutualRoomsQuery>,
+    crate::routes::extractors::MatrixQuery(query): crate::routes::extractors::MatrixQuery<MutualRoomsQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let other_user_id =
         query.user_id.as_deref().ok_or_else(|| ApiError::bad_request("Missing user_id query parameter".to_string()))?;

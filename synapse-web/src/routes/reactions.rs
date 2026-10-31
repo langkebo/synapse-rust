@@ -1,9 +1,6 @@
 use crate::routes::context::RoomContext;
-use axum::{
-    extract::{Path, State},
-    routing::put,
-    Json, Router,
-};
+use crate::routes::extractors::MatrixPath;
+use axum::{extract::State, routing::put, Json, Router};
 use serde::{Deserialize, Serialize};
 use synapse_common::current_timestamp_millis;
 
@@ -52,7 +49,7 @@ pub struct ReactionResponse {
 async fn add_reaction(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, _txn_id)): Path<(String, String)>,
+    MatrixPath((room_id, _txn_id)): MatrixPath<(String, String)>,
     MatrixJson(body): MatrixJson<serde_json::Value>,
 ) -> Result<Json<ReactionResponse>, ApiError> {
     // 验证房间存在

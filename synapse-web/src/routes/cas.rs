@@ -1,9 +1,11 @@
 use crate::routes::context::SsoContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::extractors::UserId;
 use crate::routes::MatrixJson;
 use crate::routes::{AdminUser, AppState};
 use axum::{
-    extract::{Path, Query, Request, State},
+    extract::{Request, State},
     http::{header, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -136,7 +138,7 @@ fn is_same_origin_path(url: &str) -> bool {
 
 async fn cas_sso_redirect(
     State(ctx): State<SsoContext>,
-    Query(params): Query<SsoRedirectQuery>,
+    MatrixQuery(params): MatrixQuery<SsoRedirectQuery>,
 ) -> Result<axum::response::Response, ApiError> {
     if ctx.cas_service.is_configured().await {
         let redirect_url = match params.redirect_after.as_deref() {
@@ -198,7 +200,7 @@ pub fn cas_routes(state: AppState) -> Router<AppState> {
 
 async fn login_redirect(
     State(ctx): State<SsoContext>,
-    Query(query): Query<ServiceTicketQuery>,
+    MatrixQuery(query): MatrixQuery<ServiceTicketQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let _service = ctx.cas_service.get_service_by_url(&query.service).await?;
 
@@ -215,7 +217,7 @@ async fn login_redirect(
 
 async fn service_validate(
     State(ctx): State<SsoContext>,
-    Query(query): Query<ValidateQuery>,
+    MatrixQuery(query): MatrixQuery<ValidateQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let result = ctx.cas_service.validate_service_ticket(&query.ticket, &query.service).await.unwrap_or_else(|e| {
         tracing::warn!("CAS service ticket validation error: {}", e);
@@ -233,7 +235,7 @@ async fn service_validate(
 
 async fn proxy_validate(
     State(ctx): State<SsoContext>,
-    Query(query): Query<ProxyValidateQuery>,
+    MatrixQuery(query): MatrixQuery<ProxyValidateQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let result = ctx.cas_service.validate_proxy_ticket(&query.ticket, &query.service).await.unwrap_or_else(|e| {
         tracing::warn!("CAS proxy ticket validation error: {}", e);
@@ -259,7 +261,10 @@ async fn proxy_validate(
     }
 }
 
-async fn proxy(State(ctx): State<SsoContext>, Query(query): Query<ProxyQuery>) -> Result<impl IntoResponse, ApiError> {
+async fn proxy(
+    State(ctx): State<SsoContext>,
+    MatrixQuery(query): MatrixQuery<ProxyQuery>,
+) -> Result<impl IntoResponse, ApiError> {
     let ticket = ctx.cas_service.create_proxy_ticket(&query.pgt, &query.target_service).await?;
 
     let response = CasValidationResponse::Success {
@@ -273,7 +278,7 @@ async fn proxy(State(ctx): State<SsoContext>, Query(query): Query<ProxyQuery>) -
 
 async fn p3_service_validate(
     State(ctx): State<SsoContext>,
-    Query(query): Query<P3ServiceValidateQuery>,
+    MatrixQuery(query): MatrixQuery<P3ServiceValidateQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let response = ctx
         .cas_service
@@ -290,7 +295,7 @@ async fn p3_service_validate(
 
 async fn logout(
     State(_ctx): State<SsoContext>,
-    Query(query): Query<LogoutQuery>,
+    MatrixQuery(query): MatrixQuery<LogoutQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     match query.service {
         Some(service_url) => {
@@ -338,7 +343,7 @@ async fn list_services(State(ctx): State<SsoContext>, _admin: AdminUser) -> Resu
 async fn delete_service(
     State(ctx): State<SsoContext>,
     _admin: AdminUser,
-    Path(service_id): Path<String>,
+    MatrixPath(service_id): MatrixPath<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let deleted = ctx.cas_service.delete_service(&service_id).await?;
 
@@ -352,7 +357,7 @@ async fn delete_service(
 async fn set_user_attribute(
     State(ctx): State<SsoContext>,
     _admin: AdminUser,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
     MatrixJson(body): MatrixJson<SetAttributeBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let attr = ctx.cas_service.set_user_attribute(&user_id, &body.attribute_name, &body.attribute_value).await?;
@@ -367,7 +372,7 @@ async fn set_user_attribute(
 async fn get_user_attributes(
     State(ctx): State<SsoContext>,
     _admin: AdminUser,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<impl IntoResponse, ApiError> {
     let attrs = ctx.cas_service.get_user_attributes(&user_id).await?;
 

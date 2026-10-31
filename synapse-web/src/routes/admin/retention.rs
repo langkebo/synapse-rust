@@ -1,9 +1,10 @@
 use crate::routes::context::AdminContext;
+use crate::routes::extractors::MatrixPath;
 use crate::routes::extractors::RoomId;
 use crate::routes::AdminUser;
 use crate::routes::MatrixJson;
 use axum::{
-    extract::{Path, State},
+    extract::State,
     routing::{get, post},
     Json, Router,
 };
@@ -90,7 +91,7 @@ pub async fn set_retention_policy(
 pub async fn get_room_retention_policy(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     let room_exists = ctx.room_service.state().room_exists(&room_id).await?;
 
@@ -121,7 +122,7 @@ pub async fn get_room_retention_policy(
 pub async fn set_room_retention_policy(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     MatrixJson(body): MatrixJson<RetentionPolicyRequest>,
 ) -> Result<Json<Value>, ApiError> {
     if !ctx.room_service.state().room_exists(&room_id).await? {

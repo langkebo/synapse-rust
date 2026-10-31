@@ -1,7 +1,8 @@
 use crate::routes::context::MediaContext;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::AuthenticatedUser;
 use axum::{
-    extract::{Json, Query, State},
+    extract::{Json, State},
     http::{header, HeaderValue},
     response::IntoResponse,
 };
@@ -59,7 +60,7 @@ pub(crate) struct PreviewUrlParams {
 pub(crate) async fn preview_url(
     State(ctx): State<MediaContext>,
     _auth_user: AuthenticatedUser,
-    Query(params): Query<PreviewUrlParams>,
+    MatrixQuery(params): MatrixQuery<PreviewUrlParams>,
 ) -> Result<Json<Value>, ApiError> {
     // P2-11: MSC4452 endpoint-level 403 enforcement (Synapse v1.154 #19715).
     // When the `io.element.msc4452.preview_url` capability is disabled

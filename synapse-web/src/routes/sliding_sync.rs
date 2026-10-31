@@ -1,10 +1,7 @@
 use crate::routes::context::SyncContext;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::{AppState, AuthenticatedUser, MatrixJson};
-use axum::{
-    extract::{Query, State},
-    routing::post,
-    Json, Router,
-};
+use axum::{extract::State, routing::post, Json, Router};
 use serde::Deserialize;
 use synapse_common::ApiError;
 use synapse_services::sliding_sync_service::{SlidingSyncRequest, SlidingSyncResponse};
@@ -68,7 +65,7 @@ fn record_rate_limited(metrics: &synapse_common::metrics::MetricsCollector) {
 async fn sliding_sync(
     State(ctx): State<SyncContext>,
     auth_user: AuthenticatedUser,
-    Query(query): Query<SlidingSyncQuery>,
+    MatrixQuery(query): MatrixQuery<SlidingSyncQuery>,
     MatrixJson(mut body): MatrixJson<SlidingSyncRequest>,
 ) -> Result<Json<SlidingSyncResponse>, ApiError> {
     // MSC3575: SDK sends pos/timeout/txn_id as query parameters, not in body.

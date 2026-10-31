@@ -113,6 +113,11 @@ pub const STATUS_DIVERGENCE_WHITELIST: &[(ApiErrorKind, MatrixErrorCode)] = &[
     // extension field (e.g. an MSC field this server refuses to silently drop).
     // Matrix defines no errcode for 501 → M_UNKNOWN (whose spec status is 500).
     (ApiErrorKind::NotImplemented, MatrixErrorCode::Unknown),
+    // `bad_request_unknown()`: the request is well-formed but names a variant
+    // this endpoint does not implement (e.g. an unknown `type` on
+    // `POST /login`). `login.yaml` mandates 400 there, while M_UNKNOWN's
+    // spec status is 500.
+    (ApiErrorKind::BadRequest, MatrixErrorCode::Unknown),
 ];
 
 // ---------------------------------------------------------------------------
@@ -218,6 +223,15 @@ impl ApiError {
     /// Builds a 400 Bad Request error with `M_BAD_JSON` errcode.
     pub fn bad_request(message: impl Into<String>) -> Self {
         Self { kind: ApiErrorKind::BadRequest, code: MatrixErrorCode::BadJson, message: message.into(), cause: None }
+    }
+
+    /// Builds a 400 `M_UNKNOWN` error for a request that is well-formed but
+    /// names a variant this endpoint does not implement — e.g. an unknown
+    /// `type` on `POST /login`, which `login.yaml` requires to be 400. Distinct
+    /// from [`bad_request`](Self::bad_request) (`M_BAD_JSON`): the JSON is
+    /// valid, the named variant is not supported.
+    pub fn bad_request_unknown(message: impl Into<String>) -> Self {
+        Self { kind: ApiErrorKind::BadRequest, code: MatrixErrorCode::Unknown, message: message.into(), cause: None }
     }
 
     /// MSC4186: Construct an `M_UNKNOWN_POS` error — the sliding-sync `pos`

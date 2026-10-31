@@ -13,12 +13,11 @@
 //! 也不设 `Content-Type` ⇒ body 提取器必须是 `Option<Json<…>>`；写成必选会让那条调用直接 415。
 
 use crate::routes::context::AdminContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::AdminUser;
 use crate::routes::MatrixJson;
-use axum::{
-    extract::{Path, Query, State},
-    Json,
-};
+use axum::{extract::State, Json};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use synapse_common::types::UserId;
@@ -29,7 +28,7 @@ use synapse_common::ApiError;
 pub async fn get_invite_blocklist_admin(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Query(params): Query<InviteListParams>,
+    MatrixQuery(params): MatrixQuery<InviteListParams>,
 ) -> Result<Json<Value>, ApiError> {
     let blocklist = ctx.invite_blocklist_service.get_global_invite_blocklist(params.limit, params.offset).await?;
     let count = ctx.invite_blocklist_service.get_global_invite_blocklist_count().await?;
@@ -47,7 +46,7 @@ pub async fn get_invite_blocklist_admin(
 pub async fn get_invite_allowlist_admin(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Query(params): Query<InviteListParams>,
+    MatrixQuery(params): MatrixQuery<InviteListParams>,
 ) -> Result<Json<Value>, ApiError> {
     let allowlist = ctx.invite_blocklist_service.get_global_invite_allowlist(params.limit, params.offset).await?;
     let count = ctx.invite_blocklist_service.get_global_invite_allowlist_count().await?;
@@ -135,7 +134,7 @@ pub struct InviteListEntryBody {
 pub async fn add_global_invite_blocklist_user(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
     body: Option<MatrixJson<InviteListEntryBody>>,
 ) -> Result<Json<Value>, ApiError> {
     let reason = body.and_then(|MatrixJson(body)| body.reason);
@@ -159,7 +158,7 @@ pub async fn add_global_invite_blocklist_user(
 pub async fn remove_global_invite_blocklist_user(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     let removed = ctx.invite_blocklist_service.remove_from_global_invite_blocklist(user_id.as_str()).await?;
 
@@ -177,7 +176,7 @@ pub async fn remove_global_invite_blocklist_user(
 pub async fn add_global_invite_allowlist_user(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
     body: Option<MatrixJson<InviteListEntryBody>>,
 ) -> Result<Json<Value>, ApiError> {
     let reason = body.and_then(|MatrixJson(body)| body.reason);
@@ -199,7 +198,7 @@ pub async fn add_global_invite_allowlist_user(
 pub async fn remove_global_invite_allowlist_user(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     let removed = ctx.invite_blocklist_service.remove_from_global_invite_allowlist(user_id.as_str()).await?;
 

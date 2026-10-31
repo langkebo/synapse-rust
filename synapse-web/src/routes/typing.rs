@@ -2,11 +2,12 @@
 // Typing indicator management
 
 use crate::routes::context::RoomContext;
+use crate::routes::extractors::MatrixPath;
 use crate::routes::extractors::RoomId;
 use crate::routes::MatrixJson;
 use crate::routes::{ensure_room_member_strict_ctx, ApiError, AppState, AuthenticatedUser};
 use axum::{
-    extract::{Path, State},
+    extract::State,
     routing::{get, post, put},
     Json, Router,
 };
@@ -38,7 +39,7 @@ pub struct SetTypingBody {
 pub async fn set_typing(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, user_id)): Path<(String, String)>,
+    MatrixPath((room_id, user_id)): MatrixPath<(String, String)>,
     MatrixJson(body): MatrixJson<SetTypingBody>,
 ) -> Result<Json<Value>, ApiError> {
     if user_id != auth_user.user_id {
@@ -106,7 +107,7 @@ pub async fn set_typing(
 pub async fn get_typing_users(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_typing_room_access(&ctx, &auth_user, &room_id).await?;
 
@@ -120,7 +121,7 @@ pub async fn get_typing_users(
 pub async fn get_user_typing(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, user_id)): Path<(String, String)>,
+    MatrixPath((room_id, user_id)): MatrixPath<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_typing_room_access(&ctx, &auth_user, &room_id).await?;
 

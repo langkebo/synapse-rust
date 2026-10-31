@@ -1,13 +1,15 @@
 use super::*;
 use crate::routes::context::RoomContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::MatrixJson;
 use synapse_common::types::RoomId;
 
 /// See [`get_space_members`].
 pub(super) async fn get_space_members(
     State(ctx): State<RoomContext>,
-    Path(space_id): Path<RoomId>,
-    Query(query): Query<PaginationQuery>,
+    MatrixPath(space_id): MatrixPath<RoomId>,
+    MatrixQuery(query): MatrixQuery<PaginationQuery>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     with_visible_space(ctx, space_id.to_string(), auth_user, |ctx, space, _auth_user| async move {
@@ -43,8 +45,8 @@ pub(super) async fn get_space_members(
 /// See [`get_space_rooms`].
 pub(super) async fn get_space_rooms(
     State(ctx): State<RoomContext>,
-    Path(space_id): Path<RoomId>,
-    Query(query): Query<PaginationQuery>,
+    MatrixPath(space_id): MatrixPath<RoomId>,
+    MatrixQuery(query): MatrixQuery<PaginationQuery>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     with_visible_space(ctx, space_id.to_string(), auth_user, |ctx, space, _auth_user| async move {
@@ -76,7 +78,7 @@ pub(super) async fn get_space_rooms(
 /// See [`get_space_state`].
 pub(super) async fn get_space_state(
     State(ctx): State<RoomContext>,
-    Path(space_id): Path<RoomId>,
+    MatrixPath(space_id): MatrixPath<RoomId>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     with_visible_space(ctx, space_id.to_string(), auth_user, |ctx, space, auth_user| async move {
@@ -92,7 +94,7 @@ pub(super) async fn get_space_state(
 /// See [`invite_user`].
 pub(super) async fn invite_user(
     State(ctx): State<RoomContext>,
-    Path(space_id): Path<RoomId>,
+    MatrixPath(space_id): MatrixPath<RoomId>,
     auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<SpaceInviteUserBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -110,7 +112,7 @@ pub(super) async fn invite_user(
 /// See [`join_space`].
 pub(super) async fn join_space(
     State(ctx): State<RoomContext>,
-    Path(space_id): Path<RoomId>,
+    MatrixPath(space_id): MatrixPath<RoomId>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     with_resolved_space(ctx, space_id.to_string(), |ctx, space| async move {
@@ -125,7 +127,7 @@ pub(super) async fn join_space(
 /// See [`leave_space`].
 pub(super) async fn leave_space(
     State(ctx): State<RoomContext>,
-    Path(space_id): Path<RoomId>,
+    MatrixPath(space_id): MatrixPath<RoomId>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     with_resolved_space(ctx, space_id.to_string(), |ctx, space| async move {

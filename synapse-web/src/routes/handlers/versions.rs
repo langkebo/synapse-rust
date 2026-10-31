@@ -8,9 +8,10 @@
 
 use crate::routes::context::AuthContext;
 use crate::routes::extractors::auth::OptionalAuthenticatedUser;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::route_ledger::RouteEntry;
 use axum::{
-    extract::{Query, State},
+    extract::State,
     http::{
         header::{CACHE_CONTROL, VARY},
         HeaderMap, HeaderValue,
@@ -105,7 +106,7 @@ pub async fn get_server_version(State(ctx): State<AuthContext>) -> impl axum::re
 pub async fn get_capabilities(
     State(ctx): State<AuthContext>,
     auth: OptionalAuthenticatedUser,
-    Query(_): Query<EmptyQuery>,
+    MatrixQuery(_): MatrixQuery<EmptyQuery>,
 ) -> Json<serde_json::Value> {
     let governance = build_governance(&ctx.config);
     // Room versions are advertised at the official spec location,

@@ -1,10 +1,12 @@
 use crate::routes::context::MediaContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::extractors::{MediaId, ServerName};
 use crate::routes::MatrixJson;
 use crate::AuthenticatedUser;
 use axum::{
     body::Bytes,
-    extract::{Json, Path, Query, State},
+    extract::{Json, State},
     http::{header, HeaderMap, StatusCode},
     response::IntoResponse,
 };
@@ -170,7 +172,7 @@ pub(crate) async fn upload_media_with_id_common(
 pub(crate) async fn upload_media_v3(
     State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
-    Query(params): Query<UploadQuery>,
+    MatrixQuery(params): MatrixQuery<UploadQuery>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<Value>, ApiError> {
@@ -181,7 +183,7 @@ pub(crate) async fn upload_media_v3(
 pub(crate) async fn upload_media_v1(
     State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
-    Query(params): Query<UploadQuery>,
+    MatrixQuery(params): MatrixQuery<UploadQuery>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<Value>, ApiError> {
@@ -192,8 +194,8 @@ pub(crate) async fn upload_media_v1(
 pub(crate) async fn upload_media_with_id(
     State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
-    Path((server_name, media_id)): Path<(ServerName, MediaId)>,
-    Query(params): Query<UploadQuery>,
+    MatrixPath((server_name, media_id)): MatrixPath<(ServerName, MediaId)>,
+    MatrixQuery(params): MatrixQuery<UploadQuery>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<Value>, ApiError> {
@@ -281,7 +283,7 @@ pub(crate) async fn chunked_upload_chunk(
     State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
     headers: HeaderMap,
-    Query(query): Query<ChunkUploadQuery>,
+    MatrixQuery(query): MatrixQuery<ChunkUploadQuery>,
     body: Bytes,
 ) -> Result<Json<Value>, ApiError> {
     // ISSUE-04: upload_id and chunk_index are required query params (read from
@@ -353,7 +355,7 @@ pub(crate) async fn chunked_upload_cancel(
 pub(crate) async fn chunked_upload_progress(
     State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
-    Query(query): Query<ChunkProgressQuery>,
+    MatrixQuery(query): MatrixQuery<ChunkProgressQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let progress = ctx.media_domain_service.get_chunked_upload_progress(&query.upload_id).await?;
 
@@ -433,6 +435,7 @@ pub(crate) async fn get_upload_provider(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::routes::extractors::MatrixQuery;
     use axum::http::HeaderMap;
 
     #[test]
@@ -482,7 +485,7 @@ mod tests {
         let uri: axum::http::Uri = "/_matrix/media/v1/upload/chunk?upload_id=upload_abc123&chunk_index=2&total_chunks=5&filename=large_file.zip&total_size=52428800"
             .parse()
             .unwrap();
-        let Query(query) = Query::<ChunkUploadQuery>::try_from_uri(&uri).expect("query should deserialize");
+        let MatrixQuery(query) = MatrixQuery::<ChunkUploadQuery>::try_from_uri(&uri).expect("query should deserialize");
 
         assert_eq!(query.upload_id, "upload_abc123");
         assert_eq!(query.chunk_index, 2);
@@ -495,7 +498,7 @@ mod tests {
     fn test_chunk_upload_defaults_when_optional_params_missing() {
         let uri: axum::http::Uri =
             "/_matrix/media/v1/upload/chunk?upload_id=upload_def456&chunk_index=0".parse().unwrap();
-        let Query(query) = Query::<ChunkUploadQuery>::try_from_uri(&uri).expect("query should deserialize");
+        let MatrixQuery(query) = MatrixQuery::<ChunkUploadQuery>::try_from_uri(&uri).expect("query should deserialize");
 
         assert_eq!(query.upload_id, "upload_def456");
         assert_eq!(query.chunk_index, 0);
@@ -590,22 +593,22 @@ mod tests {
     fn test_chunk_upload_chunk_requires_upload_id_query_param() {
         // Missing upload_id in query → the extractor must reject the request.
         let uri: axum::http::Uri = "/_matrix/media/v1/upload/chunk?chunk_index=0".parse().unwrap();
-        assert!(Query::<ChunkUploadQuery>::try_from_uri(&uri).is_err(), "missing upload_id should be rejected");
+        assert!(MatrixQuery::<ChunkUploadQuery>::try_from_uri(&uri).is_err(), "missing upload_id should be rejected");
 
         // Present upload_id → should deserialize.
         let uri: axum::http::Uri = "/_matrix/media/v1/upload/chunk?upload_id=abc&chunk_index=0".parse().unwrap();
-        assert_eq!(Query::<ChunkUploadQuery>::try_from_uri(&uri).unwrap().upload_id, "abc");
+        assert_eq!(MatrixQuery::<ChunkUploadQuery>::try_from_uri(&uri).unwrap().upload_id, "abc");
     }
 
     #[test]
     fn test_chunk_upload_chunk_requires_chunk_index_query_param() {
         // Missing chunk_index → the extractor must reject the request.
         let uri: axum::http::Uri = "/_matrix/media/v1/upload/chunk?upload_id=abc".parse().unwrap();
-        assert!(Query::<ChunkUploadQuery>::try_from_uri(&uri).is_err(), "missing chunk_index should be rejected");
+        assert!(MatrixQuery::<ChunkUploadQuery>::try_from_uri(&uri).is_err(), "missing chunk_index should be rejected");
 
         // Present chunk_index → should deserialize.
         let uri: axum::http::Uri = "/_matrix/media/v1/upload/chunk?upload_id=abc&chunk_index=5".parse().unwrap();
-        assert_eq!(Query::<ChunkUploadQuery>::try_from_uri(&uri).unwrap().chunk_index, 5);
+        assert_eq!(MatrixQuery::<ChunkUploadQuery>::try_from_uri(&uri).unwrap().chunk_index, 5);
     }
 
     #[test]

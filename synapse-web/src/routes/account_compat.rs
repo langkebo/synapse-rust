@@ -2,13 +2,14 @@ use super::auth_compat::{
     request_email_verification_with_submit_path, session_client_secret, RequestEmailTokenBody, RequestTokenPurpose,
 };
 use crate::routes::context::AuthContext;
+use crate::routes::extractors::MatrixPath;
 use crate::routes::extractors::UserId;
 use crate::routes::extractors::{AuthenticatedUser, MatrixJson, OptionalAuthenticatedUser};
 use crate::routes::validate_user_id;
 use crate::utils::auth::bearer_token;
 use crate::utils::auth::resolve_request_id;
 use axum::{
-    extract::{Json, Path, State},
+    extract::{Json, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
 };
@@ -94,7 +95,7 @@ pub(crate) async fn enforce_profile_visibility(
 pub(crate) async fn get_profile(
     State(ctx): State<AuthContext>,
     headers: HeaderMap,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
     // O-5: Rate limit per-caller for profile reads.
@@ -114,7 +115,7 @@ pub(crate) async fn get_profile(
 pub(crate) async fn get_displayname(
     State(ctx): State<AuthContext>,
     headers: HeaderMap,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
     // O-5: Rate limit per-caller for profile reads.
@@ -135,7 +136,7 @@ pub(crate) async fn get_displayname(
 pub(crate) async fn get_avatar_url(
     State(ctx): State<AuthContext>,
     headers: HeaderMap,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
     // O-5: Rate limit per-caller for profile reads.
@@ -204,7 +205,7 @@ pub struct UpdateDisplaynameBody {
 pub(crate) async fn update_displayname(
     State(ctx): State<AuthContext>,
     auth_user: AuthenticatedUser,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
     MatrixJson(body): MatrixJson<UpdateDisplaynameBody>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
@@ -240,7 +241,7 @@ pub struct UpdateAvatarBody {
 pub(crate) async fn update_avatar(
     State(ctx): State<AuthContext>,
     auth_user: AuthenticatedUser,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
     MatrixJson(body): MatrixJson<UpdateAvatarBody>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;

@@ -1,11 +1,12 @@
 use super::*;
 use crate::routes::context::RoomContext;
+use crate::routes::extractors::MatrixPath;
 use synapse_common::types::RoomId;
 
 /// See [`get_space_summary`].
 pub(super) async fn get_space_summary(
     State(ctx): State<RoomContext>,
-    Path(space_id): Path<RoomId>,
+    MatrixPath(space_id): MatrixPath<RoomId>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     with_visible_space(ctx, space_id.to_string(), auth_user, |ctx, space, _auth_user| async move {
@@ -20,7 +21,7 @@ pub(super) async fn get_space_summary(
 /// See [`get_space_summary_with_children`].
 pub(super) async fn get_space_summary_with_children(
     State(ctx): State<RoomContext>,
-    Path(space_id): Path<RoomId>,
+    MatrixPath(space_id): MatrixPath<RoomId>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     with_visible_space(ctx, space_id.to_string(), auth_user, |ctx, space, auth_user| async move {

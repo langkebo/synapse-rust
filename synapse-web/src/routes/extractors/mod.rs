@@ -4,6 +4,10 @@ pub mod auth;
 pub mod json;
 /// The `localhost_guard` module.
 pub mod localhost_guard;
+/// The `path` module.
+pub mod path;
+/// The `query` module.
+pub mod query;
 
 use synapse_common::ApiError;
 
@@ -41,6 +45,8 @@ impl UserIdParseExt for UserId {
 // extract_token_from_headers removed — use crate::utils::auth::bearer_token directly
 pub use auth::{AdminUser, AuthenticatedUser, OptionalAuthenticatedUser};
 pub use json::MatrixJson;
+pub use path::MatrixPath;
+pub use query::MatrixQuery;
 pub use synapse_common::types as id_types;
 
 // ============== Tests ==============

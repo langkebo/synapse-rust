@@ -1,7 +1,5 @@
-use axum::{
-    extract::{Path, State},
-    Json,
-};
+use crate::routes::extractors::MatrixPath;
+use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -31,7 +29,7 @@ pub struct PinnedEventsResponse {
 pub async fn get_pinned_events(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
 ) -> Result<Json<PinnedEventsResponse>, ApiError> {
     let room_id_str = room_id.as_str();
     validate_room_id(room_id_str)?;
@@ -47,7 +45,7 @@ pub async fn get_pinned_events(
 pub async fn pin_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     MatrixJson(body): MatrixJson<PinRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let room_id_str = room_id.as_str();
@@ -82,7 +80,7 @@ pub async fn pin_event(
 pub async fn unpin_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_id)): Path<(RoomId, EventId)>,
+    MatrixPath((room_id, event_id)): MatrixPath<(RoomId, EventId)>,
 ) -> Result<Json<Value>, ApiError> {
     let room_id_str = room_id.as_str();
     let event_id_str = event_id.as_str();

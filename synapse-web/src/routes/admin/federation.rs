@@ -1,9 +1,11 @@
 use crate::routes::context::AdminContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::extractors::ServerName;
 use crate::routes::AdminUser;
 use crate::routes::MatrixJson;
 use axum::{
-    extract::{Path, Query, State},
+    extract::State,
     routing::{delete, get, post},
     Json, Router,
 };
@@ -165,7 +167,7 @@ fn validate_destinations_query(
 pub async fn get_destinations(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Query(query): Query<DestinationsQuery>,
+    MatrixQuery(query): MatrixQuery<DestinationsQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let (limit, cursor) = validate_destinations_query(&query)?;
 
@@ -184,7 +186,7 @@ pub async fn get_destinations(
 pub async fn get_destination(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(destination): Path<ServerName>,
+    MatrixPath(destination): MatrixPath<ServerName>,
 ) -> Result<Json<Value>, ApiError> {
     match ctx.admin_federation_service.get_destination(&destination).await? {
         Some(row) => Ok(Json(json!(row))),
@@ -197,7 +199,7 @@ pub async fn get_destination(
 pub async fn reset_connection(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(destination): Path<ServerName>,
+    MatrixPath(destination): MatrixPath<ServerName>,
 ) -> Result<Json<Value>, ApiError> {
     ctx.admin_federation_service.reset_connection(&destination).await?;
     Ok(Json(json!({})))
@@ -208,7 +210,7 @@ pub async fn reset_connection(
 pub async fn delete_destination(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(destination): Path<ServerName>,
+    MatrixPath(destination): MatrixPath<ServerName>,
 ) -> Result<Json<Value>, ApiError> {
     ctx.admin_federation_service.delete_destination(&destination).await?;
     Ok(Json(json!({})))
@@ -233,8 +235,8 @@ pub struct DestinationRoomsQuery {
 pub async fn get_destination_rooms(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(destination): Path<ServerName>,
-    Query(query): Query<DestinationRoomsQuery>,
+    MatrixPath(destination): MatrixPath<ServerName>,
+    MatrixQuery(query): MatrixQuery<DestinationRoomsQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let room_list = ctx.admin_federation_service.get_destination_rooms(&destination).await?;
     let total = room_list.len();
@@ -332,7 +334,7 @@ pub async fn confirm_federation(
 pub async fn list_pending_federation(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Query(query): Query<ListPendingQuery>,
+    MatrixQuery(query): MatrixQuery<ListPendingQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = query.limit.unwrap_or(100).min(500);
     let cursor = decode_pending_federation_cursor(query.from.as_deref());
@@ -352,7 +354,7 @@ pub async fn list_pending_federation(
 pub async fn get_blacklist(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Query(query): Query<BlacklistQuery>,
+    MatrixQuery(query): MatrixQuery<BlacklistQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = query.limit.unwrap_or(100).clamp(MIN_PAGINATION_LIMIT as i32, MAX_PAGINATION_LIMIT as i32);
     let from = decode_federation_blacklist_cursor(query.from.as_deref());
@@ -386,7 +388,7 @@ pub async fn get_blacklist(
 pub async fn add_to_blacklist(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(server_name): Path<ServerName>,
+    MatrixPath(server_name): MatrixPath<ServerName>,
     body: Option<MatrixJson<AddBlacklistBody>>,
 ) -> Result<Json<Value>, ApiError> {
     // ⚠️ 2026-10-16 修复：这里原先**没有** body 提取器 ⇒ `reason` / `expires_in_days`
@@ -401,7 +403,7 @@ pub async fn add_to_blacklist(
 pub async fn remove_from_blacklist(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(server_name): Path<ServerName>,
+    MatrixPath(server_name): MatrixPath<ServerName>,
 ) -> Result<Json<Value>, ApiError> {
     ctx.admin_federation_service.remove_from_blacklist(&server_name, &admin.user_id).await?;
     Ok(Json(json!({})))
@@ -420,7 +422,7 @@ pub async fn get_federation_cache(_admin: AdminUser, State(ctx): State<AdminCont
 pub async fn delete_federation_cache_entry(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(key): Path<String>,
+    MatrixPath(key): MatrixPath<String>,
 ) -> Result<Json<Value>, ApiError> {
     ctx.admin_federation_service.delete_federation_cache_entry(&key).await?;
     Ok(Json(json!({})))

@@ -1,9 +1,10 @@
 use crate::routes::context::DeviceContext;
+use crate::routes::extractors::MatrixPath;
 use crate::routes::response_helpers::filter_users_with_shared_rooms;
 use crate::routes::MatrixJson;
 use crate::routes::{ApiError, AppState, AuthenticatedUser};
 use axum::{
-    extract::{Path, State},
+    extract::State,
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -338,7 +339,7 @@ fn device_not_found_error() -> ApiError {
 pub async fn get_device(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
-    Path(device_id): Path<DeviceId>,
+    MatrixPath(device_id): MatrixPath<DeviceId>,
 ) -> Result<Json<Value>, ApiError> {
     let device = ctx.account_device_list_service.get_device(device_id.as_str()).await?;
 
@@ -370,7 +371,7 @@ pub struct UpdateDeviceBody {
 pub async fn update_device(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
-    Path(device_id): Path<DeviceId>,
+    MatrixPath(device_id): MatrixPath<DeviceId>,
     MatrixJson(body): MatrixJson<UpdateDeviceBody>,
 ) -> Result<Response, ApiError> {
     let display_name = body.display_name.as_deref();
@@ -435,7 +436,7 @@ pub async fn update_device(
 pub async fn delete_device(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
-    Path(device_id): Path<DeviceId>,
+    MatrixPath(device_id): MatrixPath<DeviceId>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Response, ApiError> {
     if let Err(challenge) = require_password_uia(&ctx, &auth_user, &body).await {

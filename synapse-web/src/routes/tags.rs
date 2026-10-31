@@ -1,6 +1,7 @@
 use crate::routes::context::RoomContext;
+use crate::routes::extractors::MatrixPath;
 use axum::{
-    extract::{Path, State},
+    extract::State,
     routing::{delete, get, put},
     Json, Router,
 };
@@ -92,7 +93,7 @@ pub fn create_tags_router(state: AppState) -> Router<AppState> {
 async fn get_global_tags(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let user_id = user_id.as_str();
     if auth_user.user_id != user_id {
@@ -148,7 +149,7 @@ async fn get_global_tags(
 async fn get_tags(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((user_id, room_id)): Path<(String, String)>,
+    MatrixPath((user_id, room_id)): MatrixPath<(String, String)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     if auth_user.user_id != user_id {
         return Err(ApiError::forbidden("Access denied".to_string()));
@@ -165,7 +166,7 @@ async fn get_tags(
 async fn put_tag(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((user_id, room_id, tag)): Path<(String, String, String)>,
+    MatrixPath((user_id, room_id, tag)): MatrixPath<(String, String, String)>,
     MatrixJson(content): MatrixJson<TagContent>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     if auth_user.user_id != user_id {
@@ -186,7 +187,7 @@ async fn put_tag(
 async fn delete_tag(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((user_id, room_id, tag)): Path<(String, String, String)>,
+    MatrixPath((user_id, room_id, tag)): MatrixPath<(String, String, String)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     if auth_user.user_id != user_id {
         return Err(ApiError::forbidden("Access denied".to_string()));

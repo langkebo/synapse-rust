@@ -1,9 +1,11 @@
 use crate::routes::context::RoomContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::extractors::{RoomId, UserId};
 use crate::routes::MatrixJson;
 use crate::routes::{ensure_room_member_strict_ctx, AppState, AuthenticatedUser};
 use axum::{
-    extract::{Path, Query, State},
+    extract::State,
     http::StatusCode,
     routing::{delete, get, post},
     Json, Router,
@@ -502,7 +504,7 @@ fn should_continue_scan(next: Option<&str>, cursor: Option<&str>, fetched: usize
 
 async fn create_thread(
     State(ctx): State<RoomContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<CreateThreadBody>,
 ) -> Result<Json<ThreadResponse>, ApiError> {
@@ -519,8 +521,8 @@ async fn create_thread(
 
 async fn list_threads(
     State(ctx): State<RoomContext>,
-    Path(room_id): Path<RoomId>,
-    Query(query): Query<ListQuery>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
+    MatrixQuery(query): MatrixQuery<ListQuery>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<ThreadListResponse>, ApiError> {
     ensure_thread_room_access(&ctx, &auth_user, &room_id).await?;
@@ -543,8 +545,8 @@ async fn list_threads(
 
 async fn list_threads_legacy_search(
     State(ctx): State<RoomContext>,
-    Path((user_id, room_id)): Path<(UserId, RoomId)>,
-    Query(query): Query<ListQuery>,
+    MatrixPath((user_id, room_id)): MatrixPath<(UserId, RoomId)>,
+    MatrixQuery(query): MatrixQuery<ListQuery>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     ensure_thread_user_matches(&auth_user, user_id.as_str())?;
@@ -568,8 +570,8 @@ async fn list_threads_legacy_search(
 
 async fn get_thread(
     State(ctx): State<RoomContext>,
-    Path((room_id, thread_id)): Path<(RoomId, String)>,
-    Query(query): Query<ThreadQuery>,
+    MatrixPath((room_id, thread_id)): MatrixPath<(RoomId, String)>,
+    MatrixQuery(query): MatrixQuery<ThreadQuery>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<ThreadDetailResponse>, ApiError> {
     ensure_thread_room_access(&ctx, &auth_user, room_id.as_str()).await?;
@@ -587,7 +589,7 @@ async fn get_thread(
 
 async fn delete_thread(
     State(ctx): State<RoomContext>,
-    Path((room_id, thread_id)): Path<(RoomId, String)>,
+    MatrixPath((room_id, thread_id)): MatrixPath<(RoomId, String)>,
     auth_user: AuthenticatedUser,
 ) -> Result<StatusCode, ApiError> {
     ensure_thread_management_access(&ctx, &auth_user, room_id.as_str()).await?;
@@ -604,7 +606,7 @@ async fn delete_thread(
 
 async fn freeze_thread(
     State(ctx): State<RoomContext>,
-    Path((room_id, thread_id)): Path<(RoomId, String)>,
+    MatrixPath((room_id, thread_id)): MatrixPath<(RoomId, String)>,
     auth_user: AuthenticatedUser,
 ) -> Result<StatusCode, ApiError> {
     ensure_thread_management_access(&ctx, &auth_user, room_id.as_str()).await?;
@@ -621,7 +623,7 @@ async fn freeze_thread(
 
 async fn unfreeze_thread(
     State(ctx): State<RoomContext>,
-    Path((room_id, thread_id)): Path<(RoomId, String)>,
+    MatrixPath((room_id, thread_id)): MatrixPath<(RoomId, String)>,
     auth_user: AuthenticatedUser,
 ) -> Result<StatusCode, ApiError> {
     ensure_thread_management_access(&ctx, &auth_user, room_id.as_str()).await?;
@@ -638,7 +640,7 @@ async fn unfreeze_thread(
 
 async fn add_reply(
     State(ctx): State<RoomContext>,
-    Path((room_id, thread_id)): Path<(RoomId, String)>,
+    MatrixPath((room_id, thread_id)): MatrixPath<(RoomId, String)>,
     auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<CreateReplyBody>,
 ) -> Result<Json<ReplyResponse>, ApiError> {
@@ -660,8 +662,8 @@ async fn add_reply(
 
 async fn get_replies(
     State(ctx): State<RoomContext>,
-    Path((room_id, thread_id)): Path<(RoomId, String)>,
-    Query(query): Query<RepliesQuery>,
+    MatrixPath((room_id, thread_id)): MatrixPath<(RoomId, String)>,
+    MatrixQuery(query): MatrixQuery<RepliesQuery>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Vec<ReplyResponse>>, ApiError> {
     ensure_thread_room_access(&ctx, &auth_user, room_id.as_str()).await?;
@@ -675,7 +677,7 @@ async fn get_replies(
 
 async fn subscribe_thread(
     State(ctx): State<RoomContext>,
-    Path((room_id, thread_id)): Path<(RoomId, String)>,
+    MatrixPath((room_id, thread_id)): MatrixPath<(RoomId, String)>,
     auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<SubscribeBody>,
 ) -> Result<Json<synapse_services::thread_service::ThreadSubscription>, ApiError> {
@@ -697,7 +699,7 @@ async fn subscribe_thread(
 
 async fn unsubscribe_thread(
     State(ctx): State<RoomContext>,
-    Path((room_id, thread_id)): Path<(RoomId, String)>,
+    MatrixPath((room_id, thread_id)): MatrixPath<(RoomId, String)>,
     auth_user: AuthenticatedUser,
 ) -> Result<StatusCode, ApiError> {
     ensure_thread_room_access(&ctx, &auth_user, room_id.as_str()).await?;
@@ -710,7 +712,7 @@ async fn unsubscribe_thread(
 
 async fn mute_thread(
     State(ctx): State<RoomContext>,
-    Path((room_id, thread_id)): Path<(RoomId, String)>,
+    MatrixPath((room_id, thread_id)): MatrixPath<(RoomId, String)>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<synapse_services::thread_service::ThreadSubscription>, ApiError> {
     ensure_thread_room_access(&ctx, &auth_user, room_id.as_str()).await?;
@@ -724,7 +726,7 @@ async fn mute_thread(
 
 async fn mark_read(
     State(ctx): State<RoomContext>,
-    Path((room_id, thread_id)): Path<(RoomId, String)>,
+    MatrixPath((room_id, thread_id)): MatrixPath<(RoomId, String)>,
     auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<MarkReadBody>,
 ) -> Result<Json<synapse_services::thread_service::ThreadReadReceipt>, ApiError> {
@@ -746,7 +748,7 @@ async fn mark_read(
 
 async fn get_unread_threads(
     State(ctx): State<RoomContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<UnreadThreadsResponse>, ApiError> {
     ensure_thread_room_access(&ctx, &auth_user, &room_id).await?;
@@ -766,8 +768,8 @@ async fn get_unread_threads(
 /// 现在生效（结果集此前还被 `limit` 静默截断且无法续读）。
 async fn search_threads(
     State(ctx): State<RoomContext>,
-    Path(room_id): Path<RoomId>,
-    Query(query): Query<SearchQuery>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
+    MatrixQuery(query): MatrixQuery<SearchQuery>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<ThreadListResponse>, ApiError> {
     ensure_thread_room_access(&ctx, &auth_user, room_id.as_str()).await?;
@@ -787,7 +789,7 @@ async fn search_threads(
 
 async fn get_stats(
     State(ctx): State<RoomContext>,
-    Path((room_id, thread_id)): Path<(RoomId, String)>,
+    MatrixPath((room_id, thread_id)): MatrixPath<(RoomId, String)>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Option<synapse_services::thread_service::ThreadStatistics>>, ApiError> {
     ensure_thread_room_access(&ctx, &auth_user, room_id.as_str()).await?;
@@ -799,7 +801,7 @@ async fn get_stats(
 
 async fn redact_reply(
     State(ctx): State<RoomContext>,
-    Path((room_id, event_id)): Path<(RoomId, String)>,
+    MatrixPath((room_id, event_id)): MatrixPath<(RoomId, String)>,
     auth_user: AuthenticatedUser,
     // body 可省略（老客户端/`{}`），但一旦给了 `reason` 就必须落库：
     // 原先没有 body 提取器，SDK 的 `redactReply(roomId, eventId, reason)`
@@ -816,7 +818,7 @@ async fn redact_reply(
 async fn list_threads_global(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    query: Query<ListQuery>,
+    query: MatrixQuery<ListQuery>,
 ) -> Result<Json<ThreadListResponse>, ApiError> {
     let participated_by = resolve_thread_participant_filter(query.include.as_deref(), &auth_user.user_id)?;
     let direction = resolve_thread_direction(query.dir.as_deref())?;
@@ -851,7 +853,7 @@ async fn create_thread_global(
 
 async fn get_subscribed_threads(
     State(ctx): State<RoomContext>,
-    Query(query): Query<ThreadPageQuery>,
+    MatrixQuery(query): MatrixQuery<ThreadPageQuery>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<SubscribedThreadsResponse>, ApiError> {
     let response = ctx.thread_service.get_subscribed_threads(&auth_user.user_id, query.limit, query.from).await?;

@@ -1,9 +1,11 @@
 use crate::routes::context::AdminContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::extractors::{EventId, UserId};
 use crate::routes::MatrixJson;
 use crate::routes::{AdminUser, AppState};
 use axum::{
-    extract::{Path, Query, State},
+    extract::State,
     http::StatusCode,
     response::IntoResponse,
     routing::{delete, get, post, put},
@@ -502,7 +504,7 @@ pub async fn create_module(
 pub async fn get_module(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(module_name): Path<String>,
+    MatrixPath(module_name): MatrixPath<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let module =
         ctx.module_service.get_module(&module_name).await?.ok_or_else(|| ApiError::not_found("Module not found"))?;
@@ -514,7 +516,7 @@ pub async fn get_module(
 pub async fn get_modules_by_type(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(module_type): Path<String>,
+    MatrixPath(module_type): MatrixPath<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let modules = ctx.module_service.get_modules_by_type(&module_type).await?;
 
@@ -527,7 +529,7 @@ pub async fn get_modules_by_type(
 pub async fn get_all_modules(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Query(query): Query<ListQuery>,
+    MatrixQuery(query): MatrixQuery<ListQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100).clamp(1, 500);
 
@@ -545,7 +547,7 @@ pub async fn get_all_modules(
 pub async fn update_module_config(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(module_name): Path<String>,
+    MatrixPath(module_name): MatrixPath<String>,
     MatrixJson(body): MatrixJson<UpdateModuleConfigBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let module = ctx.module_service.update_module_config(&module_name, body.config).await?;
@@ -557,7 +559,7 @@ pub async fn update_module_config(
 pub async fn enable_module(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(module_name): Path<String>,
+    MatrixPath(module_name): MatrixPath<String>,
     MatrixJson(body): MatrixJson<EnableModuleBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let module = ctx.module_service.enable_module(&module_name, body.is_enabled).await?;
@@ -569,7 +571,7 @@ pub async fn enable_module(
 pub async fn delete_module(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(module_name): Path<String>,
+    MatrixPath(module_name): MatrixPath<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     ctx.module_service.delete_module(&module_name).await?;
 
@@ -619,7 +621,7 @@ pub async fn check_third_party_rule(
 pub async fn get_spam_check_result(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(event_id): Path<EventId>,
+    MatrixPath(event_id): MatrixPath<EventId>,
 ) -> Result<impl IntoResponse, ApiError> {
     let result = ctx
         .module_service
@@ -634,8 +636,8 @@ pub async fn get_spam_check_result(
 pub async fn get_spam_check_results_by_sender(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(sender): Path<String>,
-    Query(query): Query<ListQuery>,
+    MatrixPath(sender): MatrixPath<String>,
+    MatrixQuery(query): MatrixQuery<ListQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100).clamp(1, 500);
     let cursor = parse_ts_id_cursor(query.from.as_deref())?;
@@ -655,7 +657,7 @@ pub async fn get_spam_check_results_by_sender(
 pub async fn get_third_party_rule_results(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(event_id): Path<EventId>,
+    MatrixPath(event_id): MatrixPath<EventId>,
 ) -> Result<impl IntoResponse, ApiError> {
     let results = ctx.module_service.get_third_party_rule_results(&event_id).await?;
 
@@ -669,8 +671,8 @@ pub async fn get_third_party_rule_results(
 pub async fn get_execution_logs(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(module_name): Path<String>,
-    Query(query): Query<ListQuery>,
+    MatrixPath(module_name): MatrixPath<String>,
+    MatrixQuery(query): MatrixQuery<ListQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100).clamp(1, 500);
     let cursor = parse_ts_id_cursor(query.from.as_deref())?;
@@ -707,7 +709,7 @@ pub async fn create_account_validity(
 pub async fn get_account_validity(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<impl IntoResponse, ApiError> {
     let validity = ctx
         .account_validity_service
@@ -722,7 +724,7 @@ pub async fn get_account_validity(
 pub async fn renew_account(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
     MatrixJson(body): MatrixJson<RenewAccountBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_user_exists(&ctx, &user_id).await?;
@@ -798,7 +800,7 @@ pub async fn create_media_callback(
 pub async fn get_media_callbacks(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(callback_type): Path<String>,
+    MatrixPath(callback_type): MatrixPath<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let callbacks = ctx.module_service.get_media_callbacks(Some(&callback_type)).await?;
 

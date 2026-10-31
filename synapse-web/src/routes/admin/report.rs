@@ -1,8 +1,9 @@
 use crate::routes::context::AdminContext;
+use crate::routes::extractors::MatrixPath;
 use crate::routes::extractors::RoomId;
 use crate::routes::AdminUser;
 use axum::{
-    extract::{Path, State},
+    extract::State,
     routing::{delete, get},
     Json, Router,
 };
@@ -117,7 +118,7 @@ fn next_room_reports_token(reports: &[EventReport], limit: i64) -> Option<String
 pub async fn get_all_reports(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    axum::extract::Query(params): axum::extract::Query<ReportsQuery>,
+    crate::routes::extractors::MatrixQuery(params): crate::routes::extractors::MatrixQuery<ReportsQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = params
         .limit
@@ -159,7 +160,7 @@ pub async fn get_all_reports(
 pub async fn get_report(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(report_id): Path<i64>,
+    MatrixPath(report_id): MatrixPath<i64>,
 ) -> Result<Json<Value>, ApiError> {
     let report = ctx.event_report_service.get_report(report_id).await?;
 
@@ -174,7 +175,7 @@ pub async fn get_report(
 pub async fn delete_report(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(report_id): Path<i64>,
+    MatrixPath(report_id): MatrixPath<i64>,
 ) -> Result<Json<Value>, ApiError> {
     ctx.event_report_service.delete_report(report_id).await?;
 
@@ -186,8 +187,8 @@ pub async fn delete_report(
 pub async fn get_room_reports(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<RoomId>,
-    axum::extract::Query(params): axum::extract::Query<RoomReportsQuery>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
+    crate::routes::extractors::MatrixQuery(params): crate::routes::extractors::MatrixQuery<RoomReportsQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let room_exists = ctx.room_service.state().room_exists(&room_id).await?;
 
@@ -233,7 +234,7 @@ pub async fn get_room_reports(
 pub async fn get_room_report(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path((room_id, report_id)): Path<(String, i64)>,
+    MatrixPath((room_id, report_id)): MatrixPath<(String, i64)>,
 ) -> Result<Json<Value>, ApiError> {
     let room_exists = ctx.room_service.state().room_exists(&room_id).await?;
 
@@ -254,7 +255,7 @@ pub async fn get_room_report(
 pub async fn delete_room_report(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path((room_id, report_id)): Path<(String, i64)>,
+    MatrixPath((room_id, report_id)): MatrixPath<(String, i64)>,
 ) -> Result<Json<Value>, ApiError> {
     let room_exists = ctx.room_service.state().room_exists(&room_id).await?;
 

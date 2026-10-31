@@ -1,4 +1,6 @@
 use crate::routes::context::AdminContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::extractors::{AuthenticatedUser, OptionalAuthenticatedUser};
 use crate::routes::extractors::{RoomAlias, RoomId, UserId};
 use crate::routes::public_rooms_filter::parse_public_rooms_filter;
@@ -10,7 +12,7 @@ use crate::routes::{
 };
 use crate::utils::auth::resolve_request_id;
 use axum::{
-    extract::{Json, Path, Query, State},
+    extract::{Json, State},
     http::HeaderMap,
 };
 use serde::Deserialize;
@@ -111,7 +113,7 @@ pub(crate) async fn get_user_directory_profile(
     State(ctx): State<AdminContext>,
     _auth_user: AuthenticatedUser,
     headers: HeaderMap,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
     enforce_profile_visibility(ctx.token_auth.as_ref(), &ctx.account_identity_service, &headers, &user_id).await?;
@@ -256,7 +258,7 @@ pub(crate) async fn report_event(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_id)): Path<(String, String)>,
+    MatrixPath((room_id, event_id)): MatrixPath<(String, String)>,
     MatrixJson(body): MatrixJson<ReportEventBody>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
@@ -303,7 +305,7 @@ pub struct UpdateReportScoreBody {
 pub(crate) async fn update_report_score(
     State(_ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path((_room_id, event_id)): Path<(String, String)>,
+    MatrixPath((_room_id, event_id)): MatrixPath<(String, String)>,
     MatrixJson(body): MatrixJson<UpdateReportScoreBody>,
 ) -> Result<Json<Value>, ApiError> {
     validate_event_id(&event_id)?;
@@ -335,7 +337,7 @@ pub(crate) async fn report_room(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     MatrixJson(body): MatrixJson<ReportRoomBody>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
@@ -400,7 +402,7 @@ pub(crate) async fn report_user(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Path(reported_user_id): Path<UserId>,
+    MatrixPath(reported_user_id): MatrixPath<UserId>,
     MatrixJson(body): MatrixJson<ReportUserBody>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
@@ -452,7 +454,7 @@ pub(crate) async fn report_user(
 pub(crate) async fn get_scanner_info(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_id)): Path<(String, String)>,
+    MatrixPath((room_id, event_id)): MatrixPath<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
@@ -476,7 +478,7 @@ pub(crate) async fn get_scanner_info(
 pub(crate) async fn get_room_aliases(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -495,7 +497,7 @@ pub(crate) async fn set_room_alias(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Path((room_id, room_alias)): Path<(RoomId, RoomAlias)>,
+    MatrixPath((room_id, room_alias)): MatrixPath<(RoomId, RoomAlias)>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     validate_room_alias(&room_alias)?;
@@ -530,7 +532,7 @@ pub(crate) async fn delete_room_alias(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Path((room_id, _room_alias)): Path<(RoomId, RoomAlias)>,
+    MatrixPath((room_id, _room_alias)): MatrixPath<(RoomId, RoomAlias)>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     ensure_room_alias_write_allowed(&ctx, &auth_user, &room_id).await?;
@@ -543,7 +545,7 @@ pub(crate) async fn delete_room_alias(
 pub(crate) async fn get_room_by_alias(
     State(ctx): State<AdminContext>,
     _auth_user: OptionalAuthenticatedUser,
-    Path(room_alias): Path<RoomAlias>,
+    MatrixPath(room_alias): MatrixPath<RoomAlias>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_alias(&room_alias)?;
     let room_id = ctx.room_service.state().get_room_by_alias(&room_alias).await?;
@@ -565,7 +567,7 @@ pub(crate) async fn set_room_alias_direct(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Path(room_alias): Path<RoomAlias>,
+    MatrixPath(room_alias): MatrixPath<RoomAlias>,
     MatrixJson(body): MatrixJson<SetRoomAliasBody>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
@@ -603,7 +605,7 @@ pub(crate) async fn delete_room_alias_direct(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Path(room_alias): Path<RoomAlias>,
+    MatrixPath(room_alias): MatrixPath<RoomAlias>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     validate_room_alias(&room_alias)?;
@@ -622,7 +624,7 @@ pub(crate) async fn delete_room_alias_direct(
 pub(crate) async fn get_public_rooms(
     State(ctx): State<AdminContext>,
     auth_user: OptionalAuthenticatedUser,
-    Query(query): Query<PublicRoomsQuery>,
+    MatrixQuery(query): MatrixQuery<PublicRoomsQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = query.limit.as_deref().and_then(|v| v.parse::<u64>().ok()).unwrap_or(20).clamp(1, 1000) as i64;
 
@@ -799,7 +801,7 @@ pub struct PublicRoomsBody {
 pub(crate) async fn query_public_rooms(
     State(ctx): State<AdminContext>,
     auth_user: OptionalAuthenticatedUser,
-    Query(query): Query<PublicRoomsQuery>,
+    MatrixQuery(query): MatrixQuery<PublicRoomsQuery>,
     MatrixJson(body): MatrixJson<PublicRoomsBody>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = body.limit.unwrap_or(20).clamp(1, 1000) as i64;

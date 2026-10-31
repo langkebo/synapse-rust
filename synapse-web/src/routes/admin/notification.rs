@@ -1,17 +1,19 @@
 #[cfg(feature = "server-notifications")]
 use crate::routes::context::AdminContext;
 #[cfg(feature = "server-notifications")]
+use crate::routes::extractors::MatrixPath;
+#[cfg(feature = "server-notifications")]
+use crate::routes::extractors::MatrixQuery;
+#[cfg(feature = "server-notifications")]
 use crate::routes::AdminUser;
 #[cfg(feature = "server-notifications")]
 use crate::routes::MatrixJson;
-#[cfg(feature = "server-notifications")]
-use axum::extract::Query;
 #[cfg(feature = "server-notifications")]
 use axum::routing::post;
 use axum::Router;
 #[cfg(feature = "server-notifications")]
 use axum::{
-    extract::{Path, State},
+    extract::State,
     routing::{delete, get, put},
     Json,
 };
@@ -216,7 +218,7 @@ pub async fn create_notification(
 pub async fn list_notifications(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Query(query): Query<NotificationQuery>,
+    MatrixQuery(query): MatrixQuery<NotificationQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = (query.limit.unwrap_or(50).min(100)) as i64;
     let cursor = decode_server_notification_cursor(query.from.as_deref());
@@ -240,7 +242,7 @@ pub async fn list_notifications(
 pub async fn get_notification(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(notification_id): Path<i64>,
+    MatrixPath(notification_id): MatrixPath<i64>,
 ) -> Result<Json<Value>, ApiError> {
     let notification = ctx.server_notification_service.get_notification(notification_id).await?;
 
@@ -256,7 +258,7 @@ pub async fn get_notification(
 pub async fn update_notification(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(notification_id): Path<i64>,
+    MatrixPath(notification_id): MatrixPath<i64>,
     MatrixJson(body): MatrixJson<UpdateNotificationRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let existing = ctx.server_notification_service.get_notification(notification_id).await?;
@@ -295,7 +297,7 @@ pub async fn update_notification(
 pub async fn delete_notification(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(notification_id): Path<i64>,
+    MatrixPath(notification_id): MatrixPath<i64>,
 ) -> Result<Json<Value>, ApiError> {
     let deleted = ctx.server_notification_service.delete_notification(notification_id).await?;
 
@@ -312,7 +314,7 @@ pub async fn delete_notification(
 pub async fn deactivate_notification(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(notification_id): Path<i64>,
+    MatrixPath(notification_id): MatrixPath<i64>,
 ) -> Result<Json<Value>, ApiError> {
     let deactivated = ctx.server_notification_service.deactivate_notification(notification_id).await?;
 
@@ -362,7 +364,7 @@ pub async fn send_server_notice(
 pub async fn get_server_notices(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Query(query): Query<ServerNoticesQuery>,
+    MatrixQuery(query): MatrixQuery<ServerNoticesQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = query.limit.unwrap_or(10).min(50) as i64;
     let cursor = decode_notice_cursor(query.from.as_deref());
@@ -393,7 +395,7 @@ pub struct ServerNoticesQuery {
 pub async fn get_server_notice(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(notice_id): Path<i64>,
+    MatrixPath(notice_id): MatrixPath<i64>,
 ) -> Result<Json<Value>, ApiError> {
     let notice = ctx.server_notification_service.get_server_notice_by_id(notice_id).await?;
 
@@ -409,7 +411,7 @@ pub async fn get_server_notice(
 pub async fn delete_server_notice(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(notice_id): Path<i64>,
+    MatrixPath(notice_id): MatrixPath<i64>,
 ) -> Result<Json<Value>, ApiError> {
     ctx.server_notification_service.delete_server_notice(notice_id).await?;
 
@@ -422,7 +424,7 @@ pub async fn delete_server_notice(
 pub async fn get_user_notification(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&ctx, &user_id).await?;
 
@@ -440,7 +442,7 @@ pub async fn get_user_notification(
 pub async fn update_user_notification(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
     MatrixJson(body): MatrixJson<UserNotificationRequest>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&ctx, &user_id).await?;
@@ -456,7 +458,7 @@ pub async fn update_user_notification(
 pub async fn get_user_pushers(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&ctx, &user_id).await?;
 
@@ -471,7 +473,7 @@ pub async fn get_user_pushers(
 pub async fn delete_user_pusher(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path((user_id, pushkey)): Path<(String, String)>,
+    MatrixPath((user_id, pushkey)): MatrixPath<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&ctx, &user_id).await?;
 

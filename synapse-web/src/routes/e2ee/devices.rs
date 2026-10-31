@@ -1,13 +1,12 @@
 use super::keys::parse_stream_id;
 use crate::routes::context::DeviceContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::response_helpers::{empty_json, filter_users_with_shared_rooms};
 use crate::routes::{AuthenticatedUser, MatrixJson};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::{
-    extract::{Path, Query, State},
-    Json,
-};
+use axum::{extract::State, Json};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -110,7 +109,7 @@ pub(crate) async fn device_list_update(
 pub(crate) async fn room_key_distribution(
     State(_ctx): State<DeviceContext>,
     _auth_user: AuthenticatedUser,
-    Path(_room_id): Path<String>,
+    MatrixPath(_room_id): MatrixPath<String>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     Err(synapse_common::error::ApiError::forbidden(
         "Room key distribution is a server-internal endpoint and is not available via the client API".to_string(),
@@ -122,7 +121,7 @@ pub(crate) async fn room_key_distribution(
 pub(crate) async fn send_to_device(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
-    Path((event_type, transaction_id)): Path<(String, String)>,
+    MatrixPath((event_type, transaction_id)): MatrixPath<(String, String)>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     let sender_device_id =
@@ -341,7 +340,7 @@ pub(crate) fn decode_key_request_cursor(cursor: &str) -> Option<(i64, String)> {
 pub(crate) async fn get_room_key_requests(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
-    Query(params): Query<GetRoomKeyRequestsQuery>,
+    MatrixQuery(params): MatrixQuery<GetRoomKeyRequestsQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = params.limit.unwrap_or(100).clamp(1, 1000);
     let cursor = params.from.as_deref().and_then(decode_key_request_cursor);
@@ -379,7 +378,7 @@ pub(crate) async fn get_room_key_requests(
 pub(crate) async fn delete_room_key_request(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
-    Path(request_id): Path<String>,
+    MatrixPath(request_id): MatrixPath<String>,
 ) -> Result<Json<Value>, ApiError> {
     let existing = ctx.key_request_service.get_request(&request_id).await?;
 

@@ -1,15 +1,12 @@
 use super::types::*;
 use crate::routes::admin::audit::{record_audit_event, resolve_request_id};
 use crate::routes::context::AdminContext;
+use crate::routes::extractors::MatrixPath;
 use crate::routes::extractors::{RoomId, UserId};
 use crate::routes::validate_moderation_reason;
 use crate::routes::AdminUser;
 use crate::routes::MatrixJson;
-use axum::{
-    extract::{Path, State},
-    http::HeaderMap,
-    Json,
-};
+use axum::{extract::State, http::HeaderMap, Json};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
@@ -101,7 +98,7 @@ pub async fn cleanup_abnormal_rooms(
 pub async fn block_room(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     headers: HeaderMap,
     MatrixJson(body): MatrixJson<BlockRoomRequest>,
 ) -> Result<Json<Value>, ApiError> {
@@ -133,7 +130,7 @@ pub async fn block_room(
 pub async fn get_room_block_status(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     if !ctx.room_service.state().room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -155,7 +152,7 @@ pub async fn get_room_block_status(
 pub async fn unblock_room(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     if !ctx.room_service.state().room_exists(&room_id).await? {
@@ -183,7 +180,7 @@ pub async fn unblock_room(
 pub async fn make_room_admin(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     MatrixJson(body): MatrixJson<MakeRoomAdminRequest>,
 ) -> Result<Json<Value>, ApiError> {
     crate::routes::admin::ensure_super_admin_for_privilege_change(&admin)?;
@@ -278,7 +275,7 @@ pub async fn purge_history(
 pub async fn purge_history_by_room(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     headers: HeaderMap,
     MatrixJson(body): MatrixJson<PurgeHistoryByRoomRequest>,
 ) -> Result<Json<Value>, ApiError> {
@@ -317,7 +314,7 @@ pub async fn purge_history_by_room(
 pub async fn backfill_room(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     MatrixJson(body): MatrixJson<BackfillRoomRequest>,
 ) -> Result<Json<Value>, ApiError> {
     if !ctx.room_service.state().room_exists(&room_id).await? {
@@ -385,7 +382,7 @@ pub struct AdminJoinRoomRequest {
 pub async fn admin_join_room(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id_or_alias): Path<String>,
+    MatrixPath(room_id_or_alias): MatrixPath<String>,
     headers: HeaderMap,
     MatrixJson(body): MatrixJson<AdminJoinRoomRequest>,
 ) -> Result<Json<Value>, ApiError> {
@@ -412,7 +409,7 @@ pub async fn join_room_member(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
-    Path((room_id, user_id)): Path<(RoomId, UserId)>,
+    MatrixPath((room_id, user_id)): MatrixPath<(RoomId, UserId)>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     Ok(Json(join_room_member_internal(&ctx, &room_id, &user_id, &request_id).await?))
@@ -424,7 +421,7 @@ pub async fn remove_room_member(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
-    Path((room_id, user_id)): Path<(RoomId, UserId)>,
+    MatrixPath((room_id, user_id)): MatrixPath<(RoomId, UserId)>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     Ok(Json(remove_room_member_internal(&ctx, &room_id, &user_id, &request_id).await?))
@@ -435,7 +432,7 @@ pub async fn remove_room_member(
 pub async fn admin_ban_user(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path((room_id, user_id)): Path<(RoomId, UserId)>,
+    MatrixPath((room_id, user_id)): MatrixPath<(RoomId, UserId)>,
     MatrixJson(body): MatrixJson<BanRequest>,
 ) -> Result<Json<Value>, ApiError> {
     Ok(Json(ban_user_internal(&ctx, &room_id, &user_id, &admin.user_id, body.reason.as_deref()).await?))
@@ -446,7 +443,7 @@ pub async fn admin_ban_user(
 pub async fn ban_user_by_body(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     MatrixJson(body): MatrixJson<RoomUserActionRequest>,
 ) -> Result<Json<Value>, ApiError> {
     Ok(Json(ban_user_internal(&ctx, &room_id, &body.user_id, &admin.user_id, body.reason.as_deref()).await?))
@@ -457,7 +454,7 @@ pub async fn ban_user_by_body(
 pub async fn admin_unban_user(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path((room_id, user_id)): Path<(RoomId, UserId)>,
+    MatrixPath((room_id, user_id)): MatrixPath<(RoomId, UserId)>,
 ) -> Result<Json<Value>, ApiError> {
     Ok(Json(unban_user_internal(&ctx, &room_id, &user_id, &admin.user_id).await?))
 }
@@ -467,7 +464,7 @@ pub async fn admin_unban_user(
 pub async fn admin_kick_user(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path((room_id, user_id)): Path<(RoomId, UserId)>,
+    MatrixPath((room_id, user_id)): MatrixPath<(RoomId, UserId)>,
     MatrixJson(body): MatrixJson<BanRequest>,
 ) -> Result<Json<Value>, ApiError> {
     Ok(Json(kick_user_internal(&ctx, &room_id, &user_id, &admin.user_id, body.reason.as_deref()).await?))
@@ -478,7 +475,7 @@ pub async fn admin_kick_user(
 pub async fn kick_user_by_body(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     MatrixJson(body): MatrixJson<RoomUserActionRequest>,
 ) -> Result<Json<Value>, ApiError> {
     Ok(Json(kick_user_internal(&ctx, &room_id, &body.user_id, &admin.user_id, body.reason.as_deref()).await?))
@@ -636,7 +633,7 @@ pub async fn redact_room_events(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
-    Path(room_id): Path<RoomId>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
     MatrixJson(body): MatrixJson<RedactRoomEventsRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let before_ts = body.before_ts;

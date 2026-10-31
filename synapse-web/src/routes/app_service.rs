@@ -1,7 +1,9 @@
 use crate::routes::context::AdminContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use axum::{
     body::Bytes,
-    extract::{Path, Query, State},
+    extract::State,
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
     routing::{any, delete, get, post, put},
@@ -279,7 +281,7 @@ pub async fn register_app_service(
 /// See [`get_app_service`].
 pub async fn get_app_service(
     State(ctx): State<AdminContext>,
-    Path(as_id): Path<String>,
+    MatrixPath(as_id): MatrixPath<String>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     validate_as_id(&as_id)?;
@@ -301,7 +303,7 @@ pub async fn list_app_services(
 /// See [`update_app_service`].
 pub async fn update_app_service(
     State(ctx): State<AdminContext>,
-    Path(as_id): Path<String>,
+    MatrixPath(as_id): MatrixPath<String>,
     _admin: AdminUser,
     MatrixJson(body): MatrixJson<UpdateAppServiceBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -316,7 +318,7 @@ pub async fn update_app_service(
 /// See [`delete_app_service`].
 pub async fn delete_app_service(
     State(ctx): State<AdminContext>,
-    Path(as_id): Path<String>,
+    MatrixPath(as_id): MatrixPath<String>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     validate_as_id(&as_id)?;
@@ -328,7 +330,7 @@ pub async fn delete_app_service(
 /// See [`ping_app_service`].
 pub async fn ping_app_service(
     State(ctx): State<AdminContext>,
-    Path(as_id): Path<String>,
+    MatrixPath(as_id): MatrixPath<String>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     validate_as_id(&as_id)?;
@@ -343,7 +345,7 @@ pub async fn ping_app_service(
 /// See [`set_app_service_state`].
 pub async fn set_app_service_state(
     State(ctx): State<AdminContext>,
-    Path(as_id): Path<String>,
+    MatrixPath(as_id): MatrixPath<String>,
     _admin: AdminUser,
     MatrixJson(body): MatrixJson<SetStateBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -356,7 +358,7 @@ pub async fn set_app_service_state(
 /// See [`get_app_service_state`].
 pub async fn get_app_service_state(
     State(ctx): State<AdminContext>,
-    Path((as_id, state_key)): Path<(String, String)>,
+    MatrixPath((as_id, state_key)): MatrixPath<(String, String)>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     validate_as_id(&as_id)?;
@@ -368,7 +370,7 @@ pub async fn get_app_service_state(
 /// See [`get_app_service_states`].
 pub async fn get_app_service_states(
     State(ctx): State<AdminContext>,
-    Path(as_id): Path<String>,
+    MatrixPath(as_id): MatrixPath<String>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     validate_as_id(&as_id)?;
@@ -416,7 +418,7 @@ pub(crate) fn is_hop_by_hop_header(name: &str) -> bool {
 /// therefore forward into the AS `/_matrix/app/v1` namespace.
 pub async fn proxy_to_as(
     State(ctx): State<AdminContext>,
-    Path((as_id, path)): Path<(String, String)>,
+    MatrixPath((as_id, path)): MatrixPath<(String, String)>,
     headers: HeaderMap,
     method: axum::http::Method,
     body: Bytes,
@@ -507,7 +509,7 @@ pub async fn proxy_to_as(
 /// See [`register_virtual_user`].
 pub async fn register_virtual_user(
     State(ctx): State<AdminContext>,
-    Path(as_id): Path<String>,
+    MatrixPath(as_id): MatrixPath<String>,
     _admin: AdminUser,
     MatrixJson(body): MatrixJson<RegisterVirtualUserBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -523,7 +525,7 @@ pub async fn register_virtual_user(
 /// See [`get_virtual_users`].
 pub async fn get_virtual_users(
     State(ctx): State<AdminContext>,
-    Path(as_id): Path<String>,
+    MatrixPath(as_id): MatrixPath<String>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     validate_as_id(&as_id)?;
@@ -535,7 +537,7 @@ pub async fn get_virtual_users(
 /// See [`get_namespaces`].
 pub async fn get_namespaces(
     State(ctx): State<AdminContext>,
-    Path(as_id): Path<String>,
+    MatrixPath(as_id): MatrixPath<String>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     validate_as_id(&as_id)?;
@@ -560,9 +562,9 @@ fn parse_event_cursor(raw: &str) -> Result<(i64, i64), ApiError> {
 /// See [`get_pending_events`].
 pub async fn get_pending_events(
     State(ctx): State<AdminContext>,
-    Path(as_id): Path<String>,
+    MatrixPath(as_id): MatrixPath<String>,
     _admin: AdminUser,
-    Query(query): Query<QueryLimit>,
+    MatrixQuery(query): MatrixQuery<QueryLimit>,
 ) -> Result<impl IntoResponse, ApiError> {
     validate_as_id(&as_id)?;
     let limit = query.limit.unwrap_or(100).clamp(1, 500);
@@ -586,7 +588,7 @@ pub async fn get_pending_events(
 /// See [`push_event`].
 pub async fn push_event(
     State(ctx): State<AdminContext>,
-    Path(as_id): Path<String>,
+    MatrixPath(as_id): MatrixPath<String>,
     _admin: AdminUser,
     MatrixJson(body): MatrixJson<PushEventBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -611,7 +613,7 @@ pub async fn push_event(
 pub async fn query_user(
     State(ctx): State<AdminContext>,
     _admin: AdminUser,
-    Query(query): Query<QueryUser>,
+    MatrixQuery(query): MatrixQuery<QueryUser>,
 ) -> Result<impl IntoResponse, ApiError> {
     let as_id = ctx.app_service_manager.query_user(&query.user_id).await?;
 
@@ -626,7 +628,7 @@ pub async fn query_user(
 pub async fn query_room_alias(
     State(ctx): State<AdminContext>,
     _admin: AdminUser,
-    Query(query): Query<QueryAlias>,
+    MatrixQuery(query): MatrixQuery<QueryAlias>,
 ) -> Result<impl IntoResponse, ApiError> {
     let as_id = ctx.app_service_manager.query_room_alias(&query.alias).await?;
 
@@ -661,7 +663,7 @@ pub async fn app_service_ping(
 /// See [`app_service_transactions`].
 pub async fn app_service_transactions(
     State(ctx): State<AdminContext>,
-    Path((as_id, _txn_id)): Path<(String, String)>,
+    MatrixPath((as_id, _txn_id)): MatrixPath<(String, String)>,
     headers: HeaderMap,
     MatrixJson(body): MatrixJson<serde_json::Value>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -683,7 +685,7 @@ pub async fn app_service_transactions(
 /// See [`app_service_user_query`].
 pub async fn app_service_user_query(
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, ApiError> {
     let as_token = extract_as_token(&headers)?;
@@ -702,7 +704,7 @@ pub async fn app_service_user_query(
 /// See [`app_service_room_alias_query`].
 pub async fn app_service_room_alias_query(
     State(ctx): State<AdminContext>,
-    Path(alias): Path<String>,
+    MatrixPath(alias): MatrixPath<String>,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, ApiError> {
     let as_token = extract_as_token(&headers)?;
@@ -722,7 +724,7 @@ pub async fn app_service_room_alias_query(
 pub async fn app_service_query(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
-    Path(as_id): Path<String>,
+    MatrixPath(as_id): MatrixPath<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     // Same `as_token` gate as every sibling in this file (`app_service_ping`,
     // `app_service_user_query`, `app_service_room_alias_query`, ...). Without it
@@ -807,7 +809,7 @@ pub fn create_app_service_router(state: &AppState) -> Router<AppState> {
 async fn get_user_appservice(
     State(_ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(user_id): Path<UserId>,
+    MatrixPath(user_id): MatrixPath<UserId>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let user_id = user_id.as_str();
     if auth_user.user_id != user_id {

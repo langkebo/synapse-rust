@@ -1,7 +1,9 @@
 use crate::routes::context::AdminContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use axum::{
     body::Body,
-    extract::{Path, Query, State},
+    extract::State,
     http::{HeaderMap, Request, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post, put},
@@ -204,7 +206,7 @@ pub async fn register_external_service(
 pub async fn list_external_services(
     State(ctx): State<AdminContext>,
     _admin: AdminUser,
-    Query(query): Query<ListServicesQuery>,
+    MatrixQuery(query): MatrixQuery<ListServicesQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let stype = match query.service_type.as_deref() {
         Some("all") | None => None,
@@ -223,7 +225,7 @@ pub async fn list_external_services(
 /// See [`get_external_service_health`].
 pub async fn get_external_service_health(
     State(ctx): State<AdminContext>,
-    Path(as_id): Path<String>,
+    MatrixPath(as_id): MatrixPath<String>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let integration = external_service_integration(&ctx);
@@ -247,7 +249,7 @@ pub async fn get_external_service_health(
 /// See [`check_service_health`].
 pub async fn check_service_health(
     State(ctx): State<AdminContext>,
-    Path(as_id): Path<String>,
+    MatrixPath(as_id): MatrixPath<String>,
     headers: HeaderMap,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -265,7 +267,7 @@ pub async fn check_service_health(
 /// See [`unregister_external_service`].
 pub async fn unregister_external_service(
     State(ctx): State<AdminContext>,
-    Path(as_id): Path<String>,
+    MatrixPath(as_id): MatrixPath<String>,
     headers: HeaderMap,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -280,7 +282,7 @@ pub async fn unregister_external_service(
 /// See [`update_external_service`].
 pub async fn update_external_service(
     State(ctx): State<AdminContext>,
-    Path(as_id): Path<String>,
+    MatrixPath(as_id): MatrixPath<String>,
     headers: HeaderMap,
     _admin: AdminUser,
     MatrixJson(body): MatrixJson<UpdateExternalServiceBody>,
@@ -309,7 +311,7 @@ pub async fn update_external_service(
 /// See [`handle_generic_webhook`].
 pub async fn handle_generic_webhook(
     State(ctx): State<AdminContext>,
-    Path(service_id): Path<String>,
+    MatrixPath(service_id): MatrixPath<String>,
     headers: HeaderMap,
     MatrixJson(payload): MatrixJson<WebhookPayload>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -348,7 +350,7 @@ pub async fn client_update_external_service(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
     _admin: AdminUser,
-    Path(service_id): Path<String>,
+    MatrixPath(service_id): MatrixPath<String>,
     MatrixJson(body): MatrixJson<UpdateExternalServiceBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let integration = external_service_integration(&ctx);
@@ -377,7 +379,7 @@ pub async fn client_delete_external_service(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
     _admin: AdminUser,
-    Path(service_id): Path<String>,
+    MatrixPath(service_id): MatrixPath<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let integration = external_service_integration(&ctx);
 

@@ -1,9 +1,11 @@
 use super::{AppState, AuthenticatedUser};
 use crate::routes::context::E2eeRoomContext;
+use crate::routes::extractors::MatrixPath;
+use crate::routes::extractors::MatrixQuery;
 use crate::routes::extractors::RoomId;
 use crate::routes::MatrixJson;
 use axum::{
-    extract::{Path, Query, State},
+    extract::State,
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
@@ -168,7 +170,7 @@ async fn get_all_backup_versions(
 async fn get_backup_version(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(version): Path<RoomId>,
+    MatrixPath(version): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     let backup = ctx.e2ee_backup_service.get_backup(&auth_user.user_id, &version).await?;
 
@@ -193,7 +195,7 @@ async fn get_backup_version(
 async fn update_backup_version(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(version): Path<RoomId>,
+    MatrixPath(version): MatrixPath<RoomId>,
     MatrixJson(body): MatrixJson<UpdateBackupVersionBody>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     if let Err(e) = body.validate() {
@@ -213,7 +215,7 @@ async fn update_backup_version(
 async fn delete_backup_version(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(version): Path<RoomId>,
+    MatrixPath(version): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     let backup = ctx.e2ee_backup_service.get_backup(&auth_user.user_id, &version).await?;
 
@@ -295,7 +297,7 @@ async fn read_all_rooms(
 async fn get_room_keys_all(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Query(q): Query<VersionQuery>,
+    MatrixQuery(q): MatrixQuery<VersionQuery>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     read_all_rooms(&ctx, &auth_user.user_id, &q.version).await
 }
@@ -304,7 +306,7 @@ async fn get_room_keys_all(
 async fn get_room_keys_all_legacy(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(version): Path<RoomId>,
+    MatrixPath(version): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     read_all_rooms(&ctx, &auth_user.user_id, &version).await
 }
@@ -334,8 +336,8 @@ async fn read_room(
 async fn get_room_keys_for_room(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
-    Query(q): Query<VersionQuery>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
+    MatrixQuery(q): MatrixQuery<VersionQuery>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     read_room(&ctx, &auth_user.user_id, &q.version, &room_id).await
 }
@@ -344,7 +346,7 @@ async fn get_room_keys_for_room(
 async fn get_room_keys_for_room_legacy(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path((version, room_id)): Path<(String, String)>,
+    MatrixPath((version, room_id)): MatrixPath<(String, String)>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     read_room(&ctx, &auth_user.user_id, &version, &room_id).await
 }
@@ -372,8 +374,8 @@ async fn read_session(
 async fn get_room_key(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, session_id)): Path<(String, String)>,
-    Query(q): Query<VersionQuery>,
+    MatrixPath((room_id, session_id)): MatrixPath<(String, String)>,
+    MatrixQuery(q): MatrixQuery<VersionQuery>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     read_session(&ctx, &auth_user.user_id, &q.version, &room_id, &session_id).await
 }
@@ -382,7 +384,7 @@ async fn get_room_key(
 async fn get_room_key_legacy(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path((version, room_id, session_id)): Path<(String, String, String)>,
+    MatrixPath((version, room_id, session_id)): MatrixPath<(String, String, String)>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     read_session(&ctx, &auth_user.user_id, &version, &room_id, &session_id).await
 }
@@ -415,7 +417,7 @@ async fn write_all_rooms(
 async fn put_room_keys_all(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Query(q): Query<VersionQuery>,
+    MatrixQuery(q): MatrixQuery<VersionQuery>,
     MatrixJson(body): MatrixJson<RoomKeysBody>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     write_all_rooms(&ctx, &auth_user.user_id, &q.version, body).await
@@ -425,7 +427,7 @@ async fn put_room_keys_all(
 async fn put_room_keys_all_legacy(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(version): Path<RoomId>,
+    MatrixPath(version): MatrixPath<RoomId>,
     MatrixJson(body): MatrixJson<RoomKeysBody>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     write_all_rooms(&ctx, &auth_user.user_id, &version, body).await
@@ -457,8 +459,8 @@ async fn write_room(
 async fn put_room_keys_for_room(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
-    Query(q): Query<VersionQuery>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
+    MatrixQuery(q): MatrixQuery<VersionQuery>,
     MatrixJson(body): MatrixJson<RoomSessionsBody>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     write_room(&ctx, &auth_user.user_id, &q.version, &room_id, body).await
@@ -468,7 +470,7 @@ async fn put_room_keys_for_room(
 async fn put_room_keys_for_room_legacy(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path((version, room_id)): Path<(String, String)>,
+    MatrixPath((version, room_id)): MatrixPath<(String, String)>,
     MatrixJson(body): MatrixJson<RoomSessionsBody>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     write_room(&ctx, &auth_user.user_id, &version, &room_id, body).await
@@ -495,8 +497,8 @@ async fn write_session(
 async fn put_room_key(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, session_id)): Path<(String, String)>,
-    Query(q): Query<VersionQuery>,
+    MatrixPath((room_id, session_id)): MatrixPath<(String, String)>,
+    MatrixQuery(q): MatrixQuery<VersionQuery>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     write_session(&ctx, &auth_user.user_id, &q.version, &room_id, &session_id, body).await
@@ -506,7 +508,7 @@ async fn put_room_key(
 async fn put_room_key_legacy(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path((version, room_id, session_id)): Path<(String, String, String)>,
+    MatrixPath((version, room_id, session_id)): MatrixPath<(String, String, String)>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     write_session(&ctx, &auth_user.user_id, &version, &room_id, &session_id, body).await
@@ -529,7 +531,7 @@ async fn delete_all_rooms_impl(
 async fn delete_room_keys_all(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Query(q): Query<VersionQuery>,
+    MatrixQuery(q): MatrixQuery<VersionQuery>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     delete_all_rooms_impl(&ctx, &auth_user.user_id, &q.version).await
 }
@@ -538,7 +540,7 @@ async fn delete_room_keys_all(
 async fn delete_room_keys_all_legacy(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(version): Path<RoomId>,
+    MatrixPath(version): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     delete_all_rooms_impl(&ctx, &auth_user.user_id, &version).await
 }
@@ -558,8 +560,8 @@ async fn delete_room_impl(
 async fn delete_room_keys_for_room(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<RoomId>,
-    Query(q): Query<VersionQuery>,
+    MatrixPath(room_id): MatrixPath<RoomId>,
+    MatrixQuery(q): MatrixQuery<VersionQuery>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     delete_room_impl(&ctx, &auth_user.user_id, &q.version, &room_id).await
 }
@@ -568,7 +570,7 @@ async fn delete_room_keys_for_room(
 async fn delete_room_keys_for_room_legacy(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path((version, room_id)): Path<(String, String)>,
+    MatrixPath((version, room_id)): MatrixPath<(String, String)>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     delete_room_impl(&ctx, &auth_user.user_id, &version, &room_id).await
 }
@@ -589,8 +591,8 @@ async fn delete_session_impl(
 async fn delete_room_key(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, session_id)): Path<(String, String)>,
-    Query(q): Query<VersionQuery>,
+    MatrixPath((room_id, session_id)): MatrixPath<(String, String)>,
+    MatrixQuery(q): MatrixQuery<VersionQuery>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     delete_session_impl(&ctx, &auth_user.user_id, &q.version, &room_id, &session_id).await
 }
@@ -599,7 +601,7 @@ async fn delete_room_key(
 async fn delete_room_key_legacy(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path((version, room_id, session_id)): Path<(String, String, String)>,
+    MatrixPath((version, room_id, session_id)): MatrixPath<(String, String, String)>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     delete_session_impl(&ctx, &auth_user.user_id, &version, &room_id, &session_id).await
 }
@@ -645,7 +647,7 @@ async fn recover_keys(
 async fn get_recovery_progress(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(version): Path<RoomId>,
+    MatrixPath(version): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     let progress = ctx.e2ee_backup_service.get_recovery_progress(&auth_user.user_id, &version).await?;
 
@@ -656,7 +658,7 @@ async fn get_recovery_progress(
 async fn verify_backup(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(version): Path<RoomId>,
+    MatrixPath(version): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     let verification = ctx.e2ee_backup_service.verify_backup(&auth_user.user_id, &version).await?;
 
@@ -692,7 +694,7 @@ async fn batch_recover_keys(
 async fn recover_room_keys(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path((version, room_id)): Path<(String, String)>,
+    MatrixPath((version, room_id)): MatrixPath<(String, String)>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     let keys = ctx.e2ee_backup_service.recover_room_keys(&auth_user.user_id, &version, &room_id).await?;
 
@@ -706,7 +708,7 @@ async fn recover_room_keys(
 async fn recover_session_key(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path((version, room_id, session_id)): Path<(String, String, String)>,
+    MatrixPath((version, room_id, session_id)): MatrixPath<(String, String, String)>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     let key = ctx.e2ee_backup_service.recover_session_key(&auth_user.user_id, &version, &room_id, &session_id).await?;
 
@@ -761,7 +763,7 @@ async fn export_keys(
 async fn export_keys_by_version(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(version): Path<RoomId>,
+    MatrixPath(version): MatrixPath<RoomId>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     let backup_keys = ctx.e2ee_backup_service.get_keys_for_version(&auth_user.user_id, &version).await?;
 
@@ -855,7 +857,7 @@ async fn import_keys(
 async fn import_keys_by_version(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(version): Path<RoomId>,
+    MatrixPath(version): MatrixPath<RoomId>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     let room_keys = body
