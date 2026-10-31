@@ -344,8 +344,10 @@ impl SlidingSyncService {
         // The client already owns online assertion (it sets presence=online on
         // login and refreshes it via a 4-minute heartbeat), so the server must
         // NOT rewrite presence on each incremental request.
+        // BE-11: use `touch_presence` (not `set_presence`) so the initial tick
+        // does not wipe a `status_msg` the user set explicitly.
         if request.pos.is_none() {
-            if let Err(e) = self.presence_storage.set_presence(user_id, "online", None).await {
+            if let Err(e) = self.presence_storage.touch_presence(user_id, "online").await {
                 tracing::warn!(%e, user_id, device_id, "Failed to set presence online");
             }
         }

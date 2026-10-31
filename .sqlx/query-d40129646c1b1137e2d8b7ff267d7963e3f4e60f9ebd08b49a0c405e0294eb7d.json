@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO presence (user_id, presence, status_msg, last_active_ts, created_ts, updated_ts)\n            VALUES ($1, $2, NULL, $3, $3, $3)\n            ON CONFLICT (user_id) DO UPDATE SET\n                presence = EXCLUDED.presence,\n                last_active_ts = EXCLUDED.last_active_ts,\n                updated_ts = EXCLUDED.updated_ts\n            RETURNING presence, status_msg, last_active_ts\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "presence",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "status_msg",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "last_active_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "d40129646c1b1137e2d8b7ff267d7963e3f4e60f9ebd08b49a0c405e0294eb7d"
+}

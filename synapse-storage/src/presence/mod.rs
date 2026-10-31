@@ -198,6 +198,49 @@ impl PresenceStorage {
         Ok(())
     }
 
+    /// BE-11: Refresh only the activity part of a user's presence.
+    ///
+    /// Unlike [`set_presence`], this leaves an existing `status_msg` untouched:
+    /// a `/sync` (or the initial sliding-sync tick) is not an explicit presence
+    /// update, so it must not wipe a status message the user set via
+    /// `PUT /_matrix/client/v3/presence/{userId}/status`.
+    ///
+    /// A brand-new row still gets `status_msg = NULL` (nothing to preserve).
+    pub async fn touch_presence(&self, user_id: &str, presence: &str) -> Result<(), sqlx::Error> {
+        tracing::debug!(user_id = %user_id, presence = %presence, "Touching presence");
+        let now = current_timestamp_millis();
+        let row = sqlx::query!(
+            r"
+            INSERT INTO presence (user_id, presence, status_msg, last_active_ts, created_ts, updated_ts)
+            VALUES ($1, $2, NULL, $3, $3, $3)
+            ON CONFLICT (user_id) DO UPDATE SET
+                presence = EXCLUDED.presence,
+                last_active_ts = EXCLUDED.last_active_ts,
+                updated_ts = EXCLUDED.updated_ts
+            RETURNING presence, status_msg, last_active_ts
+            ",
+            user_id,
+            presence,
+            now,
+        )
+        .fetch_one(&*self.pool)
+        .await?;
+
+        let snapshot = PresenceSnapshot {
+            user_id: user_id.to_string(),
+            presence: row.presence,
+            status_msg: row.status_msg,
+            last_active_ts: Some(row.last_active_ts),
+        };
+        let key = CacheKeyBuilder::user_presence(user_id);
+        let ttl = CacheTtl::user_presence().as_secs();
+        if let Err(e) = self.cache.set(&key, &snapshot, ttl).await {
+            tracing::warn!(target: "cache", "Failed to cache presence for {}: {}", user_id, e);
+        }
+
+        Ok(())
+    }
+
     /// C-3: Batch set presence for multiple users in a single SQL statement.
     ///
     /// Each entry is `(user_id, presence, status_msg)`. Uses `UNNEST` to
@@ -815,6 +858,72 @@ mod db_tests {
         assert_eq!(row.0, "unavailable");
         assert_eq!(row.1.as_deref(), Some("Away from keyboard"));
         assert!(row.2.is_some());
+
+        cleanup_presence_data(&pool, &suffix).await;
+    }
+
+    // ================================================================
+    // touch_presence
+    // ================================================================
+
+    /// BE-11: `touch_presence` refreshes presence/last_active_ts but keeps
+    /// `status_msg`, and the cache it writes back must agree with the DB.
+    #[tokio::test]
+    async fn test_touch_presence_preserves_status_msg() {
+        let (_isolated, pool) = test_pool().await;
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
+        let user_id = format!("@pres_test_touch_{suffix}:localhost");
+        cleanup_presence_data(&pool, &suffix).await;
+        ensure_test_user(&pool, &user_id).await;
+
+        let storage = PresenceStorage::new(pool.clone(), test_cache());
+        storage.set_presence(&user_id, "away", Some("busy coding")).await.expect("set_presence should succeed");
+
+        storage.touch_presence(&user_id, "online").await.expect("touch_presence should succeed");
+
+        // DB truth via a cold cache (cache miss ⇒ SQL read), so this test adds no
+        // dynamic SQL site to the ratchet.
+        let verifier = PresenceStorage::new(pool.clone(), test_cache());
+        let (db_presence, db_status, _) = verifier
+            .get_presence_with_meta(&user_id)
+            .await
+            .expect("get_presence_with_meta should succeed")
+            .expect("should find presence row");
+        assert_eq!(db_presence, "online", "touch must refresh the presence state");
+        assert_eq!(db_status.as_deref(), Some("busy coding"), "BE-11: touch must keep status_msg");
+
+        let cached = storage
+            .get_presence_with_meta(&user_id)
+            .await
+            .expect("get_presence_with_meta should succeed")
+            .expect("presence row must exist");
+        assert_eq!(cached.0, "online", "write-through cache must mirror the DB");
+        assert_eq!(cached.1.as_deref(), Some("busy coding"), "write-through cache must keep status_msg");
+
+        cleanup_presence_data(&pool, &suffix).await;
+    }
+
+    /// BE-11: touching a user without a presence row still inserts one (NULL status).
+    #[tokio::test]
+    async fn test_touch_presence_creates_row_when_absent() {
+        let (_isolated, pool) = test_pool().await;
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
+        let user_id = format!("@pres_test_touch_new_{suffix}:localhost");
+        cleanup_presence_data(&pool, &suffix).await;
+        ensure_test_user(&pool, &user_id).await;
+
+        let storage = PresenceStorage::new(pool.clone(), test_cache());
+        storage.touch_presence(&user_id, "online").await.expect("touch_presence should succeed");
+
+        let verifier = PresenceStorage::new(pool.clone(), test_cache());
+        let (db_presence, db_status, last_active_ts) = verifier
+            .get_presence_with_meta(&user_id)
+            .await
+            .expect("get_presence_with_meta should succeed")
+            .expect("touch must create the presence row");
+        assert_eq!(db_presence, "online");
+        assert!(db_status.is_none(), "a fresh row has no status message");
+        assert!(last_active_ts.is_some(), "last_active_ts must be set");
 
         cleanup_presence_data(&pool, &suffix).await;
     }

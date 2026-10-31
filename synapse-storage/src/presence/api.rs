@@ -11,6 +11,20 @@ pub trait PresenceStoreApi: Send + Sync {
     /// See [`set_presence`].
     async fn set_presence(&self, user_id: &str, presence: &str, status_msg: Option<&str>) -> Result<(), sqlx::Error>;
 
+    /// BE-11: Refresh presence without touching `status_msg`.
+    ///
+    /// The default implementation reads the current status message and writes it
+    /// back, which is correct for stores without a dedicated "touch" primitive
+    /// (e.g. the in-memory test double). `PresenceStorage` overrides it with a
+    /// single upsert so the read-modify-write never hits the database twice.
+    async fn touch_presence(&self, user_id: &str, presence: &str) -> Result<(), sqlx::Error> {
+        let status_msg = match self.get_presence_with_meta(user_id).await? {
+            Some((_, status_msg, _)) => status_msg,
+            None => None,
+        };
+        self.set_presence(user_id, presence, status_msg.as_deref()).await
+    }
+
     /// C-3: Batch set presence for multiple users in a single SQL statement.
     /// Each entry is `(user_id, presence, status_msg)`.
     async fn set_presence_batch(&self, entries: &[(String, String, Option<String>)]) -> Result<(), sqlx::Error>;
@@ -65,6 +79,10 @@ impl PresenceStoreApi for super::PresenceStorage {
 
     async fn set_presence(&self, user_id: &str, presence: &str, status_msg: Option<&str>) -> Result<(), sqlx::Error> {
         self.set_presence(user_id, presence, status_msg).await
+    }
+
+    async fn touch_presence(&self, user_id: &str, presence: &str) -> Result<(), sqlx::Error> {
+        self.touch_presence(user_id, presence).await
     }
 
     async fn set_presence_batch(&self, entries: &[(String, String, Option<String>)]) -> Result<(), sqlx::Error> {

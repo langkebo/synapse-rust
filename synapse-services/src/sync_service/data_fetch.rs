@@ -13,8 +13,11 @@ type PresenceCanonical = HashMap<String, (String, Option<String>, Option<i64>)>;
 
 impl SyncService {
     /// See [`update_presence`].
+    ///
+    /// BE-11: `/sync` is not an explicit presence update — use `touch_presence`
+    /// so a `status_msg` set via `PUT .../presence/{userId}/status` survives.
     pub(crate) async fn update_presence(&self, user_id: &str, set_presence: &str) -> ApiResult<()> {
-        self.presence_storage.set_presence(user_id, set_presence, None).await.ok();
+        self.presence_storage.touch_presence(user_id, set_presence).await.ok();
         Ok(())
     }
 
@@ -1308,5 +1311,43 @@ mod tests {
         // 初始 sync（since=None）永远全量，不受去重缓存影响
         let initial = sync.get_presence_events("@alice:localhost", &None).await.expect("initial sync");
         assert_eq!(initial.len(), 2, "initial sync must bypass dedup and send all");
+    }
+
+    /// BE-11: `/sync` may refresh `presence`, but must never clear `status_msg`.
+    #[tokio::test]
+    async fn sync_update_presence_preserves_status_msg() {
+        let presence = Arc::new(synapse_storage::test_mocks::InMemoryPresenceStore::new());
+        presence.set_presence("@alice:localhost", "away", Some("busy coding")).await.unwrap();
+
+        let member = Arc::new(synapse_storage::test_mocks::InMemoryMemberStore::new());
+        let sync = sync_service_with_presence_and_members(presence.clone(), member);
+
+        sync.update_presence("@alice:localhost", "online").await.expect("update_presence");
+
+        let (presence_state, status_msg, _) = presence
+            .get_presence_with_meta("@alice:localhost")
+            .await
+            .expect("get_presence_with_meta")
+            .expect("presence row must exist");
+        assert_eq!(presence_state, "online", "sync must still refresh the presence state");
+        assert_eq!(status_msg.as_deref(), Some("busy coding"), "BE-11: /sync must not wipe status_msg");
+    }
+
+    /// BE-11: touching presence for a user with no row yet still creates it.
+    #[tokio::test]
+    async fn sync_update_presence_creates_row_when_absent() {
+        let presence = Arc::new(synapse_storage::test_mocks::InMemoryPresenceStore::new());
+        let member = Arc::new(synapse_storage::test_mocks::InMemoryMemberStore::new());
+        let sync = sync_service_with_presence_and_members(presence.clone(), member);
+
+        sync.update_presence("@newbie:localhost", "online").await.expect("update_presence");
+
+        let (presence_state, status_msg, _) = presence
+            .get_presence_with_meta("@newbie:localhost")
+            .await
+            .expect("get_presence_with_meta")
+            .expect("touch must create the presence row");
+        assert_eq!(presence_state, "online");
+        assert!(status_msg.is_none(), "a fresh row has no status message");
     }
 }
