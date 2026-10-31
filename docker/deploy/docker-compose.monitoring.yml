@@ -310,6 +310,11 @@ services:
       - synapse-grafana
     networks:
       - monitoring
+      # 本镜像的 Dockerfile 复用主栈 nginx.conf，其中 `upstream synapse_backend`
+      # 指向 `synapse:8008`（业务栈别名）。nginx 启动时会无条件解析全部 upstream，
+      # 即使 prometheus.conf 并不使用它 ⇒ 不接入业务网络就会 `host not found`
+      # 反复重启（2026-10-31 实测）。监控自身流量仍只走 monitoring 网。
+      - synapse-network
     logging:
       driver: json-file
       options:
