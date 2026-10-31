@@ -45,7 +45,7 @@ async def find_unbackfilled_rooms(pool: asyncpg.Pool) -> list:
     query = """
         SELECT r.room_id, r.room_version, r.created_ts
         FROM rooms r
-        WHERE r.room_version >= 12
+        WHERE split_part(COALESCE(r.room_version, '0'), '.', 1)::int >= 12
           AND NOT EXISTS (
               SELECT 1 FROM state_groups sg WHERE sg.room_id = r.room_id
           )
@@ -196,20 +196,21 @@ async def verify_backfill(pool: asyncpg.Pool) -> dict:
     """Verify that all v12+ rooms now have state groups."""
     # Count total v12+ rooms
     total = await pool.fetchval("""
-        SELECT COUNT(*) FROM rooms WHERE room_version >= 12
+        SELECT COUNT(*) FROM rooms r
+        WHERE split_part(COALESCE(r.room_version, '0'), '.', 1)::int >= 12
     """)
 
     # Count v12+ rooms with state groups
     with_groups = await pool.fetchval("""
         SELECT COUNT(*) FROM rooms r
-        WHERE r.room_version >= 12
+        WHERE split_part(COALESCE(r.room_version, '0'), '.', 1)::int >= 12
           AND EXISTS (SELECT 1 FROM state_groups sg WHERE sg.room_id = r.room_id)
     """)
 
     # Count v12+ rooms without state groups (should be 0)
     without_groups = await pool.fetchval("""
         SELECT COUNT(*) FROM rooms r
-        WHERE r.room_version >= 12
+        WHERE split_part(COALESCE(r.room_version, '0'), '.', 1)::int >= 12
           AND NOT EXISTS (SELECT 1 FROM state_groups sg WHERE sg.room_id = r.room_id)
     """)
 

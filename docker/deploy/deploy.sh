@@ -1885,6 +1885,107 @@ verify_db_version_consistency() {
     log_success "数据库与项目版本一致性校验通过 (canonical=${canonical_count}, 已应用记录=${applied_count}, 失败=0)"
 }
 
+# 待回填（v12+ 且无任何 state_group 记录）房间数；查询失败输出空串，由调用方判红。
+# 判据与回填脚本 find_unbackfilled_rooms() 完全一致，避免"门禁说没有、脚本说要补"。
+# ⚠️ `rooms.room_version` 是 TEXT（基线 schema），不能直接跟整数比较 ——
+#    `room_version >= 12` 会报 `operator does not exist: text >= integer`。
+#    版本号允许 `12.1` 这类写法，故按主版本号 `split_part(..., '.', 1)` 取整比较。
+state_group_gap_count() {
+    local pg_user="${POSTGRES_USER:-postgres}"
+    local pg_db="${POSTGRES_DB:-synapse}"
+    compose exec -T postgres psql -U "$pg_user" -d "$pg_db" -At -c \
+        "SELECT count(*) FROM rooms r WHERE split_part(COALESCE(r.room_version, '0'), '.', 1)::int >= 12 AND NOT EXISTS (SELECT 1 FROM state_groups sg WHERE sg.room_id = r.room_id);" \
+        2>/dev/null | sed '/^[[:space:]]*$/d' | head -1
+}
+
+# 存量房间 state group 回填（问题清单 2026-10-31 §2.1 / §3.5）
+#
+# 为什么必须是部署步骤：v12+ 房间的 current state 只能从 `state_groups` 读，
+# 而代码侧已禁止回退到时间戳推导（scripts/ci/check_state_ts_fallback_absent.sh）。
+# 早于 state group 写入路径上线的历史房间没有记录 ⇒ `GET /rooms/{id}/state`
+# 恒 500（2026-10-31 实测，好友分组接口连带 500）。数据缺口不补，代码再正确
+# 也只能返回 500，而部署门禁此前完全看不见这一点。
+#
+# 先数后跑：回填脚本要宿主 python3 + asyncpg + python-dotenv，部署机不保证有。
+# 每次部署都硬依赖，会把"根本没有存量缺口"的正常部署也变成缺依赖失败，所以
+# 只有真存在待回填房间时才要求这些依赖（失败时打出房间数，这是 §3.5 的判据）。
+backfill_room_state_groups() {
+    DEPLOYMENT_PHASE="backfill-state-groups"
+    local pending
+    pending="$(state_group_gap_count)"
+
+    if ! [[ "$pending" =~ ^[0-9]+$ ]]; then
+        log_error "无法统计待回填房间数（rooms / state_groups 查询失败）"
+        return 1
+    fi
+    if [ "$pending" -eq 0 ]; then
+        log_success "存量房间 state group 完整（v12+ 房间无缺口）"
+        return 0
+    fi
+
+    log_warning "发现 ${pending} 个 v12+ 房间缺少 state group：这些房间的 GET /rooms/{id}/state 会返回 500 ⇒ 执行回填"
+
+    local script="$PROJECT_ROOT/scripts/migration/backfill_state_groups.py"
+    if [ ! -f "$script" ]; then
+        log_error "待回填房间数=${pending}，但回填脚本不存在: $script"
+        return 1
+    fi
+    if ! command -v python3 >/dev/null 2>&1; then
+        log_error "待回填房间数=${pending}，但宿主机没有 python3，无法执行回填"
+        log_error "  修复: 安装 python3 后重跑部署；或手工执行 $script"
+        return 1
+    fi
+    if ! python3 -c 'import asyncpg, dotenv' >/dev/null 2>&1; then
+        log_error "待回填房间数=${pending}，但 python3 缺少回填依赖（asyncpg / python-dotenv）"
+        log_error "  修复: python3 -m pip install asyncpg python-dotenv 后重跑部署"
+        return 1
+    fi
+
+    # 口令经环境变量交给 python 构造 DSN：不出现在 argv（ps 可见），
+    # 也不需要 shell 侧手工转义 URL 里的特殊字符。
+    local db_url
+    db_url="$(
+        POSTGRES_USER="$pg_user" POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-}" \
+            POSTGRES_DB="$pg_db" POSTGRES_PORT="${POSTGRES_PORT:-5432}" python3 - <<'PY'
+import os
+import urllib.parse
+
+quote = lambda v: urllib.parse.quote(v, safe="")
+print(
+    "postgresql://%s:%s@127.0.0.1:%s/%s"
+    % (
+        quote(os.environ["POSTGRES_USER"]),
+        quote(os.environ["POSTGRES_PASSWORD"]),
+        os.environ["POSTGRES_PORT"],
+        os.environ["POSTGRES_DB"],
+    )
+)
+PY
+    )"
+    if [ -z "$db_url" ]; then
+        log_error "无法构造回填脚本的数据库连接串（待回填房间数=${pending}）"
+        return 1
+    fi
+
+    # 宿主 127.0.0.1:5432 由 compose 发布（见 docker-compose.yml 的 postgres.ports）
+    if ! DATABASE_URL="$db_url" python3 "$script"; then
+        log_error "state group 回填执行失败（待回填房间数=${pending}）"
+        return 1
+    fi
+
+    # 回填脚本在"仍有房间未补齐"时也只打印、返回 0 ⇒ 必须再核一次库，
+    # 否则"脚本跑过"会被误读成"缺口已消除"。
+    local remaining
+    remaining="$(state_group_gap_count)"
+    if ! [[ "$remaining" =~ ^[0-9]+$ ]] || [ "$remaining" -ne 0 ]; then
+        log_error "回填后仍有 ${remaining:-?} 个 v12+ 房间缺少 state group（回填前=${pending}）"
+        log_error "  复核: DATABASE_URL=<...> python3 scripts/migration/backfill_state_groups.py --verify"
+        return 1
+    fi
+
+    log_success "存量房间 state group 回填完成（${pending} 个房间）"
+}
+
 verify_health_endpoints() {
     DEPLOYMENT_PHASE="verify-health"
     log_info "验证健康检查接口..."
@@ -2201,6 +2302,7 @@ main() {
     # --- 一致性校验与验证 ---
     run_step "数据库连接验证" verify_database
     run_step "数据库版本一致性校验" verify_db_version_consistency
+    run_step "存量房间 state group 回填" backfill_room_state_groups
     run_step "健康检查验证" verify_health_endpoints
     run_step "HTTPS 接口验证" verify_https_endpoints
     run_step "日志告警分析" verify_logs_clean
