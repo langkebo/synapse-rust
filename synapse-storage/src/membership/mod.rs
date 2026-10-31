@@ -831,6 +831,10 @@ impl RoomMemberStorage {
     /// Extends `get_room_members_paginated` to include user profiles and
     /// optionally filter out a membership type (`not_membership`).
     ///
+    /// `membership_type` is optional: `None` lists **every** membership state.
+    /// `GET /rooms/{roomId}/members` without a `membership` query parameter must
+    /// do exactly that — filtering to `join` silently hid invitees (I-13).
+    ///
     /// Pagination uses lexicographic `user_id` ordering, supporting both
     /// forward (`dir=f`) and backward (`dir=b`) directions via SQL `>`.
     /// The returned `user_id` of the last result becomes the `from` cursor.
@@ -839,7 +843,7 @@ impl RoomMemberStorage {
     pub async fn get_room_members_paginated_with_profiles(
         &self,
         room_id: &str,
-        membership_type: &str,
+        membership_type: Option<&str>,
         not_membership: Option<&str>,
         limit: i64,
         from_user_id: Option<&str>,
@@ -858,56 +862,39 @@ impl RoomMemberStorage {
 
         // Cursor operator: > for forward, < for backward
         let cursor_op = if is_backward { "<" } else { ">" };
+        let order = if is_backward { "DESC" } else { "ASC" };
 
-        if let Some(nm) = not_membership {
-            // With not_membership filter
-            if let Some(from) = from_user_id {
-                sqlx::query(&format!(
-                    "{} WHERE rm.room_id = $1 AND rm.membership = $2 AND rm.membership != $3 AND rm.user_id {} $4 ORDER BY rm.user_id {} LIMIT $5",
-                    base, cursor_op, if is_backward { "DESC" } else { "ASC" }
-                ))
-                .bind(room_id)
-                .bind(membership_type)
-                .bind(nm)
-                .bind(from)
-                .bind(limit)
-                .fetch_all(&*self.pool)
-                .await
-            } else {
-                sqlx::query(&format!(
-                    "{} WHERE rm.room_id = $1 AND rm.membership = $2 AND rm.membership != $3 ORDER BY rm.user_id {} LIMIT $4",
-                    base, if is_backward { "DESC" } else { "ASC" }
-                ))
-                .bind(room_id)
-                .bind(membership_type)
-                .bind(nm)
-                .bind(limit)
-                .fetch_all(&*self.pool)
-                .await
-            }
-        } else if let Some(from) = from_user_id {
-            sqlx::query(&format!(
-                "{} WHERE rm.room_id = $1 AND rm.membership = $2 AND rm.user_id {} $3 ORDER BY rm.user_id {} LIMIT $4",
-                base, cursor_op, if is_backward { "DESC" } else { "ASC" }
-            ))
-            .bind(room_id)
-            .bind(membership_type)
-            .bind(from)
-            .bind(limit)
-            .fetch_all(&*self.pool)
-            .await
-        } else {
-            sqlx::query(&format!(
-                "{} WHERE rm.room_id = $1 AND rm.membership = $2 ORDER BY rm.user_id {} LIMIT $3",
-                base, if is_backward { "DESC" } else { "ASC" }
-            ))
-            .bind(room_id)
-            .bind(membership_type)
-            .bind(limit)
-            .fetch_all(&*self.pool)
-            .await
+        // Assemble the predicate list in bind order so the `$n` placeholders and
+        // the `bind(...)` calls below stay in lockstep for all eight shapes
+        // (membership × not_membership × cursor, forward/backward).
+        let mut sql = format!("{base} WHERE rm.room_id = $1");
+        let mut next_param = 2;
+        if membership_type.is_some() {
+            sql.push_str(&format!(" AND rm.membership = ${next_param}"));
+            next_param += 1;
         }
-        .map(|rows| {
+        if not_membership.is_some() {
+            sql.push_str(&format!(" AND rm.membership != ${next_param}"));
+            next_param += 1;
+        }
+        if from_user_id.is_some() {
+            sql.push_str(&format!(" AND rm.user_id {cursor_op} ${next_param}"));
+            next_param += 1;
+        }
+        sql.push_str(&format!(" ORDER BY rm.user_id {order} LIMIT ${next_param}"));
+
+        let mut query = sqlx::query(&sql).bind(room_id);
+        if let Some(membership) = membership_type {
+            query = query.bind(membership);
+        }
+        if let Some(excluded) = not_membership {
+            query = query.bind(excluded);
+        }
+        if let Some(from) = from_user_id {
+            query = query.bind(from);
+        }
+
+        query.bind(limit).fetch_all(&*self.pool).await.map(|rows| {
             rows.iter()
                 .map(|row| {
                     use sqlx::Row;

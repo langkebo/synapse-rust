@@ -1354,4 +1354,26 @@ mod coverage_tests {
         let keys: Vec<&str> = chunk.iter().filter_map(|e| e.get("state_key").and_then(|v| v.as_str())).collect();
         assert_eq!(keys, vec!["@b:localhost", "@a:localhost"], "backward page should reverse order");
     }
+
+    #[tokio::test]
+    async fn get_room_members_paginated_without_membership_filter_returns_every_state() {
+        let ctx = build_service().await;
+        ctx.room_store.create_room(ROOM, "@creator:localhost", "public", "1", true).await.unwrap();
+        ctx.member_store.add_member(ROOM, "@a:localhost", "join", None).await.unwrap();
+        ctx.member_store.add_member(ROOM, "@b:localhost", "invite", None).await.unwrap();
+
+        // I-13: `GET /rooms/{roomId}/members` without `membership` must return
+        // every state (joining users included), not just the joined ones.
+        let result =
+            ctx.svc.get_room_members_paginated(ROOM, "@a:localhost", None, None, 100, None, None).await.unwrap();
+
+        let chunk = result.get("chunk").and_then(|c| c.as_array()).unwrap();
+        let memberships: Vec<&str> = chunk
+            .iter()
+            .filter_map(|e| e.get("content").and_then(|c| c.get("membership")).and_then(|m| m.as_str()))
+            .collect();
+        assert_eq!(chunk.len(), 2, "both the joined and the invited member must be returned");
+        assert!(memberships.contains(&"join"), "joined member must be present");
+        assert!(memberships.contains(&"invite"), "invited member must be present when no membership filter is given");
+    }
 }

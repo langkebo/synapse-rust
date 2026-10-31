@@ -337,13 +337,14 @@ async fn test_get_room_members_paginated() {
 /// 只有 `synapse-services` 服务层的 `get_room_members_paginated_*` 用例覆盖它，而那层注入的是
 /// `test_mocks::InMemoryMemberStore`，**从不执行这里的 SQL**。
 ///
-/// 为什么必须用真 baseline 往返：方法内部有 **4 条 `format!` 拼出的分支**
-/// （`not_membership` 有/无 × 游标有/无），每条又有 `ASC`/`DESC` 与 `>`/`<` 两种方向
-/// ⇒ **8 种 SQL 文本**；它们都是 §7.3 D-14 的结构性保留（列名与方向由 `format!` 拼接，
-/// 宏要求调用点字面量），编译期看不见任何东西 ⇒ "拼出来的 SQL 在当前 schema 上真的能跑"
-/// 只能靠这里钉住（列名漂移在运行期是 42703，正是 D14-2 想提前到测试期的那类失败）。
+/// 为什么必须用真 baseline 往返：方法内部按 `membership` / `not_membership` / 游标
+/// 三个可选谓词拼 `WHERE`，每条又有 `ASC`/`DESC` 与 `>`/`<` 两种方向
+/// ⇒ **多种 SQL 文本**；`$n` 占位符与 `bind(...)` 的顺序只在运行期对齐，编译期看不见
+/// ⇒ "拼出来的 SQL 在当前 schema 上真的能跑、参数没串位"只能靠这里钉住
+/// （列名漂移在运行期是 42703，正是 D14-2 想提前到测试期的那类失败）。
 ///
-/// 本用例逐条走完 8 种形态，并顺带钉住 `LEFT JOIN users` 的 profile 透传
+/// 本用例逐条走完 8 种过滤/游标形态 + `membership_type = None`（不过滤状态，I-13），
+/// 并顺带钉住 `LEFT JOIN users` 的 profile 透传
 /// （有 profile ⇒ `Some`，无 profile ⇒ `None`，后者是 D-20 型的可空性方向）。
 #[tokio::test]
 async fn test_get_room_members_paginated_with_profiles_covers_every_query_shape() {
@@ -381,7 +382,7 @@ async fn test_get_room_members_paginated_with_profiles_covers_every_query_shape(
 
     // ① 无 not_membership、无游标（ORDER BY rm.user_id ASC）
     let page = storage
-        .get_room_members_paginated_with_profiles(&room_id, "join", None, 10, None, None)
+        .get_room_members_paginated_with_profiles(&room_id, Some("join"), None, 10, None, None)
         .await
         .expect("branch 1 (no filter, no cursor)");
     assert_eq!(ids(&page), joins, "① ASC 全量");
@@ -393,28 +394,28 @@ async fn test_get_room_members_paginated_with_profiles_covers_every_query_shape(
 
     // ② 无 not_membership、有游标（`rm.user_id > $3`）
     let page = storage
-        .get_room_members_paginated_with_profiles(&room_id, "join", None, 10, Some(&joins[0]), None)
+        .get_room_members_paginated_with_profiles(&room_id, Some("join"), None, 10, Some(&joins[0]), None)
         .await
         .expect("branch 2 (no filter, cursor)");
     assert_eq!(ids(&page), joins[1..].to_vec(), "② 游标之后的行");
 
     // ③ 有 not_membership、无游标（invite 必须被排除）
     let page = storage
-        .get_room_members_paginated_with_profiles(&room_id, "join", Some("invite"), 10, None, None)
+        .get_room_members_paginated_with_profiles(&room_id, Some("join"), Some("invite"), 10, None, None)
         .await
         .expect("branch 3 (filter, no cursor)");
     assert_eq!(ids(&page), joins, "③ not_membership='invite' 必须过滤掉 invite 行");
 
     // ④ 有 not_membership、有游标
     let page = storage
-        .get_room_members_paginated_with_profiles(&room_id, "join", Some("invite"), 10, Some(&joins[1]), None)
+        .get_room_members_paginated_with_profiles(&room_id, Some("join"), Some("invite"), 10, Some(&joins[1]), None)
         .await
         .expect("branch 4 (filter, cursor)");
     assert_eq!(ids(&page), joins[2..].to_vec(), "④ 过滤 + 游标");
 
     // ⑤–⑧ 反向（dir=Some("b") ⇒ ORDER BY … DESC + `rm.user_id < $n`）
     let page = storage
-        .get_room_members_paginated_with_profiles(&room_id, "join", None, 10, None, Some("b"))
+        .get_room_members_paginated_with_profiles(&room_id, Some("join"), None, 10, None, Some("b"))
         .await
         .expect("branch 5 (no filter, no cursor, backward)");
     let mut desc = joins.clone();
@@ -422,29 +423,49 @@ async fn test_get_room_members_paginated_with_profiles_covers_every_query_shape(
     assert_eq!(ids(&page), desc, "⑤ DESC 全量");
 
     let page = storage
-        .get_room_members_paginated_with_profiles(&room_id, "join", None, 10, Some(&joins[2]), Some("b"))
+        .get_room_members_paginated_with_profiles(&room_id, Some("join"), None, 10, Some(&joins[2]), Some("b"))
         .await
         .expect("branch 6 (no filter, cursor, backward)");
     assert_eq!(ids(&page), vec![joins[1].clone(), joins[0].clone()], "⑥ DESC 游标之前");
 
     let page = storage
-        .get_room_members_paginated_with_profiles(&room_id, "join", Some("invite"), 10, None, Some("b"))
+        .get_room_members_paginated_with_profiles(&room_id, Some("join"), Some("invite"), 10, None, Some("b"))
         .await
         .expect("branch 7 (filter, no cursor, backward)");
     assert_eq!(ids(&page), desc, "⑦ DESC + 过滤");
 
     let page = storage
-        .get_room_members_paginated_with_profiles(&room_id, "join", Some("invite"), 10, Some(&joins[2]), Some("b"))
+        .get_room_members_paginated_with_profiles(
+            &room_id,
+            Some("join"),
+            Some("invite"),
+            10,
+            Some(&joins[2]),
+            Some("b"),
+        )
         .await
         .expect("branch 8 (filter, cursor, backward)");
     assert_eq!(ids(&page), vec![joins[1].clone(), joins[0].clone()], "⑧ DESC + 过滤 + 游标");
 
     // 游标语义的另一半：`from_user_id` 只按 `>`/`<` 比较，不包含游标自身
     let page = storage
-        .get_room_members_paginated_with_profiles(&room_id, "join", None, 1, None, None)
+        .get_room_members_paginated_with_profiles(&room_id, Some("join"), None, 1, None, None)
         .await
         .expect("limit 生效");
     assert_eq!(ids(&page), vec![joins[0].clone()], "limit 必须生效");
+
+    // ⑨ `membership_type = None` ⇒ 不过滤状态，invite 行也必须出现（I-13：
+    // `GET /rooms/{roomId}/members` 不带 `membership` 参数时的语义）。
+    let page = storage
+        .get_room_members_paginated_with_profiles(&room_id, None, None, 10, None, None)
+        .await
+        .expect("no membership filter ⇒ every state");
+    let mut all = joins.clone();
+    all.push(invited.clone());
+    all.sort();
+    let mut actual = ids(&page);
+    actual.sort();
+    assert_eq!(actual, all, "⑨ 无 membership 过滤必须返回全部状态（含 invite）");
 
     cleanup_membership_data(&pool, &suffix).await;
 }

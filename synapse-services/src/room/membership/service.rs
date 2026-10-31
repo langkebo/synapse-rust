@@ -891,11 +891,12 @@ impl MembershipService {
             return Err(MembershipError::NotAuthorized("You are not a member of this room".to_string()));
         }
 
-        let membership_str = membership.unwrap_or("join");
-        // Fetch limit+1 to detect if there are more pages
+        // Fetch limit+1 to detect if there are more pages.
+        // `membership` is passed through as-is: `None` must list every state
+        // (invitees included), not a silent `join` default (I-13).
         let members = self
             .member_storage
-            .get_room_members_paginated_with_profiles(room_id, membership_str, not_membership, limit + 1, from, dir)
+            .get_room_members_paginated_with_profiles(room_id, membership, not_membership, limit + 1, from, dir)
             .await
             .map_err(MembershipError::Database)?;
 

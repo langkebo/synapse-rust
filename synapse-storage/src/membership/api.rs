@@ -160,10 +160,14 @@ pub trait MemberStoreApi: Send + Sync {
     ) -> Result<Vec<RoomMember>, sqlx::Error>;
 
     /// MSC4502: See [`get_room_members_paginated_with_profiles`].
+    ///
+    /// `membership_type` filters to a single membership; `None` returns every
+    /// state, which is what `GET /rooms/{roomId}/members` without a
+    /// `membership` query parameter must do (otherwise invitees never appear).
     async fn get_room_members_paginated_with_profiles(
         &self,
         room_id: &str,
-        membership_type: &str,
+        membership_type: Option<&str>,
         not_membership: Option<&str>,
         limit: i64,
         from_user_id: Option<&str>,
@@ -373,7 +377,7 @@ impl MemberStoreApi for super::RoomMemberStorage {
     async fn get_room_members_paginated_with_profiles(
         &self,
         room_id: &str,
-        membership_type: &str,
+        membership_type: Option<&str>,
         not_membership: Option<&str>,
         limit: i64,
         from_user_id: Option<&str>,

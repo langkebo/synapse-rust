@@ -415,7 +415,7 @@ impl crate::membership::api::MemberStoreApi for InMemoryMemberStore {
     async fn get_room_members_paginated_with_profiles(
         &self,
         room_id: &str,
-        membership_type: &str,
+        membership_type: Option<&str>,
         not_membership: Option<&str>,
         limit: i64,
         from_user_id: Option<&str>,
@@ -425,10 +425,11 @@ impl crate::membership::api::MemberStoreApi for InMemoryMemberStore {
         let is_backward = dir.map(|d| d == "b").unwrap_or(false);
         let limit = limit.clamp(1, 1000);
 
-        let mut filtered: Vec<crate::membership::RoomMember> =
-            members
-                .values()
-                .filter(|m| m.room_id == room_id && m.membership == membership_type)
+        let mut filtered: Vec<crate::membership::RoomMember> = members
+            .values()
+            // `None` means "no membership filter" (every state), matching the
+            // real implementation's optional predicate (I-13).
+            .filter(|m| m.room_id == room_id && membership_type.is_none_or(|t| m.membership == t))
                 .filter(|m| not_membership.is_none_or(|nm| nm.split(',').all(|n| m.membership != n.trim())))
                 .filter(|m| {
                     from_user_id.is_none_or(|from| {
