@@ -209,7 +209,24 @@ async fn execute_sync(params: SyncParams) -> Result<Json<Value>, ApiError> {
     match sync_result {
         Ok(Ok(result)) => Ok(Json(result)),
         Ok(Err(e)) => {
-            ::tracing::error!(request_id = %params.request_id, user_id = %params.user_id, error = %e, "Sync error");
+            // BE-09：4xx 是客户端侧错误（例如 `?filter=` 指向不存在的 filter ⇒
+            // 404 `M_NOT_FOUND`），按 ERROR 记录会把正常的参数错误算进服务端错误率、
+            // 并让按 ERROR grep 的告警持续误报。只有 5xx 才是真正的服务端故障。
+            if e.kind.default_http_status().is_client_error() {
+                ::tracing::debug!(
+                    request_id = %params.request_id,
+                    user_id = %params.user_id,
+                    error = %e,
+                    "Sync request rejected"
+                );
+            } else {
+                ::tracing::error!(
+                    request_id = %params.request_id,
+                    user_id = %params.user_id,
+                    error = %e,
+                    "Sync error"
+                );
+            }
             Err(e)
         }
         Err(_) => {
