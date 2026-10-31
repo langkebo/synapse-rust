@@ -487,6 +487,78 @@ async fn test_get_raw_shared_redis_miss_returns_none() {
     assert!(manager.get_raw_shared(&key).await.is_none(), "L1/L2 均未命中必须返回 None");
 }
 
+// ── I-11: Pattern / Prefix 失效必须同时清理 Redis L2 ──────────────────────
+//
+// `delete_with_invalidation` 的 Pattern/Prefix 分支过去只清 L1，而 `get` 在
+// L1 未命中时会回源 L2 并回填 L1。于是只要部署开了 Redis，前缀失效之后仍然
+// 能在整个 TTL 窗口内读到旧快照（feature flag 列表缓存 30s 最典型）。
+
+#[tokio::test]
+#[allow(missing_docs)]
+async fn test_prefix_invalidation_purges_redis_l2() {
+    use redis::AsyncCommands;
+    let Some((manager, pool, base)) = redis_backed_manager("prefix_l2").await else {
+        eprintln!("skip: local redis unavailable");
+        return;
+    };
+    let prefix = format!("feature_flag:list:{base}:");
+    let stale_a = format!("{prefix}a");
+    let stale_b = format!("{prefix}b");
+    let untouched = format!("feature_flag:single:{base}");
+
+    manager.set_raw(&stale_a, "stale", 60).await;
+    manager.set_raw(&stale_b, "stale", 60).await;
+    manager.set_raw(&untouched, "keep", 60).await;
+
+    manager.delete_with_invalidation(&prefix, InvalidationType::Prefix).await;
+
+    assert!(manager.get_raw(&stale_a).is_none(), "L1 must be purged");
+    assert!(
+        manager.get_raw_shared(&stale_a).await.is_none(),
+        "L2 must be purged, otherwise the stale snapshot is re-read and backfilled into L1"
+    );
+
+    let mut conn = pool.get().await.expect("redis conn");
+    let l2_a: Option<String> = conn.get(&stale_a).await.expect("redis get");
+    let l2_b: Option<String> = conn.get(&stale_b).await.expect("redis get");
+    let l2_keep: Option<String> = conn.get(&untouched).await.expect("redis get");
+    let _: i64 = conn.del(&untouched).await.unwrap_or(0);
+
+    assert!(l2_a.is_none(), "prefix-matched L2 key must be deleted");
+    assert!(l2_b.is_none(), "prefix-matched L2 key must be deleted");
+    assert_eq!(l2_keep.as_deref(), Some("keep"), "non-matching L2 keys must survive");
+}
+
+#[tokio::test]
+#[allow(missing_docs)]
+async fn test_pattern_invalidation_purges_redis_l2_with_contains_semantics() {
+    use redis::AsyncCommands;
+    let Some((manager, pool, base)) = redis_backed_manager("pattern_l2").await else {
+        eprintln!("skip: local redis unavailable");
+        return;
+    };
+    // A `Pattern` without `*` means "contains" in the L1 matcher, so L2 must
+    // use the equivalent `*needle*` glob.
+    let needle = format!("flagpat{base}");
+    let hit_a = format!("room:list:{needle}:1");
+    let hit_b = format!("room:other:{needle}:2");
+    let untouched = format!("room:list:other{base}");
+
+    manager.set_raw(&hit_a, "stale", 60).await;
+    manager.set_raw(&hit_b, "stale", 60).await;
+    manager.set_raw(&untouched, "keep", 60).await;
+
+    manager.delete_with_invalidation(&needle, InvalidationType::Pattern).await;
+
+    assert!(manager.get_raw_shared(&hit_a).await.is_none(), "L2 key containing the pattern must be deleted");
+    assert!(manager.get_raw_shared(&hit_b).await.is_none(), "L2 key containing the pattern must be deleted");
+
+    let mut conn = pool.get().await.expect("redis conn");
+    let l2_keep: Option<String> = conn.get(&untouched).await.expect("redis get");
+    let _: i64 = conn.del(&untouched).await.unwrap_or(0);
+    assert_eq!(l2_keep.as_deref(), Some("keep"), "non-matching L2 keys must survive");
+}
+
 #[tokio::test]
 #[allow(missing_docs)]
 async fn test_cache_manager_token_operations() {

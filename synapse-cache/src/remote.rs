@@ -401,6 +401,47 @@ return {count, redis.call("PTTL", KEYS[1])}
         .await
     }
 
+    /// Deletes every key matching a Redis glob `pattern` (SCAN + batched DEL).
+    ///
+    /// Used by the pattern/prefix invalidation path so L2 is purged together
+    /// with L1: clearing only L1 left the stale entry readable from Redis and
+    /// `get` backfilled it straight back into L1 (I-11). `SCAN` instead of
+    /// `KEYS` keeps a large keyspace from blocking the server; each page of
+    /// matches is deleted with a single variadic `DEL`.
+    ///
+    /// Returns the number of keys removed.
+    pub async fn delete_by_pattern(&self, pattern: &str) -> Result<u64, CacheError> {
+        self.with_circuit_breaker("SCAN+DEL (pattern)", |mut conn| async move {
+            let mut deleted = 0u64;
+            let mut cursor = 0u64;
+            loop {
+                let (next, keys): (u64, Vec<String>) = redis::cmd("SCAN")
+                    .arg(cursor)
+                    .arg("MATCH")
+                    .arg(pattern)
+                    .arg("COUNT")
+                    .arg(500u32)
+                    .query_async(&mut conn)
+                    .await
+                    .map_err(|e| CacheError::OperationFailed(e.to_string()))?;
+                if !keys.is_empty() {
+                    let removed: u64 = redis::cmd("DEL")
+                        .arg(&keys)
+                        .query_async(&mut conn)
+                        .await
+                        .map_err(|e| CacheError::OperationFailed(e.to_string()))?;
+                    deleted += removed;
+                }
+                if next == 0 {
+                    break;
+                }
+                cursor = next;
+            }
+            Ok(deleted)
+        })
+        .await
+    }
+
     /// Atomically acquire a distributed lock using SET NX EX.
     ///
     /// Returns `Ok(true)` if the lock was acquired (key was set);

@@ -634,6 +634,26 @@ impl CacheManager {
             }
             InvalidationType::Pattern | InvalidationType::Prefix => {
                 self.invalidate_local_pattern(key);
+                // I-11: L2 must go too. `get` backfills L1 from Redis on an L1
+                // miss, so leaving the L2 entry behind re-populated the cache
+                // with the very snapshot the caller asked to drop — for the
+                // whole TTL window, on every Redis-backed deployment.
+                if let Some(redis) = &self.redis {
+                    let glob = invalidation_glob(key, invalidation_type);
+                    if let Err(e) = redis.delete_by_pattern(&glob).await {
+                        // Not tombstoned: a tombstone is keyed on an exact key,
+                        // and the failed scan never told us which keys matched.
+                        // The entries expire with their own TTL, but this must
+                        // never disappear silently.
+                        ::tracing::warn!(
+                            target: "cache",
+                            pattern = %key,
+                            glob = %glob,
+                            error = %e,
+                            "Failed to purge cache entries from Redis by pattern; stale L2 entries remain until their TTL"
+                        );
+                    }
+                }
             }
             InvalidationType::All => {
                 self.local.cache.invalidate_all();
@@ -1230,6 +1250,21 @@ impl CacheManager {
         });
 
         Ok(decision.get())
+    }
+}
+
+/// Translates an invalidation pattern into the Redis glob that matches the same
+/// keys in L2.
+///
+/// Keys are stored verbatim in both tiers (no namespace prefix is added by the
+/// Redis backend), so the mapping mirrors [`CacheManager::invalidate_local_pattern`]:
+/// a `Prefix` invalidation is a trailing-`*` glob, and a `Pattern` without `*`
+/// uses the same "contains" semantics, expressed as `*<key>*`.
+fn invalidation_glob(key: &str, invalidation_type: InvalidationType) -> String {
+    match invalidation_type {
+        InvalidationType::Prefix => format!("{key}*"),
+        _ if key.contains('*') => key.to_owned(),
+        _ => format!("*{key}*"),
     }
 }
 
