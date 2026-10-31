@@ -193,14 +193,15 @@ interface LoginRequest {
 
 | `type` | 启用条件 | 参考部署 |
 |---|---|---|
-| `m.login.cas` | 仅看编译特性 `cas-sso`（**不看**运行时是否注册了 CAS 服务） | 出现在 `flows` 中 |
-| `m.login.sso` | 编译了 `saml-sso` / `cas-sso`，或运行时配置了外部 OIDC（`providers` 非空） | 出现在 `flows` 中（saml + cas） |
+| `m.login.cas` | 仅看编译特性 `cas-sso`（CAS 没有配置面，编进来即注册路由） | 出现在 `flows` 中 |
+| `m.login.sso` | 编译了 `cas-sso`，或编译了 `saml-sso` 且运行时 SAML 可用，或运行时配置了外部 OIDC（`providers` 非空） | 出现在 `flows` 中（cas） |
 | `m.login.oidc` | 编译时 `builtin-oidc` feature，**且**配置了内置 OIDC provider | 未配置时不出现在 `flows` |
 
 > `m.login.password` 与 `m.login.token` 在默认构建中**始终**出现在 `flows` 里。
-> ⚠️ 参考部署用 `--features all-extensions` 构建，因此 `flows` 会列出 `m.login.cas` 与
-> SAML/CAS 的 `identity_providers`，**即使运行时 SAML/CAS 尚未启用**。此时真正发起跳转
-> 会失败（SAML → 403，CAS → 500），客户端必须做降级（回退密码登录）。
+> `m.login.sso` 的 `identity_providers` 与 `GET /capabilities` 的 `m.sso.providers`
+> **同源**（`capability_governance::sso_provider_brands`）：`saml` 需要
+> `saml.enabled` **且**已配置 metadata，`oidc` 只认外部 IdP，`cas` 只看编译特性。
+> 参考部署（`--features all-extensions`，SAML 未启用）因此只列出 `cas` 一个 provider。
 > 详见 [discovery.md](./discovery.md#登录流程发现-get-login)。
 
 **错误**

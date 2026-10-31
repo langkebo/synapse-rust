@@ -570,35 +570,18 @@ pub(crate) async fn get_login_flows(State(ctx): State<AuthContext>) -> Json<Valu
         json!({"type": "m.login.token", "get_login_token": true}),
     ];
 
-    let mut sso_providers = Vec::new();
+    // SSO provider 口径的唯一真源：与 `GET /capabilities` 的 `m.sso.providers`
+    // 共用 `sso_provider_brands`。旧实现按编译特性无条件列 saml/cas、不看配置是否
+    // 真的能拉起服务，于是会出现「flows 里有 saml，但 /login/sso/redirect 返回
+    // 400/403」；现在两边同源，声明的 brand 都能落到真实路由上。
+    let brands = synapse_services::capability_governance::sso_provider_brands(&ctx.config);
 
-    // 检查 SAML SSO
-    #[cfg(feature = "saml-sso")]
-    {
-        sso_providers.push(json!({
-            "id": "saml",
-            "name": "SAML",
-            "brand": "saml"
-        }));
-    }
+    let sso_providers: Vec<Value> =
+        brands.iter().map(|brand| json!({"id": *brand, "name": brand.to_uppercase(), "brand": *brand})).collect();
 
-    // 检查 OIDC
-    if ctx.oidc_service.is_some() {
-        sso_providers.push(json!({
-            "id": "oidc",
-            "name": "OIDC",
-            "brand": "oidc"
-        }));
-    }
-
-    // 检查 CAS
-    #[cfg(feature = "cas-sso")]
-    {
-        sso_providers.push(json!({
-            "id": "cas",
-            "name": "CAS",
-            "brand": "cas"
-        }));
+    // CAS 在 Matrix 里是一条独立的登录类型（`m.login.cas`），同时也作为
+    // `m.login.sso` 的 provider 项出现；其余 brand 只挂在 `m.login.sso` 下。
+    if brands.contains(&"cas") {
         flows.push(json!({"type": "m.login.cas"}));
     }
 

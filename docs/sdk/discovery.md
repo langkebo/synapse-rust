@@ -202,7 +202,17 @@
 }
 ```
 
-- **默认构建**只返回上面两种。参考部署用 `--features all-extensions` 构建，实测返回：
+- **默认构建**只返回上面两种。`identity_providers` 与 `GET /capabilities` 的
+  `m.sso.providers` **同源**（`capability_governance::sso_provider_brands`），两边口径永远一致：
+  - `saml` —— 编译了 `saml-sso` **且**运行时 SAML 可用（`saml.enabled` 且已配置
+    `metadata_url` / `metadata_xml`，与 `SamlConfig::is_enabled()` 完全一致）；
+  - `oidc` —— 运行时配置了**外部** OIDC IdP（`oidc.enabled` + `issuer` + `client_id`）；
+  - `cas` —— 只看编译特性 `cas-sso`（CAS 没有配置面，编进来即注册路由）。
+  - 内置 OIDC provider（`builtin-oidc`）**不出现在** `identity_providers` / `m.sso.providers`，
+    它通过独立的 `m.login.oidc` 流表达（且需运行时配置了内置 provider）。
+
+- 参考部署（`--features all-extensions`，SAML 未启用、无外部 OIDC）编译了 `cas-sso`，
+  因此 `flows` 形如：
 
 ```json
 {
@@ -212,19 +222,14 @@
     { "type": "m.login.cas" },
     { "type": "m.login.sso",
       "identity_providers": [
-        { "id": "saml", "name": "SAML", "brand": "saml" },
-        { "id": "cas",  "name": "CAS",  "brand": "cas"  }
+        { "id": "cas", "name": "CAS", "brand": "cas" }
       ] }
   ]
 }
 ```
 
-- ⚠️ **`flows` 的 SSO 项由编译特性决定，不反映运行时配置**（`auth_compat.rs::get_login_flows`）：
-  - `m.login.cas` 与 SAML/CAS 的 `identity_providers` 只要编入 `cas-sso` / `saml-sso` 就出现；
-  - `m.login.oidc` 需要 `builtin-oidc` **且**配置了内置 provider（这一项才看运行时）。
-  - 因此可能出现「`flows` 有 `saml`，但点进去 `GET /login/sso/redirect/saml` 返回 403」
-    （SAML 未启用）或「`cas` provider 存在，但重定向返回 500」（CAS 未配置）。
-  - SDK 应对跳转失败做降级：403/500 时回退到密码登录，而不是崩溃。
+- provider 已按「配置启用 + 路由已编译」收敛，`identity_providers` 中每一项都应能真正
+  发起跳转；仍建议 SDK 对跳转失败（4xx/5xx）降级到密码登录，而不是崩溃。
 - 返回的 `type` 随构建特性与配置变化。
 - `m.login.application_service` **不在此列表**（与上游一致），但 `POST /login` 仍接受它。
 - 客户端应遍历 `flows` 渲染登录方式，而不是内置固定列表。

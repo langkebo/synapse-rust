@@ -271,6 +271,43 @@ pub struct CapabilityGovernance {
     route_surface: HashSet<RouteCheck>,
 }
 
+/// List the SSO provider brands clients may see in the login flows.
+///
+/// This is the **single source of truth** shared by two surfaces that used to
+/// drift apart:
+///
+/// * `GET /capabilities` → `m.sso.providers` ([`CapabilityGovernance::sso_providers`])
+/// * `GET /login` → `flows[].identity_providers`
+///   (`synapse-web/src/routes/auth_compat.rs::get_login_flows`)
+///
+/// 判据 = 「配置启用」**且**「承载该 provider 的路由确实编译进来了」，与
+/// `CapabilityGovernance::manifest_has_route` 一族同一条不变量：声明的每个 brand
+/// 都必须能落到真实路由上，否则客户端按 brand 拼 URL 只会拿到 404
+/// （BE-01 同类——`m.voice` 曾无条件 `true` 而 `/_matrix/vendor/v1/voice/*` 全 404）。
+///
+/// * `saml` —— 25 条路由只在 `saml-sso` feature 下注册；且配置必须真的能拉起
+///   SAML 服务，判据与 `SamlConfig::is_enabled()`（`enabled` + metadata）以及
+///   `/login/sso/redirect` 逐字一致。
+/// * `oidc` —— 只认**外部** OIDC IdP（`config.oidc.is_enabled()`）。外部 OIDC 的
+///   `/login/sso/redirect`、`/oidc/callback` 恒注册，故无需 feature 门控。
+///   内置 provider（`builtin-oidc`）**不进**这里：它有自己的 `m.login.oidc` 流与
+///   `POST /_matrix/client/v3/oidc/login`，`/login/sso/redirect` 并不服务它。
+/// * `cas` —— 无配置面，只要编入 `cas-sso` 即注册路由（并有独立的 `m.login.cas` 流）。
+pub fn sso_provider_brands(config: &Config) -> Vec<&'static str> {
+    let mut brands = Vec::new();
+    if cfg!(feature = "saml-sso") && config.saml.is_enabled() {
+        brands.push("saml");
+    }
+    if config.oidc.is_enabled() {
+        brands.push("oidc");
+    }
+    #[cfg(feature = "cas-sso")]
+    {
+        brands.push("cas");
+    }
+    brands
+}
+
 impl CapabilityGovernance {
     /// See [`new`].
     pub fn new(config: &Config, route_surface: Vec<RouteCheck>) -> Self {
@@ -566,23 +603,10 @@ impl CapabilityGovernance {
     /// List the SSO provider brands that should be declared in `m.sso.providers`.
     ///
     /// Returns a list of brand strings (e.g. `"saml"`, `"oidc"`) that clients
-    /// use to render login buttons. The list is purely config-driven.
+    /// use to render login buttons. Delegates to [`sso_provider_brands`] so that
+    /// `GET /capabilities` and `GET /login` can never declare different sets.
     pub fn sso_providers(&self) -> Vec<&'static str> {
-        let mut providers = Vec::new();
-        if self.config.saml.enabled {
-            providers.push("saml");
-        }
-        // OIDC (external IdP or builtin provider) is treated as an SSO provider
-        // for the `m.sso.providers` capability surface. Synapse exposes the same
-        // `oidc` brand when an external OIDC IdP is configured; we mirror that.
-        if self.config.oidc.is_enabled() || self.config.builtin_oidc.is_enabled() {
-            providers.push("oidc");
-        }
-        #[cfg(feature = "cas-sso")]
-        {
-            providers.push("cas");
-        }
-        providers
+        sso_provider_brands(&self.config)
     }
 
     fn build_capabilities_unstable_features(&self) -> Value {
@@ -1070,13 +1094,41 @@ mod tests {
         assert!(providers.is_empty(), "default config should have no SSO providers");
     }
 
+    /// SAML brand 必须同时满足「配置启用」与「路由已编译」。
+    ///
+    /// 反证：此前只看 `config.saml.enabled`，于是 `saml-sso` 未编译的构建
+    /// （例如 `ENABLED_EXTENSIONS=friends,burn-after-read`）一旦配置里写了
+    /// `saml.enabled = true`，`/capabilities.m.sso.providers` 会声明 `saml`，
+    /// 而 25 条 saml 路由全部 `404 M_UNRECOGNIZED`（BE-01 同类）。
+    ///
+    /// 另外 `enabled` 单独为真也不够：`SamlConfig::is_enabled()` 还要求 metadata
+    /// （`metadata_url` / `metadata_xml`），`/login/sso/redirect` 用的正是后者，
+    /// 两边必须逐字一致，否则会出现「声明了 saml 但重定向 400」。
     #[test]
-    fn test_sso_providers_includes_saml_when_enabled() {
-        let mut config = Config::default();
-        config.saml.enabled = true;
-        let g = CapabilityGovernance::new(&config, vec![]);
-        let providers = g.sso_providers();
-        assert!(providers.contains(&"saml"), "enabled SAML should appear as an SSO provider");
+    fn test_sso_providers_saml_requires_both_config_and_compiled_routes() {
+        let mut enabled_config = Config::default();
+        enabled_config.saml.enabled = true;
+        enabled_config.saml.metadata_url = Some("https://idp.example.com/metadata".to_string());
+        let enabled_governance = CapabilityGovernance::new(&enabled_config, vec![]);
+        assert_eq!(
+            enabled_governance.sso_providers().contains(&"saml"),
+            cfg!(feature = "saml-sso"),
+            "saml brand must follow the saml-sso compile gate, not the config flag alone"
+        );
+
+        // `enabled = true` 但没有 metadata：`is_enabled()` 为 false，任何构建都不得声明。
+        let mut missing_metadata = Config::default();
+        missing_metadata.saml.enabled = true;
+        assert!(
+            !CapabilityGovernance::new(&missing_metadata, vec![]).sso_providers().contains(&"saml"),
+            "saml without metadata is not a runnable provider and must never be declared"
+        );
+
+        let disabled_config = Config::default();
+        assert!(
+            !CapabilityGovernance::new(&disabled_config, vec![]).sso_providers().contains(&"saml"),
+            "saml disabled in config must never be declared"
+        );
     }
 
     #[test]
@@ -1100,6 +1152,9 @@ mod tests {
         );
 
         // Simulate builtin OIDC enabled (without external OIDC).
+        // 内置 provider **不进** `m.sso.providers`：`/login/sso/redirect` 不服务它，
+        // 它通过独立的 `m.login.oidc` 流 + `POST /_matrix/client/v3/oidc/login` 表达。
+        // 因此不论 `builtin-oidc` 是否编译，这里都不应出现 `oidc` brand。
         let mut config2 = Config::default();
         config2.builtin_oidc.enabled = true;
         config2.builtin_oidc.issuer = "https://hs.example.com".to_string();
@@ -1112,8 +1167,8 @@ mod tests {
             displayname: Some("Alice".to_string()),
         });
         assert!(
-            governance_with_routes(&config2, vec![]).sso_providers().contains(&"oidc"),
-            "enabled builtin OIDC should appear as an sso provider"
+            !governance_with_routes(&config2, vec![]).sso_providers().contains(&"oidc"),
+            "builtin OIDC must not be declared in m.sso.providers; it has its own m.login.oidc flow"
         );
     }
 
@@ -1179,13 +1234,21 @@ mod tests {
     fn test_capabilities_authenticated_surface_tracks_config_and_feature_flags() {
         let mut config = Config::default();
         config.saml.enabled = true;
+        // `SamlConfig::is_enabled()` 还要求 metadata，`/login/sso/redirect` 同判据。
+        config.saml.metadata_url = Some("https://idp.example.com/metadata".to_string());
 
         let g = governance_with_full_routes(&config);
         let body = g.build_capabilities_response(true);
         let capabilities = body["capabilities"].as_object().expect("capabilities should be an object");
 
         assert_eq!(capabilities["m.sso"]["enabled"], g.sso_capability().enabled());
-        assert_eq!(capabilities["m.sso"]["providers"][0], "saml");
+        // saml 只有在 `saml-sso` 编译进来的构建里才会出现在 providers 中：声明
+        // 的 brand 必须能落到真实路由上（BE-01 同类不变量）。
+        let declared_providers = capabilities["m.sso"]["providers"].as_array().expect("providers should be an array");
+        assert_eq!(
+            declared_providers.contains(&serde_json::Value::String("saml".to_string())),
+            cfg!(feature = "saml-sso")
+        );
         assert_eq!(capabilities["io.hula.friends"], g.friends_capability().enabled());
         assert_eq!(capabilities["external_services"]["enabled"], g.external_services_capability().enabled());
         assert_eq!(capabilities["io.hula.voice_extended"]["enabled"], g.voice_extended_capability().enabled());
