@@ -136,6 +136,64 @@ fn is_same_origin_path(url: &str) -> bool {
     url.starts_with('/') && !url.starts_with("//") && !url.contains('\\') && !url.bytes().any(|b| b < 0x20 || b == 0x7f)
 }
 
+/// Matrix 客户端 CAS 回调路径，`service` 只允许指向它，避免登录页被当成开放跳板。
+const MATRIX_CAS_CALLBACK_PATH: &str = "/_matrix/client/v3/login/sso/redirect/cas/callback";
+
+fn matrix_cas_service(redirect_after: &str) -> String {
+    format!("{MATRIX_CAS_CALLBACK_PATH}?redirect_after={}", urlencoding::encode(redirect_after))
+}
+
+fn is_matrix_cas_service(service: &str) -> bool {
+    let prefix = format!("{MATRIX_CAS_CALLBACK_PATH}?redirect_after=");
+    if !service.starts_with(&prefix) || service.len() <= prefix.len() {
+        return false;
+    }
+    // 原始字节层面不允许控制字符与反斜杠。
+    if service.bytes().any(|b| b < 0x20 || b == 0x7f || b == b'\\') {
+        return false;
+    }
+    // 百分号编码后的控制字符 / 反斜杠解码后会破坏重定向语义，同样拒绝。
+    let bytes = service[prefix.len()..].as_bytes();
+    let mut i = 0;
+    while i + 2 < bytes.len() {
+        if bytes[i] == b'%' {
+            if let (Some(hi), Some(lo)) = (hex_value(bytes[i + 1]), hex_value(bytes[i + 2])) {
+                let value = hi * 16 + lo;
+                if value < 0x20 || value == 0x7f || value == b'\\' {
+                    return false;
+                }
+                i += 3;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    true
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn append_ticket(service: &str, ticket: &str) -> String {
+    let sep = if service.contains('?') { '&' } else { '?' };
+    format!("{service}{sep}ticket={}", urlencoding::encode(ticket))
+}
+
+fn build_client_redirect(redirect_after: &str, login_token: &str) -> String {
+    let sep = if redirect_after.contains('?') { '&' } else { '?' };
+    format!("{redirect_after}{sep}loginToken={}", urlencoding::encode(login_token))
+}
+
+fn escape_html(value: &str) -> String {
+    value.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&#39;")
+}
+
 async fn cas_sso_redirect(
     State(ctx): State<SsoContext>,
     MatrixQuery(params): MatrixQuery<SsoRedirectQuery>,
@@ -513,5 +571,41 @@ mod tests {
         // Control characters would let the value escape its query slot.
         assert!(!is_same_origin_path("/ok\r\nLocation: https://evil.example"));
         assert!(!is_same_origin_path("/ok\u{7f}"));
+    }
+}
+
+#[cfg(test)]
+mod cas_login_tests {
+    use super::*;
+
+    #[test]
+    fn matrix_cas_service_round_trips_redirect_after() {
+        let service = matrix_cas_service("/");
+        assert_eq!(service, "/_matrix/client/v3/login/sso/redirect/cas/callback?redirect_after=%2F");
+        assert!(is_matrix_cas_service(&service));
+    }
+
+    #[test]
+    fn rejects_foreign_service_urls() {
+        assert!(!is_matrix_cas_service("https://evil.example/callback"));
+        assert!(!is_matrix_cas_service("/other/path?redirect_after=%2F"));
+        assert!(!is_matrix_cas_service("/_matrix/client/v3/login/sso/redirect/cas/callback?redirect_after=%2F%0D"));
+    }
+
+    #[test]
+    fn append_ticket_respects_existing_query() {
+        assert_eq!(append_ticket("/callback?redirect_after=%2F", "ST-1"), "/callback?redirect_after=%2F&ticket=ST-1");
+        assert_eq!(append_ticket("/callback", "ST-1"), "/callback?ticket=ST-1");
+    }
+
+    #[test]
+    fn build_client_redirect_appends_login_token() {
+        assert_eq!(build_client_redirect("/", "tok"), "/?loginToken=tok");
+        assert_eq!(build_client_redirect("/home?tab=a", "tok"), "/home?tab=a&loginToken=tok");
+    }
+
+    #[test]
+    fn escape_html_escapes_dangerous_characters() {
+        assert_eq!(escape_html(r#"<a href="x">&'"#), "&lt;a href=&quot;x&quot;&gt;&amp;&#39;");
     }
 }
