@@ -137,12 +137,15 @@ fn is_same_origin_path(url: &str) -> bool {
 }
 
 /// Matrix 客户端 CAS 回调路径，`service` 只允许指向它，避免登录页被当成开放跳板。
+#[allow(dead_code, reason = "仅在后续 CAS 路由任务中被调用")]
 const MATRIX_CAS_CALLBACK_PATH: &str = "/_matrix/client/v3/login/sso/redirect/cas/callback";
 
+#[allow(dead_code, reason = "仅在后续 CAS 路由任务中被调用")]
 fn matrix_cas_service(redirect_after: &str) -> String {
     format!("{MATRIX_CAS_CALLBACK_PATH}?redirect_after={}", urlencoding::encode(redirect_after))
 }
 
+#[allow(dead_code, reason = "仅在后续 CAS 路由任务中被调用")]
 fn is_matrix_cas_service(service: &str) -> bool {
     let prefix = format!("{MATRIX_CAS_CALLBACK_PATH}?redirect_after=");
     if !service.starts_with(&prefix) || service.len() <= prefix.len() {
@@ -153,7 +156,7 @@ fn is_matrix_cas_service(service: &str) -> bool {
         return false;
     }
     // 百分号编码后的控制字符 / 反斜杠解码后会破坏重定向语义，同样拒绝。
-    let bytes = service[prefix.len()..].as_bytes();
+    let bytes = &service.as_bytes()[prefix.len()..];
     let mut i = 0;
     while i + 2 < bytes.len() {
         if bytes[i] == b'%' {
@@ -171,6 +174,7 @@ fn is_matrix_cas_service(service: &str) -> bool {
     true
 }
 
+#[allow(dead_code, reason = "仅在后续 CAS 路由任务中被调用")]
 fn hex_value(byte: u8) -> Option<u8> {
     match byte {
         b'0'..=b'9' => Some(byte - b'0'),
@@ -180,16 +184,19 @@ fn hex_value(byte: u8) -> Option<u8> {
     }
 }
 
+#[allow(dead_code, reason = "仅在后续 CAS 路由任务中被调用")]
 fn append_ticket(service: &str, ticket: &str) -> String {
     let sep = if service.contains('?') { '&' } else { '?' };
     format!("{service}{sep}ticket={}", urlencoding::encode(ticket))
 }
 
+#[allow(dead_code, reason = "仅在后续 CAS 路由任务中被调用")]
 fn build_client_redirect(redirect_after: &str, login_token: &str) -> String {
     let sep = if redirect_after.contains('?') { '&' } else { '?' };
     format!("{redirect_after}{sep}loginToken={}", urlencoding::encode(login_token))
 }
 
+#[allow(dead_code, reason = "仅在后续 CAS 路由任务中被调用")]
 fn escape_html(value: &str) -> String {
     value.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&#39;")
 }
