@@ -215,8 +215,13 @@ async fn cas_sso_redirect(
             return Err(ApiError::invalid_param("redirect_after must be a same-origin path"));
         }
 
-        let redirect_url = format!("/login?service={}", urlencoding::encode(redirect));
-        return Ok((StatusCode::FOUND, [(header::LOCATION, redirect_url)]).into_response());
+        // Hand the browser to the built-in CAS login page, with the Matrix
+        // callback (carrying the validated `redirect_after`) as `service`.
+        // The login page only accepts this callback path as `service`, so the
+        // endpoint cannot be turned into an open redirect via `service`.
+        let service = matrix_cas_service(redirect);
+        let location = format!("/_synapse/cas/login?service={}", urlencoding::encode(&service));
+        return Ok((StatusCode::FOUND, [(header::LOCATION, location)]).into_response());
     }
     Err(ApiError::bad_request("CAS SSO is not configured".to_string()))
 }

@@ -663,18 +663,39 @@ pub(crate) async fn login(
             .await?
             .ok_or_else(|| ApiError::forbidden("Invalid or expired login token".to_string()))?;
 
-        let device_id = body.get("device_id").and_then(|v| v.as_str()).unwrap_or("QR_LOGIN_DEVICE");
+        // The login token may not name a device (the CAS callback mints one with
+        // `device_id: None`), so fall back to a fresh id rather than a constant.
+        // `devices.device_id` is a global primary key, so a constant would make
+        // the second user's token exchange collide with the first user's row.
+        let device_id = body
+            .get("device_id")
+            .and_then(|v| v.as_str())
+            .map_or_else(synapse_common::generate_device_id, str::to_owned);
+
+        // `access_tokens.device_id` / `refresh_token_families.device_id` carry a
+        // FK to `devices(device_id)`. The password and application-service flows
+        // materialise the row before issuing tokens; this flow must do the same
+        // or the insert fails with `fk_access_tokens_device`.
+        match ctx.account_device_list_service.get_device(&device_id).await? {
+            Some(device) if device.user_id != user_id => {
+                return Err(ApiError::forbidden("Device belongs to another user".to_string()));
+            }
+            Some(_) => {}
+            None => {
+                ctx.account_device_list_service.create_device(&device_id, &user_id, None).await?;
+            }
+        }
 
         // Generate a new access token for the new device
         let access_token = ctx
             .token_auth
-            .generate_access_token(&user_id, device_id, false)
+            .generate_access_token(&user_id, &device_id, false)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to generate access token", e))?;
 
         let refresh_token = ctx
             .token_auth
-            .generate_refresh_token(&user_id, device_id, &access_token)
+            .generate_refresh_token(&user_id, &device_id, &access_token)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to generate refresh token", e))?;
 
@@ -682,7 +703,7 @@ pub(crate) async fn login(
             &access_token,
             &refresh_token,
             ctx.token_auth.token_expiry(),
-            device_id,
+            &device_id,
             &user_id,
             &ctx.config.server.get_public_baseurl(),
         )));
