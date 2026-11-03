@@ -1074,10 +1074,11 @@ async fn test_verify_user_credentials_no_password_hash_returns_forbidden() {
 }
 
 // ============================================================================
-// get_or_create_device_id (login.rs:208) — device ID 创建/复用，0 覆盖
+// get_or_create_device_id (login.rs) — 密码登录的设备落地与归属校验
 //
-// 关键安全检查：device_id 复用时必须验证归属（同 user 才放行），否则攻击者
-// 可指定他人 device_id 接管其 device 流。
+// 判定逻辑已收敛到 AccountDeviceListService::get_or_create_device（详见
+// account_device_list_service 单测）。这里保留端到端断言：跨用户 device_id
+// 必须 403，否则攻击者可指定他人 device_id 接管其 device 流。
 // ============================================================================
 
 #[tokio::test]

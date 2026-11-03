@@ -664,27 +664,14 @@ pub(crate) async fn login(
             .ok_or_else(|| ApiError::forbidden("Invalid or expired login token".to_string()))?;
 
         // The login token may not name a device (the CAS callback mints one with
-        // `device_id: None`), so fall back to a fresh id rather than a constant.
-        // `devices.device_id` is a global primary key, so a constant would make
-        // the second user's token exchange collide with the first user's row.
-        let device_id = body
-            .get("device_id")
-            .and_then(|v| v.as_str())
-            .map_or_else(synapse_common::generate_device_id, str::to_owned);
-
-        // `access_tokens.device_id` / `refresh_token_families.device_id` carry a
-        // FK to `devices(device_id)`. The password and application-service flows
-        // materialise the row before issuing tokens; this flow must do the same
-        // or the insert fails with `fk_access_tokens_device`.
-        match ctx.account_device_list_service.get_device(&device_id).await? {
-            Some(device) if device.user_id != user_id => {
-                return Err(ApiError::forbidden("Device belongs to another user".to_string()));
-            }
-            Some(_) => {}
-            None => {
-                ctx.account_device_list_service.create_device(&device_id, &user_id, None).await?;
-            }
-        }
+        // `device_id: None`), so the service generates a fresh id. It also
+        // materialises the `devices` row required by the `access_tokens.device_id`
+        // / `refresh_token_families.device_id` foreign keys and rejects an id
+        // owned by another account.
+        let device_id = ctx
+            .account_device_list_service
+            .get_or_create_device(body.get("device_id").and_then(|v| v.as_str()), &user_id, None)
+            .await?;
 
         // Generate a new access token for the new device
         let access_token = ctx

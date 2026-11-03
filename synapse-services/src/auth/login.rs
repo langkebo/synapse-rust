@@ -1,4 +1,3 @@
-use super::auth_generate_token;
 use super::AuthService;
 use std::sync::Arc;
 use synapse_common::crypto::hash_password_with_params;
@@ -224,6 +223,12 @@ impl AuthService {
     }
 
     /// See [`get_or_create_device_id`].
+    ///
+    /// The device resolution + ownership check lives in
+    /// [`AccountDeviceListService::get_or_create_device`](crate::account_device_list_service::AccountDeviceListService::get_or_create_device)
+    /// so the password and `m.login.token` flows share one copy of the security
+    /// decision. `validate_device_display_name` stays here because it must run
+    /// before any device row is written.
     pub(crate) async fn get_or_create_device_id(
         &self,
         device_id: Option<&str>,
@@ -232,28 +237,9 @@ impl AuthService {
     ) -> ApiResult<String> {
         Self::validate_device_display_name(initial_display_name)?;
 
-        let device_id = match device_id {
-            Some(d) => d.to_string(),
-            _ => auth_generate_token(16),
-        };
-
-        if let Some(existing_device) = self
-            .device_storage
-            .get_device_by_id(&device_id)
+        crate::account_device_list_service::AccountDeviceListService::new(self.device_storage.clone())
+            .get_or_create_device(device_id, &user.user_id, initial_display_name)
             .await
-            .map_err(|e| ApiError::internal_with_cause("Database error", e))?
-        {
-            if existing_device.user_id != user.user_id {
-                return Err(ApiError::forbidden("Device ID already belongs to a different user".to_string()));
-            }
-        } else {
-            self.device_storage
-                .create_device(&device_id, &user.user_id, initial_display_name)
-                .await
-                .map_err(|e| ApiError::internal_with_cause("Failed to create device", e))?;
-        }
-
-        Ok(device_id)
     }
 
     /// 校验 `initial_device_display_name` 的长度上限。

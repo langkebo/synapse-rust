@@ -74,6 +74,39 @@ impl AccountDeviceListService {
             .map_err(|e| ApiError::internal_with_cause("Failed to create device", e))
     }
 
+    /// Resolve the device id a login should use, creating the `devices` row when absent.
+    ///
+    /// `device_id` comes from the request body, so it is caller-controlled.
+    /// `devices.device_id` is a **global** primary key and `access_tokens.device_id` /
+    /// `refresh_token_families.device_id` reference it, so:
+    /// - an absent or blank id is replaced with a generated one (an empty PK row
+    ///   would otherwise be created);
+    /// - an id already owned by a different account is rejected instead of reused,
+    ///   which would let the caller take over someone else's device.
+    pub async fn get_or_create_device(
+        &self,
+        device_id: Option<&str>,
+        user_id: &str,
+        initial_display_name: Option<&str>,
+    ) -> Result<String, ApiError> {
+        let device_id = match device_id {
+            Some(id) if !id.trim().is_empty() => id.to_string(),
+            _ => synapse_common::generate_device_id(),
+        };
+
+        match self.get_device(&device_id).await? {
+            Some(existing) if existing.user_id != user_id => {
+                return Err(ApiError::forbidden("Device ID already belongs to a different user"));
+            }
+            Some(_) => {}
+            None => {
+                self.create_device(&device_id, user_id, initial_display_name).await?;
+            }
+        }
+
+        Ok(device_id)
+    }
+
     /// See [`delete_device`].
     pub async fn delete_device(&self, device_id: &str) -> Result<(), ApiError> {
         self.device_storage
@@ -280,6 +313,64 @@ mod tests {
         let svc = test_service();
         let device = svc.create_device("DEV2", "@bob:example.com", None).await.unwrap();
         assert!(device.display_name.is_none());
+    }
+
+    #[tokio::test]
+    async fn get_or_create_device_generates_and_creates_when_absent() {
+        let svc = test_service();
+        let device_id = svc.get_or_create_device(None, "@alice:example.com", None).await.unwrap();
+        assert!(!device_id.trim().is_empty(), "absent device_id must be generated");
+        let device = svc.get_device(&device_id).await.unwrap().expect("generated device row must exist");
+        assert_eq!(device.user_id, "@alice:example.com");
+    }
+
+    #[tokio::test]
+    async fn get_or_create_device_generates_for_blank_device_id() {
+        let svc = test_service();
+        for blank in ["", "   "] {
+            let device_id = svc.get_or_create_device(Some(blank), "@alice:example.com", None).await.unwrap();
+            assert!(!device_id.trim().is_empty(), "blank device_id {blank:?} must be replaced");
+            let device = svc.get_device(&device_id).await.unwrap().expect("generated device row must exist");
+            assert_eq!(device.user_id, "@alice:example.com");
+        }
+        assert!(svc.get_device("").await.unwrap().is_none(), "no empty-PK device row may be created");
+        assert_eq!(svc.get_user_devices("@alice:example.com").await.unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn get_or_create_device_reuses_existing_row_for_same_user() {
+        let svc = test_service();
+        svc.create_device("DEVREUSE", "@alice:example.com", Some("Old")).await.unwrap();
+
+        let device_id = svc.get_or_create_device(Some("DEVREUSE"), "@alice:example.com", Some("New")).await.unwrap();
+
+        assert_eq!(device_id, "DEVREUSE");
+        let devices = svc.get_user_devices("@alice:example.com").await.unwrap();
+        assert_eq!(devices.len(), 1, "an existing device must not be inserted twice");
+        assert_eq!(devices[0].display_name.as_deref(), Some("Old"), "reuse must not overwrite the row");
+    }
+
+    #[tokio::test]
+    async fn get_or_create_device_rejects_device_id_of_another_user() {
+        let svc = test_service();
+        svc.create_device("BOBDEV", "@bob:example.com", Some("Bob Phone")).await.unwrap();
+
+        let err = svc.get_or_create_device(Some("BOBDEV"), "@alice:example.com", None).await.unwrap_err();
+
+        assert_eq!(err.kind, synapse_common::ApiErrorKind::Forbidden, "cross-user device_id must be 403");
+        let unchanged = svc.get_device("BOBDEV").await.unwrap().expect("bob's device must remain");
+        assert_eq!(unchanged.user_id, "@bob:example.com");
+        assert_eq!(unchanged.display_name.as_deref(), Some("Bob Phone"), "rejected call must not mutate the row");
+    }
+
+    #[tokio::test]
+    async fn get_or_create_device_persists_initial_display_name() {
+        let svc = test_service();
+        let device_id =
+            svc.get_or_create_device(Some("DEVNEW"), "@alice:example.com", Some("Alice Phone")).await.unwrap();
+        assert_eq!(device_id, "DEVNEW");
+        let device = svc.get_device("DEVNEW").await.unwrap().unwrap();
+        assert_eq!(device.display_name.as_deref(), Some("Alice Phone"));
     }
 
     #[tokio::test]
