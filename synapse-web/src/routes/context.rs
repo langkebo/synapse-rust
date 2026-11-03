@@ -932,6 +932,8 @@ pub struct SsoContext {
     pub admin_audit_service: Option<Arc<synapse_services::admin::AdminAuditService>>,
     /// The `refresh_token_service` field.
     pub refresh_token_service: Arc<synapse_services::refresh_token_service::RefreshTokenService>,
+    /// The `login_token_service` field.
+    pub login_token_service: Arc<synapse_services::login_token_service::LoginTokenService>,
 }
 
 impl FromRef<AppState> for SsoContext {
@@ -962,6 +964,7 @@ impl FromRef<AppState> for SsoContext {
             builtin_oidc_provider: None,
             admin_audit_service: state.services.admin.security.admin_audit_service.clone().into(),
             refresh_token_service: state.services.admin.user.refresh_token_service.clone(),
+            login_token_service: state.services.admin.modules.login_token_service.clone(),
         }
     }
 }
@@ -1034,5 +1037,19 @@ pub struct OneTimeInviteContext {
 impl FromRef<AppState> for OneTimeInviteContext {
     fn from_ref(state: &AppState) -> Self {
         Self { one_time_invite_service: state.services.extensions.one_time_invite_service.clone() }
+    }
+}
+
+#[cfg(test)]
+mod sso_context_tests {
+    use super::SsoContext;
+    use std::sync::Arc;
+
+    #[test]
+    fn sso_context_exposes_login_token_service() {
+        fn assert_field(ctx: &SsoContext) -> &Arc<synapse_services::login_token_service::LoginTokenService> {
+            &ctx.login_token_service
+        }
+        let _asserted: fn(&SsoContext) -> &Arc<synapse_services::login_token_service::LoginTokenService> = assert_field;
     }
 }
