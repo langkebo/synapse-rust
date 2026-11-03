@@ -113,6 +113,7 @@ GET /_synapse/admin/v1/saml/config	middleware	admin surface: route_layer admin_a
 GET /_synapse/admin/v1/saml/mapping/{name_id}	middleware	admin surface: route_layer admin_auth_middleware
 GET /_synapse/admin/v1/saml/mappings	middleware	admin surface: route_layer admin_auth_middleware
 GET /_synapse/cas/login	public	CAS protocol endpoint hit by the IdP/browser (no access token)
+POST /_synapse/cas/login	public	CAS login form submit; validates matrix username/password in-handler, no access token exists yet
 GET /_synapse/cas/logout	public	CAS protocol endpoint hit by the IdP/browser (no access token)
 GET /_synapse/cas/p3/serviceValidate	public	CAS protocol endpoint hit by the IdP/browser (no access token)
 GET /_synapse/cas/proxy	public	CAS protocol endpoint hit by the IdP/browser (no access token)

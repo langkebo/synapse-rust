@@ -10,12 +10,11 @@ use axum::{
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{delete, get, post},
-    Json, Router,
+    Form, Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use synapse_common::ApiError;
 use synapse_services::cas_service::{CasRegisteredService, CasValidationResponse, RegisterServiceRequest};
-use url::form_urlencoded;
 
 /// CAS 配置检查中间件
 async fn cas_config_check_middleware(
@@ -137,7 +136,6 @@ fn is_same_origin_path(url: &str) -> bool {
 }
 
 /// Matrix 客户端 CAS 回调路径，`service` 只允许指向它，避免登录页被当成开放跳板。
-#[allow(dead_code, reason = "仅在后续 CAS 路由任务中被调用")]
 const MATRIX_CAS_CALLBACK_PATH: &str = "/_matrix/client/v3/login/sso/redirect/cas/callback";
 
 #[allow(dead_code, reason = "仅在后续 CAS 路由任务中被调用")]
@@ -145,7 +143,6 @@ fn matrix_cas_service(redirect_after: &str) -> String {
     format!("{MATRIX_CAS_CALLBACK_PATH}?redirect_after={}", urlencoding::encode(redirect_after))
 }
 
-#[allow(dead_code, reason = "仅在后续 CAS 路由任务中被调用")]
 fn is_matrix_cas_service(service: &str) -> bool {
     let prefix = format!("{MATRIX_CAS_CALLBACK_PATH}?redirect_after=");
     if !service.starts_with(&prefix) || service.len() <= prefix.len() {
@@ -174,7 +171,6 @@ fn is_matrix_cas_service(service: &str) -> bool {
     true
 }
 
-#[allow(dead_code, reason = "仅在后续 CAS 路由任务中被调用")]
 fn hex_value(byte: u8) -> Option<u8> {
     match byte {
         b'0'..=b'9' => Some(byte - b'0'),
@@ -184,7 +180,6 @@ fn hex_value(byte: u8) -> Option<u8> {
     }
 }
 
-#[allow(dead_code, reason = "仅在后续 CAS 路由任务中被调用")]
 fn append_ticket(service: &str, ticket: &str) -> String {
     let sep = if service.contains('?') { '&' } else { '?' };
     format!("{service}{sep}ticket={}", urlencoding::encode(ticket))
@@ -196,7 +191,6 @@ fn build_client_redirect(redirect_after: &str, login_token: &str) -> String {
     format!("{redirect_after}{sep}loginToken={}", urlencoding::encode(login_token))
 }
 
-#[allow(dead_code, reason = "仅在后续 CAS 路由任务中被调用")]
 fn escape_html(value: &str) -> String {
     value.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&#39;")
 }
@@ -239,7 +233,7 @@ pub fn cas_routes(state: AppState) -> Router<AppState> {
     // CAS 协议端点（模拟 CAS server 的协议面）统一收敛到 /_synapse/cas 命名空间下，
     // 避免占用根级路径（/login、/logout 等易与 Matrix 标准端点冲突）。
     let cas_protocol_routes = Router::new()
-        .route("/login", get(login_redirect))
+        .route("/login", get(cas_login_page).post(cas_login_submit))
         .route("/serviceValidate", get(service_validate))
         .route("/proxyValidate", get(proxy_validate))
         .route("/proxy", get(proxy))
@@ -270,21 +264,97 @@ pub fn cas_routes(state: AppState) -> Router<AppState> {
     public_routes.merge(standard_admin_routes).with_state(state)
 }
 
-async fn login_redirect(
-    State(ctx): State<SsoContext>,
+#[derive(Debug, Deserialize)]
+struct CasLoginForm {
+    service: String,
+    username: String,
+    password: String,
+}
+
+fn html_response(status: StatusCode, body: String) -> Response {
+    (status, [(header::CONTENT_TYPE, "text/html; charset=utf-8"), (header::CACHE_CONTROL, "no-store")], body)
+        .into_response()
+}
+
+fn render_login_page(service: &str, error: Option<&str>) -> String {
+    let service = escape_html(service);
+    let error = error.map_or_else(String::new, |msg| format!(r#"<p class="error">{}</p>"#, escape_html(msg)));
+    format!(
+        r#"<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CAS 登录</title>
+<style>
+:root{{color-scheme:light dark}}
+body{{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f5f6f8;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}}
+.card{{width:320px;padding:28px 24px;border-radius:12px;background:#fff;box-shadow:0 8px 24px rgba(0,0,0,.08)}}
+h1{{margin:0 0 8px;font-size:20px}}
+p.sub{{margin:0 0 20px;color:#666;font-size:13px}}
+label{{display:block;margin:14px 0 6px;font-size:13px;color:#333}}
+input{{width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #d9d9d9;border-radius:8px;font-size:14px}}
+button{{width:100%;margin-top:20px;padding:11px;border:0;border-radius:8px;background:#5b6cff;color:#fff;font-size:15px;cursor:pointer}}
+.error{{margin:0 0 12px;color:#d03050;font-size:13px}}
+</style></head>
+<body><main class="card">
+<h1>统一身份认证</h1>
+<p class="sub">使用矩阵账号登录以继续</p>
+{error}
+<form method="post" action="/_synapse/cas/login">
+<input type="hidden" name="service" value="{service}">
+<label for="username">用户名</label>
+<input id="username" name="username" autocomplete="username" required>
+<label for="password">密码</label>
+<input id="password" name="password" type="password" autocomplete="current-password" required>
+<button type="submit">登录</button>
+</form>
+</main></body></html>"#
+    )
+}
+
+async fn cas_login_page(
+    State(_ctx): State<SsoContext>,
     MatrixQuery(query): MatrixQuery<ServiceTicketQuery>,
-) -> Result<impl IntoResponse, ApiError> {
-    let _service = ctx.cas_service.get_service_by_url(&query.service).await?;
+) -> Result<Response, ApiError> {
+    if !is_matrix_cas_service(&query.service) {
+        return Err(ApiError::invalid_param("service must be the Matrix CAS callback path"));
+    }
+    Ok(html_response(StatusCode::OK, render_login_page(&query.service, None)))
+}
 
-    let encoded_service: String = form_urlencoded::byte_serialize(query.service.as_bytes()).collect();
+async fn cas_login_submit(State(ctx): State<SsoContext>, Form(form): Form<CasLoginForm>) -> Result<Response, ApiError> {
+    if !is_matrix_cas_service(&form.service) {
+        return Err(ApiError::invalid_param("service must be the Matrix CAS callback path"));
+    }
+    if form.username.trim().is_empty() || form.password.is_empty() {
+        return Ok(html_response(
+            StatusCode::UNAUTHORIZED,
+            render_login_page(&form.service, Some("请输入用户名和密码")),
+        ));
+    }
 
-    Ok((
-        StatusCode::FOUND,
-        [(header::LOCATION, format!("/cas/login?service={}", encoded_service))],
-        Json(serde_json::json!({
-            "redirect_url": format!("/cas/login?service={}", encoded_service)
-        })),
-    ))
+    let user = match ctx.account_identity_service.get_user_by_identifier(form.username.trim()).await? {
+        Some(user) => user,
+        None => {
+            return Ok(html_response(
+                StatusCode::UNAUTHORIZED,
+                render_login_page(&form.service, Some("用户名或密码错误")),
+            ))
+        }
+    };
+    let user_id = user.user_id();
+
+    if let Err(err) = ctx.credential_auth.verify_user_credentials(&user_id, &form.password).await {
+        if err.is_forbidden() || err.is_unauthorized() || err.is_bad_request() {
+            return Ok(html_response(
+                StatusCode::UNAUTHORIZED,
+                render_login_page(&form.service, Some("用户名或密码错误")),
+            ));
+        }
+        return Err(err);
+    }
+
+    let ticket = ctx.cas_service.create_service_ticket(&user_id, &form.service).await?;
+    let location = append_ticket(&form.service, &ticket.ticket_id);
+    Ok((StatusCode::FOUND, [(header::LOCATION, location)]).into_response())
 }
 
 async fn service_validate(
@@ -614,5 +684,22 @@ mod cas_login_tests {
     #[test]
     fn escape_html_escapes_dangerous_characters() {
         assert_eq!(escape_html(r#"<a href="x">&'"#), "&lt;a href=&quot;x&quot;&gt;&amp;&#39;");
+    }
+
+    #[test]
+    fn render_login_page_escapes_service_and_error() {
+        let html = render_login_page(r#"/callback?redirect_after=%2F" onfocus="alert(1)"#, Some("<script>"));
+        assert!(html.contains("name=\"service\""));
+        assert!(!html.contains(r#"onfocus="alert(1)""#));
+        assert!(!html.contains("<script>"));
+        assert!(html.contains("/callback?redirect_after=%2F"));
+    }
+
+    #[test]
+    fn render_login_page_has_no_inline_script() {
+        let html = render_login_page("/callback?redirect_after=%2F", None);
+        assert!(!html.contains("<script"));
+        assert!(html.contains("method=\"post\""));
+        assert!(html.contains("action=\"/_synapse/cas/login\""));
     }
 }
