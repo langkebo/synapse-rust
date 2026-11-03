@@ -1,5 +1,5 @@
 fn all_derived_always_rows() -> Vec<DerivedRoute> {
-    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(961);
+    let mut rows: Vec<DerivedRoute> = Vec::with_capacity(963);
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/", "assembly::create_router");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
@@ -935,6 +935,12 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/login/sso/redirect/cas", "cas")
             .with_query_params(&["redirect_after"]);
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    #[cfg(feature = "cas-sso")]
+    {
+        let e = RouteEntry::new(axum::http::Method::GET, "/_matrix/client/v3/login/sso/redirect/cas/callback", "cas")
+            .with_query_params(&["redirect_after", "ticket"]);
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     #[cfg(feature = "saml-sso")]
@@ -5360,6 +5366,11 @@ fn all_derived_always_rows() -> Vec<DerivedRoute> {
     {
         let e = RouteEntry::new(axum::http::Method::GET, "/_synapse/cas/login", "cas")
             .with_query_params(&["gateway", "renew", "service"]);
+        rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
+    }
+    #[cfg(feature = "cas-sso")]
+    {
+        let e = RouteEntry::new(axum::http::Method::POST, "/_synapse/cas/login", "cas");
         rows.push(DerivedRoute { entry: e, rank: RouteProfile::Always });
     }
     #[cfg(feature = "cas-sso")]

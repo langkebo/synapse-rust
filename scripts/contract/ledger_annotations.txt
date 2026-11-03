@@ -208,6 +208,7 @@ GET /_matrix/client/v3/keys/history	query_params=from,limit
 GET /_matrix/client/v3/login/saml/callback	query_params=RelayState,SAMLRequest,SAMLResponse,relay_state,saml_request,saml_response
 GET /_matrix/client/v3/login/sso/redirect	query_params=redirectUrl,redirect_url
 GET /_matrix/client/v3/login/sso/redirect/cas	query_params=redirect_after
+GET /_matrix/client/v3/login/sso/redirect/cas/callback	query_params=redirect_after,ticket
 GET /_matrix/client/v3/login/sso/redirect/saml	query_params=redirectUrl,redirect_url
 GET /_matrix/client/v3/logout/saml/callback	query_params=RelayState,SAMLRequest,SAMLResponse,relay_state,saml_request,saml_response
 GET /_matrix/client/v3/oidc/authorize	query_params=client_id,code_challenge,code_challenge_method,nonce,redirect_uri,response_type,scope,state

@@ -1,5 +1,5 @@
-# route-ledger snapshot: worker-enabled
-count: 972
+# route-ledger snapshot: worker_enabled
+count: 974
 
 DELETE /_matrix/app/v1/proxy/{as_id}/{*path} [app_service]
 DELETE /_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device [dehydrated_device]
@@ -147,6 +147,7 @@ GET /_matrix/client/v3/keys/history [e2ee]
 GET /_matrix/client/v3/login [assembly::auth_compat]
 GET /_matrix/client/v3/login/saml/callback [saml]
 GET /_matrix/client/v3/login/sso/redirect/cas [cas]
+GET /_matrix/client/v3/login/sso/redirect/cas/callback [cas]
 GET /_matrix/client/v3/login/sso/redirect/saml [saml]
 GET /_matrix/client/v3/logout/saml [saml]
 GET /_matrix/client/v3/logout/saml/callback [saml]
@@ -859,6 +860,7 @@ POST /_synapse/admin/v1/users/{user_id}/logout [admin::user]
 POST /_synapse/admin/v1/users/{user_id}/override_ratelimit [admin::security]
 POST /_synapse/admin/v1/users/{user_id}/password [admin::user]
 POST /_synapse/admin/v1/users/{user_id}/shadow_ban [admin::security]
+POST /_synapse/cas/login [cas]
 POST /_synapse/external/webhook/{service_id} [external_service]
 POST /_synapse/federation/v1/keys/claim [federation]
 POST /_synapse/federation/v1/keys/query [federation]

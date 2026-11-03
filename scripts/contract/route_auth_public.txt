@@ -58,6 +58,7 @@ GET /_matrix/client/v3/login	public	login flow entry point (no session yet)
 GET /_matrix/client/v3/login/saml/callback	public	SAML ACS callback posted by the IdP (the assertion is the credential)
 GET /_matrix/client/v3/login/sso/redirect	public	SSO redirect entry point hit by the browser before a session exists
 GET /_matrix/client/v3/login/sso/redirect/cas	public	SSO redirect entry point hit by the browser before a session exists
+GET /_matrix/client/v3/login/sso/redirect/cas/callback	public	CAS SSO callback hit by the IdP browser redirect before a session exists; redeems a service ticket and issues a loginToken
 GET /_matrix/client/v3/login/sso/redirect/saml	public	SSO redirect entry point hit by the browser before a session exists
 GET /_matrix/client/v3/logout/saml/callback	public	SAML SLO callback posted by the IdP
 GET /_matrix/client/v3/oidc/authorize	public	OIDC authorization-code flow (the code/redirect is the credential)

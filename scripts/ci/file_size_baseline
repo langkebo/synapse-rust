@@ -14,7 +14,7 @@
 1789 synapse-storage/src/relations/mod.rs
 1781 synapse-services/src/module_service.rs
 1747 synapse-storage/src/module.rs
-1738 synapse-services/src/friend_room_service/mod.rs
+1740 synapse-services/src/friend_room_service/mod.rs
 1735 synapse-storage/src/background_update.rs
 1703 synapse-web/src/federation/edu.rs
 1674 synapse-web/src/routes/handlers/room/events.rs
@@ -26,6 +26,7 @@
 1588 synapse-storage/src/thread/storage.rs
 1583 synapse-storage/src/room/mod.rs
 1573 synapse-services/src/builtin_oidc_provider.rs
+1557 synapse-storage/src/presence/mod.rs
 1549 synapse-services/src/thread_service.rs
 1538 synapse-storage/src/captcha.rs
 1527 synapse-storage/src/push_notification.rs
@@ -35,7 +36,6 @@
 1472 synapse-storage/src/test_mocks/event.rs
 1464 synapse-storage/src/admin_media.rs
 1448 synapse-federation/src/client.rs
-1448 synapse-storage/src/presence/mod.rs
 1442 synapse-common/src/server_metrics.rs
 1436 synapse-services/src/capability_governance.rs
 1431 synapse-services/src/burn_after_read_service.rs
@@ -52,11 +52,11 @@
 1373 synapse-storage/src/device/mod.rs
 1371 synapse-services/src/room/state_record.rs
 1355 synapse-storage/src/matrixrtc.rs
+1353 synapse-services/src/sync_service/data_fetch.rs
 1348 synapse-federation/src/event_auth/state_resolution.rs
 1344 synapse-e2ee/src/backup/service.rs
 1332 synapse-storage/src/widget.rs
 1312 synapse-e2ee/src/crypto/aes.rs
-1312 synapse-services/src/sync_service/data_fetch.rs
 1302 synapse-cache/src/manager.rs
 1298 synapse-web/src/routes/federation/keys.rs
 1297 synapse-storage/src/threepid.rs
@@ -108,20 +108,21 @@
 1063 synapse-services/src/account_deactivation_service.rs
 1060 synapse-web/src/routes/account_compat.rs
 1057 synapse-storage/src/application_service/db_tests.rs
+1055 synapse-web/src/routes/context.rs
 1053 synapse-services/src/database_initializer/mod.rs
 1053 synapse-storage/src/media/chunked_upload.rs
 1052 synapse-storage/src/user/db_tests.rs
 1038 synapse-e2ee/src/key_rotation/service.rs
-1038 synapse-web/src/routes/context.rs
 1032 synapse-cache/src/circuit_breaker.rs
 1032 synapse-services/src/sliding_sync_service/tests.rs
 1031 synapse-storage/src/dehydrated_device.rs
 1028 synapse-storage/src/application_service/repository.rs
+1022 synapse-services/src/room/messaging/messages.rs
 1022 synapse-storage/src/event_report/db_tests.rs
 1022 synapse-web/src/routes/worker.rs
 1020 synapse-cache/src/tests.rs
+1014 synapse-services/src/sliding_sync_service/mod.rs
 1013 synapse-services/src/push/service.rs
-1012 synapse-services/src/sliding_sync_service/mod.rs
 1010 synapse-storage/src/worker/tests.rs
 1004 synapse-services/src/refresh_token_service.rs
 1003 synapse-services/src/widget_service.rs
@@ -130,7 +131,6 @@
 994 synapse-storage/src/sliding_sync/repository.rs
 985 synapse-storage/src/server_notification/repository.rs
 979 synapse-storage/src/cas/db_tests.rs
-969 synapse-services/src/room/messaging/messages.rs
 967 synapse-services/src/telemetry_service.rs
 967 synapse-storage/src/room/db_tests.rs
 965 synapse-services/src/admin_user_service.rs
@@ -138,6 +138,7 @@
 962 synapse-services/src/room/service.rs
 961 synapse-storage/src/privacy.rs
 958 synapse-web/src/routes/directory_reporting.rs
+957 synapse-web/src/routes/friend_room.rs
 954 synapse-storage/src/state_groups.rs
 953 synapse-storage/src/room_summary/repository.rs
 953 synapse-storage/src/saml/db_tests.rs
@@ -151,7 +152,6 @@
 929 synapse-web/src/routes/room_summary.rs
 926 synapse-common/src/security.rs
 925 synapse-storage/src/pruning.rs
-917 synapse-web/src/routes/friend_room.rs
 907 synapse-web/src/routes/admin/room/mod.rs
 886 synapse-web/src/routes/module.rs
 882 synapse-storage/src/token.rs
@@ -177,6 +177,7 @@
 768 synapse-federation/src/event_auth/rules.rs
 767 synapse-services/src/container.rs
 749 synapse-services/src/background_update_service.rs
+745 synapse-web/src/routes/cas.rs
 744 synapse-common/src/push_rules.rs
 739 synapse-services/src/test_utils.rs
 738 synapse-services/src/friend_room_service/models.rs

@@ -8,7 +8,7 @@
     "worker_enabled": false,
     "saml_enabled": false
   },
-  "entry_count": 961,
+  "entry_count": 963,
   "entries": [
     {
       "method": "GET",
@@ -1405,6 +1405,16 @@
       "path_params": [],
       "query_params": [
         "redirect_after"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v3/login/sso/redirect/cas/callback",
+      "registered_by": "cas",
+      "path_params": [],
+      "query_params": [
+        "redirect_after",
+        "ticket"
       ]
     },
     {
@@ -8574,6 +8584,13 @@
         "renew",
         "service"
       ]
+    },
+    {
+      "method": "POST",
+      "path": "/_synapse/cas/login",
+      "registered_by": "cas",
+      "path_params": [],
+      "query_params": []
     },
     {
       "method": "GET",

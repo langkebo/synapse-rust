@@ -138,7 +138,6 @@ fn is_same_origin_path(url: &str) -> bool {
 /// Matrix 客户端 CAS 回调路径，`service` 只允许指向它，避免登录页被当成开放跳板。
 const MATRIX_CAS_CALLBACK_PATH: &str = "/_matrix/client/v3/login/sso/redirect/cas/callback";
 
-#[allow(dead_code, reason = "仅在后续 CAS 路由任务中被调用")]
 fn matrix_cas_service(redirect_after: &str) -> String {
     format!("{MATRIX_CAS_CALLBACK_PATH}?redirect_after={}", urlencoding::encode(redirect_after))
 }
@@ -185,7 +184,6 @@ fn append_ticket(service: &str, ticket: &str) -> String {
     format!("{service}{sep}ticket={}", urlencoding::encode(ticket))
 }
 
-#[allow(dead_code, reason = "仅在后续 CAS 路由任务中被调用")]
 fn build_client_redirect(redirect_after: &str, login_token: &str) -> String {
     let sep = if redirect_after.contains('?') { '&' } else { '?' };
     format!("{redirect_after}{sep}loginToken={}", urlencoding::encode(login_token))
@@ -228,6 +226,40 @@ struct SsoRedirectQuery {
     redirect_after: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct SsoCallbackQuery {
+    redirect_after: Option<String>,
+    ticket: Option<String>,
+}
+
+async fn cas_sso_callback(
+    State(ctx): State<SsoContext>,
+    MatrixQuery(query): MatrixQuery<SsoCallbackQuery>,
+) -> Result<Response, ApiError> {
+    let redirect_after = query
+        .redirect_after
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ApiError::missing_param("Missing required query parameter: redirect_after"))?;
+    if !is_same_origin_path(&redirect_after) {
+        return Err(ApiError::invalid_param("redirect_after must be a same-origin path"));
+    }
+    let ticket = query
+        .ticket
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ApiError::missing_param("Missing required query parameter: ticket"))?;
+
+    let service = matrix_cas_service(&redirect_after);
+    let validated = ctx
+        .cas_service
+        .validate_service_ticket(&ticket, &service)
+        .await?
+        .ok_or_else(|| ApiError::forbidden("Invalid or expired CAS ticket"))?;
+
+    let login_token = ctx.login_token_service.generate(&validated.user_id, None).await?;
+
+    Ok((StatusCode::FOUND, [(header::LOCATION, build_client_redirect(&redirect_after, &login_token))]).into_response())
+}
+
 /// See [`cas_routes`].
 pub fn cas_routes(state: AppState) -> Router<AppState> {
     // CAS 协议端点（模拟 CAS server 的协议面）统一收敛到 /_synapse/cas 命名空间下，
@@ -245,6 +277,7 @@ pub fn cas_routes(state: AppState) -> Router<AppState> {
     // 但沿用 cas_config_check_middleware（与历史行为一致）。
     let sso_redirect_routes = Router::new()
         .route("/_matrix/client/v3/login/sso/redirect/cas", get(cas_sso_redirect))
+        .route("/_matrix/client/v3/login/sso/redirect/cas/callback", get(cas_sso_callback))
         .route_layer(middleware::from_fn_with_state(state.clone(), cas_config_check_middleware));
 
     let public_routes = Router::new().nest("/_synapse/cas", cas_protocol_routes).merge(sso_redirect_routes);
@@ -679,6 +712,13 @@ mod cas_login_tests {
     fn build_client_redirect_appends_login_token() {
         assert_eq!(build_client_redirect("/", "tok"), "/?loginToken=tok");
         assert_eq!(build_client_redirect("/home?tab=a", "tok"), "/home?tab=a&loginToken=tok");
+    }
+
+    /// Task 4 regression: the login token must survive the redirect as a
+    /// percent-encoded query value, never as raw text.
+    #[test]
+    fn build_client_redirect_encodes_token() {
+        assert_eq!(build_client_redirect("/", "a b"), "/?loginToken=a%20b");
     }
 
     #[test]

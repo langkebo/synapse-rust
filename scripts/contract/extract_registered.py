@@ -1727,6 +1727,9 @@ EXPECTED_ANNOTATIONS = {
     ("GET", "/_matrix/client/v3/login/sso/redirect/cas"): {
         "query_params": "redirect_after"
     },
+    ("GET", "/_matrix/client/v3/login/sso/redirect/cas/callback"): {
+        "query_params": "redirect_after,ticket"
+    },
     ("GET", "/_matrix/client/v3/login/sso/redirect/saml"): {
         "query_params": "redirectUrl,redirect_url"
     },

@@ -78,6 +78,7 @@ POST	/_matrix/client/v3/knock/{room_id_or_alias}	ignore	matrix-cs-ignore	ViaQuer
 GET	/_matrix/client/v3/login/saml/callback	reject	already-deny	SamlCallbackQuery
 GET	/_matrix/client/v3/login/sso/redirect	ignore	matrix-cs-ignore	SsoRedirectQuery
 GET	/_matrix/client/v3/login/sso/redirect/cas	ignore	matrix-cs-ignore	SsoRedirectQuery
+GET	/_matrix/client/v3/login/sso/redirect/cas/callback	ignore	matrix-cs-ignore	SsoCallbackQuery
 GET	/_matrix/client/v3/login/sso/redirect/saml	reject	already-deny	SamlLoginQuery
 GET	/_matrix/client/v3/logout/saml/callback	reject	already-deny	SamlCallbackQuery
 GET	/_matrix/client/v3/notifications	ignore	matrix-cs-ignore	NotificationsQuery

@@ -10,7 +10,7 @@
     "worker_enabled": true,
     "saml_enabled": true
   },
-  "total_routes": 980,
+  "total_routes": 982,
   "_meta": {
     "generated_by": "gen_route_table.py",
     "note": "本文件由 CI 自动生成，禁止手改。如需刷新: python3 scripts/api_test/gen_route_table.py"
@@ -1567,6 +1567,17 @@
       "path_params": [],
       "query_params": [
         "redirect_after"
+      ],
+      "auth": null
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v3/login/sso/redirect/cas/callback",
+      "registered_by": "cas",
+      "path_params": [],
+      "query_params": [
+        "redirect_after",
+        "ticket"
       ],
       "auth": null
     },
@@ -9581,6 +9592,14 @@
         "renew",
         "service"
       ],
+      "auth": null
+    },
+    {
+      "method": "POST",
+      "path": "/_synapse/cas/login",
+      "registered_by": "cas",
+      "path_params": [],
+      "query_params": [],
       "auth": null
     },
     {
