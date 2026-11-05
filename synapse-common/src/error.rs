@@ -1134,7 +1134,7 @@ impl IntoResponse for ApiError {
 /// list in synapse-web (`middleware/cors.rs`) re-exports this constant so the
 /// writer and the exposure list can never drift apart (联调报告 L-4).
 pub const ERROR_EXPOSED_HEADERS: &str =
-    "X-Request-ID, X-CSRF-Token, X-Matrix-Error, Retry-After, X-RateLimit-Retry-After-Ms, X-RateLimit-Remaining";
+    "X-Request-ID, X-CSRF-Token, X-Matrix-Error, Retry-After, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Retry-After-Ms";
 
 // ---------------------------------------------------------------------------
 // From impls (error conversion)

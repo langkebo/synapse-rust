@@ -276,15 +276,15 @@ pub async fn cors_middleware(request: Request<Body>, next: axum::middleware::Nex
     response.headers_mut().insert(
         "Access-Control-Allow-Headers",
         HeaderValue::from_static(
-            "Content-Type, Authorization, X-Requested-With, X-Request-ID, X-CSRF-Token, X-Matrix-Auth, Accept, Origin",
+            "Content-Type, Authorization, X-Requested-With, X-Request-ID, Idempotency-Key, X-CSRF-Token, X-Matrix-Auth, Accept, Origin",
         ),
     );
 
+    // 与预检分支共用同一常量：预检说"允许读哪些头"、实际响应说"暴露哪些头"，
+    // 两处若各写一份字符串就会漂移（联调报告 L-4 / BE-8）。
     response.headers_mut().insert(
         "Access-Control-Expose-Headers",
-        HeaderValue::from_static(
-            "X-Request-ID, X-CSRF-Token, X-Matrix-Error, X-Ratelimit-Limit, X-Ratelimit-Remaining, X-Ratelimit-Retry-After",
-        ),
+        HeaderValue::from_static(synapse_common::error::ERROR_EXPOSED_HEADERS),
     );
 
     if allow_credentials {
@@ -456,5 +456,27 @@ mod tests {
             errors: vec![],
         };
         assert!(!report_clean.has_issues());
+    }
+
+    /// BE-8：`Access-Control-Expose-Headers` 若漏掉服务端真实写的头名，
+    /// 浏览器客户端就永远读不到（`Retry-After`、限流窗口信息都白写）。
+    /// 这里把「谁在写」的清单固定在测试里，常量一旦漂移立刻失败。
+    ///
+    /// 写头位置：`middleware/request_id.rs`（x-request-id）、
+    /// `middleware/rate_limit.rs`（x-ratelimit-{limit,remaining,retry-after-ms}）、
+    /// `synapse_common::error::ApiError::into_response`（retry-after / x-ratelimit-*）。
+    #[test]
+    fn exposed_headers_cover_every_header_the_server_writes() {
+        let exposed: Vec<&str> = synapse_common::error::ERROR_EXPOSED_HEADERS.split(',').map(|h| h.trim()).collect();
+        let exposed_lower: Vec<String> = exposed.iter().map(|h| h.to_ascii_lowercase()).collect();
+
+        for written in
+            ["x-request-id", "retry-after", "x-ratelimit-limit", "x-ratelimit-remaining", "x-ratelimit-retry-after-ms"]
+        {
+            assert!(
+                exposed_lower.iter().any(|h| h == written),
+                "{written} is written by the server but missing from ERROR_EXPOSED_HEADERS ({exposed:?})"
+            );
+        }
     }
 }
