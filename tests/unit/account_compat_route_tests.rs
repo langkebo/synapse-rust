@@ -949,8 +949,8 @@ fn test_unbind_threepid_only_calls_remote_when_id_server_present() {
 
 #[test]
 fn test_error_code_mapping_for_whoami_missing_token() {
-    // whoami returns ApiError::missing_token() when no bearer token is present.
-    let err = ApiError::missing_token();
+    // whoami returns ApiError::missing_token("Missing access token") when no bearer token is present.
+    let err = ApiError::missing_token("Missing access token");
     assert_eq!(err.kind, ApiErrorKind::Unauthorized);
     assert_eq!(err.code, MatrixErrorCode::MissingToken);
 }

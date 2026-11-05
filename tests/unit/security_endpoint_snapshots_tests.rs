@@ -129,9 +129,9 @@ fn snapshot_auth_compat_login_invalid_credentials_error() {
 #[test]
 fn snapshot_auth_compat_whoami_missing_token_error() {
     // Mirrors the 401 error when whoami is called without an access token.
-    // Handler (account_compat::whoami) returns ApiError::missing_token().
+    // Handler (account_compat::whoami) returns ApiError::missing_token("Missing access token").
     // errcode = M_MISSING_TOKEN, HTTP status = 401.
-    let err = ApiError::missing_token();
+    let err = ApiError::missing_token("Missing access token");
     let body = api_error_json(&err);
     insta::assert_json_snapshot!("auth_compat_whoami_missing_token_error", body);
 }
