@@ -92,7 +92,7 @@ services:
           - synapse-b.federation.test
 
   db:
-    image: postgres:16-alpine@sha256:3c5c8892d184f738f4fe282d14ddaa613a38f00f4189d2d94725ebe6f2909ddb
+    image: postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab
     container_name: synapse-federation-b-db
     restart: unless-stopped
     shm_size: "256m"
