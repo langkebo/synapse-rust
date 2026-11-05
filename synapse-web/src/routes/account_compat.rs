@@ -23,7 +23,7 @@ use synapse_services::uia_service::UiaService;
 pub(crate) async fn whoami(State(ctx): State<AuthContext>, headers: HeaderMap) -> Result<Json<Value>, ApiError> {
     // P-035: Return spec-compliant errcodes for the whoami endpoint.
     // Missing token -> M_MISSING_TOKEN; invalid/expired token -> M_UNKNOWN_TOKEN.
-    let token = bearer_token(&headers).map_err(|_| ApiError::missing_token())?;
+    let token = bearer_token(&headers).map_err(|_| ApiError::missing_token("Missing access token"))?;
     let (user_id, device_id, _is_admin, _is_shadow_banned, is_guest, _appservice_id) =
         ctx.token_auth.validate_token(&token).await.map_err(|e| {
             if e.kind == synapse_common::ApiErrorKind::Internal {
@@ -341,7 +341,7 @@ pub(crate) async fn change_password_uia(
 
     if auth_type.is_empty() {
         let user_id =
-            auth_user.user_id.as_deref().ok_or_else(|| ApiError::unauthorized("Access token required".to_string()))?;
+            auth_user.user_id.as_deref().ok_or_else(|| ApiError::missing_token("Access token required".to_string()))?;
         let session = ctx.uia_service.create_session(user_id, UiaService::get_password_change_flows()).await;
         return Ok((
             StatusCode::UNAUTHORIZED,
@@ -371,7 +371,7 @@ pub(crate) async fn change_password_uia(
             let authenticated_user_id = auth_user
                 .user_id
                 .as_deref()
-                .ok_or_else(|| ApiError::unauthorized("Access token required for m.login.password".to_string()))?;
+                .ok_or_else(|| ApiError::missing_token("Access token required for m.login.password".to_string()))?;
 
             // Per Matrix spec, if identifier/user/user_id is not provided,
             // the authenticated user is implied.
@@ -520,7 +520,7 @@ pub(crate) async fn change_password_uia(
             let user_id = auth_user
                 .user_id
                 .as_deref()
-                .ok_or_else(|| ApiError::unauthorized("Access token required".to_string()))?;
+                .ok_or_else(|| ApiError::missing_token("Access token required".to_string()))?;
             let session = ctx.uia_service.create_session(user_id, UiaService::get_password_change_flows()).await;
             Ok((
                 StatusCode::UNAUTHORIZED,

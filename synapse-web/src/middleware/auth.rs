@@ -61,7 +61,7 @@ pub async fn auth_middleware(
     let uri = request.uri().to_string();
     let token = match extract_token(request.headers(), &uri) {
         Some(token) => token,
-        None => return ApiError::missing_token().into_response(),
+        None => return ApiError::missing_token("Missing access token").into_response(),
     };
 
     if let Err(err) = ctx.token_auth.validate_token(&token).await {

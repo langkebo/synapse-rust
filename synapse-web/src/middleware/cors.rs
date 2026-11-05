@@ -218,6 +218,7 @@ pub async fn cors_middleware(request: Request<Body>, next: axum::middleware::Nex
             "authorization",
             "x-requested-with",
             "x-request-id",
+            "idempotency-key",
             "x-csrf-token",
             "x-matrix-auth",
             "accept",
@@ -234,23 +235,22 @@ pub async fn cors_middleware(request: Request<Body>, next: axum::middleware::Nex
                 .filter(|h| allowed_header_set.contains(&h.to_lowercase().as_str()))
                 .collect();
             if filtered.is_empty() {
-                "Content-Type, Authorization, X-Requested-With, X-Request-ID, X-CSRF-Token, X-Matrix-Auth, Accept, Origin".to_string()
+                "Content-Type, Authorization, X-Requested-With, X-Request-ID, Idempotency-Key, X-CSRF-Token, X-Matrix-Auth, Accept, Origin".to_string()
             } else {
                 filtered.join(", ")
             }
         } else {
-            "Content-Type, Authorization, X-Requested-With, X-Request-ID, X-CSRF-Token, X-Matrix-Auth, Accept, Origin"
+            "Content-Type, Authorization, X-Requested-With, X-Request-ID, Idempotency-Key, X-CSRF-Token, X-Matrix-Auth, Accept, Origin"
                 .to_string()
         };
         if let Ok(value) = HeaderValue::from_str(&allow_headers_value) {
             response.headers_mut().insert("Access-Control-Allow-Headers", value);
         }
 
+        // 暴露头清单与错误响应实际写头共用同一常量（联调报告 L-4）。
         response.headers_mut().insert(
             "Access-Control-Expose-Headers",
-            HeaderValue::from_static(
-                "X-Request-ID, X-CSRF-Token, X-Matrix-Error, X-Ratelimit-Limit, X-Ratelimit-Remaining, X-Ratelimit-Retry-After",
-            ),
+            HeaderValue::from_static(synapse_common::error::ERROR_EXPOSED_HEADERS),
         );
         if allow_credentials {
             response.headers_mut().insert("Access-Control-Allow-Credentials", HeaderValue::from_static("true"));

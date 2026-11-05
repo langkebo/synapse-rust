@@ -7,9 +7,16 @@ pub(crate) fn generate_request_id() -> String {
 }
 
 /// See [`resolve_request_id`].
+///
+/// Accepts both `Idempotency-Key` (industry convention for write idempotency)
+/// and the legacy `x-request-id` header. The CORS layer allows both, so web
+/// clients can actually send either; previously only `x-request-id` was read,
+/// which silently discarded `Idempotency-Key` and broke the idempotency
+/// contract (审查 M-6).
 pub(crate) fn resolve_request_id(headers: &HeaderMap) -> String {
     headers
-        .get("x-request-id")
+        .get("idempotency-key")
+        .or_else(|| headers.get("x-request-id"))
         .and_then(|v| v.to_str().ok())
         .map(str::trim)
         .filter(|v| !v.is_empty())
@@ -27,16 +34,20 @@ pub(crate) fn bearer_token_opt(headers: &HeaderMap) -> Option<String> {
 }
 
 /// See [`bearer_token`].
+///
+/// Spec errcodes: a missing or malformed `Authorization` header is
+/// `M_MISSING_TOKEN` (no token was presented); a present-but-unrecognised
+/// token is `M_UNKNOWN_TOKEN` further down the verification path (审查 M-5).
 pub(crate) fn bearer_token(headers: &HeaderMap) -> Result<String, ApiError> {
     let token = headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.strip_prefix("Bearer "))
         .map(|s| s.to_string())
-        .ok_or_else(|| ApiError::unauthorized("Missing or invalid authorization header".to_string()))?;
+        .ok_or_else(|| ApiError::missing_token("Missing or invalid authorization header".to_string()))?;
 
     if token.trim().is_empty() {
-        return Err(ApiError::unauthorized("Empty authorization token".to_string()));
+        return Err(ApiError::missing_token("Empty authorization token".to_string()));
     }
 
     Ok(token)
@@ -160,7 +171,7 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("authorization", "Basic abc123".parse().unwrap());
         let err = bearer_token(&headers).unwrap_err();
-        assert!(err.code_is(MatrixErrorCode::Unauthorized));
+        assert!(err.code_is(MatrixErrorCode::MissingToken));
     }
 
     #[test]
@@ -168,7 +179,22 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("authorization", "Bearer ".parse().unwrap());
         let err = bearer_token(&headers).unwrap_err();
-        assert!(err.code_is(MatrixErrorCode::Unauthorized));
+        assert!(err.code_is(MatrixErrorCode::MissingToken));
+    }
+
+    #[test]
+    fn test_resolve_request_id_prefers_idempotency_key() {
+        let mut headers = HeaderMap::new();
+        headers.insert("idempotency-key", "idem-abc".parse().unwrap());
+        headers.insert("x-request-id", "req-legacy".parse().unwrap());
+        assert_eq!(resolve_request_id(&headers), "idem-abc");
+    }
+
+    #[test]
+    fn test_resolve_request_id_falls_back_to_x_request_id() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-request-id", "req-legacy".parse().unwrap());
+        assert_eq!(resolve_request_id(&headers), "req-legacy");
     }
 
     // === extract_token tests ===

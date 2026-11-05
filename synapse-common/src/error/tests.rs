@@ -141,7 +141,7 @@ fn test_api_error_rate_limited_with_retry_construction() {
 
 #[test]
 fn test_api_error_missing_token() {
-    let err = ApiError::missing_token();
+    let err = ApiError::missing_token("Missing access token");
     assert_eq!(err.kind, ApiErrorKind::Unauthorized);
     assert_eq!(err.code, MatrixErrorCode::MissingToken);
     assert_eq!(err.message, "Missing access token");
@@ -800,7 +800,7 @@ fn all_fixed_api_error_constructors() -> Vec<(&'static str, ApiError)> {
         ("crypto", ApiError::crypto("x")),
         ("rate_limited", ApiError::rate_limited("x")),
         ("rate_limited_with_retry", ApiError::rate_limited_with_retry(1000)),
-        ("missing_token", ApiError::missing_token()),
+        ("missing_token", ApiError::missing_token("Missing access token")),
         ("not_json", ApiError::not_json("x")),
         ("user_deactivated", ApiError::user_deactivated("x")),
         ("invalid_username", ApiError::invalid_username("x")),

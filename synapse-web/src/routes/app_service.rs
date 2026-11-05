@@ -262,7 +262,7 @@ pub(crate) fn extract_as_token(headers: &HeaderMap) -> Result<String, ApiError> 
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.strip_prefix("Bearer "))
         .map(|s| s.to_string())
-        .ok_or_else(|| ApiError::unauthorized("Missing or invalid authorization header"))
+        .ok_or_else(|| ApiError::missing_token("Missing or invalid authorization header"))
 }
 
 /// See [`register_app_service`].
@@ -438,13 +438,13 @@ pub async fn proxy_to_as(
     let auth_header = headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
-        .ok_or_else(|| ApiError::unauthorized("Missing authorization header"))?;
+        .ok_or_else(|| ApiError::missing_token("Missing authorization header"))?;
 
     let bearer_token =
-        auth_header.strip_prefix("Bearer ").ok_or_else(|| ApiError::unauthorized("Invalid authorization format"))?;
+        auth_header.strip_prefix("Bearer ").ok_or_else(|| ApiError::missing_token("Invalid authorization format"))?;
 
     if bearer_token != service.hs_token {
-        return Err(ApiError::unauthorized("Invalid HS token"));
+        return Err(ApiError::unknown_token("Invalid HS token"));
     }
 
     // Construct target URL. An appservice registered with `url: null`

@@ -263,10 +263,10 @@ async fn get_friends(
         (None, None, offset) => offset,
     };
     if params.offset.unwrap_or(0) > 0 && cursor.is_none() {
-        return Err(ApiError::bad_request("Legacy offset pagination is no longer supported; use from cursor"));
+        return Err(ApiError::invalid_param("Legacy offset pagination is no longer supported; use from cursor"));
     }
     if params.from.is_some() && cursor.is_none() && legacy_offset.is_none() {
-        return Err(ApiError::bad_request("Invalid friend list pagination cursor"));
+        return Err(ApiError::invalid_param("Invalid friend list pagination cursor"));
     }
     // BE-10：`limit` 必须显式落在 1..=200。此前 web 层 `clamp(1, 200)`、service 层
     // 又 `clamp(1, 100)`，导致 `limit=0` 回显 1、`limit=10001` 回显 100 —— 回显值与
@@ -314,7 +314,7 @@ async fn search_friend_directory(
     let body_value = body.as_ref();
     let search_term = resolve_friend_search_term(&query, body_value);
     let Some(search_term) = search_term else {
-        return Err(ApiError::bad_request("Search term cannot be empty"));
+        return Err(ApiError::invalid_param("Search term cannot be empty"));
     };
 
     let exact_only = body_value
@@ -386,7 +386,7 @@ async fn send_friend_request(
     validate_user_id(&body.user_id)?;
 
     if body.user_id == auth_user.user_id {
-        return Err(ApiError::bad_request("Cannot send friend request to yourself".to_string()));
+        return Err(ApiError::invalid_param("Cannot send friend request to yourself".to_string()));
     }
 
     let request_id = resolve_request_id(&headers);
@@ -491,7 +491,7 @@ async fn update_friend_note(
     validate_user_id(&friend_id)?;
 
     if body.note.len() > 1000 {
-        return Err(ApiError::bad_request("Note exceeds maximum length of 1000 characters".to_string()));
+        return Err(ApiError::invalid_param("Note exceeds maximum length of 1000 characters".to_string()));
     }
 
     ctx.friend_room_service.update_friend_note(&auth_user.user_id, &friend_id, &body.note).await?;
@@ -513,7 +513,7 @@ async fn update_friend_status(
 
     let valid_statuses = ["favorite", "normal", "blocked", "hidden"];
     if !valid_statuses.contains(&body.status.as_str()) {
-        return Err(ApiError::bad_request(format!("Invalid status. Valid values: {}", valid_statuses.join(", "))));
+        return Err(ApiError::invalid_param(format!("Invalid status. Valid values: {}", valid_statuses.join(", "))));
     }
 
     ctx.friend_room_service.update_friend_status(&auth_user.user_id, &friend_id, &body.status).await?;
@@ -548,7 +548,7 @@ async fn update_friend_displayname(
     validate_user_id(&friend_id)?;
 
     if body.display_name.is_empty() || body.display_name.len() > 256 {
-        return Err(ApiError::bad_request("Display name must be between 1 and 256 characters".to_string()));
+        return Err(ApiError::invalid_param("Display name must be between 1 and 256 characters".to_string()));
     }
 
     ctx.friend_room_service.update_friend_displayname(&auth_user.user_id, &friend_id, &body.display_name).await?;
@@ -644,7 +644,7 @@ async fn create_friend_group(
     MatrixJson(body): MatrixJson<CreateGroupRequest>,
 ) -> Result<Json<Value>, ApiError> {
     if body.name.is_empty() || body.name.len() > 50 {
-        return Err(ApiError::bad_request("Group name must be between 1 and 50 characters".to_string()));
+        return Err(ApiError::invalid_param("Group name must be between 1 and 50 characters".to_string()));
     }
 
     let group: serde_json::Value = ctx.friend_room_service.create_friend_group(&auth_user.user_id, &body.name).await?;
@@ -673,7 +673,7 @@ async fn rename_friend_group(
     MatrixJson(body): MatrixJson<RenameGroupRequest>,
 ) -> Result<Json<Value>, ApiError> {
     if body.name.is_empty() || body.name.len() > 50 {
-        return Err(ApiError::bad_request("Group name must be between 1 and 50 characters".to_string()));
+        return Err(ApiError::invalid_param("Group name must be between 1 and 50 characters".to_string()));
     }
 
     ctx.friend_room_service.rename_friend_group(&auth_user.user_id, &group_id, &body.name).await?;
@@ -753,8 +753,12 @@ async fn get_friend_dm(
     validate_user_id(&user_id)?;
     let room_id: Option<String> = ctx.friend_room_service.get_existing_dm_room_id(&auth_user.user_id, &user_id).await?;
 
+    // 联调报告 L-1：`room_id: null` 与「字段缺失」在 JSON 里不可区分，补
+    // 显式 `exists` 字段；`room_id` 保留以兼容已联调客户端。
+    let exists = room_id.is_some();
     Ok(Json(json!({
         "room_id": room_id,
+        "exists": exists,
         "user_id": user_id,
     })))
 }

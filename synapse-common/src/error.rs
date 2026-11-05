@@ -281,10 +281,26 @@ impl ApiError {
 
     /// Builds a 401 error with `M_UNAUTHORIZED` Matrix code.
     /// Builds a 401 Unauthorized error with `M_UNAUTHORIZED` errcode.
+    ///
+    /// NOTE: `M_UNAUTHORIZED` is not a client-server spec errcode. It is kept
+    /// for federation / server-to-server paths only; client-facing token
+    /// failures must use [`ApiError::missing_token`] / [`ApiError::unknown_token`].
     pub fn unauthorized(message: impl Into<String>) -> Self {
         Self {
             kind: ApiErrorKind::Unauthorized,
             code: MatrixErrorCode::Unauthorized,
+            message: message.into(),
+            cause: None,
+        }
+    }
+
+    /// Matrix spec: 401 + `M_UNKNOWN_TOKEN` when a token was presented but is
+    /// not recognised (expired, revoked, unknown) — clients branch on this to
+    /// trigger re-login / token refresh.
+    pub fn unknown_token(message: impl Into<String>) -> Self {
+        Self {
+            kind: ApiErrorKind::Unauthorized,
+            code: MatrixErrorCode::UnknownToken,
             message: message.into(),
             cause: None,
         }
@@ -638,12 +654,15 @@ impl ApiError {
         }
     }
 
-    /// Builds a 401 `M_MISSING_TOKEN` error for absent access tokens.
-    pub fn missing_token() -> Self {
+    /// Builds a 401 `M_MISSING_TOKEN` error for absent or malformed access tokens.
+    ///
+    /// Matrix spec: used when the client never presented a usable token
+    /// (missing header, malformed `Bearer` prefix, empty token).
+    pub fn missing_token(message: impl Into<String>) -> Self {
         Self {
             kind: ApiErrorKind::Unauthorized,
             code: MatrixErrorCode::MissingToken,
-            message: "Missing access token".to_string(),
+            message: message.into(),
             cause: None,
         }
     }
@@ -1022,14 +1041,21 @@ impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         if self.kind == ApiErrorKind::Gone {
             let status_code = StatusCode::GONE;
-            return (
-                status_code,
-                Json(
-                    serde_json::from_str::<serde_json::Value>(&self.message)
-                        .unwrap_or_else(|_| json!({"errcode": self.code_str(), "error": self.message})),
-                ),
-            )
-                .into_response();
+            // 强制规范外壳（联调报告 L-5）：历史实现把可解析为 JSON 的 message
+            // 原样返回，若其中缺少 errcode/error，客户端错误归一化会退化为
+            // M_UNKNOWN。现在保留结构化字段（如 deactivated），但 errcode/error
+            // 必须存在。
+            let body = match serde_json::from_str::<serde_json::Value>(&self.message) {
+                Ok(mut v) if v.is_object() => {
+                    let obj = v.as_object_mut().expect("just checked is_object");
+                    obj.entry("errcode").or_insert_with(|| json!(self.code_str()));
+                    let fallback_error = self.message.clone();
+                    obj.entry("error").or_insert_with(|| json!(fallback_error));
+                    v
+                }
+                _ => json!({"errcode": self.code_str(), "error": self.message}),
+            };
+            return (status_code, Json(body)).into_response();
         }
 
         let errcode = self.code_str().to_string();
@@ -1085,6 +1111,13 @@ impl IntoResponse for ApiError {
         response
     }
 }
+
+/// Custom headers written by error responses (see `into_response` above) that
+/// browser clients must be able to read. The CORS `Access-Control-Expose-Headers`
+/// list in synapse-web (`middleware/cors.rs`) re-exports this constant so the
+/// writer and the exposure list can never drift apart (联调报告 L-4).
+pub const ERROR_EXPOSED_HEADERS: &str =
+    "X-Request-ID, X-CSRF-Token, X-Matrix-Error, Retry-After, X-RateLimit-Retry-After-Ms, X-RateLimit-Remaining";
 
 // ---------------------------------------------------------------------------
 // From impls (error conversion)

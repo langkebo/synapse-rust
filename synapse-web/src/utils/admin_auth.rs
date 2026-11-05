@@ -54,7 +54,7 @@ pub(crate) async fn authorize_admin_from_services(
     let user = user_service
         .get_user(&user_id)
         .await?
-        .ok_or_else(|| ApiError::unauthorized("Admin user not found".to_string()))?;
+        .ok_or_else(|| ApiError::unknown_token("Admin user not found".to_string()))?;
 
     if !user.is_admin {
         return Err(ApiError::forbidden("Admin access has been revoked".to_string()));

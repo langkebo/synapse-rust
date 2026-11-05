@@ -149,7 +149,8 @@ async fn update_session(
     ::tracing::info!(request_id = %request_id, session_id = %session_id, status, "Updated rendezvous session");
 
     if status == "connected" {
-        let user_id = auth_user.user_id.as_ref().ok_or_else(ApiError::missing_token)?.clone();
+        let user_id =
+            auth_user.user_id.as_ref().ok_or_else(|| ApiError::missing_token("Missing access token"))?.clone();
         let device_id = auth_user.device_id.clone().unwrap_or_else(|| "RENDEZVOUS".to_string());
         ctx.rendezvous_service.bind_user(&session_id, &user_id, &device_id).await?;
     }

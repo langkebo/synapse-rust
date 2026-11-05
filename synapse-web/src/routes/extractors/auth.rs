@@ -128,7 +128,7 @@ where
                     // which masked auth failures and let stale-token users
                     // fall through to anonymous handling.  Reject explicitly
                     // with 401 M_UNKNOWN_TOKEN so the client re-authenticates.
-                    Err(e) => Err(ApiError::unauthorized(format!("Invalid access token: {e}"))),
+                    Err(e) => Err(ApiError::unknown_token(format!("Invalid access token: {e}"))),
                 },
                 Err(_) => Ok(Self {
                     user_id: None,

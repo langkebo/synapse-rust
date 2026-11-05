@@ -103,7 +103,7 @@ pub(super) async fn ensure_space_visible(
     if auth_user.user_id.is_some() {
         Err(ApiError::forbidden("User cannot access this space"))
     } else {
-        Err(ApiError::unauthorized("Authentication required for private spaces"))
+        Err(ApiError::missing_token("Authentication required for private spaces"))
     }
 }
 

@@ -49,7 +49,7 @@ fn resolve_remote_directory(
         return Ok(None);
     }
     if auth_user.user_id.is_none() {
-        return Err(ApiError::missing_token());
+        return Err(ApiError::missing_token("Missing access token"));
     }
     Ok(Some(server.to_string()))
 }

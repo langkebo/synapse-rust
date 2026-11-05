@@ -381,12 +381,22 @@ pub(crate) async fn chunked_upload_progress(
 // ---------------------------------------------------------------------------
 
 /// Body of `POST /_matrix/client/v3/upload/token`.
+///
+/// `deny_unknown_fields` (联调报告 H-3)：此前请求体字段不校验，前端传入的
+/// `scene` 被静默丢弃，调用方误以为后端支持分场景上传。现在 `scene` 显式
+/// 声明（接受但暂不使用，避免破坏已联调客户端），真正的未知字段直接 400，
+/// 让契约错配在联调期立刻暴露。
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct CreateUploadTokenBody {
     #[serde(default)]
     pub filename: Option<String>,
     #[serde(default)]
     pub content_type: Option<String>,
+    /// 已联调客户端会携带的场景标识；当前实现不做分场景处理，保留仅为兼容。
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub scene: Option<String>,
 }
 
 /// POST /_matrix/client/v3/upload/token

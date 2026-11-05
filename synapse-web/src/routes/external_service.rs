@@ -169,7 +169,7 @@ async fn webhook_auth_guard(request: Request<Body>, next: axum::middleware::Next
         || headers.contains_key("x-webhook-signature");
 
     if !has_credential {
-        return ApiError::missing_token().into_response();
+        return ApiError::missing_token("Missing access token").into_response();
     }
 
     next.run(request).await
