@@ -392,9 +392,9 @@ pub(crate) struct CreateUploadTokenBody {
     pub filename: Option<String>,
     #[serde(default)]
     pub content_type: Option<String>,
-    /// 已联调客户端会携带的场景标识；当前实现不做分场景处理，保留仅为兼容。
+    /// 已联调客户端会携带的场景标识；当前实现不做分场景限额，原样回显到响应，
+    /// 以便调用方确认服务端已识别该字段（BE-5）。
     #[serde(default)]
-    #[allow(dead_code)]
     pub scene: Option<String>,
 }
 
@@ -413,6 +413,10 @@ pub(crate) async fn create_upload_token(
 ) -> Result<impl IntoResponse, ApiError> {
     let filename = body.filename.as_deref().unwrap_or("upload");
     let content_type = body.content_type.as_deref().unwrap_or("application/octet-stream");
+    // BE-5: echo the (trimmed) scene back instead of silently dropping it. No
+    // per-scene quota exists, so it stays an opaque passthrough marker; an empty
+    // or whitespace-only value is normalised to `null`.
+    let scene = body.scene.as_deref().map(str::trim).filter(|value| !value.is_empty());
 
     Ok((
         StatusCode::OK,
@@ -425,6 +429,7 @@ pub(crate) async fn create_upload_token(
             "download_url_prefix": format!("/_matrix/client/v1/media/download/{}/", ctx.server_name),
             "filename": filename,
             "content_type": content_type,
+            "scene": scene,
             // G-1: 上报给客户端的上限统一来自权威配置 server.max_upload_size
             "max_file_size": ctx.config.server.max_upload_size,
         })),

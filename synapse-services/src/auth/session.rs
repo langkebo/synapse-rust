@@ -132,7 +132,7 @@ impl AuthService {
                 match legacy_data {
                     Some(t) => (t, legacy_hash),
                     None => {
-                        return Err(ApiError::unauthorized("Invalid refresh token".to_string()));
+                        return Err(ApiError::authentication("Invalid refresh token".to_string()));
                     }
                 }
             }
@@ -217,12 +217,12 @@ impl AuthService {
                 revoked_access_tokens,
                 "Revoked refresh token replayed; revoked all user refresh tokens **and** access tokens"
             );
-            return Err(ApiError::unauthorized("Refresh token has been revoked".to_string()));
+            return Err(ApiError::authentication("Refresh token has been revoked".to_string()));
         }
 
         if let Some(expires_at) = t.expires_at {
             if expires_at < current_timestamp_millis() {
-                return Err(ApiError::unauthorized("Refresh token expired".to_string()));
+                return Err(ApiError::authentication("Refresh token expired".to_string()));
             }
         }
 
@@ -250,13 +250,13 @@ impl AuthService {
                         user_id = u.user_id.as_str(),
                         "Concurrent refresh of the same token rejected"
                     );
-                    return Err(ApiError::unauthorized("Refresh token has been revoked".to_string()));
+                    return Err(ApiError::authentication("Refresh token has been revoked".to_string()));
                 }
 
                 let device_id = match t.device_id.clone() {
                     Some(d) if !d.is_empty() => d,
                     _ => {
-                        return Err(ApiError::unauthorized("Refresh token has no associated device".to_string()));
+                        return Err(ApiError::authentication("Refresh token has no associated device".to_string()));
                     }
                 };
 
@@ -282,7 +282,7 @@ impl AuthService {
 
                 Ok((new_access_token, new_refresh_token, device_id))
             }
-            _ => Err(ApiError::unauthorized("User not found".to_string())),
+            _ => Err(ApiError::authentication("User not found".to_string())),
         }
     }
 }

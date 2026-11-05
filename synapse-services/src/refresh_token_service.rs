@@ -98,7 +98,7 @@ impl RefreshTokenService {
         };
 
         if is_legacy_blacklisted {
-            return Err(ApiError::unauthorized("Token has been revoked"));
+            return Err(ApiError::authentication("Token has been revoked"));
         }
 
         let token_record = self
@@ -114,17 +114,17 @@ impl RefreshTokenService {
                 .get_token(&legacy_hash)
                 .await
                 .map_err(|e| ApiError::internal_with_cause("Failed to get token", e))?
-                .ok_or_else(|| ApiError::unauthorized("Invalid refresh token"))?,
+                .ok_or_else(|| ApiError::authentication("Invalid refresh token"))?,
         };
 
         if reject_revoked && token_record.is_revoked {
-            return Err(ApiError::unauthorized("Token has been revoked"));
+            return Err(ApiError::authentication("Token has been revoked"));
         }
 
         let now = current_timestamp_millis();
         if let Some(expires_at) = token_record.expires_at {
             if expires_at < now {
-                return Err(ApiError::unauthorized("Token has expired"));
+                return Err(ApiError::authentication("Token has expired"));
             }
         }
 
@@ -206,7 +206,7 @@ impl RefreshTokenService {
                         window_ms = CONCURRENT_REFRESH_WINDOW_MS,
                         "Token submitted again within the concurrency window; refusing this request only"
                     );
-                    return Err(ApiError::unauthorized(
+                    return Err(ApiError::authentication(
                         "Refresh token has already been used. Please use the new token.",
                     ));
                 }
@@ -230,7 +230,7 @@ impl RefreshTokenService {
                     .await
                     .map_err(|e| ApiError::internal_with_cause("Failed to revoke tokens", e))?;
 
-                return Err(ApiError::unauthorized("Token reuse detected. All tokens revoked."));
+                return Err(ApiError::authentication("Token reuse detected. All tokens revoked."));
             }
         }
 
@@ -295,7 +295,7 @@ impl RefreshTokenService {
                         window_ms = CONCURRENT_REFRESH_WINDOW_MS,
                         "Token already rotated by a concurrent refresh; returning benign error"
                     );
-                    return Err(ApiError::unauthorized(
+                    return Err(ApiError::authentication(
                         "Refresh token has already been used. Please use the new token.",
                     ));
                 }
@@ -319,7 +319,7 @@ impl RefreshTokenService {
                     .await
                     .map_err(|e| ApiError::internal_with_cause("Failed to revoke tokens", e))?;
 
-                return Err(ApiError::unauthorized("Token reuse detected. All tokens revoked."));
+                return Err(ApiError::authentication("Token reuse detected. All tokens revoked."));
             }
         };
 

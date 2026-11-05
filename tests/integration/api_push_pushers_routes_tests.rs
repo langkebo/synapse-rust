@@ -152,9 +152,7 @@ async fn pushers_require_authentication() {
 
     let (status, value) = call(&app, get("/_matrix/client/v3/pushers", None)).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED, "未认证必须是 401：{value}");
-    // 本仓走 `bearer_token`（`synapse-web/src/utils/auth.rs`）的端点统一回 `M_UNAUTHORIZED`
-    // —— 包括「头缺失」与「头畸形」两种情形；`M_MISSING_TOKEN` 只出现在用专用提取器的路径上。
-    // 这里断言**实际契约**，不按规范字面写 `M_MISSING_TOKEN`（写了会红，而那是全仓 auth 契约的事，
-    // 不属于本族）。
-    assert_eq!(value["errcode"], "M_UNAUTHORIZED", "未带 token 的 errcode：{value}");
+    // BE-2：C-S API 未携带令牌统一 `M_MISSING_TOKEN`（`bearer_token` 与
+    // `synapse-web/src/middleware/auth.rs` 两条路径一致）。
+    assert_eq!(value["errcode"], "M_MISSING_TOKEN", "未带 token 的 errcode：{value}");
 }

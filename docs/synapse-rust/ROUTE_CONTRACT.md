@@ -2053,6 +2053,8 @@ EXTERNAL_TYPE_FILES = ("synapse-storage/src/sliding_sync/models.rs",)
 
 **已核实无问题**（防复报）：401 三态（`M_MISSING_TOKEN` / `M_UNKNOWN_TOKEN` / 200）、403 admin 面、404 分 `M_UNRECOGNIZED` 与 `M_NOT_FOUND`、405、`400 M_INVALID_PARAM`（非法用户/房间 ID）、非成员读单房间 `/summary` 返回 403、`M_UIA_REQUIRED` 注销流程。
 
+**401 口径（BE-2）**：客户端 C-S API 的 access/refresh token 失败**只允许**两种 errcode —— 未携带令牌 `M_MISSING_TOKEN`，令牌无效/过期/撤销/重放 `M_UNKNOWN_TOKEN`。`M_UNAUTHORIZED` 仅保留给 federation / appservice / SSO 等非客户端 token 面（如 `middleware/federation_auth.rs` 的联邦请求重放检测），不得出现在 C-S API。
+
 **一处需澄清的"疑似越权"**：普通用户 `/summaries` 返回的 12 条非 joined 房间，经 `room_memberships` 对拍确认全部是 **invite**（invite 用户看摘要符合语义），**不构成越权**；越权判据必须对拍成员关系，不能只看列表内容。
 
 **修复优先级**：I-01（同事务写投影 + 回填脚本 + DB 一致性测试）→ I-02（全局 `JsonRejection → ApiError` 或批量换 `MatrixJson` + 契约测试）→ I-03/I-04 → I-05。

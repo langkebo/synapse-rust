@@ -138,7 +138,7 @@ async fn friend_request_to_self_is_rejected() {
     let (status, value) =
         call(&app, post_json("/_matrix/vendor/v1/friends/request", Some(&token), &json!({ "user_id": user_id }))).await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "给自己发请求必须 400：{value}");
-    assert_eq!(value["errcode"], "M_BAD_JSON", "errcode：{value}");
+    assert_eq!(value["errcode"], "M_INVALID_PARAM", "errcode：{value}");
 }
 
 /// 非法 user_id ⇒ 400（`validate_user_id` 拦在服务层之前）。
@@ -165,7 +165,7 @@ async fn friend_endpoints_require_authentication() {
 
     let (status, value) = call(&app, get("/_matrix/vendor/v1/friends", None)).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED, "未认证必须 401：{value}");
-    assert_eq!(value["errcode"], "M_UNAUTHORIZED", "本仓 auth 中间件的 errcode：{value}");
+    assert_eq!(value["errcode"], "M_MISSING_TOKEN", "未带令牌必须是 M_MISSING_TOKEN：{value}");
 }
 
 /// I-14：目标用户不存在 ⇒ 404 `M_NOT_FOUND`（曾因 `ApiError` 经 `?` 被降级成
@@ -189,4 +189,36 @@ async fn friend_request_to_unknown_user_is_not_found() {
 
     assert_eq!(status, StatusCode::NOT_FOUND, "目标用户不存在必须是 404：{value}");
     assert_eq!(value["errcode"], "M_NOT_FOUND", "errcode 必须是 M_NOT_FOUND：{value}");
+}
+
+/// BE-3：`Idempotency-Key` 必须真正去重 —— 同一 (user, key) 重放返回首次
+/// `request_id` 并标记 `idempotent_replay: true`，而不是新建第二条请求。
+#[tokio::test]
+async fn friend_request_idempotency_key_deduplicates() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+    let (alice_token, _alice_id) = register(&app, "friend_idem_alice").await;
+    let (_bob_token, bob_id) = register(&app, "friend_idem_bob").await;
+
+    let send = |key: &str| {
+        let builder = Request::builder()
+            .method("POST")
+            .uri("/_matrix/vendor/v1/friends/request")
+            .header("Content-Type", "application/json")
+            .header("Idempotency-Key", key);
+        bearer(builder, Some(&alice_token))
+            .body(Body::from(json!({ "user_id": bob_id, "message": "idem" }).to_string()))
+            .unwrap()
+    };
+
+    let (status, first) = call(&app, send("friend-idem-key-1")).await;
+    assert_eq!(status, StatusCode::OK, "首次请求必须 200：{first}");
+    let first_id = first["request_id"].as_str().expect("首次响应必须带字符串 request_id").to_string();
+    assert!(first.get("idempotent_replay").is_none(), "首次请求不是重放：{first}");
+
+    let (status, second) = call(&app, send("friend-idem-key-1")).await;
+    assert_eq!(status, StatusCode::OK, "同 key 重放必须 200：{second}");
+    assert_eq!(second["request_id"], json!(first_id), "同 key 必须返回同一个 request_id：{second}");
+    assert_eq!(second["idempotent_replay"], true, "重放必须标记 idempotent_replay：{second}");
 }

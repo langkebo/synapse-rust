@@ -531,6 +531,11 @@ impl FriendRoomService {
             .into_iter()
             .map(|r| {
                 json!({
+                    "request_id": r.id.to_string(),
+                    "request_id_num": r.id,
+                    "requester": r.sender_id,
+                    "recipient": r.receiver_id,
+                    "created_ts": r.created_ts,
                     "user_id": r.sender_id,
                     "message": r.message,
                     "timestamp": r.created_ts,
@@ -548,6 +553,11 @@ impl FriendRoomService {
             .into_iter()
             .map(|r| {
                 json!({
+                    "request_id": r.id.to_string(),
+                    "request_id_num": r.id,
+                    "requester": r.sender_id,
+                    "recipient": r.receiver_id,
+                    "created_ts": r.created_ts,
                     "user_id": r.receiver_id,
                     "message": r.message,
                     "timestamp": r.created_ts,

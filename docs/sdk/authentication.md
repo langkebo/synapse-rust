@@ -327,7 +327,7 @@ async function refresh(base: string, refreshToken: string) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refresh_token: refreshToken }),
   });
-  if (!res.ok) throw await res.json();       // 401 M_UNAUTHORIZED “Invalid refresh token”
+  if (!res.ok) throw await res.json();       // 401 M_UNKNOWN_TOKEN “Invalid refresh token”
   return res.json() as Promise<{
     access_token: string; refresh_token: string; expires_in: number; device_id: string;
   }>;
@@ -342,7 +342,7 @@ async function refresh(base: string, refreshToken: string) {
 | 写法 | 结果 |
 |---|---|
 | `Authorization: Bearer <refresh_token>`，body 空 | 400 `M_BAD_JSON`，`error: Refresh token required` |
-| body 里给错 token | 401 `M_UNAUTHORIZED`，`error: Invalid refresh token` |
+| body 里给错 token | 401 `M_UNKNOWN_TOKEN`，`error: Invalid refresh token` |
 
 > refresh 会**轮换** refresh token：响应里的新 `refresh_token` 必须覆盖旧的，
 > 否则并发刷新会互相失效。

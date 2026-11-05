@@ -156,5 +156,5 @@ async fn space_endpoints_require_authentication() {
     let (status, value) =
         call(&app, post_json("/_matrix/vendor/v1/spaces", None, &json!({ "room_id": "!x:localhost" }))).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED, "未认证必须 401：{value}");
-    assert_eq!(value["errcode"], "M_UNAUTHORIZED", "errcode：{value}");
+    assert_eq!(value["errcode"], "M_MISSING_TOKEN", "errcode：{value}");
 }

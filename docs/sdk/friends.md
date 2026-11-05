@@ -65,7 +65,7 @@ REST 语义——**不要**直接读写那个房间的状态事件。
 | `limit` | `50` | **必须** `1..=200`，越界返回 `400 M_INVALID_PARAM`；合法值原样生效，响应 `limit` 恒等于请求值 |
 | `from` | 无 | **Keyset 游标**，取上次响应的 `next_batch` |
 | `sort_by` | `alphabet` | 排序字段 |
-| `offset` | 无 | ⚠️ **已废弃**：`offset > 0` 且没给 `from` → **400 `M_BAD_JSON`**（`Legacy offset pagination is no longer supported; use from cursor`） |
+| `offset` | 无 | ⚠️ **已废弃**：`offset > 0` 且没给 `from` → **400 `M_INVALID_PARAM`**（`Legacy offset pagination is no longer supported; use from cursor`） |
 
 **响应**：
 
@@ -122,13 +122,19 @@ REST 语义——**不要**直接读写那个房间的状态事件。
 { "user_id": "@bob:matrix.test", "message": "一起做项目？" }
 ```
 
-**响应**：`{ "request_id": "42", "status": "pending" }`
+**响应**：`{ "request_id": "42", "request_id_num": 42, "status": "pending" }`
 
-> `request_id` 是**字符串**（服务端把内部 i64 转了 string）。按数字处理会类型不符。
+> `request_id` 是**字符串**（服务端把内部 i64 转了 string）。按数字处理会类型不符；
+> 需要数值时用 `request_id_num`（BE-3 双发，二者始终指向同一条请求）。
+
+**幂等**：带上 `Idempotency-Key: <key>` 时，同一用户 24 小时内用同一个 key 重发
+（即使换成不同的 `user_id`）会直接返回首次创建的 `request_id`，并带
+`"idempotent_replay": true`，不会再创建新请求。`X-Request-ID` 仅用于链路追踪，
+不参与去重。
 
 | 错误 | 状态 | errcode |
 |---|---|---|
-| 给自己发 | 400 | `M_BAD_JSON`（`Cannot send friend request to yourself`） |
+| 给自己发 | 400 | `M_INVALID_PARAM`（`Cannot send friend request to yourself`） |
 | `user_id` 格式非法 | 400 | `M_INVALID_PARAM` |
 | 已经是好友 / 已有待处理请求 | 400 | `M_BAD_JSON`（由底层好友房间状态机拒绝） |
 
@@ -141,9 +147,12 @@ REST 语义——**不要**直接读写那个房间的状态事件。
 
 ```json
 {
+  "request_id": "42",
+  "request_id_num": 42,
+  "requester": "@alice:matrix.test",
+  "recipient": "@bob:matrix.test",
+  "created_ts": 1760700000000,
   "user_id": "@bob:matrix.test",
-  "displayname": "Bob",
-  "avatar_url": "mxc://...",
   "message": "一起做项目？",
   "timestamp": 1760700000000,
   "status": "pending"
@@ -151,6 +160,10 @@ REST 语义——**不要**直接读写那个房间的状态事件。
 ```
 
 `status` ∈ `pending` / `accepted` / `rejected` / `cancelled`（小写）。
+
+> `request_id`（字符串）/ `request_id_num`（数字）同一值双发；`requester` / `recipient`
+> 是稳定的请求双方，`created_ts` 与旧字段 `timestamp` 同值。`user_id` 保留为
+> 「对端用户」的旧字段（incoming 是请求方，outgoing 是被请求方），便于旧客户端兼容。
 
 ### 接受 / 拒绝 / 撤回
 
@@ -307,17 +320,18 @@ REST 语义——**不要**直接读写那个房间的状态事件。
 
 | 场景 | 状态 | errcode |
 |---|---|---|
-| 缺 token / 坏 token / token 过期 | 401 | `M_UNAUTHORIZED`（`Missing or invalid authorization header` / `Invalid token` / `Token expired`） |
+| 缺 token（无 `Authorization` 头） | 401 | `M_MISSING_TOKEN`（`Missing or invalid authorization header`） |
+| 坏 token / token 过期 / 已撤销 | 401 | `M_UNKNOWN_TOKEN`（`Invalid token` / `Token expired` / `Token has been revoked`） |
 | `user_id` 格式非法 | 400 | `M_INVALID_PARAM` |
 | 请求体字段未知（`deny_unknown_fields`） | 400 | `M_BAD_JSON` |
-| 旧版 `offset` 分页 | 400 | `M_BAD_JSON` |
+| 旧版 `offset` 分页 | 400 | `M_INVALID_PARAM` |
 | 好友不存在（`/info`） | 404 | `M_NOT_FOUND` |
 | 搜索过于频繁 | 429 | `M_LIMIT_EXCEEDED` |
 
-> 本服务所有"参数/语义不对"的 400 都走 `ApiError::bad_request` → **`M_BAD_JSON`**（不是
-> `M_BAD_REQUEST`，该码在本服务不存在）；只有校验器显式用 `invalid_param` 的地方才是
-> `M_INVALID_PARAM`（如 `user_id` 格式、`receipt_type` 白名单）。客户端分支建议按
-> **HTTP 400 + `error` 文案**处理，不要只认 errcode。
+> 400 分两类：**JSON 本身不合法 / 含未知字段** → `ApiError::bad_request` → `M_BAD_JSON`；
+> **JSON 合法但参数值语义不对**（`user_id` 格式、`limit` 越界、废弃 `offset` 分页、给自己发请求、
+> `receipt_type` 白名单）→ `ApiError::invalid_param` → `M_INVALID_PARAM`。本服务不存在
+> `M_BAD_REQUEST`。客户端分支建议按 **HTTP 400 + `error` 文案**处理，不要只认 errcode。
 
 > **所有请求体都开了 `deny_unknown_fields`**：多传一个字段直接 400 `M_BAD_JSON`，
 > 不是"忽略未知字段"。这一点在跨版本兼容时最容易踩。

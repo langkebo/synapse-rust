@@ -365,11 +365,16 @@ impl CapabilityGovernance {
         unstable_features.insert("org.matrix.msc3873".to_string(), json!(true));
         // MSC4108: Sign in with QR code — rendezvous endpoints are always available
         unstable_features.insert("org.matrix.msc4108".to_string(), json!(true));
-        // Private `io.hula.*` extensions are intentionally NOT declared in
-        // `/versions.unstable_features` — that surface is unauthenticated and
-        // consumed by stock Matrix clients which do not understand the
-        // `io.hula.*` namespace. These capabilities remain visible on the
-        // authenticated `/capabilities` surface for clients that opt in.
+        // BE-11: private `io.hula.*` extensions are declared on `/versions` too,
+        // so a client can discover friend / burn-after-read support before it has
+        // a token. Values are gated by `experimental.declare_private_extensions`
+        // and the served route surface (same as the authenticated
+        // `/capabilities` surface), so a suppressed build reports `false` instead
+        // of advertising an unavailable feature. Unknown keys are ignored by
+        // stock Matrix clients, so exposing the namespace here is safe.
+        unstable_features.insert("io.hula.friends".to_string(), json!(self.friends_capability().enabled()));
+        unstable_features
+            .insert("io.hula.burn_after_read".to_string(), json!(self.burn_after_read_capability().enabled()));
 
         json!({
             "versions": Self::declared_client_api_versions(),
@@ -969,14 +974,11 @@ mod tests {
             assert!(unstable.contains_key(*key), "missing unstable feature: {key}");
         }
 
-        // Private `io.hula.*` extensions must NOT appear in `/versions` —
-        // that surface is unauthenticated and consumed by stock Matrix
-        // clients which do not understand the `io.hula.*` namespace.
-        assert!(
-            !unstable.contains_key("io.hula.burn_after_read"),
-            "private io.hula.burn_after_read must not leak to /versions"
-        );
-        assert!(!unstable.contains_key("io.hula.friends"), "private io.hula.friends must not leak to /versions");
+        // BE-11: private `io.hula.*` extensions must be declared consistently on
+        // `/versions` and `/capabilities`; the value stays gated by
+        // `experimental.declare_private_extensions` + the served route surface.
+        assert_eq!(unstable["io.hula.friends"], json!(g.friends_capability().enabled()));
+        assert_eq!(unstable["io.hula.burn_after_read"], json!(g.burn_after_read_capability().enabled()));
     }
 
     /// MSC4354 must be **derived from the served route surface**, not hardcoded.

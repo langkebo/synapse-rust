@@ -3,9 +3,9 @@
 //! These tests lock the response shapes of:
 //!   - login    (GET /_matrix/client/v3/login)        — login flows
 //!   - register (GET /_matrix/client/v3/register)      — register flows + UIA 401 challenge
-//!   - sync     (GET /_matrix/client/v3/sync)         — M_UNAUTHORIZED when no token
-//!   - join     (POST /_matrix/client/v3/rooms/.../join) — M_UNAUTHORIZED when no token
-//!   - profile  (GET /_matrix/client/unstable/uk.tcpip.msc4133/profile/...) — M_UNAUTHORIZED when no token
+//!   - sync     (GET /_matrix/client/v3/sync)         — M_MISSING_TOKEN when no token
+//!   - join     (POST /_matrix/client/v3/rooms/.../join) — M_MISSING_TOKEN when no token
+//!   - profile  (GET /_matrix/client/unstable/uk.tcpip.msc4133/profile/...) — M_MISSING_TOKEN when no token
 //!
 //! When a route returns dynamic fields (access_token, refresh_token, expires_in,
 //! origin_server_ts, session, uuid suffixes), we redact them via inline
@@ -99,7 +99,7 @@ async fn snapshot_register_uia_401_challenge() {
 }
 
 // ============================================================================
-// P2-3: sync — GET /_matrix/client/v3/sync without token → M_UNAUTHORIZED
+// P2-3: sync — GET /_matrix/client/v3/sync without token → M_MISSING_TOKEN
 // ============================================================================
 
 #[tokio::test]
@@ -128,7 +128,7 @@ async fn snapshot_join_unauthorized_without_token() {
 }
 
 // ============================================================================
-// P2-5: profile — GET extended profile without token → M_UNAUTHORIZED
+// P2-5: profile — GET extended profile without token → M_MISSING_TOKEN
 // MSC4133 endpoint: /_matrix/client/unstable/uk.tcpip.msc4133/profile/:user_id
 // ============================================================================
 

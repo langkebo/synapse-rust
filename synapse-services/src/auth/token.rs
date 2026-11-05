@@ -69,7 +69,7 @@ impl AuthService {
                 .map_err(|e| ApiError::internal_with_cause("Failed to check token blacklist", e))?
             {
                 ::tracing::debug!(target: "token_validation", "Token found in blacklist");
-                return Err(ApiError::unauthorized("Token has been revoked".to_string()));
+                return Err(ApiError::authentication("Token has been revoked".to_string()));
             }
 
             if self
@@ -79,7 +79,7 @@ impl AuthService {
                 .map_err(|e| ApiError::internal_with_cause("Failed to check token status", e))?
             {
                 ::tracing::debug!(target: "token_validation", "Token has been revoked in database");
-                return Err(ApiError::unauthorized("Token has been revoked".to_string()));
+                return Err(ApiError::authentication("Token has been revoked".to_string()));
             }
 
             self.cache.set_raw(&revocation_ok_key, "1", REVOCATION_CHECK_CACHE_TTL_SECS).await;
@@ -87,12 +87,12 @@ impl AuthService {
 
         let claims = self.decode_token(token).map_err(|e| {
             ::tracing::debug!(target: "token_validation", "Token validation failed: {}", e);
-            ApiError::unauthorized("Invalid token".to_string())
+            ApiError::authentication("Invalid token".to_string())
         })?;
 
         if claims.exp < Utc::now().timestamp() {
             ::tracing::debug!(target: "token_validation", "Token expired");
-            return Err(ApiError::unauthorized("Token expired".to_string()));
+            return Err(ApiError::authentication("Token expired".to_string()));
         }
 
         let logout_marker = format!("user:logout_all:{}", claims.sub);
@@ -104,7 +104,7 @@ impl AuthService {
             if let Ok(logout_ts) = marker_val.parse::<i64>() {
                 if claims.iat < logout_ts {
                     ::tracing::debug!(target: "token_validation", "User has been logged out from all devices (token issued before logout)");
-                    return Err(ApiError::unauthorized("Token has been revoked".to_string()));
+                    return Err(ApiError::authentication("Token has been revoked".to_string()));
                 }
             }
         }
@@ -133,7 +133,7 @@ impl AuthService {
                                 .get_user_by_id(&cached_claims.sub)
                                 .await
                                 .map_err(|e| ApiError::internal_with_cause("Database error", e))?
-                                .ok_or_else(|| ApiError::unauthorized("User not found".to_string()))?;
+                                .ok_or_else(|| ApiError::authentication("User not found".to_string()))?;
                             self.cache.set(&admin_cache_key, user.is_admin, ADMIN_CACHE_TTL_SECS).await?;
                             self.cache.set(&shadow_key, user.is_shadow_banned, USER_ACTIVE_CACHE_TTL_SECS).await?;
                             self.cache.set(&guest_key, user.is_guest, USER_ACTIVE_CACHE_TTL_SECS).await?;
@@ -150,7 +150,7 @@ impl AuthService {
                         cached_claims.appservice_id.clone(),
                     ))
                 } else {
-                    Err(ApiError::unauthorized("User not found or deactivated".to_string()))
+                    Err(ApiError::user_deactivated("User not found or deactivated".to_string()))
                 };
             }
 
@@ -189,12 +189,12 @@ impl AuthService {
                         cached_claims.appservice_id.clone(),
                     ))
                 } else {
-                    Err(ApiError::unauthorized("User is deactivated".to_string()))
+                    Err(ApiError::user_deactivated("User is deactivated".to_string()))
                 }
             } else {
                 ::tracing::debug!(target: "token_validation", "User not found in database");
                 self.cache.set_user_active(&cached_claims.sub, false, USER_ACTIVE_CACHE_TTL_SECS).await;
-                Err(ApiError::unauthorized("User not found".to_string()))
+                Err(ApiError::authentication("User not found".to_string()))
             };
         }
 
@@ -237,7 +237,7 @@ impl AuthService {
             }
             None => {
                 ::tracing::debug!(target: "token_validation", "User not found in database");
-                Err(ApiError::unauthorized("User not found".to_string()))
+                Err(ApiError::authentication("User not found".to_string()))
             }
         }
     }

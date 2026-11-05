@@ -390,14 +390,46 @@ async fn send_friend_request(
     }
 
     let request_id = resolve_request_id(&headers);
+
+    // BE-3: `Idempotency-Key` must actually de-duplicate the write, not just feed
+    // the tracing/audit `request_id`. Keyed on (sender, key) so two clients can
+    // never collide; only the explicit header is honoured — the tracing id may be
+    // random or client-supplied and is not an idempotency contract.
+    let idempotency_key = headers
+        .get("idempotency-key")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && value.len() <= 255)
+        .map(|value| format!("idempotency:friend_request:{}:{}", auth_user.user_id, value));
+
+    if let Some(key) = &idempotency_key {
+        if let Some(cached) = ctx.cache.get_raw_shared(key).await {
+            if let Some(existing_id) = cached.parse::<i64>().ok() {
+                return Ok(Json(json!({
+                    "request_id": existing_id.to_string(),
+                    "request_id_num": existing_id,
+                    "status": "pending",
+                    "idempotent_replay": true
+                })));
+            }
+        }
+    }
+
     let request_id_val: i64 = ctx
         .friend_room_service
         .send_friend_request(&request_id, &auth_user.user_id, &body.user_id, body.message.as_deref())
         .await?;
     let friend_request_id = request_id_val.to_string();
 
+    if let Some(key) = idempotency_key {
+        // 24h window: a client reusing the key after that is treated as a new
+        // request. Cache failure only weakens de-duplication, never the write.
+        ctx.cache.set_raw(&key, &friend_request_id, 86_400).await;
+    }
+
     Ok(Json(json!({
         "request_id": friend_request_id,
+        "request_id_num": request_id_val,
         "status": "pending"
     })))
 }

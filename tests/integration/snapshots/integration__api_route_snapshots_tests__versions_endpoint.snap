@@ -4,6 +4,8 @@ expression: body
 ---
 {
   "unstable_features": {
+    "io.hula.burn_after_read": true,
+    "io.hula.friends": true,
     "m.lazy_load_members": true,
     "m.require_identity_server": false,
     "m.supports_login_via_phone_number": false,
