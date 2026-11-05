@@ -1046,12 +1046,11 @@ impl IntoResponse for ApiError {
             // M_UNKNOWN。现在保留结构化字段（如 deactivated），但 errcode/error
             // 必须存在。
             let body = match serde_json::from_str::<serde_json::Value>(&self.message) {
-                Ok(mut v) if v.is_object() => {
-                    let obj = v.as_object_mut().expect("just checked is_object");
+                Ok(serde_json::Value::Object(mut obj)) => {
                     obj.entry("errcode").or_insert_with(|| json!(self.code_str()));
                     let fallback_error = self.message.clone();
                     obj.entry("error").or_insert_with(|| json!(fallback_error));
-                    v
+                    serde_json::Value::Object(obj)
                 }
                 _ => json!({"errcode": self.code_str(), "error": self.message}),
             };
