@@ -13,7 +13,6 @@ use axum::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use synapse_common::content_scanner::ContentType;
-use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
 // G-3: Named constants for chunk advisory sizes returned to clients.
@@ -400,22 +399,30 @@ pub(crate) struct CreateUploadTokenBody {
 }
 
 /// POST /_matrix/client/v3/upload/token
+///
+/// 该端点只描述**上传能力**（往哪传、上限多少、下载前缀长什么样），
+/// 不签发凭证：上游把返回的 `upload_token` 当作上传票据，但服务端从未校验过它
+/// （联调报告 BE-6：死字段 ⇒ 客户端拿着一张不存在的通行证）。Matrix 的上传
+/// 鉴权就是 `Authorization: Bearer <access_token>`，因此这里不再返回票据，
+/// 改为返回 `upload_method` / `download_url_prefix`，让客户端能直接拼出
+/// 上传与下载两条 URL（联调报告 BE-5）。
 pub(crate) async fn create_upload_token(
     State(ctx): State<MediaContext>,
-    auth_user: AuthenticatedUser,
+    _auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<CreateUploadTokenBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let filename = body.filename.as_deref().unwrap_or("upload");
     let content_type = body.content_type.as_deref().unwrap_or("application/octet-stream");
 
-    let token = format!("upload_{}_{}", auth_user.user_id, current_timestamp_millis());
-
     Ok((
         StatusCode::OK,
         Json(json!({
-            "upload_token": token,
             "storage_type": "matrix",
+            // 上传是 POST（不是 PUT）：PUT 会把同名 media_id 覆盖语义带进来。
+            "upload_method": "POST",
             "upload_url": "/_matrix/media/v3/upload",
+            // 下载侧需要 server_name + media_id 两段，故给前缀而非完整 URL。
+            "download_url_prefix": format!("/_matrix/client/v1/media/download/{}/", ctx.server_name),
             "filename": filename,
             "content_type": content_type,
             // G-1: 上报给客户端的上限统一来自权威配置 server.max_upload_size

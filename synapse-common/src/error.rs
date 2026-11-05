@@ -120,6 +120,24 @@ pub const STATUS_DIVERGENCE_WHITELIST: &[(ApiErrorKind, MatrixErrorCode)] = &[
     (ApiErrorKind::BadRequest, MatrixErrorCode::Unknown),
 ];
 
+/// BE-7：`M_UNKNOWN` **同码多义**的机器可读登记表。
+///
+/// Matrix 没有为 409/501/503 定义更贴切的 errcode，这些语义都落到 catch-all
+/// `M_UNKNOWN` 上 —— 只读 `errcode` 的客户端无法区分「请求里有不支持的字段」
+/// 和「服务端坏了」。本表把每一个可达的 `(kind, 构造器)` 与它的含义钉死，
+/// 并由 `test_m_unknown_meanings_table_is_exhaustive` 守卫：
+/// 任何产出 `M_UNKNOWN` 却未登记在这里的 kind，或表里已不可达的条目，都会失败。
+///
+/// 客户端应结合 HTTP 状态码判别：`400` = 请求内容问题，`409` = 状态冲突，
+/// `500` = 服务端缺陷，`501` = 该字段/能力未实现，`503` = 暂不可用。
+pub const M_UNKNOWN_MEANINGS: &[(ApiErrorKind, &str)] = &[
+    (ApiErrorKind::BadRequest, "bad_request_unknown"),
+    (ApiErrorKind::Conflict, "conflict"),
+    (ApiErrorKind::Internal, "internal"),
+    (ApiErrorKind::NotImplemented, "not_supported"),
+    (ApiErrorKind::ServiceUnavailable, "service_unavailable"),
+];
+
 // ---------------------------------------------------------------------------
 // ApiError — structured error with kind / code / cause
 // ---------------------------------------------------------------------------

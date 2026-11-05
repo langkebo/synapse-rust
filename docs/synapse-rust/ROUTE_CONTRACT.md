@@ -2605,3 +2605,21 @@ SDK 门禁只能落到 `backend-query-unknown`；类型化后 `query` 分类为 
 **已知偏离（登记，不在本卡修）**：上表 4 处"交付通道未启用"按 #1 回 404，而 Synapse 对同一情形回 `400 M_THREEPID_DENIED`。
 两者都满足"客户端应改走别的路径"，差别只在 errcode 的提示强度；改它要动 `synapse-services` 的注册/三方 ID 分支与对应测试，
 留给能力台账重做（MAINT-04）时统一处理。
+
+### F.2 `M_UNKNOWN` 同码多义登记（BE-7，2026-11-05）
+
+Matrix 没有为 409/501/503 定义更贴切的 errcode，这些语义都落到 catch-all `M_UNKNOWN`。
+**只读 `errcode` 无法区分「请求内容有问题」和「服务端坏了」**，客户端必须同时看 HTTP 状态码。
+下表是机器可读常量 `M_UNKNOWN_MEANINGS`（`synapse-common/src/error.rs`）的人读版本，两者由
+`test_m_unknown_meanings_table_is_exhaustive` 守卫：新增产出 `M_UNKNOWN` 的 kind 而不登记会失败，
+登记项失去可达性也会失败。
+
+| HTTP | errcode | 构造器 | 含义 | 客户端动作 |
+|---|---|---|---|---|
+| `400` | `M_UNKNOWN` | `ApiError::bad_request_unknown()` | 请求体合法，但其中的 `type`/变体本端点未实现（如 `POST /login` 的未知 `type`） | 换用受支持的变体后重试 |
+| `409` | `M_UNKNOWN` | `ApiError::conflict()` | 通用状态冲突，没有更精确的 Matrix errcode | 重新拉取状态后再决定 |
+| `500` | `M_UNKNOWN` | `ApiError::internal*()` / `database*()` | 服务端缺陷或数据库故障 | 报障，**不要**映射成 404/501 降级 |
+| `501` | `M_UNKNOWN` | `ApiError::not_supported()` | 端点可用，但请求的字段/扩展被拒（见 F 表 #2） | 去掉该字段后重试 |
+| `503` | `M_UNKNOWN` | `ApiError::service_unavailable()` | 依赖（队列/下游）暂不可用 | 按 `Retry-After` 退避重试 |
+
+不在本表的能力缺失一律走 `404 M_UNRECOGNIZED`（F 表 #1），**不得**用 500 冒充。

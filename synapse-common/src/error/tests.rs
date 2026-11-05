@@ -895,6 +895,39 @@ fn test_status_divergence_guard_can_fail() {
     assert!(is_registered_status_divergence(ApiErrorKind::Gone, MatrixErrorCode::NotFound));
 }
 
+/// BE-7：`M_UNKNOWN` 是 catch-all，同一 errcode 在 400/409/500/501/503 上
+/// 各表示一件事。只读 `errcode` 的客户端无法区分，所以这张表必须**穷尽**
+/// 且**不腐化**：任何产出 `M_UNKNOWN` 的 kind 都要登记，登记过的 kind 也必须
+/// 仍可达。
+#[test]
+fn test_m_unknown_meanings_table_is_exhaustive() {
+    let observed: Vec<ApiErrorKind> = all_fixed_api_error_constructors()
+        .into_iter()
+        .filter(|(_, err)| err.code == MatrixErrorCode::Unknown)
+        .map(|(_, err)| err.kind)
+        .collect();
+
+    for kind in &observed {
+        assert!(
+            M_UNKNOWN_MEANINGS.iter().any(|(k, _)| k == kind),
+            "kind {kind:?} produces M_UNKNOWN but is not registered in M_UNKNOWN_MEANINGS"
+        );
+    }
+    for (kind, constructor) in M_UNKNOWN_MEANINGS {
+        assert!(
+            observed.contains(kind),
+            "M_UNKNOWN_MEANINGS entry `{constructor}` ({kind:?}) is stale — no constructor produces M_UNKNOWN for it"
+        );
+    }
+
+    // 五种状态码缺一不可，否则「同码多义」只是换了个地方藏起来。
+    let mut statuses: Vec<u16> =
+        M_UNKNOWN_MEANINGS.iter().map(|(kind, _)| kind.default_http_status().as_u16()).collect();
+    statuses.sort_unstable();
+    statuses.dedup();
+    assert_eq!(statuses, vec![400, 409, 500, 501, 503], "M_UNKNOWN must stay registered for 400/409/500/501/503");
+}
+
 // -----------------------------------------------------------------------
 // ApiResponse::into_response 与 MatrixErrorCode::http_status 收敛一致性
 // -----------------------------------------------------------------------
