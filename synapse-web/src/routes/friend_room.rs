@@ -403,15 +403,14 @@ async fn send_friend_request(
         .map(|value| format!("idempotency:friend_request:{}:{}", auth_user.user_id, value));
 
     if let Some(key) = &idempotency_key {
-        if let Some(cached) = ctx.cache.get_raw_shared(key).await {
-            if let Some(existing_id) = cached.parse::<i64>().ok() {
-                return Ok(Json(json!({
-                    "request_id": existing_id.to_string(),
-                    "request_id_num": existing_id,
-                    "status": "pending",
-                    "idempotent_replay": true
-                })));
-            }
+        let cached_id = ctx.cache.get_raw_shared(key).await.and_then(|cached| cached.parse::<i64>().ok());
+        if let Some(existing_id) = cached_id {
+            return Ok(Json(json!({
+                "request_id": existing_id.to_string(),
+                "request_id_num": existing_id,
+                "status": "pending",
+                "idempotent_replay": true
+            })));
         }
     }
 
