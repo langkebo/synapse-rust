@@ -11,9 +11,13 @@
 //! * `POST /_matrix/client/unstable/org.matrix.simplified_msc3575/sync`
 //! * `POST /_matrix/client/v1/sync`
 //!
-//! ✅ **NEW-17（已修）**：`rooms` 现在按规范返回 `{join, invite, leave}` 三层
-//! （此前是扁平 `room_id → 房间对象`，按规范读 `rooms.join` 的客户端会看到空房间列表）。
-//! 分组发生在**序列化边界**（`filters::group_rooms_by_membership`），内部仍用扁平 map。
+//! ⚠️ **NEW-17 已回滚（2026-11-05）**：MSC3575 / MSC4186 的 `rooms` 是**扁平**的
+//! `room_id → 房间对象`（对象自带 `required_state` / `timeline` / `initial`）。
+//! `{join, invite, leave}` 是 `/sync` v2 的信封，滑窗没有这一层。
+//! 当时按错误的小节做了「序列化边界分组」，导致 matrix-js-sdk 的
+//! `for (roomId in resp.rooms)` 把 `join/invite/leave` 当成 3 个房间 id，
+//! 伪房间没有 `initial` ⇒ `SlidingSyncSdk.onRoomData` 直接 return ⇒ **客户端零房间**
+//! （会话列表恒空、`createRoom` 后 `waitForRoom` 必超时）。
 //!
 //! 四条路径在台账里都有，但**名字对不等于接通**：本文件用同一份请求体依次打四条，
 //! 任何一条落到 404/405 就会红（这正是"路由注册了但 handler 没接上"的典型症状）。
@@ -105,10 +109,10 @@ async fn sliding_sync_returns_pos_lists_and_rooms() {
     let lists = value["lists"].as_object().unwrap_or_else(|| panic!("lists 必须是对象：{value}"));
     assert!(lists.contains_key("main"), "请求里的 main 列表必须回显（客户端按键取结果）：{value}");
 
-    assert!(value["rooms"].is_object(), "rooms 必须是对象（{{join,invite,leave}}）：{value}");
+    assert!(value["rooms"].is_object(), "rooms 必须是对象（room_id → 房间对象）：{value}");
 }
 
-/// 刚创建的房间必须出现在 `rooms.join` 里 —— 列表不是空的，且房间归属正确。
+/// 刚创建的房间必须直接挂在 `rooms[room_id]` 上 —— 扁平结构，且带客户端建房间所需的字段。
 #[tokio::test]
 async fn sliding_sync_lists_joined_room() {
     let Some(app) = super::setup_fresh_test_app().await else {
@@ -129,23 +133,20 @@ async fn sliding_sync_lists_joined_room() {
         "刚建的房间 {room_id} 必须出现在 lists.main.ops[].room_ids 里：{value}"
     );
 
-    // ② NEW-17（已修）：`rooms` 必须是规范的 `{join, invite, leave}` 三层。
-    //    此前返回**扁平** `room_id → 房间对象`（`build_rooms_response` 里直接 insert），
-    //    按规范读 `rooms.join` 的客户端会拿到 undefined、房间列表显示为空。
-    //    修法是在**序列化边界**分组（`filters::group_rooms_by_membership`），内部仍用扁平 map。
+    // ② MSC3575 / MSC4186：`rooms` 是**扁平**的 `room_id → 房间对象`。
+    //    matrix-js-sdk 用 `for (roomId in resp.rooms)` 逐个派发 RoomData；若这里返回
+    //    `{join, invite, leave}`（/sync v2 的信封），客户端会把桶名当房间 id，
+    //    且伪房间没有 `initial`，`SlidingSyncSdk.onRoomData` 会直接丢弃 ⇒ 零房间。
     let rooms = value["rooms"].as_object().unwrap_or_else(|| panic!("rooms 必须是对象：{value}"));
     for bucket in ["join", "invite", "leave"] {
-        assert!(
-            rooms.get(bucket).is_some_and(|v| v.is_object()),
-            "rooms 必须有三层 {{join, invite, leave}}，`{bucket}` 缺失或不是对象：{value}"
-        );
+        assert!(rooms.get(bucket).is_none(), "rooms 不得出现 /sync v2 的 `{bucket}` 分组（滑窗是扁平的）：{value}");
     }
-    let join = rooms["join"].as_object().expect("rooms.join 必须是对象");
-    assert!(
-        join.contains_key(&room_id),
-        "刚建的房间 {room_id} 必须出现在 rooms.join 里（客户端就是从这里取房间内容）：{value}"
-    );
-    assert!(!rooms.contains_key(&room_id), "房间不能再直接挂在 rooms 顶层（扁平形状已废弃）：{value}");
+    let room = rooms.get(&room_id).unwrap_or_else(|| panic!("刚建的房间 {room_id} 必须直接挂在 rooms 顶层：{value}"));
+    // 这三个字段是客户端能否把房间建进 store 的前提：
+    // `initial` 缺失时 `SlidingSyncSdk.onRoomData` 对未知房间直接 return。
+    assert_eq!(room["initial"], json!(true), "首次同步（无 pos）的房间必须带 initial=true：{value}");
+    assert!(room["required_state"].is_array(), "房间必须带 required_state（状态建不起来就渲染不出名字）：{value}");
+    assert!(room["timeline"].is_array(), "房间必须带 timeline：{value}");
 }
 
 /// 四条路径必须**都接通**（台账里有名字 ≠ handler 接上了）。

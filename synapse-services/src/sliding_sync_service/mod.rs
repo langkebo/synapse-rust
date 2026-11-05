@@ -700,9 +700,17 @@ impl SlidingSyncService {
                 pos: new_token.pos.to_string(),
                 conn_id: request.conn_id,
                 lists: lists_response,
-                // NEW-17：规范要求 `rooms: {join, invite, leave}`；内部仍是扁平 map，
-                // 只在序列化边界分组（`extensions` / `has_new_timeline_events` 依赖扁平）。
-                rooms: filters::group_rooms_by_membership(rooms_response),
+                // MSC3575 / MSC4186：`rooms` 是**扁平**的 `room_id → 房间对象`（每个对象自带
+                // `required_state` / `timeline` / `initial` / `limited`）。`{join, invite, leave}`
+                // 是 `/sync` v2 的信封，滑窗**没有**这一层。
+                //
+                // NEW-17 曾在此处调用 `group_rooms_by_membership()`「按规范分组」，那是把小节
+                // 弄错了：matrix-js-sdk 的 `SlidingSync` 用 `for (roomId in resp.rooms)` 遍历，
+                // 于是 `join/invite/leave` 被当成 3 个房间 id 传进 `SlidingSyncSdk.onRoomData`；
+                // 这些伪房间既没有 `initial` 也没有 `required_state`，`onRoomData` 直接 return，
+                // 结果是**任何滑窗客户端都看不到房间**（会话列表恒空、createRoom 后取不到实例）。
+                // `build_rooms_response()` 产出的本来就是合规的扁平结构，这里不再二次加工。
+                rooms: rooms_response,
                 extensions: extensions_response,
             },
             idle_wait_ms,
