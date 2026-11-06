@@ -91,7 +91,7 @@ impl FriendRoomStorage {
     /// 一次性 fan-out 读取房间内所有 m.friends.list shard（v5 sharding）
     ///
     /// W5 拆分：将 1000+ 好友单 state event 拆为 28 个 shard（每 shard 平均 35 条
-    /// friend），单条 content < 500 字节，不触 PG btree 2704 上限。
+    /// friend），单条 content < 500 字节，读放大与写成本都落在单个 shard 上。
     ///
     /// 返回 Vec 按 state_key 字典序排列（`""` → `A` → `B` → ... → `#`），
     /// 调用方按顺序 fan-in 合并 friends[] 即可。

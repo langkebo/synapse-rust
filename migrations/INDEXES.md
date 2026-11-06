@@ -165,7 +165,7 @@ Partial Index（部分索引）通过 `WHERE` 子句仅索引满足条件的行�
 | events | idx_events_sender_type | sender, event_type | 否 | 按发送者和事件类型查询 |
 | events | idx_events_sender_time | sender, origin_server_ts DESC | 否 | 按发送者和时间查询事件 |
 | events | idx_events_room_stream_ordering | room_id, stream_ordering DESC | 否 | 按房间和流序号查询事件 |
-| events | idx_events_sync_covering | room_id, stream_ordering DESC INCLUDE (event_id, sender, event_type, content, origin_server_ts) | 否 | 覆盖索引：同步查询优化 |
+| events | idx_events_sync_covering | room_id, stream_ordering DESC INCLUDE (event_id, sender, event_type, origin_server_ts) | 否 | 覆盖索引：同步查询优化（**不含 `content`**，见 §3.4 BE-12） |
 | events | idx_events_not_redacted | room_id, origin_server_ts DESC | 否 | 未删除事件查询（Partial） |
 | events | idx_events_type_state | room_id, event_type, state_key | 否 | 房间状态事件查询（Partial） |
 | events | idx_events_type_origin_ts | event_type, origin_server_ts DESC | 否 | 按事件类型+时间范围查询（get_daily_message_count，PERF-02） |
@@ -293,8 +293,13 @@ Partial Index（部分索引）通过 `WHERE` 子句仅索引满足条件的行�
 - **覆盖索引**：对高频查询使用 `INCLUDE` 子句避免回表
   ```sql
   CREATE INDEX idx_events_sync_covering ON events(room_id, stream_ordering DESC)
-      INCLUDE (event_id, sender, event_type, content, origin_server_ts);
+      INCLUDE (event_id, sender, event_type, origin_server_ts);
   ```
+  ⚠️ **`INCLUDE` 只放定长/小字段，绝不放 `content`**（BE-12）：PostgreSQL btree v4
+  单个索引元组上限 2704 字节（压缩后），把整份 `content` 放进覆盖索引会让任何
+  大事件（好友列表快照、≳2.6KB 正文、加密密文）在 `INSERT` 时直接报
+  `index row size ... exceeds btree version 4 maximum 2704`（SQLSTATE 54000），
+  整条事件写不进去。覆盖索引省的是回表，不该成为写入前提。
 
 ### 3.5 GIN 索引
 

@@ -3,9 +3,11 @@
 //! 详细方案见 `artifacts/W5-friends-list-sharding-design-2026-08-29.md`。
 //!
 //! 拆分已在 W5 正式实施：好友列表按 friend_id 的 localpart 首字母拆分到
-//! 28 个 `m.friends.list` state event（shard），以规避 PG btree 单行 2704
-//! 字节上限（idx_events_sync_covering INCLUDE content）。路由原语的唯一
-//! 事实来源在 `synapse_common::friend_shard`，本模块仅做 re-export 并保持
+//! 28 个 `m.friends.list` state event（shard），让单条 state event 不随好友数
+//! 线性膨胀（同步载荷与联邦重写成本都落在单个事件上）。索引层的 2704 字节
+//! 写入前提已由 BE-12 移除（`idx_events_sync_covering` 的 INCLUDE 去掉
+//! `content`），但拆分的收益不变。路由原语的唯一事实来源在
+//! `synapse_common::friend_shard`，本模块仅做 re-export 并保持
 //! 与 storage 层一致的接口，避免双方各自实现导致漂移。
 
 // 路由原语来自 synapse-common（storage 与 services 共享，单一事实来源）。

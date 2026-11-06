@@ -21,6 +21,9 @@
 --                         server_notices.user_id / widgets.room_id 改为 NOT NULL (issue ⑥)；
 --                         新增 17 个 FK 列缺失索引 (issue ④)
 --                         每个对象在文件中只保留一份定义
+--   v12.0.2 (2026-11-06): idx_events_sync_covering 的 INCLUDE 去掉 content
+--                         （BE-12：btree v4 单索引元组 2704B 上限让大事件写不进去）；
+--                         旧定义在基线重放时由 DO 块重建
 --
 -- 不变式（tests/unit/migration_consistency_tests.rs 守着前两条）:
 --   - migrations/ 下只允许存在一个 `00000000_unified_schema_v*.sql` 基线
@@ -3423,7 +3426,27 @@ CREATE INDEX IF NOT EXISTS idx_events_sender_time ON events(sender, origin_serve
 CREATE INDEX IF NOT EXISTS idx_events_stream_ordering ON events(stream_ordering);
 CREATE INDEX IF NOT EXISTS idx_events_room_stream_ordering ON events(room_id, stream_ordering DESC);
 CREATE INDEX IF NOT EXISTS idx_events_room_stream_ordering_not_redacted ON events(room_id, stream_ordering DESC) WHERE is_redacted = FALSE;
-CREATE INDEX IF NOT EXISTS idx_events_sync_covering ON events(room_id, stream_ordering DESC) INCLUDE (event_id, sender, event_type, content, origin_server_ts);
+-- BE-12（2026-11-06）：覆盖索引曾把 `content` 放进 INCLUDE，于是它成了写入的硬前提 ——
+-- PostgreSQL btree v4 单个索引元组上限 2704 字节（压缩后），好友数到 34
+-- （`m.friends.list` 整份快照）或不可压缩正文 ≳2.6KB 时 INSERT 直接报
+--   index row size ... exceeds btree version 4 maximum 2704（SQLSTATE 54000），
+-- 整条事件写不进去。INCLUDE 只省一次回表，不该让写不进去 ⇒ 去掉 `content`：
+-- Sync 仍用索引键定位事件，content 回表读取。旧库的旧定义在基线重放时重建一次。
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM pg_index i
+        JOIN pg_class c ON c.oid = i.indexrelid
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relname = 'idx_events_sync_covering'
+          AND n.nspname = current_schema()
+          AND pg_get_indexdef(i.indexrelid) LIKE '%INCLUDE%content%'
+    ) THEN
+        EXECUTE format('DROP INDEX %I.%I', current_schema(), 'idx_events_sync_covering');
+    END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS idx_events_sync_covering ON events(room_id, stream_ordering DESC) INCLUDE (event_id, sender, event_type, origin_server_ts);
 CREATE INDEX IF NOT EXISTS idx_events_friend_room ON events(sender, room_id, origin_server_ts DESC) WHERE event_type = 'm.room.create' AND content->>'type' = 'm.friends';
 CREATE INDEX IF NOT EXISTS idx_events_friend_list ON events(room_id, origin_server_ts DESC) WHERE event_type = 'm.friends.list' AND state_key = '';
 CREATE INDEX IF NOT EXISTS idx_events_redacts ON events(redacts) WHERE redacts IS NOT NULL;

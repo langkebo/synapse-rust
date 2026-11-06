@@ -1278,3 +1278,24 @@ fn arch03_unimplemented_semantics_table_is_pinned() {
     assert_ne!(internal.http_status(), not_provided.http_status());
     assert_ne!(internal.http_status(), field_unsupported.http_status());
 }
+
+/// BE-9：410 的响应体必须与其它错误同形。`message` 只是字符串，
+/// 不允许因为"看起来像 JSON"就改成结构化响应——否则同一 errcode 的
+/// 响应形状取决于调用方传了什么文本，客户端无法稳定解析。
+#[tokio::test]
+async fn be09_gone_response_uses_the_standard_error_envelope() {
+    use axum::body::to_bytes;
+    use axum::http::StatusCode;
+
+    let looks_like_json = r#"{"deactivated":true,"errcode":"M_FORBIDDEN"}"#;
+    let response = ApiError::gone(looks_like_json).into_response();
+
+    assert_eq!(response.status(), StatusCode::GONE);
+    let raw = to_bytes(response.into_body(), usize::MAX).await.expect("body must be readable");
+    let body: serde_json::Value = serde_json::from_slice(&raw).expect("body must be JSON");
+
+    assert_eq!(body["errcode"], MatrixErrorCode::NotFound.as_str());
+    assert_eq!(body["error"], looks_like_json, "message 必须原样作为字符串回显，不能被当成结构化载荷展开");
+    assert!(body.get("deactivated").is_none(), "message 里的字段不得提升到响应顶层");
+    assert_eq!(body.as_object().map(|obj| obj.len()), Some(2), "响应体只允许标准 {{errcode, error}} 两个字段");
+}

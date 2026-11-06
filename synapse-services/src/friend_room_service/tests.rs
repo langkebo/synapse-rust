@@ -541,10 +541,10 @@ async fn test_get_dm_partner_for_room_returns_profile_info() {
 // - hot 路径：sort_cache hit → cache.get + 分页切片
 // 期望 hot 路径 P99 < 100ms（含 Redis 往返 + JSON 反序列化）。
 //
-// 注：plan 写 1000 好友，但 m.friends.list state event 的 content
-// 走 idx_events_sync_covering（INCLUDE content），PG btree 单行
-// 限制 2704 字节。5008 字节超限 → PG 54000。生产 100 好友更真实，
-// 1000 是极端上限。100 已足够验证 W3 缓存优化效果。
+// 注：plan 原本写 1000 好友，但 v4 单事件时代受 idx_events_sync_covering
+// INCLUDE content 的 PG btree 2704 字节上限所限（5008 字节 → PG 54000）；
+// 该索引已由 BE-12 去掉 content，1000 好友场景见 bench_friend_list_1000_sharded。
+// 本用例保留 100 好友（更接近生产规模），已足够验证 W3 缓存优化效果。
 // 性能断言对并行负载敏感（其他测试同时跑会放大 DB/CPU 延迟），
 // 因此这些 bench 测试必须**独占机器**。⚠️ `#[serial]`（serial_test，未开
 // file_locks）只在**同一进程内**串行，而 nextest 每个测试一个进程 ⇒ 它在 CI 里
@@ -669,12 +669,13 @@ async fn bench_friend_list_100_limit_50() {
 
 // ── W5 压测：1000 好友分 28 shard 写入 + 读取 ──────────────────
 //
-// 验证 W5 sharding 体系下，1000 好友能正常写入（v4 时代触发 PG 54000
-// `index row size 5008 exceeds btree version 4 maximum 2704`），
+// 验证 W5 sharding 体系下，1000 好友能正常写入（v4 单事件时代曾因
+// `idx_events_sync_covering` INCLUDE content 撞上 PG 54000
+// `index row size 5008 exceeds btree version 4 maximum 2704`；BE-12 已去掉该列），
 // 且 fan-out 读 + 排序缓存依然 < 100ms。
 //
 // - 写入：1000 好友按 friend_id 路由到 28 shard，每 shard 平均 ~36 个 friend
-//   单条 content 远小于 2704 字节上限
+//   单条 content 体积只与单个 shard 的好友数有关
 // - 读取：fan-out 28 shard + 合并 + 排序 + sort_cache 写回 + 分页
 // - hot 路径：sort_cache hit，分页切片 O(1)
 // 性能断言对并行负载敏感（其他测试同时跑会放大 DB/CPU 延迟），

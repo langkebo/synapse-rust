@@ -9,6 +9,29 @@ use synapse_storage::CreateEventParams;
 
 use super::service::MessagingService;
 
+/// Whether a PostgreSQL error is the btree "index tuple too large" rejection.
+///
+/// SQLSTATE `54000` covers every `program_limit_exceeded`; the message check
+/// keeps us from mislabelling a different limit as a payload problem.
+fn is_storage_limit_exceeded(code: Option<&str>, message: &str) -> bool {
+    code == Some("54000") && message.contains("index row size")
+}
+
+/// Translate an event-row INSERT failure into the client-facing error.
+///
+/// An oversized btree tuple is a property of the payload, not a server fault:
+/// returning `500 M_UNKNOWN` made clients retry an event that can never be
+/// stored. `413 M_TOO_LARGE` tells them to shrink or split it (BE-12).
+fn event_write_error(context: &'static str, err: sqlx::Error) -> ApiError {
+    let limit_exceeded =
+        err.as_database_error().is_some_and(|db| is_storage_limit_exceeded(db.code().as_deref(), db.message()));
+    if limit_exceeded {
+        tracing::warn!(%context, error = %err, "event rejected: exceeds a PostgreSQL storage limit");
+        return ApiError::too_large("Event is too large to be stored");
+    }
+    ApiError::internal_with_cause(context, err)
+}
+
 impl MessagingService {
     /// See [`get_event_record`].
     pub async fn get_event_record(&self, event_id: &str) -> ApiResult<Option<synapse_storage::RoomEvent>> {
@@ -328,7 +351,7 @@ impl MessagingService {
                         tx,
                     )
                     .await
-                    .map_err(|e| ApiError::internal_with_cause("Failed to create event with graph metadata", e))
+                    .map_err(|e| event_write_error("Failed to create event with graph metadata", e))
             }
             // Unknown or unparsable room version: fail closed. On the
             // auto-commit path the write-path decorator rejects the write
@@ -339,7 +362,7 @@ impl MessagingService {
                 .event_writer
                 .create_event(params, tx)
                 .await
-                .map_err(|e| ApiError::internal_with_cause("Failed to create event", e)),
+                .map_err(|e| event_write_error("Failed to create event", e)),
         }
     }
 
@@ -1590,5 +1613,18 @@ mod tests {
         svc.create_event(message_params("!room:test.example.com"), None)
             .await
             .expect("the rule-less fast path must not consult the gate");
+    }
+
+    /// BE-12: only the btree tuple-size rejection becomes `413 M_TOO_LARGE`;
+    /// every other `54000` (or any other SQLSTATE) stays an internal error.
+    #[test]
+    fn storage_limit_exceeded_matches_only_the_btree_tuple_limit() {
+        assert!(is_storage_limit_exceeded(
+            Some("54000"),
+            "index row size 2728 exceeds btree version 4 maximum 2704 for index \"idx_events_sync_covering\""
+        ));
+        assert!(!is_storage_limit_exceeded(Some("54000"), "row is too large"));
+        assert!(!is_storage_limit_exceeded(Some("23505"), "index row size 2728 exceeds btree version 4 maximum 2704"));
+        assert!(!is_storage_limit_exceeded(None, "index row size 2728 exceeds btree version 4 maximum 2704"));
     }
 }

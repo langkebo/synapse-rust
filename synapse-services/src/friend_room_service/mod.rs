@@ -1468,7 +1468,8 @@ impl FriendRoomService {
         dm_room_id: Option<&str>,
     ) -> Result<(), FriendRoomError> {
         // W5 sharding：按 friend_id 路由到对应 shard，只改该 shard。
-        // 同 shard 内 add/remove 不动其他 shard，避免单 event 超过 2704 字节上限。
+        // 同 shard 内 add/remove 不动其他 shard，避免单 event 随好友数膨胀
+        // （索引层的 2704 字节上限已由 BE-12 移除）。
         // v4 遗留好友可能在 legacy state_key=""，read_friend_shard_for_update 会回退定位。
         let (state_key, mut content) =
             read_friend_shard_for_update(self.friend_storage.as_ref(), room_id, friend_id).await?;

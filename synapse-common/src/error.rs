@@ -1057,24 +1057,6 @@ impl ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        if self.kind == ApiErrorKind::Gone {
-            let status_code = StatusCode::GONE;
-            // 强制规范外壳（联调报告 L-5）：历史实现把可解析为 JSON 的 message
-            // 原样返回，若其中缺少 errcode/error，客户端错误归一化会退化为
-            // M_UNKNOWN。现在保留结构化字段（如 deactivated），但 errcode/error
-            // 必须存在。
-            let body = match serde_json::from_str::<serde_json::Value>(&self.message) {
-                Ok(serde_json::Value::Object(mut obj)) => {
-                    obj.entry("errcode").or_insert_with(|| json!(self.code_str()));
-                    let fallback_error = self.message.clone();
-                    obj.entry("error").or_insert_with(|| json!(fallback_error));
-                    serde_json::Value::Object(obj)
-                }
-                _ => json!({"errcode": self.code_str(), "error": self.message}),
-            };
-            return (status_code, Json(body)).into_response();
-        }
-
         let errcode = self.code_str().to_string();
         let error_msg = self.message();
         // Use `kind` (explicit HTTP semantic kind) for the HTTP status code,

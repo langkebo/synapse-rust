@@ -36,7 +36,7 @@ impl FriendRoomService {
             return Err(FriendRoomError::NotFound(format!("Friend {friend_id} not found in list")));
         }
 
-        // W5 sharding：单 friend 改动只触及一个 shard，避免触发 PG btree 2704 上限。
+        // W5 sharding：单 friend 改动只触及一个 shard，避免单条事件随好友数膨胀。
         // v4 遗留好友可能在 legacy state_key=""，read_friend_shard_for_update 会回退定位。
         let (state_key, mut content) =
             read_friend_shard_for_update(self.friend_storage.as_ref(), &friend_room, friend_id).await?;

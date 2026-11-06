@@ -1,7 +1,8 @@
 //! m.friends.list sharding 路由原语（共享）。
 //!
 //! 好友列表按 friend_id 的 localpart 首字母拆分到多个 `m.friends.list`
-//! state event（shard），以规避 PG btree 单行 2704 字节上限。本模块是
+//! state event（shard），让单条 state event 不随好友数线性膨胀。索引层的
+//! 2704 字节写入前提已由 BE-12 移除。本模块是
 //! storage 层（读路径按 shard 路由）与 services 层（写路径按 shard 路由）
 //! 的单一事实来源，避免双方各自实现导致漂移。
 //!

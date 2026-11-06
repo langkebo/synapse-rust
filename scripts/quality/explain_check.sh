@@ -134,9 +134,11 @@ assert_plan "PERF-03 rooms(canonical_alias) trgm" \
     "idx_rooms_canonical_alias_trgm"
 
 # PERF-04：消息搜索。`jsonb_path_ops` 只服务 `@>`，子串匹配必须走 trgm 表达式索引。
-# 空表下 `idx_events_sync_covering`（Index Only Scan，不回表）比 trgm 的 Bitmap Heap Scan
-# 便宜，规划器会先选它——那是代价差异、不是索引不可用。故这里额外关掉普通/仅索引扫描，
+# 空表下 events 的其它索引（普通 Index Scan）比 trgm 的 Bitmap Heap Scan 便宜，
+# 规划器会先选它们——那是代价差异、不是索引不可用。故这里额外关掉普通/仅索引扫描，
 # 把候选收窄到「顺序扫描 vs 位图索引扫描」，才能证明 `idx_events_content_trgm` 真的可用。
+# （BE-12 后 `idx_events_sync_covering` 不再 INCLUDE `content`，本查询也不可能对它
+# 做 Index Only Scan；关掉的开关只是让规划器候选收敛。）
 PLAN_EXTRA_SETTINGS=("enable_indexscan = off" "enable_indexonlyscan = off")
 assert_plan "PERF-04 events(content::text) trgm" \
     "SELECT event_id FROM events WHERE content::text ILIKE '%test%'" \
