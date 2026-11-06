@@ -163,6 +163,14 @@ impl Config {
         if self.voip.is_enabled() {
             self.voip.turn_shared_secret =
                 self.voip.turn_shared_secret.take().map(|v| resolve_env_in_string(&v)).transpose()?;
+            // `turn_uris` / `stun_uris` 里的主机名由部署环境决定（本机 127.0.0.1 只对宿主机
+            // 有效，局域网设备必须拿到宿主机的 LAN IP），因此同样支持 `${TURN_HOST}` 插值。
+            for uri in &mut self.voip.turn_uris {
+                *uri = resolve_env_in_string(uri)?;
+            }
+            for uri in &mut self.voip.stun_uris {
+                *uri = resolve_env_in_string(uri)?;
+            }
         }
 
         if self.push.is_enabled() {

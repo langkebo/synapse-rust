@@ -261,9 +261,13 @@ impl DeviceKeyService {
                 serde_json::to_value(device_keys).map_err(map_database!("Failed to serialize device keys"))?;
 
             let has_keys = device_keys.keys.as_object().is_some_and(|k| !k.is_empty());
-            let has_signatures = device_keys.signatures.as_object().is_some_and(|s| !s.is_empty());
 
-            if has_keys && has_signatures {
+            // D4：只要有设备密钥就必须验签，缺 `signatures` 一律拒绝。
+            // `verify_device_keys_signature` 在 signatures 缺失或为空时返回 Ok(false)，
+            // 但旧代码用 `has_signatures` 做了前置条件，导致「不带签名」的 device_keys
+            // 完全跳过验签并落库分发（fail-open，MITM 可冒充任意设备）。
+            // 空 `device_keys:{}`（仅上传 OTK 的常见形态）不算 has_keys，仍然放行。
+            if has_keys {
                 match verify_device_keys_signature(&device_keys_value) {
                     Ok(true) => {}
                     Ok(false) | Err(_) => {

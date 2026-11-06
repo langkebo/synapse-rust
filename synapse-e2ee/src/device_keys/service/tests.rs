@@ -143,6 +143,37 @@ async fn upload_keys_rejects_invalid_device_key_signature() {
 }
 
 #[tokio::test]
+async fn upload_keys_rejects_unsigned_device_key() {
+    let store = InMemoryDeviceKeyStore::new();
+    let storage: Arc<dyn super::DeviceKeyStoreApi> = Arc::new(store.clone());
+    let service = DeviceKeyService::new(storage, make_test_cache());
+
+    let user_id = "@alice:example.com";
+    let device_id = "DEVICE_A";
+    let signing_key = SigningKey::from_bytes(&[7u8; 32]);
+    let ed_key_id = format!("ed25519:{device_id}");
+    let ed_pub = base64::engine::general_purpose::STANDARD.encode(signing_key.verifying_key().as_bytes());
+
+    // `signatures` 是空对象（`DeviceKeys` 要求该字段存在，但允许为空）：
+    // 旧代码用 `has_signatures` 做前置条件，这种载荷会让验签被整段跳过并落库。
+    // D4 要求 fail-closed —— 有设备密钥就必须验签，缺失/为空一律拒绝。
+    let dk = serde_json::json!({
+        "user_id": user_id,
+        "device_id": device_id,
+        "algorithms": ["m.olm.v1.curve25519-aes-sha2", "m.megolm.v1.aes-sha2"],
+        "keys": { ed_key_id: ed_pub },
+        "signatures": {}
+    });
+
+    let device_keys: DeviceKeys = serde_json::from_value(dk).expect("deserialize");
+    let result = service.upload_keys(device_keys_request(device_keys), user_id, device_id).await;
+
+    assert!(result.is_err(), "unsigned device keys must be rejected, got: {result:?}");
+    let stored = store.get_device_key(user_id, device_id, "ed25519").await.expect("query");
+    assert!(stored.is_none(), "unsigned device key must not be stored");
+}
+
+#[tokio::test]
 async fn upload_keys_accepts_valid_device_key_signature() {
     let store = InMemoryDeviceKeyStore::new();
     let storage: Arc<dyn super::DeviceKeyStoreApi> = Arc::new(store.clone());

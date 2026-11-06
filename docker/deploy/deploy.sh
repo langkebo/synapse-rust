@@ -768,10 +768,26 @@ ensure_ssl_certs() {
     local key_file="ssl/${SSL_KEY:-key.pem}"
     local server_name="${SERVER_NAME:-matrix.test}"
 
+    # TURN 客户端拿到的是 IP（.env 的 TURN_HOST），所以证书必须带该 IP 的 SAN，
+    # 否则 turns: 在客户端做主机名校验时必然失败。取默认路由网卡的地址：
+    # macOS 上 Wi-Fi/有线可能落在 en0 或 en1，不能写死。可用 LAN_IP 覆盖。
+    local lan_ip="${LAN_IP:-}"
+    if [ -z "$lan_ip" ]; then
+        local default_iface
+        default_iface="$(route -n get default 2>/dev/null | awk '/interface:/{print $2}')"
+        [ -n "$default_iface" ] && lan_ip="$(ipconfig getifaddr "$default_iface" 2>/dev/null)"
+    fi
+
     cert_valid_for_server() {
-        openssl x509 -in "$cert_file" -noout -text 2>/dev/null |
-            grep -A2 "Subject Alternative Name" |
-            grep -q "$server_name"
+        local san
+        san="$(openssl x509 -in "$cert_file" -noout -text 2>/dev/null |
+            grep -A2 "Subject Alternative Name")"
+        [ -n "$san" ] || return 1
+        printf '%s\n' "$san" | grep -q "$server_name" || return 1
+        if [ -n "$lan_ip" ]; then
+            printf '%s\n' "$san" | grep -q "$lan_ip" || return 1
+        fi
+        return 0
     }
 
     cert_is_self_signed() {
@@ -785,31 +801,34 @@ ensure_ssl_certs() {
         if command -v mkcert >/dev/null 2>&1 && cert_is_self_signed; then
             log_warning "检测到自签名证书（浏览器不信任），将用 mkcert 重新签发..."
         else
-            log_success "SSL 证书已存在且匹配域名 $server_name"
+            log_success "SSL 证书已存在且匹配域名 $server_name${lan_ip:+ / IP $lan_ip}"
             return
         fi
     fi
 
     if [ -f "$cert_file" ] || [ -f "$key_file" ]; then
-        log_warning "SSL 证书缺失或不匹配域名 ${server_name}，重新生成..."
+        log_warning "SSL 证书缺失或不匹配域名 ${server_name}${lan_ip:+ / IP $lan_ip}，重新生成..."
     fi
     mkdir -p ssl
 
     if command -v mkcert >/dev/null 2>&1; then
-        log_info "使用 mkcert 生成证书 ($server_name, localhost, 127.0.0.1)..."
+        local cert_hosts=("$server_name" localhost 127.0.0.1)
+        [ -n "$lan_ip" ] && cert_hosts+=("$lan_ip")
+        log_info "使用 mkcert 生成证书 (${cert_hosts[*]})..."
         # mkcert 首次使用需安装本地 CA 到系统信任库
         if [ ! -f "$(mkcert -CAROOT 2>/dev/null)/rootCA.pem" ]; then
             mkcert -install >/dev/null 2>&1 ||
                 log_warning "mkcert CA 安装失败，证书将不被系统浏览器信任（curl -k 仍可访问）"
         fi
-        mkcert -cert-file "$cert_file" -key-file "$key_file" \
-            "$server_name" localhost 127.0.0.1
+        mkcert -cert-file "$cert_file" -key-file "$key_file" "${cert_hosts[@]}"
     else
         log_warning "未找到 mkcert，使用 openssl 生成自签名证书（需手动信任）..."
+        local san="DNS:$server_name,DNS:localhost,IP:127.0.0.1"
+        [ -n "$lan_ip" ] && san="$san,IP:$lan_ip"
         openssl req -x509 -newkey rsa:2048 -nodes \
             -keyout "$key_file" -out "$cert_file" -days 3650 \
             -subj "/CN=$server_name" \
-            -addext "subjectAltName=DNS:$server_name,DNS:localhost,IP:127.0.0.1" \
+            -addext "subjectAltName=$san" \
             >/dev/null 2>&1
     fi
 
@@ -1880,6 +1899,23 @@ verify_db_version_consistency() {
         log_info "表数一致性: baseline=${baseline_expected}, 实际=${actual_count}, drift=${drift} (阈值 ±${DB_DRIFT_TOLERANCE})"
     else
         log_warning "无法计算 baseline 表数（缺少 00000000_unified_schema_v*.sql），跳过表数漂移校验"
+    fi
+
+    # 4) 同步覆盖索引不得把事件正文 `content` 放进 INCLUDE（BE-12）。
+    # 基线 v12.0.2 已经修掉，但老库只有"基线 checksum 变化 ⇒ 重放基线"这一条路
+    # 才会执行到那段 DO 块；迁移记录表本身看不出索引是旧是坏。这里直接读
+    # `pg_indexes` 兜底：旧定义一旦残留，索引体积/写入放大会悄悄回归而无人察觉。
+    local sync_index_def
+    sync_index_def="$("${psql_cmd[@]}" -c \
+        "SELECT COALESCE(indexdef, '') FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'idx_events_sync_covering';" \
+        2>/dev/null | sed '/^[[:space:]]*$/d' | head -1 || true)"
+    if [ -z "$sync_index_def" ]; then
+        log_warning "未找到索引 idx_events_sync_covering，跳过覆盖列校验"
+    elif printf '%s' "$sync_index_def" | grep -qi 'INCLUDE[^)]*content'; then
+        log_warning "索引 idx_events_sync_covering 仍 INCLUDE(content)：正文进了索引，索引体积与写入开销会被放大"
+        log_warning "修复: 低峰期执行 (compose run --rm migrator migrate) 重放基线，或手工 CREATE INDEX CONCURRENTLY 重建为 INCLUDE (event_id, sender, event_type, origin_server_ts)"
+    else
+        log_info "索引定义校验通过: idx_events_sync_covering 未包含 content 覆盖列"
     fi
 
     log_success "数据库与项目版本一致性校验通过 (canonical=${canonical_count}, 已应用记录=${applied_count}, 失败=0)"
