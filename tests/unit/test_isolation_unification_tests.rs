@@ -300,7 +300,12 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // ALTER/回填/索引）：基线 251100 → 254571 字节 ⇒ FNV-1a 64 = `5693201fe10bed35`。
 // 自检：复算改动前的 `HEAD:migrations/…v12.sql`（251100 字节）得 `927f107dfec99a29`，
 // 与改动前常量逐字节吻合，证明哈希实现未变后才取新值。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "5693201fe10bed35";
+// 2026-11-06（BE-12：`idx_events_sync_covering` 的 INCLUDE 去掉 `content`，避免 btree
+// v4 单索引元组 2704B 上限让大事件写不进去；旧定义在基线重放时由 DO 块重建）：基线
+// 254571 → 255874 字节 ⇒ FNV-1a 64 = `040353c24e20c141`。自检：复算改动前的
+// `HEAD:migrations/…v12.sql`（254571 字节）得 `5693201fe10bed35`，
+// 与改动前常量逐字节吻合，证明哈希实现未变后才取新值。
+const EXPECTED_BASELINE_FINGERPRINT: &str = "040353c24e20c141";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))
