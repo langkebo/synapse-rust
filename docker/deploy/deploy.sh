@@ -2031,7 +2031,15 @@ verify_health_endpoints() {
         log_error "无法获取 /health 响应"
         return 1
     }
-    curl -fsS "http://localhost:${HTTP_PORT:-80}/health" >/dev/null
+    # nginx 的宿主绑定地址是 `${LAN_IP:-0.0.0.0}`（见 docker-compose.yml）：
+    # 设了 LAN_IP 时端口只发布在局域网地址上，`localhost:80` 会被拒 —— 健康检查
+    # 必须跟着绑定地址走，否则部署门禁会在"真机可访问"的配置上误报失败。
+    local http_host="localhost"
+    case "${LAN_IP:-0.0.0.0}" in
+        0.0.0.0 | "") ;;
+        *) http_host="$LAN_IP" ;;
+    esac
+    curl -fsS "http://${http_host}:${HTTP_PORT:-80}/health" >/dev/null
     curl -fsS "http://localhost:${SYNAPSE_PORT:-8008}/_matrix/client/versions" >/dev/null
 
     # B-7：断言本部署**不持有房间密钥**。

@@ -382,10 +382,14 @@ services:
     depends_on:
       synapse:
         condition: service_healthy
+    # 宿主绑定地址默认 0.0.0.0；**OrbStack + 真机联调时必须设 LAN_IP**：
+    # 实测 OrbStack 2.2.5 对 `0.0.0.0:<port>` 的发布端口只转发回环流量，
+    # 从局域网其它设备（手机）连 `<LAN_IP>:443` 会被接受后立刻断开（TLS 握手 EOF），
+    # 换成显式 `-p <LAN_IP>:443:443` 即恢复正常。TURN(coturn) 也是同样的写法。
     ports:
-      - "${HTTP_PORT:-80}:80"
-      - "${HTTPS_PORT:-443}:443"
-      - "${FEDERATION_PORT:-8448}:8448"
+      - "${LAN_IP:-0.0.0.0}:${HTTP_PORT:-80}:80"
+      - "${LAN_IP:-0.0.0.0}:${HTTPS_PORT:-443}:443"
+      - "${LAN_IP:-0.0.0.0}:${FEDERATION_PORT:-8448}:8448"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
