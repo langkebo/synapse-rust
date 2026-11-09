@@ -199,6 +199,12 @@ pub(crate) async fn send_to_device(
         }
     }
 
+    // D5：持有密钥的设备用 `m.forwarded_room_key` 兑现同用户其它设备发出的密钥请求。
+    // 服务端只记录兑现元数据，从不接触会话密钥明文（S-12）。
+    if event_type == "m.forwarded_room_key" {
+        fulfill_room_key_requests_from_forwarded_key(&ctx, &auth_user.user_id, sender_device_id, messages).await;
+    }
+
     Ok(Json(json!({ "failures": {} })))
 }
 
@@ -316,9 +322,128 @@ pub(crate) async fn create_room_key_request(
         )
         .await?;
 
+    // D5：请求必须真正送达同用户的其它设备，否则持有密钥的设备永远不会回
+    // `m.forwarded_room_key`，请求也就永远无法兑现。
+    let action = if request.action == "cancellation" { "cancellation" } else { "request" };
+    forward_room_key_request(
+        &ctx,
+        &auth_user.user_id,
+        device_id,
+        action,
+        &request.request_id,
+        &request.room_id,
+        &request.session_id,
+        &request.algorithm,
+    )
+    .await?;
+
     Ok(Json(serde_json::json!({
         "request_id": request.request_id
     })))
+}
+
+/// D5：把 `m.room_key_request` 转发给同用户的其它设备（MSC2732 语义）。
+///
+/// 服务端只负责转发：持有会话密钥的设备收到后自行回 `m.forwarded_room_key`，
+/// 由 [`send_to_device`] 侧记录兑现元数据。服务端从不下发会话密钥明文（S-12），
+/// 也不允许同设备自我兑现（O-3）。
+async fn forward_room_key_request(
+    ctx: &DeviceContext,
+    user_id: &str,
+    sender_device_id: &str,
+    action: &str,
+    request_id: &str,
+    room_id: &str,
+    session_id: &str,
+    algorithm: &str,
+) -> Result<(), ApiError> {
+    let content = json!({
+        "action": action,
+        "body": {
+            "room_id": room_id,
+            "session_id": session_id,
+            "algorithm": algorithm,
+            "sender_key": "",
+        },
+        "requesting_device_id": sender_device_id,
+        "request_id": request_id,
+    });
+
+    let devices = ctx.account_device_list_service.get_user_devices(user_id).await?;
+    let mut recipients = serde_json::Map::new();
+    for device in devices {
+        if device.device_id == sender_device_id {
+            continue;
+        }
+        recipients.insert(device.device_id, content.clone());
+    }
+
+    if recipients.is_empty() {
+        tracing::debug!("No other devices to forward room key request {request_id} to for {user_id}");
+        return Ok(());
+    }
+
+    let messages = json!({ user_id: Value::Object(recipients) });
+    let transaction_id = uuid::Uuid::new_v4().to_string();
+    ctx.to_device_service
+        .send_messages(user_id, sender_device_id, "m.room_key_request", Some(&transaction_id), &messages)
+        .await?;
+
+    // 唤醒对端设备的长轮询 /sync，避免 to-device 事件要等下一个轮询周期。
+    ctx.event_notifier.notify_user(user_id);
+
+    Ok(())
+}
+
+/// D5：从一次 to-device `m.forwarded_room_key` 投递中兑现同用户密钥请求。
+///
+/// 只有在收发双方是同一用户时才处理 —— 密钥请求本身是「同用户多设备」场景，
+/// 跨用户转发不会兑现任何请求。兑现失败只记日志，不影响已经投递成功的
+/// to-device 消息（元数据缺失不应回滚密钥分发）。
+async fn fulfill_room_key_requests_from_forwarded_key(
+    ctx: &DeviceContext,
+    sender_user_id: &str,
+    sender_device_id: &str,
+    messages: &Value,
+) {
+    let Some(msg_map) = messages.as_object() else { return };
+
+    for (recipient_user_id, devices) in msg_map {
+        if recipient_user_id != sender_user_id {
+            continue;
+        }
+        let Some(devices) = devices.as_object() else { continue };
+
+        for (recipient_device_id, message) in devices {
+            let payload = message.get("content").unwrap_or(message);
+            let (Some(room_id), Some(session_id)) =
+                (payload.get("room_id").and_then(Value::as_str), payload.get("session_id").and_then(Value::as_str))
+            else {
+                continue;
+            };
+
+            match ctx
+                .key_request_service
+                .fulfill_pending_request(recipient_user_id, recipient_device_id, room_id, session_id, sender_device_id)
+                .await
+            {
+                Ok(0) => {}
+                Ok(count) => {
+                    tracing::info!(
+                        fulfilled = count,
+                        room_id,
+                        session_id,
+                        fulfilled_by = sender_device_id,
+                        recipient_device_id,
+                        "Room key request fulfilled by forwarded key"
+                    );
+                }
+                Err(error) => {
+                    tracing::warn!(%error, room_id, session_id, "Failed to record room key request fulfillment");
+                }
+            }
+        }
+    }
 }
 
 /// See [`encode_key_request_cursor`].
@@ -388,7 +513,23 @@ pub(crate) async fn delete_room_key_request(
         return Err(ApiError::forbidden("Cannot delete another user's room key request".to_string()));
     }
 
+    let device_id =
+        auth_user.device_id.as_deref().ok_or_else(|| ApiError::bad_request("Device ID required".to_string()))?;
+
     ctx.key_request_service.cancel_request(&request_id).await?;
+
+    // D5：把撤销意图转发出去，避免对端设备已开始处理却仍回一个没人要的密钥。
+    forward_room_key_request(
+        &ctx,
+        &auth_user.user_id,
+        device_id,
+        "cancellation",
+        &request.request_id,
+        &request.room_id,
+        &request.session_id,
+        &request.algorithm,
+    )
+    .await?;
 
     Ok(empty_json())
 }

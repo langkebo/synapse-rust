@@ -107,6 +107,41 @@ impl KeyRequestService {
         Ok(())
     }
 
+    /// 把同用户、同设备、同房间会话的待处理密钥请求标记为已兑现。
+    ///
+    /// D5：兑现由持有密钥的设备通过 to-device `m.forwarded_room_key` 完成 ——
+    /// 服务端只记录兑现元数据（`is_fulfilled` / `fulfilled_by_device` /
+    /// `fulfilled_ts`），**从不**接触会话密钥明文（S-12）。
+    ///
+    /// O-3：禁止同设备自我兑现 —— `fulfilled_by_device` 与请求发起设备相同的
+    /// 请求会被跳过。
+    pub async fn fulfill_pending_request(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        room_id: &str,
+        session_id: &str,
+        fulfilled_by_device: &str,
+    ) -> Result<u64, ApiError> {
+        let requests = self.storage.get_requests_for_user(user_id).await?;
+        let mut fulfilled = 0;
+        for request in requests {
+            if request.is_fulfilled
+                || request.device_id != device_id
+                || request.room_id != room_id
+                || request.session_id != session_id
+                || request.device_id == fulfilled_by_device
+                || request.action == "cancellation"
+                || request.action == "cancelled"
+            {
+                continue;
+            }
+            self.storage.fulfill_request(&request.request_id, fulfilled_by_device).await?;
+            fulfilled += 1;
+        }
+        Ok(fulfilled)
+    }
+
     /// See [`delete_request`].
     pub async fn delete_request(&self, request_id: &str) -> Result<(), ApiError> {
         self.storage.delete_request(request_id).await
@@ -296,5 +331,114 @@ mod tests {
         assert_eq!(info.request_id, "req-test");
         assert!(!info.is_fulfilled);
         assert_eq!(info.fulfilled_by_device, None);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// D5：密钥请求兑现语义
+//
+// 兑现由持有密钥的设备用 to-device `m.forwarded_room_key` 触发，服务端只写
+// 元数据。这里锁住「哪些请求会被兑现」的判定：同用户 + 同请求设备 + 同房间
+// 会话 + 未完成 + 非撤销 + 禁止同设备自我兑现（O-3）。
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod db_tests {
+    use super::*;
+    use synapse_common::test_isolation::IsolatedTestPool;
+
+    /// 与 `key_request/storage.rs` 的副本逐字节一致（共享模板名是内容指纹）。
+    const BASELINE_SQL: &str = include_str!("../../../migrations/00000000_unified_schema_v12.sql");
+
+    const USER: &str = "@alice:example.com";
+    const REQUESTER_DEVICE: &str = "DEV1";
+    const ROOM_ID: &str = "!kr_room:example.com";
+
+    async fn service() -> (IsolatedTestPool, KeyRequestService) {
+        let isolated = IsolatedTestPool::new(BASELINE_SQL).await.expect("isolated baseline test pool");
+        let pool = (*isolated.pool()).clone();
+        let service = KeyRequestService::new(KeyRequestStorage::new(&pool));
+        (isolated, service)
+    }
+
+    async fn seed(
+        service: &KeyRequestService,
+        request_id: &str,
+        device_id: &str,
+        room_id: &str,
+        session_id: &str,
+        action: &str,
+    ) {
+        service
+            .create_request(
+                USER,
+                device_id,
+                room_id,
+                session_id,
+                "m.megolm.v1.aes-sha2",
+                Some(action),
+                Some(request_id),
+            )
+            .await
+            .expect("create_request");
+    }
+
+    #[tokio::test]
+    async fn fulfill_pending_request_marks_matching_request_once() {
+        let (_isolated, service) = service().await;
+        seed(&service, "req-1", REQUESTER_DEVICE, ROOM_ID, "sess1", "request").await;
+
+        let count = service
+            .fulfill_pending_request(USER, REQUESTER_DEVICE, ROOM_ID, "sess1", "DEV2")
+            .await
+            .expect("fulfill_pending_request");
+        assert_eq!(count, 1, "匹配的待处理请求必须被兑现");
+
+        let request = service.get_request("req-1").await.expect("get_request").expect("row must exist");
+        assert!(request.is_fulfilled);
+        assert_eq!(request.fulfilled_by_device.as_deref(), Some("DEV2"));
+        assert!(request.fulfilled_ts.is_some(), "兑现时间必须写入");
+
+        // 幂等：重复兑现同一请求不会再次计数。
+        let again = service
+            .fulfill_pending_request(USER, REQUESTER_DEVICE, ROOM_ID, "sess1", "DEV2")
+            .await
+            .expect("fulfill_pending_request again");
+        assert_eq!(again, 0);
+    }
+
+    #[tokio::test]
+    async fn fulfill_pending_request_skips_non_matching_requests() {
+        let (_isolated, service) = service().await;
+        seed(&service, "other-session", REQUESTER_DEVICE, ROOM_ID, "sess-other", "request").await;
+        seed(&service, "other-room", REQUESTER_DEVICE, "!other:example.com", "sess1", "request").await;
+        seed(&service, "other-device", "DEV9", ROOM_ID, "sess1", "request").await;
+        seed(&service, "cancelled", REQUESTER_DEVICE, ROOM_ID, "sess1", "cancellation").await;
+
+        let count = service
+            .fulfill_pending_request(USER, REQUESTER_DEVICE, ROOM_ID, "sess1", "DEV2")
+            .await
+            .expect("fulfill_pending_request");
+        assert_eq!(count, 0, "只有同设备 + 同房间 + 同会话的未撤销请求才允许兑现");
+
+        for request_id in ["other-session", "other-room", "other-device", "cancelled"] {
+            let request = service.get_request(request_id).await.expect("get_request").expect("row must exist");
+            assert_eq!(request.fulfilled_by_device, None, "{request_id} 不应被兑现");
+        }
+    }
+
+    #[tokio::test]
+    async fn fulfill_pending_request_rejects_self_fulfillment() {
+        let (_isolated, service) = service().await;
+        seed(&service, "req-self", REQUESTER_DEVICE, ROOM_ID, "sess1", "request").await;
+
+        // O-3：请求发起设备不能自己把请求标记为已兑现。
+        let count = service
+            .fulfill_pending_request(USER, REQUESTER_DEVICE, ROOM_ID, "sess1", REQUESTER_DEVICE)
+            .await
+            .expect("fulfill_pending_request");
+        assert_eq!(count, 0);
+
+        let request = service.get_request("req-self").await.expect("get_request").expect("row must exist");
+        assert!(!request.is_fulfilled, "同设备自我兑现必须被拒绝");
     }
 }
