@@ -325,17 +325,7 @@ pub(crate) async fn create_room_key_request(
     // D5：请求必须真正送达同用户的其它设备，否则持有密钥的设备永远不会回
     // `m.forwarded_room_key`，请求也就永远无法兑现。
     let action = if request.action == "cancellation" { "cancellation" } else { "request" };
-    forward_room_key_request(
-        &ctx,
-        &auth_user.user_id,
-        device_id,
-        action,
-        &request.request_id,
-        &request.room_id,
-        &request.session_id,
-        &request.algorithm,
-    )
-    .await?;
+    forward_room_key_request(&ctx, &auth_user.user_id, device_id, action, &request).await?;
 
     Ok(Json(serde_json::json!({
         "request_id": request.request_id
@@ -352,21 +342,18 @@ async fn forward_room_key_request(
     user_id: &str,
     sender_device_id: &str,
     action: &str,
-    request_id: &str,
-    room_id: &str,
-    session_id: &str,
-    algorithm: &str,
+    request: &synapse_e2ee::key_request::KeyRequestInfo,
 ) -> Result<(), ApiError> {
     let content = json!({
         "action": action,
         "body": {
-            "room_id": room_id,
-            "session_id": session_id,
-            "algorithm": algorithm,
+            "room_id": request.room_id,
+            "session_id": request.session_id,
+            "algorithm": request.algorithm,
             "sender_key": "",
         },
         "requesting_device_id": sender_device_id,
-        "request_id": request_id,
+        "request_id": request.request_id,
     });
 
     let devices = ctx.account_device_list_service.get_user_devices(user_id).await?;
@@ -379,7 +366,7 @@ async fn forward_room_key_request(
     }
 
     if recipients.is_empty() {
-        tracing::debug!("No other devices to forward room key request {request_id} to for {user_id}");
+        tracing::debug!("No other devices to forward room key request {} to for {}", request.request_id, user_id);
         return Ok(());
     }
 
@@ -519,17 +506,7 @@ pub(crate) async fn delete_room_key_request(
     ctx.key_request_service.cancel_request(&request_id).await?;
 
     // D5：把撤销意图转发出去，避免对端设备已开始处理却仍回一个没人要的密钥。
-    forward_room_key_request(
-        &ctx,
-        &auth_user.user_id,
-        device_id,
-        "cancellation",
-        &request.request_id,
-        &request.room_id,
-        &request.session_id,
-        &request.algorithm,
-    )
-    .await?;
+    forward_room_key_request(&ctx, &auth_user.user_id, device_id, "cancellation", &request).await?;
 
     Ok(empty_json())
 }

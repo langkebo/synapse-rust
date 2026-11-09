@@ -882,6 +882,7 @@ impl PushStorage {
     /// makes PostgreSQL fail index inference with 42P10.
     ///
     /// Returns the number of rows inserted.
+    #[allow(clippy::too_many_arguments)] // 一条 INSERT…SELECT 的绑定参数平铺，拆结构体反而要再映射一遍
     pub async fn record_room_event_notifications(
         &self,
         room_id: &str,

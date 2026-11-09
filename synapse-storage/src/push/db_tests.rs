@@ -650,7 +650,16 @@ async fn test_record_room_event_notifications_targets_local_joined_members() {
     }
 
     let inserted = storage
-        .record_room_event_notifications(&room_id, "$d16_event", &sender, &[alice.clone()], false, now, "test.com", "")
+        .record_room_event_notifications(
+            &room_id,
+            "$d16_event",
+            &sender,
+            std::slice::from_ref(&alice),
+            false,
+            now,
+            "test.com",
+            "",
+        )
         .await
         .expect("recording notifications must succeed");
     assert_eq!(inserted, 2, "only the local joined non-sender members get a row");
