@@ -104,6 +104,9 @@ DB_DRIFT_TOLERANCE="${DB_DRIFT_TOLERANCE:-10}"
 # 当前步骤与已完成步骤（用于失败上下文与回滚决策）
 CURRENT_STEP=""
 COMPLETED_STEPS=()
+# ensure_ssl_certs 是否真的重新签发了证书。coturn 只在启动时把证书读进内存，
+# 文件换了不会生效，所以要靠这个标记在 TURN 检查步骤里重建容器。
+SSL_CERTS_REGENERATED=false
 
 # Extension features — order matches Cargo.toml
 ALL_EXTENSIONS=(
@@ -678,6 +681,100 @@ docker_feature_args() {
     fi
 }
 
+# 从镜像 label `org.synapse-rust.cargo-features` 反查**这个镜像实际按哪套 feature 编译**，
+# 再与本次的 ENABLED_EXTENSIONS 比对。
+#
+# 为什么需要：`--skip-build` / `--image` 两个分支直接复用已有镜像，此时 `.env` 的
+# `ENABLED_EXTENSIONS` 只影响那行提示文字，不影响镜像里到底编进了什么 —— 于是会出现
+# "配置写 friends,burn-after-read、镜像却是 all-extensions"，或反过来"配置要 widgets、
+# 镜像里没有"（后者表现为路由 404 / M_UNRECOGNIZED，很难联想到是镜像建少了）。
+#
+# label 缺失（本次改动前构建的旧镜像）只告警、不阻断：无法判断不等于判断为错。
+verify_image_features() {
+    local image="$1"
+    local label
+    label="$(docker image inspect "$image" \
+        --format '{{index .Config.Labels "org.synapse-rust.cargo-features"}}' 2>/dev/null || true)"
+
+    if [ -z "$label" ] || [ "$label" = "<no value>" ]; then
+        log_warning "镜像 ${image} 未声明 org.synapse-rust.cargo-features：无法校验 feature 一致性"
+        log_warning "  该 label 由 docker/Dockerfile 的 tools stage 写入，重建镜像后生效"
+        return 0
+    fi
+
+    # label 形态："--features all-extensions --no-default-features"
+    local image_features="" tok prev=""
+    for tok in $label; do
+        if [ "$prev" = "--features" ]; then
+            image_features="$tok"
+            break
+        fi
+        prev="$tok"
+    done
+
+    if [ -z "$image_features" ]; then
+        log_info "镜像 feature 集: 仅默认集（label=${label}）"
+        return 0
+    fi
+
+    # 聚合 feature 展开成成员集，才能和 ENABLED_EXTENSIONS 逐项比。
+    local image_set="$image_features"
+    if [ "$image_set" = "all-extensions" ]; then
+        image_set="$(
+            IFS=,
+            echo "${ALL_EXTENSIONS[*]}"
+        )"
+    elif [ "$image_set" = "core-private-chat" ]; then
+        image_set="$CORE_PRIVATE_CHAT_EXTENSIONS"
+    fi
+
+    local requested
+    requested="$(normalize_extensions "${ENABLED_EXTENSIONS:-none}")"
+    case "$requested" in
+        "" | none)
+            log_info "镜像 feature 集: ${image_features}（本次未请求扩展）"
+            return 0
+            ;;
+        all)
+            requested="$(
+                IFS=,
+                echo "${ALL_EXTENSIONS[*]}"
+            )"
+            ;;
+    esac
+
+    local missing="" extra="" ext
+    while IFS= read -r ext; do
+        [ -n "$ext" ] || continue
+        case ",${image_set}," in
+            *",${ext},"*) ;;
+            *) missing="${missing:+$missing,}${ext}" ;;
+        esac
+    done < <(printf '%s\n' "$requested" | tr ',' '\n')
+
+    while IFS= read -r ext; do
+        [ -n "$ext" ] || continue
+        case ",${requested}," in
+            *",${ext},"*) ;;
+            *) extra="${extra:+$extra,}${ext}" ;;
+        esac
+    done < <(printf '%s\n' "$image_set" | tr ',' '\n')
+
+    if [ -n "$missing" ]; then
+        log_warning "镜像 ${image} 实际 feature 集 (${image_features}) 不含本次请求的: ${missing}"
+        log_warning "  这些能力会返回 404 / M_UNRECOGNIZED —— ENABLED_EXTENSIONS 与镜像不一致"
+        log_warning "  要么去掉 ENABLED_EXTENSIONS 里上述项，要么重建镜像（去掉 --skip-build / --image）"
+        return 0
+    fi
+
+    if [ -n "$extra" ]; then
+        log_warning "镜像 ${image} 比本次请求多出: ${extra}"
+        log_warning "  属超集：多出的能力仍会响应，不影响本次请求的正确性"
+    else
+        log_success "镜像 feature 集与 ENABLED_EXTENSIONS 一致: ${requested}"
+    fi
+}
+
 is_placeholder() {
     local value="${1:-}"
     # 与 generate-secrets.sh 的 placeholder_or_empty 保持同一组形态：.env.example
@@ -757,6 +854,75 @@ install_missing_deps() {
 }
 
 # =============================================================================
+# LAN_IP 漂移校验
+# =============================================================================
+# 宿主 LAN IP 是 DHCP 租约，一变就有三处同时失效，且现象各不相同：
+#   ① `.env` 的 LAN_IP —— nginx 把端口发布到那个已不存在的地址 ⇒ 真机连不上
+#      （表现为 TLS 握手 EOF，最容易被误判成"后端挂了"）；
+#   ② `.env` 的 TURN_HOST —— turn_uris 把客户端指向旧 IP ⇒ 中继不可用；
+#   ③ 证书 SAN 里的旧 IP —— turns: 主机名校验失败。
+# ②③ 都以 ① 为前提，所以这里以"当前默认路由网卡的地址"为基准比对一次，
+# 把修复动作直接列出来，不自动改写 `.env`（用户配置不该被脚本静默改动）。
+detect_lan_ip() {
+    local iface ip
+    if command -v route >/dev/null 2>&1; then
+        iface="$(route -n get default 2>/dev/null | awk '/interface:/{print $2}')"
+        if [ -n "$iface" ]; then
+            ip="$(ipconfig getifaddr "$iface" 2>/dev/null || true)"
+            if [ -n "$ip" ]; then
+                printf '%s\n' "$ip"
+                return 0
+            fi
+        fi
+    fi
+    # Linux 回退（部署脚本也允许在 Linux 上跑）
+    ip route get 1.1.1.1 2>/dev/null |
+        awk '{for (i = 1; i <= NF; i++) if ($i == "src") { print $(i + 1); exit }}'
+}
+
+verify_lan_ip_consistency() {
+    DEPLOYMENT_PHASE="lan-ip-check"
+    local actual
+    actual="$(detect_lan_ip || true)"
+
+    if [ -z "${LAN_IP:-}" ]; then
+        log_warning "未设置 LAN_IP：nginx 将绑 0.0.0.0，而 OrbStack 2.2.5 对 0.0.0.0 发布端口只转发回环流量，真机连不上"
+        [ -n "$actual" ] && log_warning "当前宿主 LAN IP 检测为 ${actual}，建议在 .env 写入 LAN_IP=${actual} 与 TURN_HOST=${actual}"
+        return 0
+    fi
+
+    if [ -z "$actual" ]; then
+        log_warning "无法自动探测宿主 LAN IP，跳过漂移校验（当前配置 LAN_IP=${LAN_IP}）"
+        return 0
+    fi
+
+    if [ "$actual" != "$LAN_IP" ]; then
+        log_warning "LAN_IP 漂移：.env 写的是 ${LAN_IP}，当前默认路由网卡地址是 ${actual}"
+        log_warning "  按下面三处改完再重跑本脚本（证书会按新 IP 重签）："
+        log_warning "    1) .env: LAN_IP=${actual} 且 TURN_HOST=${actual}"
+        log_warning "    2) coturn/.env: TURN_EXTERNAL_IP=${actual}（双地址写法为 ${actual}/${actual}）后 docker compose up -d"
+        log_warning "    3) 两端手机改用 http://${actual}:8788/ 重新做中继验证"
+        return 0
+    fi
+
+    log_success "LAN_IP 校验通过: ${actual}"
+
+    if [ -n "${TURN_HOST:-}" ] && [ "$TURN_HOST" != "$LAN_IP" ]; then
+        log_warning "TURN_HOST=${TURN_HOST} 与 LAN_IP=${LAN_IP} 不一致：turn_uris 会把客户端指向 ${TURN_HOST}，而端口与证书在 ${LAN_IP}"
+    fi
+
+    # coturn 是独立 compose 项目，`.env` 不同步时 homeserver 一切正常、只有中继不通。
+    local coturn_env="$PROJECT_ROOT/../coturn/.env"
+    if [ -f "$coturn_env" ]; then
+        local turn_ext_ip
+        turn_ext_ip="$(awk -F= '/^TURN_EXTERNAL_IP=/{sub(/^TURN_EXTERNAL_IP=/, ""); print; exit}' "$coturn_env" | tr -d '"'"'"'[:space:]')"
+        if [ -n "$turn_ext_ip" ] && [ "$turn_ext_ip" != "$LAN_IP" ] && [ "${turn_ext_ip%%/*}" != "$LAN_IP" ]; then
+            log_warning "coturn TURN_EXTERNAL_IP=${turn_ext_ip} 与 LAN_IP=${LAN_IP} 不一致：中继的候选地址会指向错的主机"
+        fi
+    fi
+}
+
+# =============================================================================
 # SSL 证书检查与自动生成 (matrix.test)
 # 优先使用 mkcert（生成受本机信任的 CA 证书），回退到 openssl 自签名。
 # =============================================================================
@@ -787,6 +953,9 @@ ensure_ssl_certs() {
         if [ -n "$lan_ip" ]; then
             printf '%s\n' "$san" | grep -q "$lan_ip" || return 1
         fi
+        # 过期/临期（7 天内）同样算不可用：SAN 全对、握手却失败，现场表现就是
+        # "证书看着没问题，但 turns 连不上"，比直接重签更难排查。
+        openssl x509 -in "$cert_file" -noout -checkend 604800 >/dev/null 2>&1 || return 1
         return 0
     }
 
@@ -837,6 +1006,7 @@ ensure_ssl_certs() {
         exit 1
     }
     chmod 600 "$key_file"
+    SSL_CERTS_REGENERATED=true
     log_success "SSL 证书已生成: $cert_file / $key_file"
 }
 
@@ -971,6 +1141,24 @@ COTURN_DIR="${COTURN_DIR:-/Users/ljf/Desktop/hu_ts/coturn}"
 # `-p` 优先级最高，可覆盖继承来的 COMPOSE_PROJECT_NAME，使两条路径归入同一项目。
 COTURN_PROJECT="${COTURN_PROJECT:-coturn}"
 
+# coturn 只在启动时把证书读进内存，之后替换文件不会生效。单文件 bind mount 绑的是
+# inode，而 mkcert 重签是**原地截断写**（inode 不变）——宿主文件内容会更新，容器里
+# 看到的也是新内容，但进程内存里的仍是旧证书。所以证书一旦变更就必须重建容器，
+# 否则 turns:(5349) 一直送旧证书，客户端表现为指纹/主机名不符，而 turn:(UDP 3478)
+# 完全正常，故障极难定位。
+coturn_cert_is_stale() {
+    local host_fp served_fp
+    [ -f "ssl/${SSL_CERT:-cert.pem}" ] || return 1
+    host_fp="$(openssl x509 -in "ssl/${SSL_CERT:-cert.pem}" -noout -fingerprint -sha256 2>/dev/null |
+        sed 's/^.*=//' || true)"
+    [ -n "$host_fp" ] || return 1
+    served_fp="$(echo | openssl s_client -connect "127.0.0.1:${TURNS_PORT:-5349}" \
+        -servername "${SERVER_NAME:-matrix.test}" 2>/dev/null |
+        openssl x509 -noout -fingerprint -sha256 2>/dev/null | sed 's/^.*=//' || true)"
+    # 取不到服务端证书（端口未起/被防火墙拦）时不做判断，交给后续连通性检查。
+    [ -n "$served_fp" ] && [ "$host_fp" != "$served_fp" ]
+}
+
 check_local_turn() {
     DEPLOYMENT_PHASE="turn-check"
     if [ "$CHECK_TURN" != "true" ]; then
@@ -986,7 +1174,23 @@ check_local_turn() {
     # 1) 检查 coturn 容器
     if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx 'coturn'; then
         turn_ok=true
-        log_success "coturn 容器运行中"
+        # 证书刚重签过、或 5349 实际送出的指纹与 ssl/cert.pem 不一致 → 重建容器
+        if [ "$SSL_CERTS_REGENERATED" = "true" ] || coturn_cert_is_stale; then
+            log_warning "证书已变更，但 coturn 启动时已把旧证书载入内存，重建容器..."
+            if (cd "$COTURN_DIR" && docker compose -p "$COTURN_PROJECT" up -d --force-recreate coturn); then
+                sleep 2
+                if coturn_cert_is_stale; then
+                    log_warning "重建后 5349 仍在送与 ssl/cert.pem 不一致的证书，请检查 compose 挂载路径"
+                else
+                    log_success "coturn 已重建并加载新证书"
+                fi
+            else
+                log_warning "coturn 重建失败，TURNS(5349) 可能仍在使用旧证书"
+                log_warning "  手动: cd $COTURN_DIR && docker compose -p $COTURN_PROJECT up -d --force-recreate coturn"
+            fi
+        else
+            log_success "coturn 容器运行中（TURNS 证书与 ssl/cert.pem 一致）"
+        fi
     fi
 
     # 2) 检查端口连通性（容器未命名 coturn 时的兜底）
@@ -1595,6 +1799,7 @@ build_images() {
         export SYNAPSE_IMAGE="$REMOTE_IMAGE"
         export SYNAPSE_PULL_POLICY=missing
         docker image inspect "$REMOTE_IMAGE" >/dev/null
+        verify_image_features "$REMOTE_IMAGE"
         log_success "远程镜像就绪: $REMOTE_IMAGE"
         return
     fi
@@ -1607,6 +1812,7 @@ build_images() {
         fi
         # 与下面 build 分支同理：必须显式导出，不能靠 compose 的默认值巧合对齐。
         export SYNAPSE_IMAGE="$(local_image_ref)"
+        verify_image_features "$SYNAPSE_IMAGE"
         return
     fi
     log_info "构建新的 Docker 镜像..."
@@ -1650,6 +1856,9 @@ build_images() {
     # （读 `${SYNAPSE_IMAGE:-...}`）是两条独立取值路径，只靠默认值相等会让
     # "构建的镜像"与"起的镜像"在任一侧改 tag 后静默分叉 —— 跑起旧镜像却不报错。
     export SYNAPSE_IMAGE="$(local_image_ref)"
+    # 自检：镜像自述的 feature 集必须与本次请求一致（build-arg 没传到 tools stage
+    # 或 Dockerfile 里 label 写错时，会在这里暴露，而不是等到路由 404 才发现）。
+    verify_image_features "$SYNAPSE_IMAGE"
     # tag 与 OCI label 的 `VCS_REF` 同源（都取自 git HEAD），可用于事后追溯。
     log_success "Docker 镜像构建完成: ${SYNAPSE_IMAGE} (version=${image_version} commit=${image_vcs_ref})"
 
@@ -2321,6 +2530,7 @@ main() {
     run_step "功能选择" select_features
     run_step "功能摘要" show_feature_summary
     run_step "目录准备" create_directories
+    run_step "LAN_IP 漂移校验" verify_lan_ip_consistency
     run_step "SSL 证书准备" ensure_ssl_certs
     run_step "应用数据密钥准备" ensure_app_data_keys
     run_step "hosts 检查" ensure_hosts_entry

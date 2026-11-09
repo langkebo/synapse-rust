@@ -192,6 +192,9 @@ ARG MIRROR_URL=
 # 这也顺带修掉一个静默缺陷：原文件在 RUN 里用了 `${MIRROR_URL}` 却从未在本 stage
 # 声明过它，于是那行 `sed` 永远拿到空值 —— 换国内源从来没生效过。
 ARG PG_MAJOR=15
+# `tools` stage 不编译，但要把**本镜像按哪套 feature 编出来的**写进 label：
+# `deploy.sh` 拿它和 `.env` 的 `ENABLED_EXTENSIONS` 比对，避免"配置说 A、镜像跑 B"。
+ARG CARGO_FEATURE_ARGS="--features all-extensions --no-default-features"
 
 LABEL org.opencontainers.image.title="synapse-rust" \
       org.opencontainers.image.description="Matrix homeserver implemented in Rust (production tools image)" \
@@ -200,7 +203,8 @@ LABEL org.opencontainers.image.title="synapse-rust" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.revision="${VCS_REF}" \
-      org.opencontainers.image.licenses="AGPL-3.0-only"
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.synapse-rust.cargo-features="${CARGO_FEATURE_ARGS}"
 
 # 这一个 RUN 里做三件事，且必须同层完成（否则被 purge 的 ~56 MB Perl 会留在中间层）：
 #   1) 装运行期依赖。`postgresql-client-${PG_MAJOR}` 而不是 `postgresql-client` 元包 ——
