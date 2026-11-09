@@ -540,3 +540,222 @@ async fn test_e2ee_key_backup_error_handling() {
     let response = app.clone().oneshot(nonexistent_backup_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::NOT_FOUND, "Nonexistent backup should return 404");
 }
+
+/// D5：`POST /room_keys/request/{request_id}/fulfill` 收口密钥请求。
+///
+/// 规范没有这个端点（真正的兑现发生在持有密钥的设备回传
+/// `m.forwarded_room_key` 时），但如果没有可观测的收口点，请求会永远停在
+/// pending，未解密消息（UTD）无法自愈。本测试覆盖：
+/// 1. 创建 → pending；
+/// 2. fulfill → 200，状态变 fulfilled，记录兑现设备；
+/// 3. 重复 fulfill 幂等（仍 200）；
+/// 4. 未知 request_id → 404。
+#[tokio::test]
+async fn room_key_request_can_be_fulfilled_via_extension_endpoint() {
+    let Some(app) = setup_fresh_test_app().await else {
+        return;
+    };
+
+    let username = format!("d5_key_req_user_{}", rand::random::<u32>());
+    let register_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/register")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "username": username,
+                "password": "Password123!",
+                "auth": { "type": "m.login.dummy" }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = app.clone().oneshot(register_request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let token = json["access_token"].as_str().unwrap().to_string();
+    let device_id = json["device_id"].as_str().unwrap().to_string();
+
+    // 1. 创建密钥请求。
+    let create_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/room_keys/request")
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "algorithm": "m.megolm.v1.aes-sha2",
+                "room_id": "!d5room:test.com",
+                "session_id": "D5SESSION",
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = app.clone().oneshot(create_request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let request_id = json["request_id"].as_str().unwrap().to_string();
+
+    // 2. 初始状态应为 pending。
+    let list_request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/v3/room_keys/request")
+        .header("Authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(list_request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let row = json["requests"]
+        .as_array()
+        .and_then(|rows| rows.iter().find(|r| r["request_id"] == request_id.as_str()))
+        .expect("created request should be listed");
+    assert_eq!(row["status"], "pending");
+    assert_eq!(row["is_fulfilled"], false);
+
+    // 3. 兑现。
+    let fulfill_request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/v3/room_keys/request/{request_id}/fulfill"))
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({}).to_string()))
+        .unwrap();
+    let response = app.clone().oneshot(fulfill_request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "fulfill endpoint should exist (D5)");
+
+    // 4. 状态变 fulfilled，并记录兑现设备。
+    let list_request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/v3/room_keys/request")
+        .header("Authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(list_request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let row = json["requests"]
+        .as_array()
+        .and_then(|rows| rows.iter().find(|r| r["request_id"] == request_id.as_str()))
+        .expect("request should still be listed after fulfill");
+    assert_eq!(row["status"], "fulfilled");
+    assert_eq!(row["is_fulfilled"], true);
+    assert_eq!(row["fulfilled_by_device"], device_id.as_str());
+
+    // 5. 幂等：重复兑现仍返回成功。
+    let fulfill_again = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/v3/room_keys/request/{request_id}/fulfill"))
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({}).to_string()))
+        .unwrap();
+    let response = app.clone().oneshot(fulfill_again).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "second fulfill must be idempotent");
+
+    // 6. 未知 request_id → 404。
+    let unknown_fulfill = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/room_keys/request/no-such-request-id/fulfill")
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({}).to_string()))
+        .unwrap();
+    let response = app.clone().oneshot(unknown_fulfill).await.unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+/// D5 归属校验：`request_id` 不是凭据 —— 其他登录用户不能兑现别人的密钥请求。
+///
+/// 没有这条校验时，任何用户只要猜到/拿到 request_id 就能把别人的 pending 请求
+/// 标成 fulfilled（未解密消息的自愈记录被污染）。
+#[tokio::test]
+async fn room_key_request_fulfill_rejects_other_users() {
+    let Some(app) = setup_fresh_test_app().await else {
+        return;
+    };
+
+    async fn register_user(app: &axum::Router, prefix: &str) -> String {
+        let request = Request::builder()
+            .method("POST")
+            .uri("/_matrix/client/v3/register")
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                json!({
+                    "username": format!("{prefix}_{}", rand::random::<u32>()),
+                    "password": "Password123!",
+                    "auth": { "type": "m.login.dummy" }
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        let json: Value = serde_json::from_slice(&body).unwrap();
+        json["access_token"].as_str().unwrap().to_string()
+    }
+
+    let owner_token = register_user(&app, "d5_owner").await;
+    let intruder_token = register_user(&app, "d5_intruder").await;
+
+    let create_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/room_keys/request")
+        .header("Authorization", format!("Bearer {owner_token}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "algorithm": "m.megolm.v1.aes-sha2",
+                "room_id": "!d5ownerroom:test.com",
+                "session_id": "D5OWNERSESSION",
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let response = app.clone().oneshot(create_request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let request_id = json["request_id"].as_str().unwrap().to_string();
+
+    // 他人兑现 → 403 且带统一错误信封。
+    let steal = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/v3/room_keys/request/{request_id}/fulfill"))
+        .header("Authorization", format!("Bearer {intruder_token}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({}).to_string()))
+        .unwrap();
+    let response = app.clone().oneshot(steal).await.unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN, "fulfilling another user's request must be 403");
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["errcode"], "M_FORBIDDEN");
+
+    // 归属者视角：请求仍是 pending（拒绝没有产生副作用）。
+    let list_request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/v3/room_keys/request")
+        .header("Authorization", format!("Bearer {owner_token}"))
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(list_request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let row = json["requests"]
+        .as_array()
+        .and_then(|rows| rows.iter().find(|r| r["request_id"] == request_id.as_str()))
+        .expect("owner should still see their request");
+    assert_eq!(row["status"], "pending");
+    assert_eq!(row["is_fulfilled"], false);
+}

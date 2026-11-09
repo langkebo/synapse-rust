@@ -156,3 +156,122 @@ async fn pushers_require_authentication() {
     // `synapse-web/src/middleware/auth.rs` 两条路径一致）。
     assert_eq!(value["errcode"], "M_MISSING_TOKEN", "未带 token 的 errcode：{value}");
 }
+
+// ---------------------------------------------------------------------------
+// Notification inbox (D16 write path + P0/P1)
+//
+// 本地发送走 `MessagesService::send_message` 的事务路径，因此这里是 `on_event_committed`
+// 钩子的端到端证据：消息提交后必须为收件人写出 `notifications` 行，且房间级静音
+// 规则（`kind='room'` + `pattern=room_id`）必须真的压掉这一行。
+// ---------------------------------------------------------------------------
+
+fn put_json(uri: &str, token: &str, body: &Value) -> Request<Body> {
+    let builder = Request::builder().method("PUT").uri(uri).header("Content-Type", "application/json");
+    builder.header("Authorization", format!("Bearer {token}")).body(Body::from(body.to_string())).unwrap()
+}
+
+async fn register_with_id(app: &axum::Router, username: &str) -> (String, String) {
+    let (status, value) = call(
+        app,
+        post_json(
+            "/_matrix/client/v3/register",
+            None,
+            &json!({
+                "username": username,
+                "password": "Password123!",
+                "auth": { "type": "m.login.dummy" }
+            }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "注册必须是 200：{value}");
+    (
+        value["access_token"].as_str().expect("注册必须返回 access_token").to_string(),
+        value["user_id"].as_str().expect("注册必须返回 user_id").to_string(),
+    )
+}
+
+async fn create_room(app: &axum::Router, token: &str) -> String {
+    let (status, value) =
+        call(app, post_json("/_matrix/client/v3/createRoom", Some(token), &json!({ "name": "Inbox Room" }))).await;
+    assert_eq!(status, StatusCode::OK, "建房必须是 200：{value}");
+    value["room_id"].as_str().expect("建房必须返回 room_id").to_string()
+}
+
+async fn invite(app: &axum::Router, token: &str, room_id: &str, user_id: &str) {
+    let uri = format!("/_matrix/client/v3/rooms/{room_id}/invite");
+    let (status, value) = call(app, post_json(&uri, Some(token), &json!({ "user_id": user_id }))).await;
+    assert_eq!(status, StatusCode::OK, "邀请必须是 200：{value}");
+}
+
+async fn join(app: &axum::Router, token: &str, room_id: &str) {
+    let uri = format!("/_matrix/client/v3/rooms/{room_id}/join");
+    let (status, value) = call(app, post_json(&uri, Some(token), &json!({}))).await;
+    assert_eq!(status, StatusCode::OK, "入房必须是 200：{value}");
+}
+
+async fn send_message(app: &axum::Router, token: &str, room_id: &str, txn: &str) {
+    let uri = format!("/_matrix/client/v3/rooms/{room_id}/send/m.room.message/{txn}");
+    let (status, value) =
+        call(app, put_json(&uri, token, &json!({ "msgtype": "m.text", "body": "hello inbox" }))).await;
+    assert_eq!(status, StatusCode::OK, "发消息必须是 200：{value}");
+}
+
+async fn inbox(app: &axum::Router, token: &str) -> Vec<Value> {
+    let (status, value) = call(app, get("/_matrix/client/v3/notifications", Some(token))).await;
+    assert_eq!(status, StatusCode::OK, "读取通知必须是 200：{value}");
+    value["notifications"].as_array().cloned().unwrap_or_default()
+}
+
+/// P0：本地发送走事务写入，提交后仍必须给收件人写出一条 inbox 行。
+#[tokio::test]
+async fn local_message_reaches_the_recipients_notification_inbox() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+    let (alice, _) = register_with_id(&app, "inbox_sender").await;
+    let (bob, bob_id) = register_with_id(&app, "inbox_recipient").await;
+
+    let room_id = create_room(&app, &alice).await;
+    invite(&app, &alice, &room_id, &bob_id).await;
+    join(&app, &bob, &room_id).await;
+
+    send_message(&app, &alice, &room_id, "txn-inbox-1").await;
+
+    let bob_inbox = inbox(&app, &bob).await;
+    assert_eq!(bob_inbox.len(), 1, "收件人必须有且只有一条通知：{bob_inbox:?}");
+    assert_eq!(bob_inbox[0]["room_id"], room_id.as_str());
+    assert_eq!(bob_inbox[0]["notification_type"], "message");
+
+    let alice_inbox = inbox(&app, &alice).await;
+    assert!(alice_inbox.is_empty(), "发送者不能收到自己的消息通知：{alice_inbox:?}");
+}
+
+/// P1：房间级 `dont_notify` 规则（存储为 `kind='room'` + `pattern=room_id`）必须压掉该房间的通知，
+/// 且只压掉被静音的那个人。
+#[tokio::test]
+async fn room_mute_rule_suppresses_only_the_muted_member() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+    let (alice, _) = register_with_id(&app, "mute_sender").await;
+    let (bob, bob_id) = register_with_id(&app, "mute_member").await;
+    let (carol, carol_id) = register_with_id(&app, "mute_control").await;
+
+    let room_id = create_room(&app, &alice).await;
+    invite(&app, &alice, &room_id, &bob_id).await;
+    join(&app, &bob, &room_id).await;
+    invite(&app, &alice, &room_id, &carol_id).await;
+    join(&app, &carol, &room_id).await;
+
+    // 本服务器把房间规则存成 `kind='room'` + `pattern=<room_id>`（rule_id 客户端自取）。
+    let rule_uri = "/_matrix/client/v3/pushrules/global/room/mute_this_room";
+    let (status, value) =
+        call(&app, put_json(rule_uri, &bob, &json!({ "pattern": room_id, "actions": ["dont_notify"] }))).await;
+    assert_eq!(status, StatusCode::OK, "设置静音规则必须是 200：{value}");
+
+    send_message(&app, &alice, &room_id, "txn-inbox-2").await;
+
+    assert!(inbox(&app, &bob).await.is_empty(), "被静音成员不应收到该房间的通知");
+    assert_eq!(inbox(&app, &carol).await.len(), 1, "未被静音的成员仍必须收到通知");
+}

@@ -452,12 +452,16 @@ impl MessagingService {
         }
     }
 
-    /// Post-commit, best-effort fan-out for a locally-sent message: room-summary
-    /// refresh, appservice dispatch and federation broadcast. Runs only after
-    /// the commit so a rollback cannot leak a dispatched event. Failures are
-    /// logged, never surfaced to the client. Split out of
-    /// [`Self::send_message_inner`] (E9).
+    /// Post-commit, best-effort fan-out for a locally-sent message: sync
+    /// wake-up / worker bus / notification inbox, room-summary refresh,
+    /// appservice dispatch and federation broadcast. Runs only after the commit
+    /// so a rollback cannot leak a dispatched event. Failures are logged, never
+    /// surfaced to the client. Split out of [`Self::send_message_inner`] (E9).
     async fn run_post_commit_fan_out(&self, event: &synapse_storage::RoomEvent) {
+        // `create_event(..., Some(tx))` skipped every post-commit hook, so the
+        // decorator has to be told the transaction is now committed.
+        self.event_writer.on_event_committed(event).await;
+
         if let Err(error) =
             self.room_summary_service.queue_update(&event.room_id, &event.event_id, &event.event_type, None).await
         {

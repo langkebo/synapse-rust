@@ -1462,6 +1462,9 @@ EXPECTED_ANNOTATIONS = {
     ("POST", "/_matrix/client/v3/room_keys/import"): {"body_opaque": True},
     ("POST", "/_matrix/client/v3/room_keys/import/{version}"): {"body_opaque": True},
     ("POST", "/_matrix/client/v3/room_keys/request"): {"body_opaque": True},
+    ("POST", "/_matrix/client/v3/room_keys/request/{request_id}/fulfill"): {
+        "body_opaque": True
+    },
     ("POST", "/_matrix/client/v3/room_keys/version"): {"body_opaque": True},
     ("POST", "/_matrix/client/v3/rooms/{room_id}/redact/{event_id}/{txn_id}"): {
         "body_opaque": True

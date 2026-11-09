@@ -112,6 +112,16 @@ impl RoomSyncServices {
             Some(sink) => notifying_writer_inner.with_worker_events(sink),
             None => notifying_writer_inner,
         };
+        // D16: `/notifications` reads the `notifications` table, but recording
+        // used to depend on a pusher existing (delivery path). Attach the
+        // recorder here so a committed message produces an inbox row for every
+        // notifiable local member regardless of push registration.
+        let notifying_writer_inner = notifying_writer_inner.with_notification_recorder(Arc::new(
+            crate::notification_pipeline::NotificationPipeline::new(
+                Arc::new(synapse_storage::push::PushStorage::new(infra.pool.clone())),
+                infra.config.server.get_server_name().to_string(),
+            ),
+        ));
         let notifying_writer: Arc<dyn synapse_storage::event::EventWriter> = Arc::new(notifying_writer_inner);
         let graph_metadata_resolver = Arc::new(crate::graph_metadata::GraphMetadataResolver::new(Arc::new(
             crate::graph_metadata::StorageGraphMetadataSource::new(

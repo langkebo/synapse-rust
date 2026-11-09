@@ -223,25 +223,23 @@ async fn test_versions_and_public_capabilities_match_declared_room_version_surfa
     assert_eq!(capabilities["m.voice"]["enabled"], true);
     assert_eq!(capabilities["m.thread"]["enabled"], true);
     assert_eq!(room_versions["default"], DEFAULT_ROOM_VERSION);
-    // `available` lists every room version this server *supports* (parse / join /
-    // federate), not only the creatable subset: clients use it to know which
-    // existing rooms they may reference, so narrowing it to the v12 creation set
-    // would make v1–v11 rooms look unreachable. `default` is the single creatable
-    // version — see `client_room_versions_capability` and the `capabilities_v3`
-    // contract snapshot, which pin the same shape.
-    //
-    // This assertion previously read `available.len() == creatable_count`, which
-    // held only while every version was creatable. G-1 (`7489b247f`) restricted
-    // creation to v12 without updating it, so it has failed (12 vs 1) ever since;
-    // `8687d8335` fixed the shape and pinned the snapshot but missed this file.
-    assert_eq!(available.len(), SUPPORTED_ROOM_VERSIONS.len());
-    for supported in SUPPORTED_ROOM_VERSIONS {
+    // D15: `available` advertises exactly the versions this server will create
+    // (since G-1, v12 alone), so the declaration matches what createRoom/upgrade
+    // accept. v1–v11 stay joinable/parseable/federatable, but that is declared on
+    // the federation capability — see `client_room_versions_capability`.
+    let creatable: Vec<&str> = SUPPORTED_ROOM_VERSIONS.iter().filter(|c| c.can_create).map(|c| c.version).collect();
+    assert_eq!(available.len(), creatable.len());
+    for version in &creatable {
+        let supported = SUPPORTED_ROOM_VERSIONS.iter().find(|c| c.version == *version).expect("creatable is supported");
         assert_eq!(
-            available.get(supported.version).and_then(|value| value.as_str()),
+            available.get(*version).and_then(|value| value.as_str()),
             Some(supported.disposition_str()),
-            "declared room version surface should include {}",
-            supported.version
+            "declared room version surface should include only creatable versions, got {}",
+            version
         );
+    }
+    for version in ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"] {
+        assert!(!available.contains_key(version), "v{version} is not creatable and must not be advertised");
     }
     assert_eq!(unstable["org.matrix.msc3245.voice"], true);
     assert_eq!(unstable["org.matrix.msc3983.thread"], true);

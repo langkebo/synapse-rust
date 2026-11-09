@@ -400,6 +400,14 @@ impl EventWriter for GraphMetadataWriter {
         self.inner.pool()
     }
 
+    /// 必须透传：本类型是 `EventWriter` 的装饰器，外层（room messaging 的
+    /// post-commit fan-out）调用的就是这个方法。默认实现是 no-op，漏掉转发会
+    /// 让 [`super::notifying_event_writer::NotifyingEventWriter`] 的提交后通知
+    /// 记录静默失效（D16：本地消息进不了 `/notifications`）。
+    async fn on_event_committed(&self, event: &RoomEvent) {
+        self.inner.on_event_committed(event).await;
+    }
+
     async fn create_event(
         &self,
         params: CreateEventParams,

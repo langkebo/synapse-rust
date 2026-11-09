@@ -10,6 +10,16 @@ pub trait EventWriter: Send + Sync {
     /// In-memory implementations may return `unimplemented!()`.
     fn pool(&self) -> &Arc<sqlx::PgPool>;
 
+    /// Runs post-commit side effects for an event the caller committed itself.
+    ///
+    /// `create_event(..., Some(tx))` cannot run them: the row is invisible until
+    /// the transaction commits. Callers that own the commit (e.g.
+    /// `MessagesService::send_message`) call this once afterwards so decorators
+    /// run the same side effects as on the auto-commit path.
+    ///
+    /// Default: no-op (plain storage has no post-commit hooks).
+    async fn on_event_committed(&self, _event: &RoomEvent) {}
+
     // ── mutation ──────────────────────────────────────────────────────
 
     /// See [`create_event`].

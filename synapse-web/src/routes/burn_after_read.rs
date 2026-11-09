@@ -58,6 +58,10 @@ pub fn create_burn_after_read_router(state: AppState) -> Router<AppState> {
 
 /// Enable burn after read for a room
 /// PUT /_matrix/vendor/v1/rooms/{room_id}/burn
+///
+/// D17：开关是**按用户**存的，不是房间级的。同一房间内每个成员各自独立配置，
+/// 因此「A 开启后 B 关闭」是合法状态，响应中的 `scope: "per_user"` 明确这一点，
+/// 供前端渲染诚实的个人设置文案，而不是假装全房生效。
 pub async fn enable_burn(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -94,6 +98,9 @@ pub async fn enable_burn(
     Ok(Json(json!({
         "enabled": enabled,
         "burn_after_ms": burn_after_ms,
+        // D17：开关是**按用户**存的（同一房间每个成员各自独立），不是房间级状态。
+        // 显式回报作用域，避免前端把个人开关展示成「全房生效」的假安全信号。
+        "scope": "per_user",
     })))
 }
 
@@ -129,16 +136,22 @@ pub async fn get_burn_settings(
         Some(s) => Ok(Json(json!({
             "enabled": s.is_enabled,
             "burn_after_ms": s.burn_after_ms,
+            "scope": "per_user",
         }))),
         None => Ok(Json(json!({
             "enabled": false,
             "burn_after_ms": synapse_services::burn_after_read_service::DEFAULT_BURN_AFTER_MS,
+            "scope": "per_user",
         }))),
     }
 }
 
 /// Mark message as read (triggers burn)
 /// POST /_matrix/vendor/v1/rooms/{room_id}/burn/{event_id}
+///
+/// D17：燃烧定时器也是**按用户**调度的。只有「接收方且本人已开启 burn」才允许标记；
+/// 若 B 没有为这个房间开启 burn，就返回 400 `Burn not enabled for this room` ——
+/// 这是设计行为（探测脚本 B3 依赖此断言），不是 bug。发送方不能标记自己的消息。
 pub async fn mark_burn_read(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,

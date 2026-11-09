@@ -305,7 +305,14 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // 254571 → 255874 字节 ⇒ FNV-1a 64 = `040353c24e20c141`。自检：复算改动前的
 // `HEAD:migrations/…v12.sql`（254571 字节）得 `5693201fe10bed35`，
 // 与改动前常量逐字节吻合，证明哈希实现未变后才取新值。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "040353c24e20c141";
+// 2026-11-09（通知幂等闭环：`notifications` 补部分唯一索引
+// `uq_notifications_user_event_unread (user_id, event_id) WHERE 未读`，供
+// `record_room_event_notifications` 的 `ON CONFLICT DO NOTHING` 仲裁；并把该索引登记进
+// v11-10 `uq_%` 清理 DO 块的例外清单 —— 否则该块会把索引建完就删掉，ON CONFLICT 报 42P10）：
+// 基线 255874 → 257123 字节 ⇒ FNV-1a 64 = `64dcf2a96c3ccf11`。自检：复算改动前的
+// `HEAD:migrations/…v12.sql`（255874 字节）得 `040353c24e20c141`，
+// 与改动前常量逐字节吻合，证明哈希实现未变后才取新值。
+const EXPECTED_BASELINE_FINGERPRINT: &str = "64dcf2a96c3ccf11";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))

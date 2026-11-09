@@ -8,7 +8,7 @@
     "worker_enabled": true,
     "saml_enabled": false
   },
-  "entry_count": 918,
+  "entry_count": 919,
   "entries": [
     {
       "method": "GET",
@@ -2067,6 +2067,15 @@
     {
       "method": "DELETE",
       "path": "/_matrix/client/v3/room_keys/request/{request_id}",
+      "registered_by": "e2ee",
+      "path_params": [
+        "request_id"
+      ],
+      "query_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/v3/room_keys/request/{request_id}/fulfill",
       "registered_by": "e2ee",
       "path_params": [
         "request_id"

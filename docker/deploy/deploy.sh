@@ -659,6 +659,10 @@ derive_image_tag() {
     sha="$(git -C "$PROJECT_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
     if [ -n "$(git -C "$PROJECT_ROOT" status --porcelain 2>/dev/null)" ]; then
         dirty="-dirty"
+        # 可重复性：`-dirty` 是真实信号（确有待提交改动），不是噪声。把对应文件打到
+        # stderr（stdout 只能留 tag，否则会被调用方的 $(...) 捕获而污染镜像名），
+        # 运维据此选择「提交后再发布」或显式接受这个不可精确复现的镜像。
+        git -C "$PROJECT_ROOT" status --porcelain >&2
     fi
     echo "synapse-rust:${version}-${sha}${dirty}"
 }
@@ -1352,20 +1356,33 @@ verify_https_endpoints() {
     log_info "验证 HTTPS 端点 (${SERVER_NAME:-matrix.test})..."
 
     local https_port="${HTTPS_PORT:-443}"
-    local base="https://${SERVER_NAME:-matrix.test}"
+    local server_name="${SERVER_NAME:-matrix.test}"
+    local base="https://${server_name}"
     [ "$https_port" != "443" ] && base="$base:$https_port"
 
-    curl -kfsS "$base/health" >/dev/null ||
+    # 与 verify_health_endpoints 同理：nginx 的宿主端口绑在 `${LAN_IP:-0.0.0.0}`
+    # （见 docker-compose.yml），设了 LAN_IP 时回环地址上没有监听，而 /etc/hosts
+    # 通常把 matrix.test 指到 127.0.0.1 —— 直连会得到
+    # `curl: (35) LibreSSL SSL_connect: SSL_ERROR_SYSCALL`（连接被重置）。
+    # 用 `--resolve` 把 TCP 目标换成 LAN_IP，SNI/Host 仍是 matrix.test，
+    # 这样校验的才是"局域网设备真正访问的那条路径"。
+    local resolve_opts=()
+    case "${LAN_IP:-0.0.0.0}" in
+        0.0.0.0 | "") ;;
+        *) resolve_opts=(--resolve "${server_name}:${https_port}:${LAN_IP}") ;;
+    esac
+
+    curl -kfsS ${resolve_opts[@]+"${resolve_opts[@]}"} "$base/health" >/dev/null ||
         {
             log_error "HTTPS 健康检查失败: $base/health"
             return 1
         }
-    curl -kfsS "$base/_matrix/client/versions" >/dev/null ||
+    curl -kfsS ${resolve_opts[@]+"${resolve_opts[@]}"} "$base/_matrix/client/versions" >/dev/null ||
         {
             log_error "HTTPS API 检查失败: $base/_matrix/client/versions"
             return 1
         }
-    curl -kfsS "$base/.well-known/matrix/server" >/dev/null ||
+    curl -kfsS ${resolve_opts[@]+"${resolve_opts[@]}"} "$base/.well-known/matrix/server" >/dev/null ||
         { log_warning "HTTPS .well-known/matrix/server 检查失败（不影响核心功能）"; }
 
     log_success "HTTPS 验证通过: $base"

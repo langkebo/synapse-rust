@@ -2191,7 +2191,7 @@ D-65 / D-66 / D-67 / D-68 / D-69 / D-70 / D-71 / D-72 / D-73 / D-74 / D-75 / D-7
 <!-- sqlx-plan-numbers:start -->
 <!-- 以下数字由 `scripts/ci/check_plan_numbers_fresh.sh` 与基线/实测现算比对；改基线必须同步改这里。 -->
 BASELINE_DYNAMIC_PRODUCTION=105
-BASELINE_DYNAMIC_TEST_INFRA=847
+BASELINE_DYNAMIC_TEST_INFRA=853
 BASELINE_STATIC=1360
 BASELINE_QUERY_BUILDER=17
 SQLX_CACHE_ENTRIES=1334

@@ -33,6 +33,8 @@ fn create_e2ee_compat_router() -> Router<AppState> {
         .route("/keys/device_signing/upload", post(upload_device_signing))
         .route("/room_keys/request", post(create_room_key_request).get(get_room_key_requests))
         .route("/room_keys/request/{request_id}", delete(delete_room_key_request))
+        // D5：非规范扩展端点，客户端显式收口密钥请求（详见 devices.rs 的 handler 文档）。
+        .route("/room_keys/request/{request_id}/fulfill", post(fulfill_room_key_request))
         .route("/rooms/{room_id}/keys/distribution", get(room_key_distribution))
         .route("/sendToDevice/{event_type}/{transaction_id}", put(send_to_device).post(send_to_device))
 }

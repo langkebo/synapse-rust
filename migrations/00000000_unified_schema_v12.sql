@@ -3627,6 +3627,24 @@ CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id);
 CREATE INDEX IF NOT EXISTS idx_notifications_ts ON notifications(ts DESC);
 CREATE INDEX IF NOT EXISTS idx_notifications_room ON notifications(room_id);
 
+-- D16/P2：未读通知按 (user_id, event_id) 幂等。
+-- 写入端已经用 NOT EXISTS 去重，但并发/重试仍可能穿透（两个事务都通过检查
+-- 再同时插入）。这里先清掉历史上可能已经产生的重复未读行（同一
+-- user_id + event_id 只保留 id 最小的一条），再用部分唯一索引兜底；
+-- record_room_event_notifications 同时带 ON CONFLICT DO NOTHING。
+DELETE FROM notifications a
+USING notifications b
+WHERE a.id > b.id
+  AND a.user_id = b.user_id
+  AND a.event_id = b.event_id
+  AND a.event_id IS NOT NULL
+  AND COALESCE(a.is_read, FALSE) = FALSE
+  AND COALESCE(b.is_read, FALSE) = FALSE;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_notifications_user_event_unread
+    ON notifications(user_id, event_id)
+    WHERE COALESCE(is_read, FALSE) = FALSE AND event_id IS NOT NULL;
+
 -- Spaces
 CREATE INDEX IF NOT EXISTS idx_space_children_space ON space_children(space_id);
 CREATE INDEX IF NOT EXISTS idx_space_children_room ON space_children(room_id);
@@ -5041,7 +5059,14 @@ BEGIN
           -- 保留 public 已删除的冗余索引（镜像失真）。
           AND n.nspname = current_schema()
           AND c.relname LIKE 'uq_%'
-          AND c.relname NOT IN ('uq_to_device_txn_msgid', 'uq_thumbnails_variant')
+          -- uq_notifications_user_event_unread 同为 ON CONFLICT 仲裁索引：它是**部分**
+          -- 唯一索引（WHERE 排除已读行），写不成 UNIQUE 约束，只能是显式索引；本块若把它
+          -- 当"冗余 uq_*"删掉，record_room_event_notifications 的 ON CONFLICT 会报 42P10。
+          AND c.relname NOT IN (
+              'uq_to_device_txn_msgid',
+              'uq_thumbnails_variant',
+              'uq_notifications_user_event_unread'
+          )
           -- 排除 CONSTRAINT 创建的索引（它们通常叫 <table>_<col>_key）
           AND NOT EXISTS (
               SELECT 1 FROM pg_constraint con

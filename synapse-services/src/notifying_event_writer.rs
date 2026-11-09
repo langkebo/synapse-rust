@@ -23,7 +23,8 @@
 //! actively harmful: the waiter re-reads the database, cannot see the
 //! uncommitted event, and returns an empty response. We therefore only notify
 //! on the auto-commit path (`tx.is_none()`). Callers that batch events inside a
-//! transaction (room creation) are responsible for notifying after commit.
+//! transaction (room creation) are responsible for notifying after commit; the
+//! local message path does so through [`EventWriter::on_event_committed`].
 //!
 //! # Known gaps
 //!
@@ -39,6 +40,7 @@ use std::sync::Arc;
 use synapse_storage::event::{CreateEventParams, EventWriter, RoomEvent};
 
 use crate::event_notifier::EventNotifier;
+use crate::notification_pipeline::EventNotificationRecorder;
 use crate::worker::WorkerEventSink;
 
 /// Decorates an [`EventWriter`], publishing a wake-up after each successful
@@ -55,12 +57,27 @@ pub struct NotifyingEventWriter {
     /// bus has no reader and publishing would cost one INSERT per room event for
     /// nothing.
     worker_events: Option<Arc<dyn WorkerEventSink>>,
+    /// Records `/notifications` inbox rows for committed message events (D16).
+    ///
+    /// `None` in tests and in deployments that only care about waking sync
+    /// waiters. Unlike delivery, recording does not depend on a pusher existing:
+    /// an inbox row is durable state.
+    notification_recorder: Option<Arc<dyn EventNotificationRecorder>>,
 }
 
 impl NotifyingEventWriter {
     /// Wraps `inner`, routing wake-ups through `notifier`.
     pub fn new(inner: Arc<dyn EventWriter>, notifier: EventNotifier) -> Self {
-        Self { inner, notifier, worker_events: None }
+        Self { inner, notifier, worker_events: None, notification_recorder: None }
+    }
+
+    /// Also records notification-inbox rows for committed message events.
+    ///
+    /// See [`crate::notification_pipeline`] for what counts as notifiable and
+    /// which members are suppressed.
+    pub fn with_notification_recorder(mut self, recorder: Arc<dyn EventNotificationRecorder>) -> Self {
+        self.notification_recorder = Some(recorder);
+        self
     }
 
     /// Also publishes each persisted event to `sink` (the worker event bus).
@@ -90,6 +107,24 @@ impl NotifyingEventWriter {
             }
         }
     }
+
+    /// Post-commit side effects for an auto-committed write: wake sync waiters,
+    /// hand the event to the worker bus, and record notification-inbox rows.
+    ///
+    /// Outliers do not go through here — they are historical/backfill events and
+    /// must not produce inbox rows.
+    async fn after_commit(&self, event: &RoomEvent, room_id: &str, event_type: &str, state_key: Option<&str>) {
+        self.publish(room_id, event_type, state_key);
+
+        // Worker-mode only; `None` means the bus has no reader (see the field doc).
+        if let Some(sink) = self.worker_events.as_ref() {
+            sink.publish_room_event(event).await;
+        }
+
+        if let Some(recorder) = self.notification_recorder.as_ref() {
+            recorder.record_for_event(event).await;
+        }
+    }
 }
 
 impl std::fmt::Debug for NotifyingEventWriter {
@@ -102,6 +137,16 @@ impl std::fmt::Debug for NotifyingEventWriter {
 impl EventWriter for NotifyingEventWriter {
     fn pool(&self) -> &Arc<sqlx::PgPool> {
         self.inner.pool()
+    }
+
+    /// Runs the same post-commit side effects as the auto-commit path, for a
+    /// caller-owned transaction that has just committed.
+    ///
+    /// Nothing here fired inside `create_event(..., Some(tx))`, so the wake-up,
+    /// the worker-bus publish and the notification-inbox rows are all still
+    /// pending — the caller cannot skip any of them.
+    async fn on_event_committed(&self, event: &RoomEvent) {
+        self.after_commit(event, &event.room_id, &event.event_type, event.state_key.as_deref()).await;
     }
 
     async fn create_event(
@@ -118,12 +163,7 @@ impl EventWriter for NotifyingEventWriter {
         let event = self.inner.create_event(params, tx).await?;
 
         if autocommit {
-            self.publish(&room_id, &event_type, state_key.as_deref());
-
-            // Worker-mode only; `None` means the bus has no reader (see the field doc).
-            if let Some(sink) = self.worker_events.as_ref() {
-                sink.publish_room_event(&event).await;
-            }
+            self.after_commit(&event, &room_id, &event_type, state_key.as_deref()).await;
         }
 
         Ok(event)
@@ -169,12 +209,7 @@ impl EventWriter for NotifyingEventWriter {
         let event = self.inner.create_event_with_graph(params, prev_events, auth_events, depth, tx).await?;
 
         if autocommit {
-            self.publish(&room_id, &event_type, state_key.as_deref());
-
-            // Worker-mode only; `None` means the bus has no reader (see the field doc).
-            if let Some(sink) = self.worker_events.as_ref() {
-                sink.publish_room_event(&event).await;
-            }
+            self.after_commit(&event, &room_id, &event_type, state_key.as_deref()).await;
         }
 
         Ok(event)
@@ -196,6 +231,8 @@ impl EventWriter for NotifyingEventWriter {
         let event = self.inner.create_outlier_event(params, prev_events, auth_events, depth, tx).await?;
 
         if autocommit {
+            // No `after_commit`: outliers are history fetched outside the room's
+            // forward extremities, so they must not produce inbox rows.
             self.publish(&room_id, &event_type, state_key.as_deref());
 
             // Worker-mode only; `None` means the bus has no reader (see the field doc).
@@ -221,12 +258,7 @@ impl EventWriter for NotifyingEventWriter {
         let event = self.inner.create_event_with_pdu(params, pdu_graph, tx).await?;
 
         if autocommit {
-            self.publish(&room_id, &event_type, state_key.as_deref());
-
-            // Worker-mode only; `None` means the bus has no reader (see the field doc).
-            if let Some(sink) = self.worker_events.as_ref() {
-                sink.publish_room_event(&event).await;
-            }
+            self.after_commit(&event, &room_id, &event_type, state_key.as_deref()).await;
         }
 
         Ok(event)
@@ -661,6 +693,62 @@ mod tests {
         // Only the notification path is wired; this must not panic and must not
         // reach any bus. The assertion is the absence of a sink in `build()`.
         writer.create_event(params("m.room.message", None), None).await.unwrap();
+    }
+
+    // ---------------------------------------------------------------------
+    // Caller-committed transactions (P0)
+    // ---------------------------------------------------------------------
+
+    /// Records which events were handed to the notification pipeline.
+    #[derive(Default)]
+    struct RecordingRecorder {
+        recorded: std::sync::Mutex<Vec<String>>,
+    }
+
+    impl RecordingRecorder {
+        fn recorded(&self) -> Vec<String> {
+            self.recorded.lock().expect("not poisoned").clone()
+        }
+    }
+
+    #[async_trait]
+    impl EventNotificationRecorder for RecordingRecorder {
+        async fn record_for_event(&self, event: &RoomEvent) {
+            self.recorded.lock().expect("not poisoned").push(event.event_id.clone());
+        }
+    }
+
+    /// A write inside `Some(tx)` must stay silent until the caller commits, and
+    /// `on_event_committed` must then replay every deferred side effect exactly
+    /// once. Local message sends take this path, so this is what puts their
+    /// inbox rows / wake-ups / worker-bus publishes back.
+    #[tokio::test]
+    async fn on_event_committed_replays_the_deferred_side_effects_once() {
+        let notifier = EventNotifier::new();
+        let inner: Arc<dyn EventWriter> = Arc::new(InMemoryEventStore::new());
+        let sink = Arc::new(RecordingWorkerSink::default());
+        let recorder = Arc::new(RecordingRecorder::default());
+        let writer = NotifyingEventWriter::new(inner.clone(), notifier.clone())
+            .with_worker_events(sink.clone() as Arc<dyn WorkerEventSink>)
+            .with_notification_recorder(recorder.clone() as Arc<dyn EventNotificationRecorder>);
+
+        // Persist through the undecorated writer: no hook has run yet.
+        let event = inner.create_event(params("m.room.message", None), None).await.unwrap();
+        assert!(sink.published().is_empty(), "nothing may be published before the caller commits");
+        assert!(recorder.recorded().is_empty(), "no inbox row may be written before the caller commits");
+
+        let slots = notifier.slots_for(STRANGER, &[ROOM.to_string()]);
+        let room_waiter = arm(&slots[1]);
+
+        writer.on_event_committed(&event).await;
+
+        assert!(woke(room_waiter).await, "the committed message must release room waiters");
+        assert_eq!(
+            sink.published(),
+            vec![(event.event_id.clone(), ROOM.to_string())],
+            "the worker bus must receive the committed event exactly once"
+        );
+        assert_eq!(recorder.recorded(), vec![event.event_id.clone()], "the inbox must be recorded exactly once");
     }
 
     // The bus publish follows the same commit boundary as the wake-up: nothing is

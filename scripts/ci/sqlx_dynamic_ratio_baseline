@@ -3680,7 +3680,25 @@ BASELINE_DYNAMIC_PRODUCTION=105
 #   `--all-targets` 会 E0432 —— 同上方各条。
 #   **收紧方向**：该播种可复用 `event` 域已有的测试建事件夹具（`ensure_test_event` 一族）；
 #   一旦抽出并被两侧共用，本项回落 1 点，届时必须同批下调并就地登记。
-BASELINE_DYNAMIC_TEST_INFRA=847
+# 2026-11-09: 847 → **853**（+6，D16 通知落库 + P2 高亮口径）。
+#   来源全部是 `synapse-storage/src/push/db_tests.rs`（本轮从 `push/mod.rs` 的内联
+#   `mod db_tests` 原样抽出，站点位置变化但计数口径不变）里新增的
+#   `test_record_room_event_notifications_targets_local_joined_members` 播种语句：
+#   2 个 `INSERT INTO users`（收件人 displayname 与对照用户）+ 1 个 `INSERT INTO rooms`
+#   + 2 个 `INSERT INTO room_memberships`（joined / leave）+ 1 个 `INSERT INTO push_rules`
+#   （`kind='content'` 关键字规则）。
+#   为什么要六条：`record_room_event_notifications` 的 `CASE` 现在有四个独立输入
+#   —— `m.mentions`、收件人 displayname、user_id localpart、content 关键字规则，
+#   要分别证伪"命中 / 未命中"，就必须让每一路都有专属的成员或规则行；只造一行数据
+#   无法区分"规则没生效"与"根本没评估"。
+#   为什么不能改静态宏：`#[cfg(test)]` 内的 `query!` 不进 `cargo sqlx prepare`（默认
+#   target 集），`--all-targets` 会 E0432 —— 同上方各条。
+#   生产侧未动（103 <= 105）：`record_room_event_notifications` 本身走运行时
+#   `sqlx::query`（列表参数 `ANY($4)` + 部分唯一索引的 `ON CONFLICT … WHERE`
+#   两者都无法用静态宏表达）。
+#   **收紧方向**：这六条播种可复用 push 域已有的 `ensure_test_user` / `ensure_test_room`
+#   一类夹具；抽出并被两侧共用后本项回落 6 点，届时必须同批下调并就地登记。
+BASELINE_DYNAMIC_TEST_INFRA=853
 # 2026-10-15: 1353 → 1354（+1，方案 B4.3）。新增
 #   `synapse-storage/src/schema_health_check.rs` 的 `check_invalid_indexes()` —— 它让
 #   **半建索引**（`pg_index.indisvalid = false`）可见；此前只查"缺表/缺列/缺索引名"，

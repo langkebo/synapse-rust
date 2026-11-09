@@ -127,6 +127,8 @@ pub mod media_quota_service;
 pub mod media_service;
 /// The `module_service` module.
 pub mod module_service;
+/// The `notification_pipeline` module — event → `/notifications` inbox (D16).
+pub mod notification_pipeline;
 /// Wake-up decorator around the storage-layer event writer, used to release
 /// long-polling sliding-sync clients as soon as an event is persisted.
 pub mod notifying_event_writer;

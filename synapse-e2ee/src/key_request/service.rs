@@ -142,6 +142,17 @@ impl KeyRequestService {
         Ok(fulfilled)
     }
 
+    /// 把一个具体请求标记为已兑现（幂等）。
+    ///
+    /// D5：由扩展端点 `POST /room_keys/request/{request_id}/fulfill` 显式收口。
+    /// 与 [`fulfill_pending_request`] 的区别在于匹配方式：后者由 to-device
+    /// `m.forwarded_room_key` 自动触发、按 (user, device, room, session) 批量匹配；
+    /// 这里按 request_id 精确兑现。两者都只写兑现元数据，**从不**接触会话密钥
+    /// 明文（S-12）。
+    pub async fn fulfill_request(&self, request_id: &str, fulfilled_by_device: &str) -> Result<(), ApiError> {
+        self.storage.fulfill_request(request_id, fulfilled_by_device).await
+    }
+
     /// See [`delete_request`].
     pub async fn delete_request(&self, request_id: &str) -> Result<(), ApiError> {
         self.storage.delete_request(request_id).await

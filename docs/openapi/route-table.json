@@ -10,7 +10,7 @@
     "worker_enabled": false,
     "saml_enabled": false
   },
-  "total_routes": 900,
+  "total_routes": 901,
   "_meta": {
     "generated_by": "gen_route_table.py",
     "note": "本文件由 CI 自动生成，禁止手改。如需刷新: python3 scripts/api_test/gen_route_table.py"
@@ -2219,6 +2219,16 @@
     {
       "method": "DELETE",
       "path": "/_matrix/client/v3/room_keys/request/{request_id}",
+      "registered_by": "e2ee",
+      "path_params": [
+        "request_id"
+      ],
+      "query_params": [],
+      "auth": null
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/v3/room_keys/request/{request_id}/fulfill",
       "registered_by": "e2ee",
       "path_params": [
         "request_id"

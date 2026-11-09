@@ -534,6 +534,46 @@ pub(crate) async fn delete_room_key_request(
     Ok(empty_json())
 }
 
+/// D5：非规范扩展端点 —— 把指定密钥请求标记为已兑现。
+///
+/// Matrix 规范没有这个端点：真正的兑现发生在持有密钥的设备回传
+/// `m.forwarded_room_key` 时（见 [`send_to_device`]）。但客户端在本地完成解密后
+/// 需要一个可观测的收口点，否则请求会一直停在 pending，未解密消息（UTD）无法自愈。
+///
+/// 服务端只记录兑现元数据（`is_fulfilled` / `fulfilled_by_device` /
+/// `fulfilled_ts`）；body 里的 `session_key` / `sender_key` 仅用于 SDK 兼容，
+/// **不落库**（S-12：服务端从不接触会话密钥明文）。
+///
+/// 幂等：已兑现的请求再次调用直接返回成功。
+#[axum::debug_handler]
+pub(crate) async fn fulfill_room_key_request(
+    State(ctx): State<DeviceContext>,
+    auth_user: AuthenticatedUser,
+    MatrixPath(request_id): MatrixPath<String>,
+    MatrixJson(_body): MatrixJson<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let request = ctx
+        .key_request_service
+        .get_request(&request_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("Room key request not found".to_string()))?;
+
+    // 归属校验：request_id 是可枚举/可猜测的字符串，没有这一步任何登录用户
+    // 只要知道 id 就能把别人的请求标成已完成（与 delete_room_key_request 一致）。
+    if request.user_id != auth_user.user_id {
+        return Err(ApiError::forbidden("Cannot fulfill another user's room key request".to_string()));
+    }
+
+    if !request.is_fulfilled {
+        let fulfilled_by = auth_user.device_id.as_deref().unwrap_or("unknown-device");
+        ctx.key_request_service.fulfill_request(&request.request_id, fulfilled_by).await?;
+        // 唤醒请求发起方的长轮询 /sync，让客户端立刻看到 pending → fulfilled。
+        ctx.event_notifier.notify_user(&request.user_id);
+    }
+
+    Ok(Json(json!({})))
+}
+
 #[derive(Debug, Deserialize)]
 struct CreateRoomKeyRequestBody {
     algorithm: String,

@@ -107,9 +107,7 @@
     "m.room.suggested": { "enabled": true },
     "m.room.summary": { "enabled": true },
     "m.room_versions": {
-      "available": { "1": "stable", "2": "stable", "3": "stable", "4": "stable", "5": "stable",
-                     "6": "stable", "7": "stable", "8": "stable", "9": "stable", "10": "stable",
-                     "11": "stable", "12": "stable" },
+      "available": { "12": "stable" },
       "default": "12"
     },
     "m.set_avatar_url": { "enabled": true },
@@ -138,7 +136,7 @@
 
 | 能力 | 本仓行为 |
 |---|---|
-| `m.room_versions` | `available` 为**房间版本 → 稳定度**映射；`default` 是 `createRoom` 不指定 `room_version` 时的取值（当前 `12`）。创建不支持的房间版本返回 `M_UNSUPPORTED_ROOM_VERSION`（400），与默认版本不兼容返回 `M_INCOMPATIBLE_ROOM_VERSION`（400） |
+| `m.room_versions` | `available` 为**房间版本 → 稳定度**映射，且只列服务端**可创建**的版本（当前仅 `"12"`，与 `createRoom`/`upgrade` 的行为一致；v1–v11 仍可加入/解析/联邦，声明在联邦 `/_matrix/federation/v1/version`）；`default` 是 `createRoom` 不指定 `room_version` 时的取值（当前 `12`）。创建不支持的房间版本返回 `M_UNSUPPORTED_ROOM_VERSION`（400），与默认版本不兼容返回 `M_INCOMPATIBLE_ROOM_VERSION`（400） |
 | `m.change_password` | `false` 时客户端应隐藏改密入口（`POST /account/password` 仍会按既有密码校验处理） |
 | `m.set_displayname` / `m.set_avatar_url` | 对应 `PUT /profile/{user_id}/displayname`、`/avatar_url` 是否开放 |
 | `m.3pid_changes` | 绑定/解绑邮箱手机是否开放 |

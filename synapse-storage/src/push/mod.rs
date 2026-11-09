@@ -812,8 +812,17 @@ impl PushStorage {
             notification_type,
         )
         .execute(&*self.pool)
-        .await?;
-        Ok(())
+        .await
+        .map(|_| ())
+        // The partial unique index `uq_notifications_user_event_unread` can fire
+        // when two concurrent writers both pass the `NOT EXISTS` check (each sees
+        // the pre-insert snapshot) and then both try to insert. A duplicate unread
+        // row is exactly what the idempotency contract above forbids, so treat the
+        // unique violation as success instead of surfacing a spurious 500.
+        .or_else(|e| match &e {
+            sqlx::Error::Database(db) if db.code().as_deref() == Some("23505") => Ok(()),
+            _ => Err(e),
+        })
     }
 
     /// See [`ack_notification`].
@@ -829,6 +838,139 @@ impl PushStorage {
         )
         .fetch_optional(&*self.pool)
         .await
+    }
+
+    /// Records one `notifications` row per **local joined member** of `room_id`
+    /// that this event should alert (D16).
+    ///
+    /// The notification endpoints read the `notifications` table. Before this
+    /// method the only writer was [`record_notification`](Self::record_notification),
+    /// called from `PushNotificationService::send_notification`, which returns
+    /// early when the recipient has no pusher — so a user who never registered a
+    /// pusher had a structurally empty inbox and `/notifications` could never
+    /// return anything. Recording is therefore decoupled from delivery here.
+    ///
+    /// It is a single `INSERT ... SELECT` over the room's local membership, so the
+    /// send path pays one round trip regardless of room size. Suppression covers
+    /// the part of the push-rule model stored in `push_rules`:
+    ///
+    /// * the sender never notifies themselves;
+    /// * remote members are skipped (`right(user_id, len(server)+1) = ':' || server`);
+    /// * `m.ignored_user_list` hides the sender;
+    /// * an enabled `dont_notify` rule whose id is `.m.rule.master` (whole account)
+    ///   or a `room` rule targeting this room (matched on `pattern`, which is how
+    ///   this server stores them, or on `rule_id`, which is how the spec names them)
+    ///   suppresses the row.
+    ///
+    /// `highlight_user_ids` (`content.m.mentions.user_ids`) and `highlight_room`
+    /// (`content.m.mentions.room`) select `notification_type = 'highlight'`
+    /// instead of `'message'`. So do the body-text rules that `.m.mentions`
+    /// alone misses: the default `.m.rule.contains_display_name` /
+    /// `.m.rule.contains_user_name` (matched against `users.displayname` and the
+    /// user id localpart) and any enabled user `content` keyword rule whose
+    /// actions carry a `highlight` tweak. `body` is the plaintext
+    /// `content.body`; encrypted events pass `""` and degrade to explicit
+    /// mentions only.
+    ///
+    /// **Idempotent while unread**, like [`record_notification`](Self::record_notification):
+    /// a member who already has an unread row for `event_id` is not inserted
+    /// again, so a retried federation transaction cannot duplicate the inbox entry.
+    /// The partial unique index `uq_notifications_user_event_unread` on
+    /// `(user_id, event_id) WHERE COALESCE(is_read, FALSE) = FALSE AND event_id IS NOT NULL`
+    /// backs this up between concurrent writers (`ON CONFLICT DO NOTHING`). The
+    /// predicate here and in the index must stay textually identical — a mismatch
+    /// makes PostgreSQL fail index inference with 42P10.
+    ///
+    /// Returns the number of rows inserted.
+    pub async fn record_room_event_notifications(
+        &self,
+        room_id: &str,
+        event_id: &str,
+        sender: &str,
+        highlight_user_ids: &[String],
+        highlight_room: bool,
+        ts: i64,
+        local_server_name: &str,
+        body: &str,
+    ) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query(
+            r#"
+            INSERT INTO notifications (user_id, event_id, room_id, ts, notification_type, is_read, created_ts)
+            SELECT m.user_id, $2, $1, $6,
+                   CASE WHEN m.user_id = ANY($4) OR $5 THEN 'highlight'
+                        WHEN $8 <> '' AND (
+                            -- .m.rule.contains_display_name（默认规则，未持久化）：
+                            -- 正文包含收件人 displayname。
+                            EXISTS (
+                                SELECT 1 FROM users u
+                                WHERE u.user_id = m.user_id
+                                  AND u.displayname IS NOT NULL
+                                  AND btrim(u.displayname) <> ''
+                                  AND position(lower(btrim(u.displayname)) in lower($8)) > 0
+                            )
+                            -- .m.rule.contains_user_name（默认规则）：正文包含本
+                            -- 地用户名（`@localpart:server` 的 localpart）。
+                            OR position(lower(split_part(substr(m.user_id, 2), ':', 1)) in lower($8)) > 0
+                            -- 用户自定义关键字规则（kind='content'）。
+                            OR EXISTS (
+                                SELECT 1 FROM push_rules pr
+                                WHERE pr.user_id = m.user_id
+                                  AND pr.scope = 'global'
+                                  AND pr.kind = 'content'
+                                  AND pr.is_enabled
+                                  AND pr.pattern IS NOT NULL
+                                  AND btrim(pr.pattern) <> ''
+                                  AND pr.actions @> '[{"set_tweak":"highlight"}]'::jsonb
+                                  AND position(lower(pr.pattern) in lower($8)) > 0
+                            )
+                        ) THEN 'highlight'
+                        ELSE 'message' END,
+                   FALSE, $6
+            FROM room_memberships m
+            WHERE m.room_id = $1
+              AND m.membership = 'join'
+              AND m.user_id <> $3
+              AND right(m.user_id, length($7) + 1) = ':' || $7
+              AND NOT EXISTS (
+                  SELECT 1 FROM notifications n
+                  WHERE n.user_id = m.user_id AND n.event_id = $2 AND COALESCE(n.is_read, FALSE) = FALSE
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM account_data ad
+                  WHERE ad.user_id = m.user_id
+                    AND ad.data_type = 'm.ignored_user_list'
+                    AND ad.content -> 'ignored_users' ? $3
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM push_rules pr
+                  WHERE pr.user_id = m.user_id
+                    AND pr.scope = 'global'
+                    AND pr.is_enabled
+                    AND pr.actions ? 'dont_notify'
+                    AND (
+                        pr.rule_id = '.m.rule.master'
+                        OR (
+                            pr.kind = 'room'
+                            AND (pr.pattern = $1 OR pr.rule_id = $1)
+                        )
+                    )
+              )
+            ON CONFLICT (user_id, event_id)
+                WHERE COALESCE(is_read, FALSE) = FALSE AND event_id IS NOT NULL
+                DO NOTHING
+            "#,
+        )
+        .bind(room_id)
+        .bind(event_id)
+        .bind(sender)
+        .bind(highlight_user_ids)
+        .bind(highlight_room)
+        .bind(ts)
+        .bind(local_server_name)
+        .bind(body)
+        .execute(&*self.pool)
+        .await?;
+        Ok(result.rows_affected())
     }
 }
 
@@ -982,869 +1124,4 @@ impl PushStoreApi for PushStorage {
 }
 
 #[cfg(test)]
-mod db_tests {
-    use super::*;
-    use serde_json::json;
-    use std::sync::Arc;
-
-    /// 每个测试一个从迁移 baseline 克隆出来的独立 schema（返回 guard 与 pool）。
-    ///
-    /// 2026-09-21：原先用共享 `public` 池。共享池的两个问题：测试结果取决于环境里
-    /// `public` 的残渣（本地 `public` 落后于迁移 baseline 时会直接 42P01），且并行测试
-    /// 互相影响。按铁律 7 消除状态共享：per-test schema 由模板克隆，表一定存在、行数从 0 开始。
-    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<sqlx::PgPool>) {
-        let isolated = crate::test_isolation::isolated_test_pool().await.expect("isolated test pool");
-        let pool = isolated.pool();
-        (isolated, pool)
-    }
-
-    fn unique_user_id(prefix: &str) -> String {
-        format!("{}_pushtest_{}:test.com", prefix, uuid::Uuid::new_v4())
-    }
-
-    // ── helpers ─────────────────────────────────────────────────────────
-
-    async fn cleanup_pushers(pool: &sqlx::PgPool, user_id: &str) {
-        let _ = sqlx::query("DELETE FROM pushers WHERE user_id = $1").bind(user_id).execute(pool).await;
-    }
-
-    async fn cleanup_push_rules(pool: &sqlx::PgPool, user_id: &str) {
-        let _ = sqlx::query("DELETE FROM push_rules WHERE user_id = $1").bind(user_id).execute(pool).await;
-    }
-
-    async fn cleanup_notifications(pool: &sqlx::PgPool, user_id: &str) {
-        let _ = sqlx::query("DELETE FROM notifications WHERE user_id = $1").bind(user_id).execute(pool).await;
-    }
-
-    // reason: `insert_notification` 是协议/存储字段的直传签名：参数逐个来自调用点，打包成结构体只会把同一份字段列表抄两遍
-    #[allow(clippy::too_many_arguments)]
-    async fn insert_notification(
-        pool: &sqlx::PgPool,
-        user_id: &str,
-        event_id: &str,
-        room_id: &str,
-        ts: i64,
-        notification_type: &str,
-        is_read: bool,
-        created_ts: i64,
-    ) -> i64 {
-        sqlx::query_scalar(
-            "INSERT INTO notifications (user_id, event_id, room_id, ts, notification_type, is_read, created_ts) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
-        )
-        .bind(user_id)
-        .bind(event_id)
-        .bind(room_id)
-        .bind(ts)
-        .bind(notification_type)
-        .bind(is_read)
-        .bind(created_ts)
-        .fetch_one(pool)
-        .await
-        .expect("failed to insert test notification")
-    }
-
-    // ── pushers tests ────────────────────────────────────────────────────
-
-    #[tokio::test]
-    async fn test_upsert_and_get_pushers_with_device_id() {
-        let (_isolated, pool) = test_pool().await;
-        let storage = PushStorage::new(Arc::clone(&pool));
-        let user_id = unique_user_id("@test");
-        let device_id = "device1";
-        let pushkey = "pushkey1";
-        let now = current_timestamp_millis();
-
-        cleanup_pushers(&pool, &user_id).await;
-
-        storage
-            .upsert_pusher(
-                &user_id,
-                device_id,
-                pushkey,
-                "http",
-                "app.id",
-                "My App",
-                "My Device",
-                &None,
-                "en",
-                &None,
-                now,
-            )
-            .await
-            .expect("upsert_pusher should succeed");
-
-        let rows = storage.get_pushers(&user_id, Some(device_id)).await.expect("get_pushers should succeed");
-        assert!(!rows.is_empty(), "should return at least one pusher");
-
-        let row = &rows[0];
-        assert_eq!(row.pushkey, "pushkey1");
-        assert_eq!(row.device_id, device_id);
-
-        cleanup_pushers(&pool, &user_id).await;
-    }
-
-    #[tokio::test]
-    async fn test_get_pushers_filters_by_specific_device_id() {
-        let (_isolated, pool) = test_pool().await;
-        let storage = PushStorage::new(Arc::clone(&pool));
-        let user_id = unique_user_id("@test");
-
-        cleanup_pushers(&pool, &user_id).await;
-
-        let now = current_timestamp_millis();
-        storage
-            .upsert_pusher(&user_id, "d1", "pk1", "http", "app.id", "App", "Dev", &None, "en", &None, now)
-            .await
-            .expect("upsert d1 should succeed");
-        storage
-            .upsert_pusher(&user_id, "d2", "pk2", "http", "app.id", "App", "Dev", &None, "en", &None, now)
-            .await
-            .expect("upsert d2 should succeed");
-
-        // Filtering by a specific device_id should return only that pusher
-        let rows_d1 =
-            storage.get_pushers(&user_id, Some("d1")).await.expect("get_pushers with Some(d1) should succeed");
-        assert_eq!(rows_d1.len(), 1, "should return exactly one pusher for d1");
-        assert_eq!(rows_d1[0].device_id, "d1");
-
-        let rows_d2 =
-            storage.get_pushers(&user_id, Some("d2")).await.expect("get_pushers with Some(d2) should succeed");
-        assert_eq!(rows_d2.len(), 1, "should return exactly one pusher for d2");
-        assert_eq!(rows_d2[0].device_id, "d2");
-
-        cleanup_pushers(&pool, &user_id).await;
-    }
-
-    #[tokio::test]
-    async fn test_get_pushers_with_none_device_id() {
-        let (_isolated, pool) = test_pool().await;
-        let storage = PushStorage::new(Arc::clone(&pool));
-        let user_id = unique_user_id("@test");
-
-        cleanup_pushers(&pool, &user_id).await;
-
-        let now = current_timestamp_millis();
-        storage
-            .upsert_pusher(&user_id, "d1", "pk1", "http", "app.id", "App", "Dev", &None, "en", &None, now)
-            .await
-            .expect("upsert should succeed");
-
-        // When device_id is None, it binds as SQL NULL, and
-        // `device_id IS NOT DISTINCT FROM NULL` only matches rows
-        // where device_id IS NULL. Since the column is NOT NULL,
-        // this currently returns zero rows.
-        let rows = storage.get_pushers(&user_id, None).await.expect("get_pushers with None should succeed");
-        assert!(rows.is_empty(), "None device_id currently returns empty result set");
-
-        cleanup_pushers(&pool, &user_id).await;
-    }
-
-    #[tokio::test]
-    async fn test_get_pushers_returns_empty_for_unknown_user() {
-        let (_isolated, pool) = test_pool().await;
-        let storage = PushStorage::new(Arc::clone(&pool));
-        let user_id = unique_user_id("@unknown");
-
-        let rows = storage.get_pushers(&user_id, None).await.expect("get_pushers should succeed");
-        assert!(rows.is_empty(), "unknown user should have no pushers");
-    }
-
-    #[tokio::test]
-    async fn test_upsert_pusher_updates_existing() {
-        let (_isolated, pool) = test_pool().await;
-        let storage = PushStorage::new(Arc::clone(&pool));
-        let user_id = unique_user_id("@test");
-        let device_id = "dev_update";
-        let pushkey = "pk_update";
-        let now = current_timestamp_millis();
-
-        cleanup_pushers(&pool, &user_id).await;
-
-        // Insert initial
-        storage
-            .upsert_pusher(&user_id, device_id, pushkey, "http", "app.id", "App1", "Dev1", &None, "en", &None, now)
-            .await
-            .expect("first upsert should succeed");
-
-        // Update with new app_display_name
-        let now2 = now + 1000;
-        storage
-            .upsert_pusher(&user_id, device_id, pushkey, "http", "app.id", "App2", "Dev2", &None, "en", &None, now2)
-            .await
-            .expect("second upsert should succeed");
-
-        let rows = storage.get_pushers(&user_id, Some(device_id)).await.expect("get_pushers should succeed");
-        assert_eq!(rows.len(), 1, "should still have exactly one pusher after upsert");
-        assert_eq!(rows[0].app_display_name, "App2");
-
-        cleanup_pushers(&pool, &user_id).await;
-    }
-
-    #[tokio::test]
-    async fn test_delete_pusher() {
-        let (_isolated, pool) = test_pool().await;
-        let storage = PushStorage::new(Arc::clone(&pool));
-        let user_id = unique_user_id("@test");
-        let device_id = "dev_del";
-        let pushkey = "pk_del";
-        let now = current_timestamp_millis();
-
-        cleanup_pushers(&pool, &user_id).await;
-
-        storage
-            .upsert_pusher(&user_id, device_id, pushkey, "http", "app.id", "App", "Dev", &None, "en", &None, now)
-            .await
-            .expect("upsert should succeed");
-
-        storage.delete_pusher(&user_id, device_id, pushkey).await.expect("delete_pusher should succeed");
-
-        let rows = storage.get_pushers(&user_id, Some(device_id)).await.expect("get_pushers should succeed");
-        assert!(rows.is_empty(), "pusher should be deleted");
-
-        cleanup_pushers(&pool, &user_id).await;
-    }
-
-    #[tokio::test]
-    async fn test_delete_pusher_nonexistent_does_not_error() {
-        let (_isolated, pool) = test_pool().await;
-        let storage = PushStorage::new(Arc::clone(&pool));
-        let user_id = unique_user_id("@test");
-
-        storage
-            .delete_pusher(&user_id, "no_dev", "no_pk")
-            .await
-            .expect("delete_pusher on non-existent row should not error");
-    }
-
-    // ── push_rules tests ─────────────────────────────────────────────────
-
-    #[tokio::test]
-    async fn test_upsert_and_get_push_rule() {
-        let (_isolated, pool) = test_pool().await;
-        let storage = PushStorage::new(Arc::clone(&pool));
-        let user_id = unique_user_id("@test");
-        let now = current_timestamp_millis();
-
-        cleanup_push_rules(&pool, &user_id).await;
-
-        storage
-            .upsert_push_rule(
-                &user_id,
-                "global",
-                "override",
-                "rule1",
-                &None,
-                &None,
-                &json!(["notify"]),
-                None,
-                None,
-                now,
-            )
-            .await
-            .expect("upsert_push_rule should succeed");
-
-        let rows = storage
-            .get_user_push_rules(&user_id, "global", "override")
-            .await
-            .expect("get_user_push_rules should succeed");
-        assert!(!rows.is_empty(), "should return at least one rule");
-
-        let enabled = storage
-            .get_push_rule_enabled(&user_id, "global", "override", "rule1")
-            .await
-            .expect("get_push_rule_enabled should succeed");
-        assert_eq!(enabled, Some(true), "new rule should be enabled by default");
-
-        cleanup_push_rules(&pool, &user_id).await;
-    }
-
-    #[tokio::test]
-    async fn test_get_user_push_rules_returns_empty_for_no_rules() {
-        let (_isolated, pool) = test_pool().await;
-        let storage = PushStorage::new(Arc::clone(&pool));
-        let user_id = unique_user_id("@test");
-
-        let rows = storage
-            .get_user_push_rules(&user_id, "global", "override")
-            .await
-            .expect("get_user_push_rules should succeed");
-        assert!(rows.is_empty(), "unknown user should have no push rules");
-    }
-
-    #[tokio::test]
-    async fn test_upsert_push_rule_updates_existing() {
-        let (_isolated, pool) = test_pool().await;
-        let storage = PushStorage::new(Arc::clone(&pool));
-        let user_id = unique_user_id("@test");
-        let now = current_timestamp_millis();
-
-        cleanup_push_rules(&pool, &user_id).await;
-
-        storage
-            .upsert_push_rule(
-                &user_id,
-                "global",
-                "override",
-                "rule2",
-                &Some("original".to_string()),
-                &None,
-                &json!(["notify"]),
-                None,
-                None,
-                now,
-            )
-            .await
-            .expect("first upsert should succeed");
-
-        storage
-            .upsert_push_rule(
-                &user_id,
-                "global",
-                "override",
-                "rule2",
-                &Some("updated".to_string()),
-                &None,
-                &json!(["dont_notify"]),
-                None,
-                None,
-                now,
-            )
-            .await
-            .expect("second upsert should succeed");
-
-        let rows = storage
-            .get_user_push_rules(&user_id, "global", "override")
-            .await
-            .expect("get_user_push_rules should succeed");
-        assert_eq!(rows.len(), 1, "should still have exactly one rule after upsert");
-        assert_eq!(rows[0].pattern.as_deref(), Some("updated"));
-
-        cleanup_push_rules(&pool, &user_id).await;
-    }
-
-    #[tokio::test]
-    async fn test_update_push_rule_actions() {
-        let (_isolated, pool) = test_pool().await;
-        let storage = PushStorage::new(Arc::clone(&pool));
-        let user_id = unique_user_id("@test");
-        let now = current_timestamp_millis();
-
-        cleanup_push_rules(&pool, &user_id).await;
-
-        storage
-            .upsert_push_rule(
-                &user_id,
-                "global",
-                "override",
-                "rule_actions",
-                &None,
-                &None,
-                &json!(["notify"]),
-                None,
-                None,
-                now,
-            )
-            .await
-            .expect("upsert should succeed");
-
-        storage
-            .update_push_rule_actions(
-                &user_id,
-                "global",
-                "override",
-                "rule_actions",
-                &json!(["dont_notify", {"set_tweak": "highlight"}]),
-            )
-            .await
-            .expect("update_push_rule_actions should succeed");
-
-        let rows = storage
-            .get_user_push_rules(&user_id, "global", "override")
-            .await
-            .expect("get_user_push_rules should succeed");
-        assert!(!rows.is_empty());
-        let actions = rows[0].actions.as_ref().expect("actions are stored as JSONB");
-        assert!(actions.as_array().is_some_and(|a| a.len() >= 2));
-
-        cleanup_push_rules(&pool, &user_id).await;
-    }
-
-    #[tokio::test]
-    async fn test_delete_push_rule() {
-        let (_isolated, pool) = test_pool().await;
-        let storage = PushStorage::new(Arc::clone(&pool));
-        let user_id = unique_user_id("@test");
-        let now = current_timestamp_millis();
-
-        cleanup_push_rules(&pool, &user_id).await;
-
-        storage
-            .upsert_push_rule(
-                &user_id,
-                "global",
-                "override",
-                "rule_del",
-                &None,
-                &None,
-                &json!(["notify"]),
-                None,
-                None,
-                now,
-            )
-            .await
-            .expect("upsert should succeed");
-
-        let affected = storage
-            .delete_push_rule(&user_id, "global", "override", "rule_del")
-            .await
-            .expect("delete_push_rule should succeed");
-        assert_eq!(affected, 1, "should delete exactly one row");
-
-        let affected2 = storage
-            .delete_push_rule(&user_id, "global", "override", "rule_del")
-            .await
-            .expect("second delete should succeed");
-        assert_eq!(affected2, 0, "second delete should affect zero rows");
-
-        cleanup_push_rules(&pool, &user_id).await;
-    }
-
-    #[tokio::test]
-    async fn test_get_push_rule_enabled_returns_none_for_nonexistent() {
-        let (_isolated, pool) = test_pool().await;
-        let storage = PushStorage::new(Arc::clone(&pool));
-        let user_id = unique_user_id("@test");
-
-        let enabled = storage
-            .get_push_rule_enabled(&user_id, "global", "override", "no_such_rule")
-            .await
-            .expect("get_push_rule_enabled should succeed");
-        assert_eq!(enabled, None, "non-existent rule should return None");
-    }
-
-    #[tokio::test]
-    async fn test_set_push_rule_enabled() {
-        let (_isolated, pool) = test_pool().await;
-        let storage = PushStorage::new(Arc::clone(&pool));
-        let user_id = unique_user_id("@test");
-        let now = current_timestamp_millis();
-
-        cleanup_push_rules(&pool, &user_id).await;
-
-        storage
-            .upsert_push_rule(
-                &user_id,
-                "global",
-                "override",
-                "rule_toggle",
-                &None,
-                &None,
-                &json!(["notify"]),
-                None,
-                None,
-                now,
-            )
-            .await
-            .expect("upsert should succeed");
-
-        storage
-            .set_push_rule_enabled(&user_id, "global", "override", "rule_toggle", false)
-            .await
-            .expect("set_push_rule_enabled should succeed");
-
-        let enabled = storage
-            .get_push_rule_enabled(&user_id, "global", "override", "rule_toggle")
-            .await
-            .expect("get_push_rule_enabled should succeed");
-        assert_eq!(enabled, Some(false), "rule should be disabled");
-
-        storage
-            .set_push_rule_enabled(&user_id, "global", "override", "rule_toggle", true)
-            .await
-            .expect("re-enable should succeed");
-
-        let enabled = storage
-            .get_push_rule_enabled(&user_id, "global", "override", "rule_toggle")
-            .await
-            .expect("get_push_rule_enabled should succeed");
-        assert_eq!(enabled, Some(true), "rule should be re-enabled");
-
-        cleanup_push_rules(&pool, &user_id).await;
-    }
-
-    #[tokio::test]
-    async fn test_get_user_push_rules_scoped_by_scope_and_kind() {
-        let (_isolated, pool) = test_pool().await;
-        let storage = PushStorage::new(Arc::clone(&pool));
-        let user_id = unique_user_id("@test");
-        let now = current_timestamp_millis();
-
-        cleanup_push_rules(&pool, &user_id).await;
-
-        // Create rules in different scope/kind combinations
-        storage
-            .upsert_push_rule(&user_id, "global", "override", "r1", &None, &None, &json!(["notify"]), None, None, now)
-            .await
-            .expect("upsert r1");
-        storage
-            .upsert_push_rule(&user_id, "global", "content", "r2", &None, &None, &json!(["notify"]), None, None, now)
-            .await
-            .expect("upsert r2");
-        storage
-            .upsert_push_rule(
-                &user_id,
-                "devices/DEV1",
-                "override",
-                "r3",
-                &None,
-                &None,
-                &json!(["notify"]),
-                None,
-                None,
-                now,
-            )
-            .await
-            .expect("upsert r3");
-
-        let global_override =
-            storage.get_user_push_rules(&user_id, "global", "override").await.expect("get global override");
-        assert_eq!(global_override.len(), 1, "should return only global/override rules");
-        assert_eq!(global_override[0].rule_id, "r1");
-
-        let global_content =
-            storage.get_user_push_rules(&user_id, "global", "content").await.expect("get global content");
-        assert_eq!(global_content.len(), 1);
-        assert_eq!(global_content[0].rule_id, "r2");
-
-        let device_override =
-            storage.get_user_push_rules(&user_id, "devices/DEV1", "override").await.expect("get device override");
-        assert_eq!(device_override.len(), 1);
-        assert_eq!(device_override[0].rule_id, "r3");
-
-        cleanup_push_rules(&pool, &user_id).await;
-    }
-
-    // ── notifications tests ──────────────────────────────────────────────
-
-    #[tokio::test]
-    async fn test_get_notifications_returns_rows() {
-        let (_isolated, pool) = test_pool().await;
-        let storage = PushStorage::new(Arc::clone(&pool));
-        let user_id = unique_user_id("@test");
-        let now = current_timestamp_millis();
-
-        cleanup_notifications(&pool, &user_id).await;
-
-        insert_notification(&pool, &user_id, "$ev1", "!room1:test.com", now, "message", false, now).await;
-        insert_notification(&pool, &user_id, "$ev2", "!room1:test.com", now + 1, "invite", false, now).await;
-
-        let rows = storage
-            .get_notifications(&user_id, &NotificationPageQuery::first(10))
-            .await
-            .expect("get_notifications should succeed");
-        assert_eq!(rows.len(), 2, "should return both notifications");
-        // Results ordered by ts DESC, so newest (ev2) first
-        assert_eq!(rows[0].event_id.as_deref(), Some("$ev2"));
-
-        cleanup_notifications(&pool, &user_id).await;
-    }
-
-    #[tokio::test]
-    async fn test_get_notifications_respects_limit() {
-        let (_isolated, pool) = test_pool().await;
-        let storage = PushStorage::new(Arc::clone(&pool));
-        let user_id = unique_user_id("@test");
-        let now = current_timestamp_millis();
-
-        cleanup_notifications(&pool, &user_id).await;
-
-        for i in 0..5 {
-            insert_notification(&pool, &user_id, &format!("$ev{i}"), "!room1:test.com", now + i, "message", false, now)
-                .await;
-        }
-
-        let rows = storage
-            .get_notifications(&user_id, &NotificationPageQuery::first(3))
-            .await
-            .expect("get_notifications should succeed");
-        assert_eq!(rows.len(), 3, "should respect limit");
-
-        cleanup_notifications(&pool, &user_id).await;
-    }
-
-    #[tokio::test]
-    async fn test_get_notifications_empty_for_unknown_user() {
-        let (_isolated, pool) = test_pool().await;
-        let storage = PushStorage::new(Arc::clone(&pool));
-        let user_id = unique_user_id("@unknown");
-
-        let rows = storage
-            .get_notifications(&user_id, &NotificationPageQuery::first(10))
-            .await
-            .expect("get_notifications should succeed");
-        assert!(rows.is_empty(), "unknown user should have no notifications");
-    }
-
-    /// D-68：`record_notification` 必须真的写进 `notifications`，并可从
-    /// `get_notifications` 读回（此前该表在生产路径上**没有任何写入者**，
-    /// 三个已注册端点恒为空）。
-    #[tokio::test]
-    async fn test_record_notification_inserts_a_readable_row() {
-        let (_isolated, pool) = test_pool().await;
-        let storage = PushStorage::new(Arc::clone(&pool));
-        let user_id = unique_user_id("@test");
-        let now = current_timestamp_millis();
-
-        storage
-            .record_notification(&user_id, Some("$ev_record"), Some("!room1:test.com"), "message", now)
-            .await
-            .expect("record_notification must succeed");
-
-        let rows =
-            storage.get_notifications(&user_id, &NotificationPageQuery::first(10)).await.expect("get_notifications");
-        assert_eq!(rows.len(), 1, "the recorded notification must be readable");
-        assert_eq!(rows[0].event_id.as_deref(), Some("$ev_record"));
-        assert_eq!(rows[0].room_id.as_deref(), Some("!room1:test.com"));
-        assert_eq!(rows[0].notification_type.as_deref(), Some("message"));
-        assert_eq!(rows[0].is_read, Some(false), "a freshly recorded notification is unread");
-        assert_eq!(rows[0].ts, now);
-
-        cleanup_notifications(&pool, &user_id).await;
-    }
-
-    /// 同一 event 在被 ack 之前重复触发（同一次推送的多次尝试）**不得**累积重复行；
-    /// ack 之后允许重新成为一条新通知。
-    #[tokio::test]
-    async fn test_record_notification_is_idempotent_until_acked() {
-        let (_isolated, pool) = test_pool().await;
-        let storage = PushStorage::new(Arc::clone(&pool));
-        let user_id = unique_user_id("@test");
-        let now = current_timestamp_millis();
-
-        for attempt in 0..3 {
-            storage
-                .record_notification(&user_id, Some("$ev_dup"), Some("!room1:test.com"), "message", now + attempt)
-                .await
-                .expect("record_notification must succeed");
-        }
-        let rows =
-            storage.get_notifications(&user_id, &NotificationPageQuery::first(10)).await.expect("get_notifications");
-        assert_eq!(rows.len(), 1, "repeated attempts for one unread event must not duplicate");
-
-        storage.ack_notification(rows[0].id, &user_id, now + 10).await.expect("ack_notification");
-        storage
-            .record_notification(&user_id, Some("$ev_dup"), Some("!room1:test.com"), "message", now + 11)
-            .await
-            .expect("record_notification after ack must succeed");
-        let rows =
-            storage.get_notifications(&user_id, &NotificationPageQuery::first(10)).await.expect("get_notifications");
-        assert_eq!(rows.len(), 2, "after ack the event may notify again");
-
-        cleanup_notifications(&pool, &user_id).await;
-    }
-
-    /// `event_id` 缺失（服务端主动推送）时**不做**去重：两次通知各自成行，
-    /// 否则所有无 event 的推送都会被第一条吞掉。
-    #[tokio::test]
-    async fn test_record_notification_without_event_id_never_dedups() {
-        let (_isolated, pool) = test_pool().await;
-        let storage = PushStorage::new(Arc::clone(&pool));
-        let user_id = unique_user_id("@test");
-        let now = current_timestamp_millis();
-
-        storage
-            .record_notification(&user_id, None, None, "message", now)
-            .await
-            .expect("record_notification must succeed");
-        storage
-            .record_notification(&user_id, None, None, "message", now + 1)
-            .await
-            .expect("record_notification must succeed");
-
-        let rows =
-            storage.get_notifications(&user_id, &NotificationPageQuery::first(10)).await.expect("get_notifications");
-        assert_eq!(rows.len(), 2, "notifications without an event_id must never be merged");
-
-        cleanup_notifications(&pool, &user_id).await;
-    }
-
-    #[tokio::test]
-    async fn test_ack_notification_marks_read_and_returns_id() {
-        let (_isolated, pool) = test_pool().await;
-        let storage = PushStorage::new(Arc::clone(&pool));
-        let user_id = unique_user_id("@test");
-        let now = current_timestamp_millis();
-
-        cleanup_notifications(&pool, &user_id).await;
-
-        let nid = insert_notification(&pool, &user_id, "$ev_ack", "!room1:test.com", now, "message", false, now).await;
-
-        let result =
-            storage.ack_notification(nid, &user_id, now + 1000).await.expect("ack_notification should succeed");
-        assert!(result.is_some(), "should return the acknowledged notification id");
-        assert_eq!(result.unwrap(), nid);
-
-        cleanup_notifications(&pool, &user_id).await;
-    }
-
-    #[tokio::test]
-    async fn test_ack_notification_returns_none_for_wrong_user() {
-        let (_isolated, pool) = test_pool().await;
-        let storage = PushStorage::new(Arc::clone(&pool));
-        let user_id = unique_user_id("@test");
-        let other_user = unique_user_id("@other");
-        let now = current_timestamp_millis();
-
-        cleanup_notifications(&pool, &user_id).await;
-        cleanup_notifications(&pool, &other_user).await;
-
-        let nid =
-            insert_notification(&pool, &user_id, "$ev_wrong", "!room1:test.com", now, "message", false, now).await;
-
-        let result =
-            storage.ack_notification(nid, &other_user, now + 1000).await.expect("ack_notification should succeed");
-        assert!(result.is_none(), "other user should not be able to ack this notification");
-
-        cleanup_notifications(&pool, &user_id).await;
-        cleanup_notifications(&pool, &other_user).await;
-    }
-
-    #[tokio::test]
-    async fn test_ack_notification_returns_none_for_nonexistent_id() {
-        let (_isolated, pool) = test_pool().await;
-        let storage = PushStorage::new(Arc::clone(&pool));
-        let user_id = unique_user_id("@test");
-
-        let result = storage
-            .ack_notification(99999999, &user_id, current_timestamp_millis())
-            .await
-            .expect("ack_notification should succeed");
-        assert!(result.is_none(), "non-existent notification id should return None");
-    }
-    /// B-34: `before` / `after` define the order within a kind; with neither, a
-    /// **new** rule appends to the end of its kind while an **existing** rule keeps
-    /// its position (a plain body update must not reorder the list).
-    #[tokio::test]
-    async fn test_upsert_push_rule_positions_rules_within_kind() {
-        let (_isolated, pool) = test_pool().await;
-        let storage = PushStorage::new(Arc::clone(&pool));
-        let user_id = unique_user_id("@pushorder");
-        cleanup_push_rules(&pool, &user_id).await;
-
-        async fn put(storage: &PushStorage, user_id: &str, rule_id: &str, before: Option<&str>, after: Option<&str>) {
-            storage
-                .upsert_push_rule(
-                    user_id,
-                    "global",
-                    "override",
-                    rule_id,
-                    &None,
-                    &None,
-                    &json!(["notify"]),
-                    before,
-                    after,
-                    current_timestamp_millis(),
-                )
-                .await
-                .expect("positioned upsert should succeed");
-        }
-
-        async fn order(storage: &PushStorage, user_id: &str) -> Vec<String> {
-            storage
-                .get_user_push_rules(user_id, "global", "override")
-                .await
-                .expect("get_user_push_rules should succeed")
-                .into_iter()
-                .map(|r| r.rule_id)
-                .collect()
-        }
-
-        // No anchor: each new rule appends, so the order is insertion order — not
-        // `rule_id` order (the pre-B-34 behaviour this feature replaces).
-        put(&storage, &user_id, "zzz", None, None).await;
-        put(&storage, &user_id, "aaa", None, None).await;
-        put(&storage, &user_id, "mmm", None, None).await;
-        assert_eq!(order(&storage, &user_id).await, vec!["zzz", "aaa", "mmm"]);
-
-        // `after` = next-less important → immediately after the anchor.
-        put(&storage, &user_id, "d", None, Some("zzz")).await;
-        assert_eq!(order(&storage, &user_id).await, vec!["zzz", "d", "aaa", "mmm"]);
-
-        // `before` = next-most important → immediately before the anchor.
-        put(&storage, &user_id, "e", Some("aaa"), None).await;
-        assert_eq!(order(&storage, &user_id).await, vec!["zzz", "d", "e", "aaa", "mmm"]);
-
-        // Updating an existing rule without anchors leaves its position untouched.
-        put(&storage, &user_id, "aaa", None, None).await;
-        assert_eq!(order(&storage, &user_id).await, vec!["zzz", "d", "e", "aaa", "mmm"]);
-
-        // An existing rule may be moved: it is removed before the anchor is resolved.
-        put(&storage, &user_id, "zzz", Some("mmm"), None).await;
-        assert_eq!(order(&storage, &user_id).await, vec!["d", "e", "aaa", "zzz", "mmm"]);
-
-        cleanup_push_rules(&pool, &user_id).await;
-    }
-
-    /// `before` + `after` together is client input we cannot honour → typed error
-    /// (the service maps it to `400 M_INVALID_PARAM`), not a silent pick.
-    #[tokio::test]
-    async fn test_upsert_push_rule_rejects_conflicting_position() {
-        let (_isolated, pool) = test_pool().await;
-        let storage = PushStorage::new(Arc::clone(&pool));
-        let user_id = unique_user_id("@pushorder");
-        cleanup_push_rules(&pool, &user_id).await;
-
-        let err = storage
-            .upsert_push_rule(
-                &user_id,
-                "global",
-                "override",
-                "conflict",
-                &None,
-                &None,
-                &json!(["notify"]),
-                Some("a"),
-                Some("b"),
-                current_timestamp_millis(),
-            )
-            .await
-            .expect_err("both anchors must be rejected");
-        assert!(matches!(err, PushRuleWriteError::ConflictingPosition), "unexpected error: {err}");
-    }
-
-    /// An unknown anchor — including a server default rule, which is not a row in
-    /// this table — is a client error, not a database error.
-    #[tokio::test]
-    #[allow(clippy::panic, reason = "test-only: an unexpected error variant is reported via panic! in a match arm")]
-    async fn test_upsert_push_rule_rejects_unknown_anchor() {
-        let (_isolated, pool) = test_pool().await;
-        let storage = PushStorage::new(Arc::clone(&pool));
-        let user_id = unique_user_id("@pushorder");
-        cleanup_push_rules(&pool, &user_id).await;
-
-        let err = storage
-            .upsert_push_rule(
-                &user_id,
-                "global",
-                "override",
-                "orphan",
-                &None,
-                &None,
-                &json!(["notify"]),
-                Some(".m.rule.master"),
-                None,
-                current_timestamp_millis(),
-            )
-            .await
-            .expect_err("unknown anchor must be rejected");
-        match err {
-            PushRuleWriteError::AnchorNotFound { anchor } => assert_eq!(anchor, ".m.rule.master"),
-            other => panic!("expected AnchorNotFound, got {other}"),
-        }
-
-        // The rejected write must not leave a partial row behind.
-        let rows = storage.get_user_push_rules(&user_id, "global", "override").await.expect("get_user_push_rules");
-        assert!(rows.is_empty(), "a failed positioned write must not insert the rule");
-    }
-}
+mod db_tests;
