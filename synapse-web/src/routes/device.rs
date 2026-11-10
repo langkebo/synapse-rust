@@ -341,10 +341,10 @@ pub async fn get_device(
     auth_user: AuthenticatedUser,
     MatrixPath(device_id): MatrixPath<DeviceId>,
 ) -> Result<Json<Value>, ApiError> {
-    let device = ctx.account_device_list_service.get_device(device_id.as_str()).await?;
+    let device = ctx.account_device_list_service.get_device(&auth_user.user_id, device_id.as_str()).await?;
 
     match device {
-        Some(d) if d.user_id == auth_user.user_id => Ok(Json(json!({
+        Some(d) => Ok(Json(json!({
             "device": {
                 "device_id": d.device_id,
                 "display_name": d.display_name,
@@ -354,7 +354,6 @@ pub async fn get_device(
             "display_name": d.display_name,
             "last_seen_ts": d.last_seen_ts,
         }))),
-        Some(_) => Err(device_not_found_error()),
         None => Err(device_not_found_error()),
     }
 }
@@ -386,9 +385,9 @@ pub async fn update_device(
     // appservice `PUT /devices/{deviceId}` creates the device when missing
     // (201) and updates it otherwise (200), with an empty response body.
     if auth_user.appservice_id.is_some() {
-        let existing = ctx.account_device_list_service.get_device(device_id.as_str()).await?;
+        let existing = ctx.account_device_list_service.get_device(&auth_user.user_id, device_id.as_str()).await?;
         match existing {
-            Some(d) if d.user_id == auth_user.user_id => {
+            Some(_) => {
                 if let Some(display_name) = display_name {
                     ctx.account_device_list_service
                         .update_user_device_display_name(&auth_user.user_id, device_id.as_str(), display_name)
@@ -397,7 +396,6 @@ pub async fn update_device(
                 broadcast_device_list_update(&ctx, &auth_user.user_id, device_id.as_str(), false).await;
                 return Ok((StatusCode::OK, Json(json!({}))).into_response());
             }
-            Some(_) => return Err(device_not_found_error()),
             None => {
                 ctx.account_device_list_service
                     .create_device(device_id.as_str(), &auth_user.user_id, display_name)
@@ -419,8 +417,11 @@ pub async fn update_device(
         }
     }
 
-    let device =
-        ctx.account_device_list_service.get_device(device_id.as_str()).await?.ok_or_else(device_not_found_error)?;
+    let device = ctx
+        .account_device_list_service
+        .get_device(&auth_user.user_id, device_id.as_str())
+        .await?
+        .ok_or_else(device_not_found_error)?;
 
     broadcast_device_list_update(&ctx, &auth_user.user_id, device_id.as_str(), false).await;
 

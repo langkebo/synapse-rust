@@ -2194,8 +2194,13 @@ BASELINE_DYNAMIC_PRODUCTION=105
 BASELINE_DYNAMIC_TEST_INFRA=853
 BASELINE_STATIC=1360
 BASELINE_QUERY_BUILDER=17
-SQLX_CACHE_ENTRIES=1334
+SQLX_CACHE_ENTRIES=1335
 <!-- sqlx-plan-numbers:end -->
+
+> **2026-11-10 更新（D17：阅后即焚开关改为房间级）**，数字块一项：
+> - `SQLX_CACHE_ENTRIES` **1334 → 1335**（+1）：`synapse-storage/src/burn_after_read.rs`
+>   新增 `get_room_settings`（取房间内最新一次写入）的单条静态宏。
+>   生产 / 测试 / 静态 / QueryBuilder 计数不变（新语句在 `synapse-storage`）。
 
 > **2026-10-31 更新（BE-11：`/sync` 不再清空 presence `status_msg`）**，数字块一项：
 > - `SQLX_CACHE_ENTRIES` **1333 → 1334**（+1）：`synapse-storage/src/presence/mod.rs`

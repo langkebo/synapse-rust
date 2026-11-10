@@ -155,7 +155,7 @@ CREATE TABLE IF NOT EXISTS devices (
     user_agent TEXT,
     appservice_id TEXT,
     ignored_user_list TEXT,
-    CONSTRAINT pk_devices PRIMARY KEY (device_id),
+    CONSTRAINT pk_devices PRIMARY KEY (user_id, device_id),
     CONSTRAINT fk_devices_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
@@ -174,7 +174,7 @@ CREATE TABLE IF NOT EXISTS access_tokens (
     CONSTRAINT pk_access_tokens PRIMARY KEY (id),
     CONSTRAINT uq_access_tokens_token_hash UNIQUE (token_hash),
     CONSTRAINT fk_access_tokens_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
-    CONSTRAINT fk_access_tokens_device FOREIGN KEY (device_id) REFERENCES devices(device_id) ON DELETE SET NULL NOT VALID
+    CONSTRAINT fk_access_tokens_device FOREIGN KEY (user_id, device_id) REFERENCES devices(user_id, device_id) ON DELETE CASCADE NOT VALID
 );
 
 CREATE TABLE IF NOT EXISTS refresh_tokens (
@@ -196,7 +196,7 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
     CONSTRAINT pk_refresh_tokens PRIMARY KEY (id),
     CONSTRAINT uq_refresh_tokens_token_hash UNIQUE (token_hash),
     CONSTRAINT fk_refresh_tokens_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
-    CONSTRAINT fk_refresh_tokens_device FOREIGN KEY (device_id) REFERENCES devices(device_id) ON DELETE SET NULL NOT VALID
+    CONSTRAINT fk_refresh_tokens_device FOREIGN KEY (user_id, device_id) REFERENCES devices(user_id, device_id) ON DELETE CASCADE NOT VALID
 );
 
 CREATE TABLE IF NOT EXISTS token_blacklist (
@@ -2483,7 +2483,7 @@ CREATE TABLE IF NOT EXISTS refresh_token_families (
     CONSTRAINT pk_refresh_token_families PRIMARY KEY (id),
     CONSTRAINT uq_refresh_token_families_id UNIQUE (family_id),
     CONSTRAINT fk_refresh_token_families_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE NOT VALID,
-    CONSTRAINT fk_refresh_token_families_device FOREIGN KEY (device_id) REFERENCES devices(device_id) ON DELETE SET NULL NOT VALID
+    CONSTRAINT fk_refresh_token_families_device FOREIGN KEY (user_id, device_id) REFERENCES devices(user_id, device_id) ON DELETE CASCADE NOT VALID
 );
 
 CREATE TABLE IF NOT EXISTS refresh_token_rotations (
@@ -3361,6 +3361,10 @@ CREATE INDEX IF NOT EXISTS idx_user_threepids_user ON user_threepids(user_id);
 -- Devices
 CREATE INDEX IF NOT EXISTS idx_devices_user_id ON devices(user_id);
 CREATE INDEX IF NOT EXISTS idx_devices_last_seen ON devices(last_seen_ts DESC);
+-- D20：主键改为 `(user_id, device_id)` 后，不再有以 `device_id` 打头的索引；
+-- 但按 device_id 单独反查的路径仍在（如房间兼容接口的 `get_devices_by_id`、
+-- 批量校验的 `device_exists`），补一个单列索引避免整表扫描。
+CREATE INDEX IF NOT EXISTS idx_devices_device_id ON devices(device_id);
 
 -- Access tokens
 CREATE INDEX IF NOT EXISTS idx_access_tokens_user_id ON access_tokens(user_id);
@@ -4139,6 +4143,56 @@ BEGIN
 END $$;
 
 -- ============================================================================
+-- D20: device_id is unique per user, not globally
+--
+-- The original baseline made `devices.device_id` a global primary key, so a
+-- second account logging in with the same fixed id (`WEB` / `DESKTOP` are very
+-- common) was rejected with 403. Matrix only requires `device_id` to be unique
+-- within one user, so the key becomes `(user_id, device_id)` and the three
+-- device FKs become composite. On existing databases the old FKs must be
+-- dropped first because they depend on the old primary-key index.
+-- ============================================================================
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'pk_devices' AND conrelid = 'devices'::regclass
+          AND pg_get_constraintdef(oid) = 'PRIMARY KEY (device_id)'
+    ) THEN
+        ALTER TABLE access_tokens DROP CONSTRAINT IF EXISTS fk_access_tokens_device;
+        ALTER TABLE refresh_tokens DROP CONSTRAINT IF EXISTS fk_refresh_tokens_device;
+        ALTER TABLE refresh_token_families DROP CONSTRAINT IF EXISTS fk_refresh_token_families_device;
+        ALTER TABLE devices DROP CONSTRAINT pk_devices;
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'pk_devices' AND conrelid = 'devices'::regclass
+    ) THEN
+        ALTER TABLE devices ADD CONSTRAINT pk_devices PRIMARY KEY (user_id, device_id);
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_access_tokens_device' AND conrelid = 'access_tokens'::regclass) THEN
+        ALTER TABLE access_tokens ADD CONSTRAINT fk_access_tokens_device
+            FOREIGN KEY (user_id, device_id) REFERENCES devices(user_id, device_id) ON DELETE CASCADE NOT VALID;
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_refresh_tokens_device' AND conrelid = 'refresh_tokens'::regclass) THEN
+        ALTER TABLE refresh_tokens ADD CONSTRAINT fk_refresh_tokens_device
+            FOREIGN KEY (user_id, device_id) REFERENCES devices(user_id, device_id) ON DELETE CASCADE NOT VALID;
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_refresh_token_families_device' AND conrelid = 'refresh_token_families'::regclass) THEN
+        ALTER TABLE refresh_token_families ADD CONSTRAINT fk_refresh_token_families_device
+            FOREIGN KEY (user_id, device_id) REFERENCES devices(user_id, device_id) ON DELETE CASCADE NOT VALID;
+    END IF;
+END $$;
+
+-- ============================================================================
 -- Foreign Keys
 -- ============================================================================
 
@@ -4148,13 +4202,13 @@ BEGIN
 
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_access_tokens_device' AND conrelid = 'access_tokens'::regclass) THEN
         ALTER TABLE access_tokens ADD CONSTRAINT fk_access_tokens_device
-            FOREIGN KEY (device_id) REFERENCES devices(device_id) ON DELETE SET NULL NOT VALID;
+            FOREIGN KEY (user_id, device_id) REFERENCES devices(user_id, device_id) ON DELETE CASCADE NOT VALID;
     END IF;
 
 
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_refresh_tokens_device' AND conrelid = 'refresh_tokens'::regclass) THEN
         ALTER TABLE refresh_tokens ADD CONSTRAINT fk_refresh_tokens_device
-            FOREIGN KEY (device_id) REFERENCES devices(device_id) ON DELETE SET NULL NOT VALID;
+            FOREIGN KEY (user_id, device_id) REFERENCES devices(user_id, device_id) ON DELETE CASCADE NOT VALID;
     END IF;
 
     -- 2026-09-17 DB review：此处曾再建一个 `fk_events_room_id (room_id) → rooms`
@@ -4213,7 +4267,7 @@ BEGIN
 
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_refresh_token_families_device' AND conrelid = 'refresh_token_families'::regclass) THEN
         ALTER TABLE refresh_token_families ADD CONSTRAINT fk_refresh_token_families_device
-            FOREIGN KEY (device_id) REFERENCES devices(device_id) ON DELETE SET NULL NOT VALID;
+            FOREIGN KEY (user_id, device_id) REFERENCES devices(user_id, device_id) ON DELETE CASCADE NOT VALID;
     END IF;
 
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_refresh_token_rotations_family' AND conrelid = 'refresh_token_rotations'::regclass) THEN

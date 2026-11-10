@@ -988,16 +988,20 @@ mod tests {
             self.inner.create_device(device_id, user_id, display_name).await
         }
 
-        async fn delete_device(&self, device_id: &str) -> Result<(), sqlx::Error> {
-            self.inner.delete_device(device_id).await
+        async fn delete_device(&self, user_id: &str, device_id: &str) -> Result<(), sqlx::Error> {
+            self.inner.delete_device(user_id, device_id).await
         }
 
         async fn get_user_devices(&self, user_id: &str) -> Result<Vec<Device>, sqlx::Error> {
             self.inner.get_user_devices(user_id).await
         }
 
-        async fn get_device(&self, device_id: &str) -> Result<Option<Device>, sqlx::Error> {
-            self.inner.get_device(device_id).await
+        async fn get_device(&self, user_id: &str, device_id: &str) -> Result<Option<Device>, sqlx::Error> {
+            self.inner.get_device(user_id, device_id).await
+        }
+
+        async fn get_devices_by_id(&self, device_id: &str) -> Result<Vec<Device>, sqlx::Error> {
+            self.inner.get_devices_by_id(device_id).await
         }
 
         async fn update_user_device_display_name(

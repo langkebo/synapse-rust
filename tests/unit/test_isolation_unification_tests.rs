@@ -312,7 +312,13 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // 基线 255874 → 257123 字节 ⇒ FNV-1a 64 = `64dcf2a96c3ccf11`。自检：复算改动前的
 // `HEAD:migrations/…v12.sql`（255874 字节）得 `040353c24e20c141`，
 // 与改动前常量逐字节吻合，证明哈希实现未变后才取新值。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "64dcf2a96c3ccf11";
+// 2026-11-10（D20：`devices` 主键改为 `(user_id, device_id)`，三个设备外键改复合
+// `ON DELETE CASCADE`，并加幂等 DO 块迁移旧库）：基线 257123 → 259775 字节 ⇒
+// FNV-1a 64 = `06266ea26f48bfbb`。自检：复算改动前的 `HEAD:migrations/…v12.sql`
+// （257123 字节）得 `64dcf2a96c3ccf11`，与改动前常量逐字节吻合，证明哈希实现未变后才取新值。
+// 同日补 `idx_devices_device_id`（复合主键不再携带 device_id 前缀索引）：259775 → 260123
+// 字节 ⇒ `5c7f1e0c449268fa`。
+const EXPECTED_BASELINE_FINGERPRINT: &str = "5c7f1e0c449268fa";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))

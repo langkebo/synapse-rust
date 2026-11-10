@@ -314,8 +314,8 @@
 
 | 方法 | 端点 | 说明 |
 |---|---|---|
-| `PUT` | `/rooms/{room_id}/burn` | 设置房间级 TTL；体可选 `{enabled, burn_after_ms}` → `{enabled, burn_after_ms}` |
-| `GET` | `/rooms/{room_id}/burn` | 读配置 → `{enabled, burn_after_ms}`；无记录时返回 `{enabled:false, burn_after_ms:<默认值>}` |
+| `PUT` | `/rooms/{room_id}/burn` | 设置房间级 TTL；体可选 `{enabled, burn_after_ms}` → `{enabled, burn_after_ms, scope:"room"}` |
+| `GET` | `/rooms/{room_id}/burn` | 读配置 → `{enabled, burn_after_ms, scope:"room"}`；无记录时返回 `{enabled:false, burn_after_ms:<默认值>, scope:"room"}` |
 | `POST` | `/rooms/{room_id}/burn/{event_id}` | 标记某事件已读（启动倒计时）→ `{success:true, will_delete_at}` |
 | `DELETE` | `/rooms/{room_id}/burn/{event_id}` | 取消 → `{success:true}` |
 | `GET` | `/rooms/{room_id}/burn/pending` | 待焚毁列表 → `{events:[...]}` |
@@ -330,6 +330,7 @@
 ```
 
 - `is_processed` **可能为 `true`**：已焚毁的记录会在保留窗口内继续返回，供离线客户端感知"这条消息已经烧掉"；`is_dead_letter` 表示重试耗尽。
+- 开关是**房间级**的（响应恒带 `scope:"room"`）：任一成员最近一次 `PUT` 对整个房间生效，同房成员无需各自开启即可 `POST` 标记；倒计时仍按读者各自调度。
 - `POST` 只能由**接收方**发起：对 `sender == 自己` 的事件 → 403；房间未启用 → 400 `M_BAD_JSON`。
 - 房间不存在 → 404；非房间成员 → 403。
 - `PUT /rooms/{room_id}/burn` 的 `burn_after_ms` 缺省时依次取用户默认值、再退回服务端默认值。

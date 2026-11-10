@@ -31,14 +31,26 @@ pub trait DeviceListStoreApi: Send + Sync {
         display_name: Option<&str>,
     ) -> Result<Device, sqlx::Error>;
 
-    /// See [`delete_device`].
-    async fn delete_device(&self, device_id: &str) -> Result<(), sqlx::Error>;
+    /// See [`DeviceStorage::delete_user_device`].
+    ///
+    /// D20：`device_id` 只在**用户内**唯一（`devices` 的主键是 `(user_id, device_id)`），
+    /// 所以任何单设备操作都必须带 `user_id`，否则会误伤其他用户的同名设备
+    /// （`WEB` / `DESKTOP` 这类固定 id 在不同账号间很常见）。
+    async fn delete_device(&self, user_id: &str, device_id: &str) -> Result<(), sqlx::Error>;
 
     /// See [`get_user_devices`].
     async fn get_user_devices(&self, user_id: &str) -> Result<Vec<Device>, sqlx::Error>;
 
-    /// See [`get_device`].
-    async fn get_device(&self, device_id: &str) -> Result<Option<Device>, sqlx::Error>;
+    /// See [`DeviceStorage::get_user_device`].
+    ///
+    /// D20：按 `(user_id, device_id)` 定位，不能只按 `device_id`。
+    async fn get_device(&self, user_id: &str, device_id: &str) -> Result<Option<Device>, sqlx::Error>;
+
+    /// 跨用户查找同名 `device_id` 的所有设备。
+    ///
+    /// 只给「按房间 + device_id 反查设备」这类**本身就跨用户**的旧接口使用；
+    /// 常规路径请用 [`get_device`](Self::get_device)。
+    async fn get_devices_by_id(&self, device_id: &str) -> Result<Vec<Device>, sqlx::Error>;
 
     /// See [`update_user_device_display_name`].
     async fn update_user_device_display_name(
@@ -1235,16 +1247,22 @@ impl DeviceListStoreApi for DeviceStorage {
         self.create_device(device_id, user_id, display_name).await
     }
 
-    async fn delete_device(&self, device_id: &str) -> Result<(), sqlx::Error> {
-        self.delete_device(device_id).await
+    async fn delete_device(&self, user_id: &str, device_id: &str) -> Result<(), sqlx::Error> {
+        // 显式走固有方法：同名的固有 `delete_device(device_id)` 是**跨用户**的旧入口，
+        // 直接 `self.delete_device(...)` 会解析到它（D20）。
+        DeviceStorage::delete_user_device(self, user_id, device_id).await.map(|_| ())
     }
 
     async fn get_user_devices(&self, user_id: &str) -> Result<Vec<Device>, sqlx::Error> {
         self.get_user_devices(user_id).await
     }
 
-    async fn get_device(&self, device_id: &str) -> Result<Option<Device>, sqlx::Error> {
-        self.get_device(device_id).await
+    async fn get_device(&self, user_id: &str, device_id: &str) -> Result<Option<Device>, sqlx::Error> {
+        DeviceStorage::get_user_device(self, user_id, device_id).await
+    }
+
+    async fn get_devices_by_id(&self, device_id: &str) -> Result<Vec<Device>, sqlx::Error> {
+        DeviceStorage::get_devices_batch(self, &[device_id.to_string()]).await
     }
 
     async fn update_user_device_display_name(

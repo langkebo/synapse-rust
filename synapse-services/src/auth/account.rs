@@ -168,8 +168,10 @@ impl AuthService {
             return Ok(0);
         }
 
+        // D20：device_id 只在用户内唯一，只删本账号该设备名的 token，
+        // 否则会连带登出其他账号的同名设备（如 `WEB`）。
         self.token_storage
-            .delete_device_tokens(device_id)
+            .delete_user_device_tokens(user_id, device_id)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to delete device tokens", e))?;
 

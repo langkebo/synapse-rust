@@ -194,7 +194,7 @@ SELECT
     u.created_ts
 FROM users u
 WHERE u.user_id LIKE '%bench_%'
-ON CONFLICT (device_id) DO NOTHING;
+ON CONFLICT (user_id, device_id) DO NOTHING;
 
 INSERT INTO access_tokens (token_hash, token, user_id, device_id, created_ts, is_revoked)
 SELECT

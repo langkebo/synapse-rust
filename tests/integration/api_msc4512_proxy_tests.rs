@@ -95,10 +95,11 @@ async fn register_appservice(state: &AppState, as_id: &str, hs_token: &str, conf
 /// Mint an access token whose JWT carries the impersonating application
 /// service id (MSC4190), which is what `fed_proxy` keys off.
 async fn appservice_token(state: &AppState, user_id: &str, as_id: &str) -> String {
-    // `access_tokens.device_id` has an FK to `devices(device_id)`, and an
-    // application service supplies its own device id without going through the
-    // password/QR device flow — so the row has to be materialised first, the
-    // same way `/_matrix/client/v3/login` does for appservice logins.
+    // `access_tokens` has a composite FK `(user_id, device_id)` to
+    // `devices(user_id, device_id)` (D20), and an application service supplies
+    // its own device id without going through the password/QR device flow — so
+    // the row has to be materialised first, the same way
+    // `/_matrix/client/v3/login` does for appservice logins.
     let device_id = format!("ASDEVICE{}{}", rand::random::<u32>(), as_id.len());
     state
         .services

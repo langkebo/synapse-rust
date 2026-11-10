@@ -77,12 +77,13 @@ impl AccountDeviceListService {
     /// Resolve the device id a login should use, creating the `devices` row when absent.
     ///
     /// `device_id` comes from the request body, so it is caller-controlled.
-    /// `devices.device_id` is a **global** primary key and `access_tokens.device_id` /
-    /// `refresh_token_families.device_id` reference it, so:
-    /// - an absent or blank id is replaced with a generated one (an empty PK row
-    ///   would otherwise be created);
-    /// - an id already owned by a different account is rejected instead of reused,
-    ///   which would let the caller take over someone else's device.
+    /// `devices` is keyed by `(user_id, device_id)` — a `device_id` is only
+    /// unique **within** one account (D20). Clients commonly hard-code ids such
+    /// as `WEB` / `DESKTOP`, so a row with the same id owned by a *different*
+    /// user must not block the login: each account gets its own row.
+    ///
+    /// An absent or blank id is replaced with a generated one (an empty id would
+    /// otherwise be stored as a device name).
     pub async fn get_or_create_device(
         &self,
         device_id: Option<&str>,
@@ -94,23 +95,17 @@ impl AccountDeviceListService {
             _ => synapse_common::generate_device_id(),
         };
 
-        match self.get_device(&device_id).await? {
-            Some(existing) if existing.user_id != user_id => {
-                return Err(ApiError::forbidden("Device ID already belongs to a different user"));
-            }
-            Some(_) => {}
-            None => {
-                self.create_device(&device_id, user_id, initial_display_name).await?;
-            }
+        if self.get_device(user_id, &device_id).await?.is_none() {
+            self.create_device(&device_id, user_id, initial_display_name).await?;
         }
 
         Ok(device_id)
     }
 
-    /// See [`delete_device`].
-    pub async fn delete_device(&self, device_id: &str) -> Result<(), ApiError> {
+    /// See [`delete_device`](DeviceListStoreApi::delete_device).
+    pub async fn delete_device(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
         self.device_storage
-            .delete_device(device_id)
+            .delete_device(user_id, device_id)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to delete device", e))
     }
@@ -123,10 +118,21 @@ impl AccountDeviceListService {
             .map_err(|e| ApiError::internal_with_cause("Failed to get devices", e))
     }
 
-    /// See [`get_device`].
-    pub async fn get_device(&self, device_id: &str) -> Result<Option<Device>, ApiError> {
+    /// See [`get_device`](DeviceListStoreApi::get_device).
+    pub async fn get_device(&self, user_id: &str, device_id: &str) -> Result<Option<Device>, ApiError> {
         self.device_storage
-            .get_device(device_id)
+            .get_device(user_id, device_id)
+            .await
+            .map_err(|e| ApiError::internal_with_cause("Failed to get device", e))
+    }
+
+    /// 跨用户查找同名 `device_id` 的所有设备（D20：`device_id` 只在用户内唯一）。
+    ///
+    /// 仅用于「按房间 + device_id 反查设备」这类旧接口；常规路径请用
+    /// [`get_device`](Self::get_device)。
+    pub async fn get_devices_by_device_id(&self, device_id: &str) -> Result<Vec<Device>, ApiError> {
+        self.device_storage
+            .get_devices_by_id(device_id)
             .await
             .map_err(|e| ApiError::internal_with_cause("Failed to get device", e))
     }
@@ -320,7 +326,8 @@ mod tests {
         let svc = test_service();
         let device_id = svc.get_or_create_device(None, "@alice:example.com", None).await.unwrap();
         assert!(!device_id.trim().is_empty(), "absent device_id must be generated");
-        let device = svc.get_device(&device_id).await.unwrap().expect("generated device row must exist");
+        let device =
+            svc.get_device("@alice:example.com", &device_id).await.unwrap().expect("generated device row must exist");
         assert_eq!(device.user_id, "@alice:example.com");
     }
 
@@ -330,10 +337,17 @@ mod tests {
         for blank in ["", "   "] {
             let device_id = svc.get_or_create_device(Some(blank), "@alice:example.com", None).await.unwrap();
             assert!(!device_id.trim().is_empty(), "blank device_id {blank:?} must be replaced");
-            let device = svc.get_device(&device_id).await.unwrap().expect("generated device row must exist");
+            let device = svc
+                .get_device("@alice:example.com", &device_id)
+                .await
+                .unwrap()
+                .expect("generated device row must exist");
             assert_eq!(device.user_id, "@alice:example.com");
         }
-        assert!(svc.get_device("").await.unwrap().is_none(), "no empty-PK device row may be created");
+        assert!(
+            svc.get_device("@alice:example.com", "").await.unwrap().is_none(),
+            "no empty-PK device row may be created"
+        );
         assert_eq!(svc.get_user_devices("@alice:example.com").await.unwrap().len(), 2);
     }
 
@@ -351,16 +365,24 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_or_create_device_rejects_device_id_of_another_user() {
+    async fn get_or_create_device_allows_same_device_id_for_different_users() {
+        // D20：device_id 只在用户内唯一。固定 id 客户端（`WEB` / `DESKTOP`）
+        // 在不同账号间共用同名设备是合法状态，不得再抛 403。
         let svc = test_service();
-        svc.create_device("BOBDEV", "@bob:example.com", Some("Bob Phone")).await.unwrap();
+        svc.create_device("SHARED", "@bob:example.com", Some("Bob Phone")).await.unwrap();
 
-        let err = svc.get_or_create_device(Some("BOBDEV"), "@alice:example.com", None).await.unwrap_err();
+        let device_id =
+            svc.get_or_create_device(Some("SHARED"), "@alice:example.com", Some("Alice Phone")).await.unwrap();
 
-        assert_eq!(err.kind, synapse_common::ApiErrorKind::Forbidden, "cross-user device_id must be 403");
-        let unchanged = svc.get_device("BOBDEV").await.unwrap().expect("bob's device must remain");
-        assert_eq!(unchanged.user_id, "@bob:example.com");
-        assert_eq!(unchanged.display_name.as_deref(), Some("Bob Phone"), "rejected call must not mutate the row");
+        assert_eq!(device_id, "SHARED");
+        let bob =
+            svc.get_device("@bob:example.com", "SHARED").await.unwrap().expect("bob's device must remain untouched");
+        assert_eq!(bob.display_name.as_deref(), Some("Bob Phone"), "other user's row must not be mutated");
+
+        let alice =
+            svc.get_device("@alice:example.com", "SHARED").await.unwrap().expect("alice's own row must be created");
+        assert_eq!(alice.user_id, "@alice:example.com");
+        assert_eq!(alice.display_name.as_deref(), Some("Alice Phone"));
     }
 
     #[tokio::test]
@@ -369,7 +391,7 @@ mod tests {
         let device_id =
             svc.get_or_create_device(Some("DEVNEW"), "@alice:example.com", Some("Alice Phone")).await.unwrap();
         assert_eq!(device_id, "DEVNEW");
-        let device = svc.get_device("DEVNEW").await.unwrap().unwrap();
+        let device = svc.get_device("@alice:example.com", "DEVNEW").await.unwrap().unwrap();
         assert_eq!(device.display_name.as_deref(), Some("Alice Phone"));
     }
 
@@ -377,7 +399,7 @@ mod tests {
     async fn get_device_finds_created_device() {
         let svc = test_service();
         svc.create_device("DEV3", "@alice:example.com", None).await.unwrap();
-        let found = svc.get_device("DEV3").await.unwrap();
+        let found = svc.get_device("@alice:example.com", "DEV3").await.unwrap();
         assert!(found.is_some());
         assert_eq!(found.unwrap().device_id, "DEV3");
     }
@@ -385,15 +407,15 @@ mod tests {
     #[tokio::test]
     async fn get_device_returns_none_for_unknown() {
         let svc = test_service();
-        assert!(svc.get_device("NONEXISTENT").await.unwrap().is_none());
+        assert!(svc.get_device("@alice:example.com", "NONEXISTENT").await.unwrap().is_none());
     }
 
     #[tokio::test]
     async fn delete_device_removes_it() {
         let svc = test_service();
         svc.create_device("DEV4", "@alice:example.com", None).await.unwrap();
-        svc.delete_device("DEV4").await.unwrap();
-        assert!(svc.get_device("DEV4").await.unwrap().is_none());
+        svc.delete_device("@alice:example.com", "DEV4").await.unwrap();
+        assert!(svc.get_device("@alice:example.com", "DEV4").await.unwrap().is_none());
     }
 
     #[tokio::test]
@@ -423,7 +445,7 @@ mod tests {
         svc.create_device("DEV5", "@alice:example.com", Some("Old")).await.unwrap();
         let rows = svc.update_user_device_display_name("@alice:example.com", "DEV5", "New").await.unwrap();
         assert_eq!(rows, 1);
-        let device = svc.get_device("DEV5").await.unwrap().unwrap();
+        let device = svc.get_device("@alice:example.com", "DEV5").await.unwrap().unwrap();
         assert_eq!(device.display_name.as_deref(), Some("New"));
     }
 
@@ -449,7 +471,7 @@ mod tests {
         let svc = test_service();
         svc.create_device("DEV8", "@alice:example.com", None).await.unwrap();
         let before = svc.get_max_stream_id().await.unwrap();
-        svc.delete_device("DEV8").await.unwrap();
+        svc.delete_device("@alice:example.com", "DEV8").await.unwrap();
         let after = svc.get_max_stream_id().await.unwrap();
         assert!(after > before);
     }

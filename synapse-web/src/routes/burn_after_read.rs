@@ -59,9 +59,9 @@ pub fn create_burn_after_read_router(state: AppState) -> Router<AppState> {
 /// Enable burn after read for a room
 /// PUT /_matrix/vendor/v1/rooms/{room_id}/burn
 ///
-/// D17：开关是**按用户**存的，不是房间级的。同一房间内每个成员各自独立配置，
-/// 因此「A 开启后 B 关闭」是合法状态，响应中的 `scope: "per_user"` 明确这一点，
-/// 供前端渲染诚实的个人设置文案，而不是假装全房生效。
+/// D17：开关是**房间级**的。任意成员写入的最新设置对整个房间生效（写入仍按
+/// `(user_id, room_id)` 留存为历史，读取取最新一行），响应中的 `scope: "room"`
+/// 与前端的房间级展示一致。
 pub async fn enable_burn(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -98,9 +98,8 @@ pub async fn enable_burn(
     Ok(Json(json!({
         "enabled": enabled,
         "burn_after_ms": burn_after_ms,
-        // D17：开关是**按用户**存的（同一房间每个成员各自独立），不是房间级状态。
-        // 显式回报作用域，避免前端把个人开关展示成「全房生效」的假安全信号。
-        "scope": "per_user",
+        // D17：开关是**房间级**的——最新一次写入对该房间所有成员生效。
+        "scope": "room",
     })))
 }
 
@@ -128,20 +127,21 @@ pub async fn get_burn_settings(
 
     let settings: Option<synapse_services::burn_after_read_service::BurnSettings> = ctx
         .burn_after_read
-        .get_burn_settings(&auth_user.user_id, &room_id)
+        .get_burn_settings(&room_id)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to get settings", e))?;
 
+    // D17：房间级视图——任何成员看到的是同一份（最新写入的）设置。
     match settings {
         Some(s) => Ok(Json(json!({
             "enabled": s.is_enabled,
             "burn_after_ms": s.burn_after_ms,
-            "scope": "per_user",
+            "scope": "room",
         }))),
         None => Ok(Json(json!({
             "enabled": false,
             "burn_after_ms": synapse_services::burn_after_read_service::DEFAULT_BURN_AFTER_MS,
-            "scope": "per_user",
+            "scope": "room",
         }))),
     }
 }
@@ -149,9 +149,8 @@ pub async fn get_burn_settings(
 /// Mark message as read (triggers burn)
 /// POST /_matrix/vendor/v1/rooms/{room_id}/burn/{event_id}
 ///
-/// D17：燃烧定时器也是**按用户**调度的。只有「接收方且本人已开启 burn」才允许标记；
-/// 若 B 没有为这个房间开启 burn，就返回 400 `Burn not enabled for this room` ——
-/// 这是设计行为（探测脚本 B3 依赖此断言），不是 bug。发送方不能标记自己的消息。
+/// D17：开关是**房间级**的——A 开启后，同房成员 B 无需自己再开启即可标记消息
+/// （计时器仍是按读者各自调度）。发送方不能标记自己的消息。
 pub async fn mark_burn_read(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -174,7 +173,7 @@ pub async fn mark_burn_read(
 
     let settings: Option<synapse_services::burn_after_read_service::BurnSettings> = ctx
         .burn_after_read
-        .get_burn_settings(&auth_user.user_id, &room_id)
+        .get_burn_settings(&room_id)
         .await
         .map_err(|e| ApiError::internal_with_cause("Failed to get settings", e))?;
 

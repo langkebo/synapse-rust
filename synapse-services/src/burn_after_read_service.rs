@@ -107,7 +107,15 @@ struct BurnProcessorState {
 
 /// The `BurnAfterReadService` struct.
 ///
-/// This service is a **per-user time registry**, not a deleter. `burn_after_ms`
+/// ## Semantics
+///
+/// * The **switch** (`is_enabled` / `burn_after_ms`) is **room-level** (D17):
+///   the newest settings row of any member applies to the whole room, so every
+///   member observes the same state.
+/// * The **timers** (`burn_after_read_pending`) stay per reader: each reader's
+///   copy disappears independently, and only that reader can mark/cancel it.
+///
+/// This service is a **per-reader time registry**, not a deleter. `burn_after_ms`
 /// is a client-side preference: the server records when a given reader's copy
 /// should disappear, and the reader's own client does the local deletion. The
 /// server never redacts the event, because a room event has exactly one copy
@@ -147,10 +155,15 @@ impl BurnAfterReadService {
     }
 
     /// See [`get_burn_settings`].
-    pub async fn get_burn_settings(&self, user_id: &str, room_id: &str) -> ApiResult<Option<BurnSettings>> {
+    ///
+    /// D17: the effective switch is **room-level**. Any member's latest write
+    /// applies to the whole room, so a reader who never touched the toggle
+    /// (e.g. B in a room configured by A) still sees it as enabled and may
+    /// mark events. Per-user rows are kept only as write history.
+    pub async fn get_burn_settings(&self, room_id: &str) -> ApiResult<Option<BurnSettings>> {
         let row = self
             .storage
-            .get_settings(user_id, room_id)
+            .get_room_settings(room_id)
             .await
             .map_err(|e| synapse_common::ApiError::internal_with_cause("Failed to get burn settings", e))?;
 
@@ -515,6 +528,9 @@ mod tests {
         async fn get_settings(&self, _u: &str, _r: &str) -> Result<Option<BurnSettingsRow>, sqlx::Error> {
             Ok(None)
         }
+        async fn get_room_settings(&self, _r: &str) -> Result<Option<BurnSettingsRow>, sqlx::Error> {
+            Ok(None)
+        }
         async fn set_settings(
             &self,
             user_id: &str,
@@ -782,6 +798,9 @@ mod tests {
         async fn get_settings(&self, _u: &str, _r: &str) -> Result<Option<BurnSettingsRow>, sqlx::Error> {
             Ok(self.state.lock().expect("fake mutex poisoned").settings.clone())
         }
+        async fn get_room_settings(&self, _r: &str) -> Result<Option<BurnSettingsRow>, sqlx::Error> {
+            Ok(self.state.lock().expect("fake mutex poisoned").settings.clone())
+        }
         async fn set_settings(
             &self,
             user_id: &str,
@@ -960,7 +979,7 @@ mod tests {
     async fn get_burn_settings_returns_none_when_unconfigured() {
         let store = Arc::new(FakeBurnStore::new());
         let svc = make_service(store);
-        let result = svc.get_burn_settings("@alice:ex.com", "!room:ex.com").await.unwrap();
+        let result = svc.get_burn_settings("!room:ex.com").await.unwrap();
         assert!(result.is_none());
     }
 
@@ -975,7 +994,7 @@ mod tests {
             updated_ts: None,
         }));
         let svc = make_service(store);
-        let result = svc.get_burn_settings("@alice:ex.com", "!room:ex.com").await.unwrap();
+        let result = svc.get_burn_settings("!room:ex.com").await.unwrap();
         let settings = result.expect("settings should be Some");
         assert!(settings.is_enabled);
         assert_eq!(settings.burn_after_ms, 30_000);
@@ -1327,7 +1346,7 @@ mod tests {
         }));
         let svc = make_service(store);
 
-        let settings = svc.get_burn_settings("@alice:ex.com", "!room:ex.com").await.unwrap().expect("Some");
+        let settings = svc.get_burn_settings("!room:ex.com").await.unwrap().expect("Some");
         assert_eq!(settings.burn_after_ms, DEFAULT_BURN_AFTER_MS);
     }
 

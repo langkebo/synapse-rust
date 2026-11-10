@@ -27,24 +27,24 @@ impl AuthService {
         // S4: 同步失效撤销检查标记，保证 logout 即时生效（不等 TTL）。
         self.invalidate_revocation_ok_by_hash(&Self::hash_token(access_token)).await;
 
-        if let Some(d_id) = device_id {
+        // D20：`device_id` 只在用户内唯一，撤销必须带 `user_id`，
+        // 否则会连带登出其他账号的同名设备（如 `WEB`）。
+        if let (Some(d_id), Some(c)) = (device_id, claims.as_ref()) {
             self.token_storage
-                .delete_device_tokens(d_id)
+                .delete_user_device_tokens(&c.sub, d_id)
                 .await
                 .map_err(|e| ApiError::internal_with_cause("Failed to delete device tokens", e))?;
 
-            if let Some(c) = claims.as_ref() {
-                if let Err(e) = self.refresh_token_storage.revoke_device_tokens(&c.sub, d_id, "user_logout").await {
-                    ::tracing::error!(
-                        target: "security_audit",
-                        event = "refresh_token_revoke_failed_after_logout",
-                        user_id = c.sub.as_str(),
-                        device_id = d_id,
-                        error = %e,
-                        "Failed to revoke device refresh tokens during logout"
-                    );
-                    return Err(ApiError::internal_with_cause("Failed to invalidate refresh tokens", e));
-                }
+            if let Err(e) = self.refresh_token_storage.revoke_device_tokens(&c.sub, d_id, "user_logout").await {
+                ::tracing::error!(
+                    target: "security_audit",
+                    event = "refresh_token_revoke_failed_after_logout",
+                    user_id = c.sub.as_str(),
+                    device_id = d_id,
+                    error = %e,
+                    "Failed to revoke device refresh tokens during logout"
+                );
+                return Err(ApiError::internal_with_cause("Failed to invalidate refresh tokens", e));
             }
         }
 

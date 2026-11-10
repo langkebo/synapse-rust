@@ -726,11 +726,10 @@ pub(crate) async fn login(
 
         let device_id = body.get("device_id").and_then(|value| value.as_str()).unwrap_or("AS_LOGIN_DEVICE");
 
-        // The refresh token carries a FK to `devices(device_id)`, so an
-        // application-service login must materialise the device row before
-        // tokens are issued (the AS supplies a device_id, it does not go
-        // through the password/QR device flow).
-        if ctx.account_device_list_service.get_device(device_id).await?.is_none() {
+        // `devices` is keyed by `(user_id, device_id)` (D20: a device id is only
+        // unique per user), so an application-service login must materialise its
+        // own row for the impersonated user before tokens are issued.
+        if ctx.account_device_list_service.get_device(user_id, device_id).await?.is_none() {
             ctx.account_device_list_service.create_device(device_id, user_id, None).await?;
         }
 

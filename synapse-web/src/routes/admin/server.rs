@@ -271,8 +271,7 @@ pub async fn whois_device(
         .await?
         .ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
 
-    let device =
-        ctx.account_device_list_service.get_device(device_id.as_str()).await?.filter(|d| d.user_id == user.user_id);
+    let device = ctx.account_device_list_service.get_device(&user.user_id, device_id.as_str()).await?;
 
     match device {
         Some(d) => Ok(Json(json!({

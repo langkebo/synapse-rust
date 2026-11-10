@@ -934,7 +934,7 @@ pub async fn ensure_test_device(pool: &sqlx::PgPool, user_id: &str, device_id: &
     sqlx::query(
         "INSERT INTO devices (device_id, user_id, display_name, created_ts, first_seen_ts, last_seen_ts)
          VALUES ($1, $2, NULL, $3, $3, $3)
-         ON CONFLICT (device_id) DO NOTHING",
+         ON CONFLICT (user_id, device_id) DO NOTHING",
     )
     .bind(device_id)
     .bind(user_id)

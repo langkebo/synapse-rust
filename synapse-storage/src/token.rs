@@ -681,7 +681,7 @@ mod db_tests {
         sqlx::query(
             r#"INSERT INTO devices (device_id, user_id, created_ts, first_seen_ts)
                VALUES ($1, $2, $3, $4)
-               ON CONFLICT (device_id) DO NOTHING"#,
+               ON CONFLICT (user_id, device_id) DO NOTHING"#,
         )
         .bind(device_id)
         .bind(user_id)

@@ -9,13 +9,17 @@ use synapse_common::current_timestamp_millis;
 /// layer's position-based pruning is exercised by the in-memory store too.
 type LazyLoadedMembersMap = HashMap<(String, String, String), HashMap<String, Option<i64>>>;
 
+/// In-memory devices keyed by `(user_id, device_id)` — see [`InMemoryDeviceListStore`].
+type DevicesMap = Arc<tokio::sync::RwLock<HashMap<(String, String), Device>>>;
+
 /// In-memory device list store mirroring [`crate::device::DeviceStorage`].
 ///
-/// Stores devices in a `HashMap<device_id, Device>` and tracks stream
-/// position with a monotonically increasing counter.
+/// Stores devices keyed by `(user_id, device_id)`: `device_id` is only unique
+/// per user (D20), so two accounts may legitimately own a device named `WEB`.
+/// Tracks stream position with a monotonically increasing counter.
 #[derive(Clone, Default)]
 pub struct InMemoryDeviceListStore {
-    devices: Arc<tokio::sync::RwLock<HashMap<String, Device>>>,
+    devices: DevicesMap,
     stream_id: Arc<tokio::sync::RwLock<i64>>,
     /// (user_id, device_id, room_id) → member_user_id → last_sent_position.
     lazy_loaded_members: Arc<tokio::sync::RwLock<LazyLoadedMembersMap>>,
@@ -54,14 +58,14 @@ impl DeviceListStoreApi for InMemoryDeviceListStore {
             appservice_id: None,
             ignored_user_list: None,
         };
-        self.devices.write().await.insert(device_id.to_string(), device.clone());
+        self.devices.write().await.insert((user_id.to_string(), device_id.to_string()), device.clone());
         let mut sid = self.stream_id.write().await;
         *sid += 1;
         Ok(device)
     }
 
-    async fn delete_device(&self, device_id: &str) -> Result<(), sqlx::Error> {
-        let removed = self.devices.write().await.remove(device_id);
+    async fn delete_device(&self, user_id: &str, device_id: &str) -> Result<(), sqlx::Error> {
+        let removed = self.devices.write().await.remove(&(user_id.to_string(), device_id.to_string()));
         if removed.is_some() {
             let mut sid = self.stream_id.write().await;
             *sid += 1;
@@ -75,8 +79,12 @@ impl DeviceListStoreApi for InMemoryDeviceListStore {
         Ok(devices)
     }
 
-    async fn get_device(&self, device_id: &str) -> Result<Option<Device>, sqlx::Error> {
-        Ok(self.devices.read().await.get(device_id).cloned())
+    async fn get_device(&self, user_id: &str, device_id: &str) -> Result<Option<Device>, sqlx::Error> {
+        Ok(self.devices.read().await.get(&(user_id.to_string(), device_id.to_string())).cloned())
+    }
+
+    async fn get_devices_by_id(&self, device_id: &str) -> Result<Vec<Device>, sqlx::Error> {
+        Ok(self.devices.read().await.values().filter(|d| d.device_id == device_id).cloned().collect())
     }
 
     async fn update_user_device_display_name(
@@ -86,11 +94,9 @@ impl DeviceListStoreApi for InMemoryDeviceListStore {
         display_name: &str,
     ) -> Result<u64, sqlx::Error> {
         let mut devices = self.devices.write().await;
-        if let Some(device) = devices.get_mut(device_id) {
-            if device.user_id == user_id {
-                device.display_name = Some(display_name.to_string());
-                return Ok(1);
-            }
+        if let Some(device) = devices.get_mut(&(user_id.to_string(), device_id.to_string())) {
+            device.display_name = Some(display_name.to_string());
+            return Ok(1);
         }
         Ok(0)
     }
@@ -168,7 +174,7 @@ impl DeviceListStoreApi for InMemoryDeviceListStore {
         let devices = self.devices.read().await;
         let mut result = Vec::new();
         for (&user_id, &device_id) in user_ids.iter().zip(device_ids.iter()) {
-            if let Some(device) = devices.get(device_id) {
+            if let Some(device) = devices.get(&(user_id.to_string(), device_id.to_string())) {
                 if device.user_id == user_id {
                     result.push((
                         user_id.to_string(),
@@ -278,37 +284,28 @@ impl DeviceListStoreApi for InMemoryDeviceListStore {
         let mut devices = self.devices.write().await;
         let mut count = 0u64;
         for device_id in device_ids {
-            if let Some(device) = devices.get(device_id) {
-                if device.user_id == user_id {
-                    devices.remove(device_id);
-                    count += 1;
-                }
+            if devices.remove(&(user_id.to_string(), device_id.clone())).is_some() {
+                count += 1;
             }
         }
         Ok(count)
     }
 
     async fn get_device_by_id(&self, device_id: &str) -> Result<Option<Device>, sqlx::Error> {
-        Ok(self.devices.read().await.get(device_id).cloned())
+        Ok(self.devices.read().await.values().find(|d| d.device_id == device_id).cloned())
     }
 
     async fn delete_device_returning_count(&self, user_id: &str, device_id: &str) -> Result<u64, sqlx::Error> {
-        let mut devices = self.devices.write().await;
-        if let Some(device) = devices.get(device_id) {
-            if device.user_id == user_id {
-                devices.remove(device_id);
-                return Ok(1);
-            }
-        }
-        Ok(0)
+        let removed = self.devices.write().await.remove(&(user_id.to_string(), device_id.to_string())).is_some();
+        Ok(u64::from(removed))
     }
 
     async fn delete_all_devices(&self, user_id: &str) -> Result<(), sqlx::Error> {
         let mut devices = self.devices.write().await;
-        let to_remove: Vec<String> =
-            devices.iter().filter(|(_, device)| device.user_id == user_id).map(|(id, _)| id.clone()).collect();
-        for device_id in to_remove {
-            devices.remove(&device_id);
+        let to_remove: Vec<(String, String)> =
+            devices.iter().filter(|(_, device)| device.user_id == user_id).map(|(key, _)| key.clone()).collect();
+        for key in to_remove {
+            devices.remove(&key);
         }
         Ok(())
     }

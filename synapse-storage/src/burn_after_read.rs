@@ -100,6 +100,8 @@ pub struct BurnAfterReadStorage {
 pub trait BurnAfterReadStoreApi: Send + Sync {
     /// See [`get_settings`].
     async fn get_settings(&self, user_id: &str, room_id: &str) -> Result<Option<BurnSettingsRow>, sqlx::Error>;
+    /// See [`get_room_settings`].
+    async fn get_room_settings(&self, room_id: &str) -> Result<Option<BurnSettingsRow>, sqlx::Error>;
     /// See [`set_settings`].
     async fn set_settings(
         &self,
@@ -184,6 +186,29 @@ impl BurnAfterReadStorage {
             WHERE user_id = $1 AND room_id = $2
             ",
             user_id,
+            room_id,
+        )
+        .fetch_optional(&*self.pool)
+        .await
+    }
+
+    /// Room-level effective burn settings (D17): the most recently written row
+    /// for the room, regardless of which member wrote it.
+    ///
+    /// `burn_after_read_settings` keeps one row per `(user_id, room_id)` for
+    /// history, but the policy itself is room-wide. Picking the newest row
+    /// makes the last write the room's current state, so a member who never
+    /// toggled the switch still observes (and can act on) it.
+    pub async fn get_room_settings(&self, room_id: &str) -> Result<Option<BurnSettingsRow>, sqlx::Error> {
+        sqlx::query_as!(
+            BurnSettingsRow,
+            r"
+            SELECT user_id, room_id, is_enabled, burn_after_ms, created_ts, updated_ts
+            FROM burn_after_read_settings
+            WHERE room_id = $1
+            ORDER BY COALESCE(updated_ts, created_ts) DESC, user_id ASC
+            LIMIT 1
+            ",
             room_id,
         )
         .fetch_optional(&*self.pool)
@@ -561,6 +586,10 @@ impl BurnAfterReadStorage {
 impl BurnAfterReadStoreApi for BurnAfterReadStorage {
     async fn get_settings(&self, user_id: &str, room_id: &str) -> Result<Option<BurnSettingsRow>, sqlx::Error> {
         self.get_settings(user_id, room_id).await
+    }
+
+    async fn get_room_settings(&self, room_id: &str) -> Result<Option<BurnSettingsRow>, sqlx::Error> {
+        self.get_room_settings(room_id).await
     }
 
     async fn set_settings(

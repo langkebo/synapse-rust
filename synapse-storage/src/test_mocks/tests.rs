@@ -626,6 +626,25 @@ impl crate::burn_after_read::BurnAfterReadStoreApi for InMemoryBurnAfterReadStor
         Ok(self.settings.read().await.get(&(user_id.to_string(), room_id.to_string())).cloned())
     }
 
+    async fn get_room_settings(
+        &self,
+        room_id: &str,
+    ) -> Result<Option<crate::burn_after_read::BurnSettingsRow>, sqlx::Error> {
+        // Mirror the SQL: newest row for the room wins, `user_id` as tie-break.
+        Ok(self
+            .settings
+            .read()
+            .await
+            .values()
+            .filter(|row| row.room_id == room_id)
+            .max_by(|a, b| {
+                let a_key = (a.updated_ts.unwrap_or(a.created_ts), std::cmp::Reverse(a.user_id.as_str()));
+                let b_key = (b.updated_ts.unwrap_or(b.created_ts), std::cmp::Reverse(b.user_id.as_str()));
+                a_key.cmp(&b_key)
+            })
+            .cloned())
+    }
+
     async fn set_settings(
         &self,
         user_id: &str,
@@ -880,6 +899,24 @@ async fn burn_after_read_settings_round_trip() {
 
     let fetched = store.get_settings("@alice:example.com", "!room:example.com").await.unwrap().unwrap();
     assert!(fetched.is_enabled);
+}
+
+#[cfg(feature = "burn-after-read")]
+#[tokio::test]
+async fn burn_after_read_room_settings_are_shared_across_members() {
+    // D17: the switch is room-level. Alice enables it; Bob, who never wrote a
+    // row of his own, must observe the same enabled state.
+    let store = InMemoryBurnAfterReadStore::new();
+    store.set_settings("@alice:example.com", "!room:example.com", true, 30_000).await.unwrap();
+
+    assert!(store.get_settings("@bob:example.com", "!room:example.com").await.unwrap().is_none());
+
+    let room = store.get_room_settings("!room:example.com").await.unwrap().expect("room settings");
+    assert!(room.is_enabled);
+    assert_eq!(room.burn_after_ms, 30_000);
+    assert_eq!(room.user_id, "@alice:example.com");
+
+    assert!(store.get_room_settings("!other:example.com").await.unwrap().is_none());
 }
 
 #[cfg(feature = "burn-after-read")]

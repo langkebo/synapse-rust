@@ -495,22 +495,24 @@ pub(crate) async fn get_room_device(
     }
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let device = ctx
-        .account_device_list_service
-        .get_device(device_id.as_str())
-        .await?
-        .ok_or_else(|| ApiError::not_found("Device not found".to_string()))?;
-
-    let is_member = ctx
-        .room_service
-        .membership()
-        .get_room_membership(&room_id, &device.user_id)
-        .await?
-        .is_some_and(|membership| membership == "join");
-
-    if !is_member {
-        return Err(ApiError::not_found("Device not found in this room".to_string()));
+    // D20：`device_id` 只在用户内唯一，所以这个「房间 + device_id」的旧接口
+    // 可能命中多个账号的同名设备（如都叫 `WEB`）。逐个检查会员身份，返回
+    // 第一个属于本房间成员的设备；都不属于则 404。
+    let mut device = None;
+    for candidate in ctx.account_device_list_service.get_devices_by_device_id(device_id.as_str()).await? {
+        let is_member = ctx
+            .room_service
+            .membership()
+            .get_room_membership(&room_id, &candidate.user_id)
+            .await?
+            .is_some_and(|membership| membership == "join");
+        if is_member {
+            device = Some(candidate);
+            break;
+        }
     }
+
+    let device = device.ok_or_else(|| ApiError::not_found("Device not found in this room".to_string()))?;
 
     Ok(Json(json!({
         "room_id": room_id,
