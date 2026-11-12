@@ -3450,9 +3450,66 @@ BEGIN
         EXECUTE format('DROP INDEX %I.%I', current_schema(), 'idx_events_sync_covering');
     END IF;
 END $$;
-CREATE INDEX IF NOT EXISTS idx_events_sync_covering ON events(room_id, stream_ordering DESC) INCLUDE (event_id, sender, event_type, origin_server_ts);
+-- 并发建索引失败会留下 indisvalid=FALSE 的残骸，`IF NOT EXISTS` 之后会永久跳过它，
+-- 因此重放前先清掉（删无效索引是纯元数据操作，可放在 DO 块内）。
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM pg_index i
+        JOIN pg_class c ON c.oid = i.indexrelid
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relname = 'idx_events_sync_covering'
+          AND n.nspname = current_schema()
+          AND NOT i.indisvalid
+    ) THEN
+        EXECUTE format('DROP INDEX %I.%I', current_schema(), 'idx_events_sync_covering');
+    END IF;
+END $$;
+-- CONCURRENTLY：非并发重建会在 events 上持 SHARE 锁直到建完，期间全部事件写入阻塞。
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_events_sync_covering ON events(room_id, stream_ordering DESC) INCLUDE (event_id, sender, event_type, origin_server_ts);
 CREATE INDEX IF NOT EXISTS idx_events_friend_room ON events(sender, room_id, origin_server_ts DESC) WHERE event_type = 'm.room.create' AND content->>'type' = 'm.friends';
-CREATE INDEX IF NOT EXISTS idx_events_friend_list ON events(room_id, origin_server_ts DESC) WHERE event_type = 'm.friends.list' AND state_key = '';
+-- 好友列表改成按 shard 维度索引（W5 分片写路径修复后，好友不再只落 legacy `""`）：
+-- 旧定义只覆盖 `state_key=''` 且缺 state_key 维度，28 个 shard 的等值查询无索引可用。
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM pg_index i
+        JOIN pg_class c ON c.oid = i.indexrelid
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relname = 'idx_events_friend_list'
+          AND n.nspname = current_schema()
+          -- 旧定义的谓词是 `state_key = ''`，state_key 不是索引键列（只在 WHERE 里）；
+          -- 不能靠子串匹配判断（新旧定义都含 "state_key"），必须看真正的键列。
+          AND NOT ('state_key' = ANY (
+              ARRAY(
+                  SELECT a.attname
+                  FROM unnest(i.indkey::smallint[]) WITH ORDINALITY AS k(attnum, ord)
+                  JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k.attnum
+                  WHERE k.ord <= i.indnkeyatts
+              )
+          ))
+    ) THEN
+        EXECUTE format('DROP INDEX %I.%I', current_schema(), 'idx_events_friend_list');
+    END IF;
+END $$;
+-- 并发建索引失败会留下 indisvalid=FALSE 的残骸，`IF NOT EXISTS` 之后会永久跳过它。
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM pg_index i
+        JOIN pg_class c ON c.oid = i.indexrelid
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relname = 'idx_events_friend_list'
+          AND n.nspname = current_schema()
+          AND NOT i.indisvalid
+    ) THEN
+        EXECUTE format('DROP INDEX %I.%I', current_schema(), 'idx_events_friend_list');
+    END IF;
+END $$;
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_events_friend_list ON events(room_id, state_key, origin_server_ts DESC) WHERE event_type = 'm.friends.list';
 CREATE INDEX IF NOT EXISTS idx_events_redacts ON events(redacts) WHERE redacts IS NOT NULL;
 
 -- Event relations

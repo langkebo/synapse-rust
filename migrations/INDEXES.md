@@ -100,7 +100,7 @@ Partial Index（部分索引）通过 `WHERE` 子句仅索引满足条件的行�
 | events | idx_events_type_state | room_id, event_type, state_key | event_type LIKE 'm.room.%' | 查找房间状态事件 |
 | events | idx_events_room_stream_ordering_not_redacted | room_id, stream_ordering DESC | is_redacted = FALSE | 按流序号查找未删除事件 |
 | events | idx_events_friend_room | sender, room_id, origin_server_ts DESC | event_type = 'm.room.create' AND content->>'type' = 'm.friends' | 查找好友房间创建事件 |
-| events | idx_events_friend_list | room_id, origin_server_ts DESC | event_type = 'm.friends.list' AND state_key = '' | 查找好友列表事件 |
+| events | idx_events_friend_list | room_id, state_key, origin_server_ts DESC | event_type = 'm.friends.list' | 查找好友列表事件（W5 分片：含 legacy `''` 与 `A`..`Z`/`#` 各 shard） |
 | room_summaries | idx_room_summaries_space | is_space | is_space = TRUE | 查找 Space 类型的房间摘要 |
 | room_directory | idx_room_directory_public | is_public | is_public = TRUE | 查找公开房间目录 |
 | ~~room_invites~~ | ~~uq_room_invites_invite_code~~ | ~~invite_code (UNIQUE)~~ | — | **已删除**：baseline 的 v11-10 去重块（`DO $$` 循环删除非约束 `uq_*`）在建后即删；目录中不存在 |
@@ -171,7 +171,7 @@ Partial Index（部分索引）通过 `WHERE` 子句仅索引满足条件的行�
 | events | idx_events_type_origin_ts | event_type, origin_server_ts DESC | 否 | 按事件类型+时间范围查询（get_daily_message_count，PERF-02） |
 | events | idx_events_room_stream_ordering_not_redacted | room_id, stream_ordering DESC | 否 | 未删除事件流序号查询（Partial） |
 | events | idx_events_friend_room | sender, room_id, origin_server_ts DESC | 否 | 好友房间事件查询（Partial） |
-| events | idx_events_friend_list | room_id, origin_server_ts DESC | 否 | 好友列表事件查询（Partial） |
+| events | idx_events_friend_list | room_id, state_key, origin_server_ts DESC | 否 | 好友列表事件查询（Partial，W5 分片） |
 | ~~events~~ | ~~idx_events_prev_event_id~~ | — | — | **不存在**：`events` 无 `prev_event_id` 列（只有 `prev_events` / `prev_state_events`）；`20260904010000` 实际建的是下一行的 `event_edges.idx_event_edges_prev_room` |
 | event_edges | idx_event_edges_prev_room | prev_event_id, event_id | 否 | 按前驱事件+事件查找房间路径（P1 审计新增，`20260904010000`） |
 | event_relations | idx_event_relations_unique | event_id, relation_type, sender | UNIQUE | 事件关系唯一约束 |

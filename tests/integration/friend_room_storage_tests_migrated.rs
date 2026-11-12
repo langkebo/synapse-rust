@@ -796,6 +796,60 @@ async fn test_get_user_friend_ids() {
 }
 
 #[tokio::test]
+async fn test_get_user_friend_ids_fans_in_all_shards() {
+    let pool = crate::require_test_pool().await;
+    let storage = create_storage(&pool);
+    let suffix = unique_id();
+    let user_id = format!("@friendids_shard_{suffix}:localhost");
+    let room_id = format!("!friendids_shard_room_{suffix}:localhost");
+
+    insert_user(&pool, &user_id, &format!("friendids_shard_{suffix}")).await;
+    insert_room(&pool, &room_id).await;
+    insert_event(
+        &pool,
+        &format!("$create_fids_shard_{suffix}:localhost"),
+        &room_id,
+        &user_id,
+        "m.room.create",
+        None,
+        &json!({"type": "m.friends"}),
+    )
+    .await;
+    // legacy ""：v4 遗留好友
+    insert_event(
+        &pool,
+        &format!("$flist_fids_legacy_{suffix}:localhost"),
+        &room_id,
+        &user_id,
+        "m.friends.list",
+        Some(""),
+        &json!({"friends": [{"user_id": "@legacy_shard_friend:localhost"}], "version": 1}),
+    )
+    .await;
+    // shard "B"：W5 新写路径的好友
+    insert_event(
+        &pool,
+        &format!("$flist_fids_shard_b_{suffix}:localhost"),
+        &room_id,
+        &user_id,
+        "m.friends.list",
+        Some("B"),
+        &json!({"friends": [{"user_id": "@bob_shard_friend:localhost"}], "version": 1}),
+    )
+    .await;
+
+    let friend_ids = storage.get_user_friend_ids(&user_id).await.unwrap();
+    assert!(
+        friend_ids.contains(&"@legacy_shard_friend:localhost".to_string()),
+        "legacy \"\" 中的好友必须保留，实际返回 {friend_ids:?}"
+    );
+    assert!(
+        friend_ids.contains(&"@bob_shard_friend:localhost".to_string()),
+        "分片中的好友必须被 fan-in 读到，否则分片写路径修好后共同好友会漏人，实际返回 {friend_ids:?}"
+    );
+}
+
+#[tokio::test]
 async fn test_get_user_friend_ids_no_room() {
     let pool = crate::require_test_pool().await;
     let storage = create_storage(&pool);

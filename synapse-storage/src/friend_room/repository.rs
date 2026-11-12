@@ -895,16 +895,18 @@ impl FriendRoomStorage {
         let room_id = self.get_friend_list_room_id(user_id).await?;
 
         if let Some(room_id) = room_id {
-            let content = self.get_friend_list_content(&room_id).await?;
-
-            if let Some(content) = content {
+            // W5：好友可能散在 28 个 shard（`""` legacy + `A`..`Z` + `#`），
+            // 必须 fan-in 合并；只读 legacy 会在分片写路径修好后漏掉新好友。
+            let shards = self.get_friend_list_all_shards(&room_id).await?;
+            let mut ids = Vec::new();
+            for (_state_key, content) in shards {
                 if let Some(friends) = content.get("friends").and_then(|f| f.as_array()) {
-                    return Ok(friends
-                        .iter()
-                        .filter_map(|f| f.get("user_id").and_then(|u| u.as_str()).map(|s| s.to_string()))
-                        .collect());
+                    ids.extend(
+                        friends.iter().filter_map(|f| f.get("user_id").and_then(|u| u.as_str()).map(|s| s.to_string())),
+                    );
                 }
             }
+            return Ok(ids);
         }
 
         Ok(Vec::new())

@@ -29,8 +29,9 @@ pub(crate) fn merge_friend_list_shards(shards: &[(String, Value)]) -> Value {
 /// 读取「用于更新的好友列表 shard」，兼容 v4 legacy 数据（W5 sharding）。
 ///
 /// v5 好友按 `shard_for_user_id(friend_id)` 路由到对应 `state_key` 的 shard；
-/// 但 v4 时代的好友全写在 `state_key=""` 遗留通道，W5 不主动迁移。因此若目标
-/// shard 不存在或不包含该 friend，回退到 legacy `""` shard 定位。
+/// 但 v4 时代的好友全写在 `state_key=""` 遗留通道，W5 不主动迁移。因此只有
+/// 当 legacy `""` 通道里**确实存在**该 friend 时才回退就地写回；否则说明这是
+/// 一个新好友，必须新建/写入目标 shard（否则分片永远不生效）。
 ///
 /// 返回 `(effective_state_key, content)`，调用方修改后写回 `effective_state_key` 即可
 /// （新增好友写目标 shard；遗留好友就地写回 `""`，保持 no-migration 语义）。
@@ -50,9 +51,18 @@ pub(crate) async fn read_friend_shard_for_update(
             return Ok((target, content));
         }
     }
-    // v4 legacy 回退：升级前的好友可能仍在 state_key=""
+    // v4 legacy 回退：只有升级前的老好友可能仍在 state_key=""。
+    // 建房时就写了 `""` 空列表，所以该 shard 恒存在 —— 必须校验其中是否
+    // 真的含该 friend，否则新好友会被一路写回 legacy，W5 分片永不生效。
     if let Some(content) = storage.get_friend_list_shard(room_id, "").await? {
-        return Ok(("".to_string(), content));
+        let present = content
+            .get("friends")
+            .and_then(|f| f.as_array())
+            .map(|arr| arr.iter().any(|f| f.get("user_id").and_then(|u| u.as_str()) == Some(friend_id)))
+            .unwrap_or(false);
+        if present {
+            return Ok(("".to_string(), content));
+        }
     }
     Ok((target, json!({ "friends": [], "version": 1 })))
 }

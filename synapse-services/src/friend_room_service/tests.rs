@@ -27,28 +27,39 @@ fn unique_suffix() -> u64 {
     nanos.wrapping_mul(31).wrapping_add(pid << 16).wrapping_add(counter)
 }
 
-async fn setup_test_container() -> Option<ServiceContainer> {
+async fn setup_test_pool() -> Option<Arc<sqlx::PgPool>> {
     // Use isolated schema (each test gets its own fully-migrated schema)
     // to avoid cross-test pollution from the shared template, which may
     // accumulate leftover users/devices across test runs.
-    let pool = match crate::test_utils::prepare_isolated_test_pool().await {
-        Ok(pool) => pool,
+    match crate::test_utils::prepare_isolated_test_pool().await {
+        Ok(pool) => Some(pool),
         Err(error) => {
             eprintln!(
                 "Isolated schema setup failed for friend room service tests ({error}); retrying with shared schema"
             );
             match crate::test_utils::prepare_shared_test_pool().await {
-                Ok(pool) => pool,
+                Ok(pool) => Some(pool),
                 Err(error) => {
                     eprintln!("Skipping friend room service tests because test database is unavailable: {error}");
-                    return None;
+                    None
                 }
             }
         }
-    };
+    }
+}
 
+async fn setup_test_container() -> Option<ServiceContainer> {
+    let pool = setup_test_pool().await?;
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     Some(ServiceContainer::new_test_with_pool_and_cache(pool, cache).await)
+}
+
+/// 同 [`setup_test_container`]，但同时返回 pool —— 需要直接读 `events` 表的用例用。
+async fn setup_test_container_with_pool() -> Option<(ServiceContainer, Arc<sqlx::PgPool>)> {
+    let pool = setup_test_pool().await?;
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let container = ServiceContainer::new_test_with_pool_and_cache(pool.clone(), cache).await;
+    Some((container, pool))
 }
 
 async fn register_test_user(container: &ServiceContainer, username: &str, display_name: &str) -> String {
@@ -1200,6 +1211,94 @@ async fn w5_legacy_shard_friend_can_be_updated() {
         .expect("get_friend_info")
         .expect("friend present");
     assert_eq!(info.get("displayname").and_then(|v| v.as_str()), Some("new"), "legacy 好友更新后 displayname 应为 new");
+}
+
+// ── B1: W5 分片写路径必须真正落到目标 shard ──────────────────────
+//
+// 建房时就会写 `state_key=""` 空列表，因此 legacy shard 恒存在。修复前
+// `read_friend_shard_for_update` 无条件回退 legacy → 所有新好友都被写回 `""`，
+// 分片从未生效（线上 2187 条事件全在 `""`，单事件最多 34 个好友）。
+#[tokio::test]
+async fn w5_new_friend_writes_target_shard_not_legacy() {
+    let Some((container, pool)) = setup_test_container_with_pool().await else {
+        return;
+    };
+    let suffix = unique_suffix();
+    let owner = register_test_user(&container, &format!("w5shard_{suffix}"), "Owner").await;
+    // add_friend 会写 presence_subscriptions（FK 指向 users），好友必须是真实用户。
+    let friend = register_test_user(&container, &format!("bob_{suffix}"), "Bob").await;
+    let room = container.extensions.friend_room_service.create_friend_list_room(&owner).await.expect("create room");
+
+    container.extensions.friend_room_service.add_friend(&owner, &friend).await.expect("add friend");
+
+    let storage = synapse_storage::friend_room::FriendRoomStorage::new(pool);
+    let target = shard_to_state_key(shard_for_user_id(&friend));
+    assert_eq!(target, "B", "路由规则变更时需同步本断言");
+
+    let shard = storage
+        .get_friend_list_shard(&room, &target)
+        .await
+        .expect("read target shard")
+        .expect("new friend must create its target shard");
+    let has_friend = shard
+        .get("friends")
+        .and_then(|f| f.as_array())
+        .map(|arr| arr.iter().any(|f| f.get("user_id").and_then(|u| u.as_str()) == Some(friend.as_str())))
+        .unwrap_or(false);
+    assert!(has_friend, "新好友必须写入目标 shard {target}，否则 W5 分片永不生效");
+
+    let legacy = storage.get_friend_list_content(&room).await.expect("read legacy").expect("legacy marker");
+    let legacy_len = legacy.get("friends").and_then(|f| f.as_array()).map(|a| a.len()).unwrap_or(0);
+    assert_eq!(legacy_len, 0, "legacy \"\" shard 必须保持空，新好友不能再回退写进去");
+}
+
+// ── B1: legacy 回退必须以「legacy 里真的含该好友」为前提 ──────────
+#[tokio::test]
+async fn w5_read_friend_shard_for_update_checks_legacy_membership() {
+    use crate::friend_room_service::friend_list::read_friend_shard_for_update;
+
+    let Some((container, pool)) = setup_test_container_with_pool().await else {
+        return;
+    };
+    let suffix = unique_suffix();
+    let owner = register_test_user(&container, &format!("w5route_{suffix}"), "Owner").await;
+    let room = container.extensions.friend_room_service.create_friend_list_room(&owner).await.expect("create room");
+    let storage = synapse_storage::friend_room::FriendRoomStorage::new(pool);
+
+    // 1) 新好友：legacy 里没有 → 必须返回目标 shard
+    let new_friend = format!("@bob_{suffix}:example.com");
+    let (key, content) = read_friend_shard_for_update(&storage, &room, &new_friend).await.expect("route new friend");
+    assert_eq!(key, "B", "新好友必须路由到目标 shard");
+    assert_eq!(
+        content.get("friends").and_then(|f| f.as_array()).map(|a| a.len()),
+        Some(0),
+        "目标 shard 不存在时应返回空 content，由调用方新建"
+    );
+
+    // 2) legacy 好友：legacy 里确实存在 → 就地写回 ""（保持 no-migration）
+    let legacy_friend = format!("@legacy_{suffix}:example.com");
+    container
+        .extensions
+        .friend_room_service
+        .send_state_event(
+            &room,
+            &owner,
+            "m.friends.list",
+            "",
+            json!({
+                "friends": [{"user_id": legacy_friend, "displayname": "old", "status": "normal", "dm_room_active": false, "dm_room_state": "none"}],
+                "version": 1,
+            }),
+        )
+        .await
+        .expect("inject legacy friend");
+    let (key, _) = read_friend_shard_for_update(&storage, &room, &legacy_friend).await.expect("route legacy friend");
+    assert_eq!(key, "", "legacy 好友必须保持就地写回 legacy shard");
+
+    // 3) legacy 存在但里面没有该好友 → 仍必须落目标 shard，不能被宽松回退
+    let another = format!("@leo_{suffix}:example.com");
+    let (key, _) = read_friend_shard_for_update(&storage, &room, &another).await.expect("route other friend");
+    assert_eq!(key, "L", "legacy 不含该好友时不得回退到 \"\"");
 }
 
 // ── W3 review cleanup: cached 字段在 hit / miss 时正确 ──────────
