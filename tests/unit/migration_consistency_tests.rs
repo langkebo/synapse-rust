@@ -585,3 +585,77 @@ fn migration_consistency_gate_pairs_undo_files_and_fails_on_an_emptied_scan_surf
 
     fs::remove_dir_all(&scene).ok();
 }
+
+/// 定位唯一的统一基线文件并读出内容。
+fn unified_baseline_sql() -> String {
+    let migrations = project_root().join("migrations");
+    let mut baselines: Vec<PathBuf> = fs::read_dir(&migrations)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", migrations.display()))
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| {
+            let name = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+            name.starts_with("00000000_unified_schema_v") && name.ends_with(".sql")
+        })
+        .collect();
+    baselines.sort();
+    assert_eq!(baselines.len(), 1, "expected exactly one unified baseline, got {baselines:?}");
+    read(&baselines[0])
+}
+
+/// B5：好友域两条关键索引的**语义**必须钉死在基线里。
+///
+/// `schema_migrations` 只有 `init-db` / `unified_schema_v12` 两行是设计使然
+/// （基线按**内容** md5 判定重放，见 `migrations/README.md`，不再逐文件追加版本行）。
+/// 代价是：修订基线时如果把索引定义改回旧形状并顺手更新指纹常量，
+/// 只比对整体指纹的守卫会静默放行。这里对索引定义做语义断言，
+/// 并确认「旧定义自愈」的 DO 块仍在，保证换环境重建库不会悄悄退回旧索引。
+#[test]
+fn friend_domain_indexes_keep_their_intended_shape() {
+    let sql = unified_baseline_sql();
+
+    // BE-12：sync covering 索引的 INCLUDE 里不能再出现 content（2704B 行上限）。
+    let sync_ddl: Vec<&str> =
+        sql.lines().filter(|line| line.contains("CREATE INDEX") && line.contains("idx_events_sync_covering")).collect();
+    assert_eq!(sync_ddl.len(), 1, "idx_events_sync_covering 必须只有一条 CREATE INDEX 定义: {sync_ddl:?}");
+    let sync_ddl = sync_ddl[0];
+    assert!(
+        sync_ddl.contains("ON events(room_id, stream_ordering DESC)"),
+        "idx_events_sync_covering 的键列漂移: {sync_ddl}"
+    );
+    assert!(
+        sync_ddl.contains("INCLUDE (event_id, sender, event_type, origin_server_ts)"),
+        "idx_events_sync_covering 的 INCLUDE 列漂移: {sync_ddl}"
+    );
+    assert!(
+        !sync_ddl.contains("content"),
+        "idx_events_sync_covering 的 INCLUDE 不得包含 content（BE-12 行上限）: {sync_ddl}"
+    );
+
+    // W5：好友列表索引必须带 state_key 维度，且只覆盖 m.friends.list。
+    let friend_ddl: Vec<&str> =
+        sql.lines().filter(|line| line.contains("CREATE INDEX") && line.contains("idx_events_friend_list")).collect();
+    assert_eq!(friend_ddl.len(), 1, "idx_events_friend_list 必须只有一条 CREATE INDEX 定义: {friend_ddl:?}");
+    let friend_ddl = friend_ddl[0];
+    assert!(
+        friend_ddl.contains("ON events(room_id, state_key, origin_server_ts DESC)"),
+        "idx_events_friend_list 必须按 (room_id, state_key, origin_server_ts DESC) 建索引（W5 分片）: {friend_ddl}"
+    );
+    assert!(
+        friend_ddl.contains("WHERE event_type = 'm.friends.list'"),
+        "idx_events_friend_list 必须是 m.friends.list 的部分索引: {friend_ddl}"
+    );
+
+    // 自愈：旧定义（content INCLUDE）与并发建索引留下的无效残骸都必须能被重建。
+    assert!(
+        sql.contains("pg_get_indexdef(i.indexrelid) LIKE '%INCLUDE%content%'"),
+        "基线必须保留丢弃旧 sync_covering 定义的 DO 块，否则旧库重放后仍是旧索引"
+    );
+    for index in ["idx_events_sync_covering", "idx_events_friend_list"] {
+        let drops = sql.matches(&format!("EXECUTE format('DROP INDEX %I.%I', current_schema(), '{index}')")).count();
+        assert_eq!(drops, 2, "{index} 需要「旧定义重建」与「无效索引清理」两个自愈分支，实际 {drops} 个");
+    }
+
+    // 可追溯性：基线没有新增版本行，改动必须记在文件头的版本历史里。
+    assert!(sql.contains("v12.0.3 (2026-11-12)"), "基线版本历史必须记录 W5 分片索引改动（B5 可追溯性）");
+}

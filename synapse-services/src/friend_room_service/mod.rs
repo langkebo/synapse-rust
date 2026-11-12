@@ -1263,9 +1263,10 @@ impl FriendRoomService {
                     }
                 }
                 if touched {
-                    if let Some(version) = shard_content.get("version").and_then(|value| value.as_i64()) {
-                        shard_content["version"] = json!(version + 1);
-                    }
+                    // 版本号无条件递增：列表缓存 fingerprint 由各 shard 的 version 组成，
+                    // shard 缺 version 字段时若跳过自增，缓存会一直命中旧列表（B3）。
+                    let next_version = shard_content.get("version").and_then(|value| value.as_i64()).unwrap_or(0) + 1;
+                    shard_content["version"] = json!(next_version);
                     all_writes.push((
                         link.friend_room_id.clone(),
                         link.owner_user_id.clone(),
@@ -1499,9 +1500,10 @@ impl FriendRoomService {
             friends_array.retain(|f| f["user_id"] != friend_id);
         }
 
-        if let Some(version) = content.get("version").and_then(|v| v.as_i64()) {
-            content["version"] = json!(version + 1);
-        }
+        // 版本号无条件递增：列表缓存 fingerprint 由各 shard 的 version 组成，
+        // shard 缺 version 字段时若跳过自增，缓存会一直命中旧列表（B3）。
+        let next_version = content.get("version").and_then(|v| v.as_i64()).unwrap_or(0) + 1;
+        content["version"] = json!(next_version);
 
         self.send_state_event(room_id, user_id, "m.friends.list", &state_key, content).await?;
         Ok(())
@@ -1555,9 +1557,10 @@ impl FriendRoomService {
             return Ok(false);
         }
 
-        if let Some(version) = content.get("version").and_then(|value| value.as_i64()) {
-            content["version"] = json!(version + 1);
-        }
+        // 版本号无条件递增：列表缓存 fingerprint 由各 shard 的 version 组成，
+        // shard 缺 version 字段时若跳过自增，缓存会一直命中旧列表（B3）。
+        let next_version = content.get("version").and_then(|value| value.as_i64()).unwrap_or(0) + 1;
+        content["version"] = json!(next_version);
 
         self.send_state_event(&friend_room_id, owner_user_id, "m.friends.list", &state_key, content).await?;
 

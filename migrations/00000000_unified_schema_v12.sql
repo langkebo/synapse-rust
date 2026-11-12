@@ -24,6 +24,11 @@
 --   v12.0.2 (2026-11-06): idx_events_sync_covering 的 INCLUDE 去掉 content
 --                         （BE-12：btree v4 单索引元组 2704B 上限让大事件写不进去）；
 --                         旧定义在基线重放时由 DO 块重建
+--   v12.0.3 (2026-11-12): idx_events_friend_list 改为 (room_id, state_key,
+--                         origin_server_ts DESC) WHERE event_type='m.friends.list'
+--                         （W5：好友列表按 shard 存储，旧定义缺 state_key 维度）；
+--                         旧定义与 indisvalid=FALSE 残骸在基线重放时由 DO 块自愈重建。
+--                         语义由 tests/unit/migration_consistency_tests.rs 守卫
 --
 -- 不变式（tests/unit/migration_consistency_tests.rs 守着前两条）:
 --   - migrations/ 下只允许存在一个 `00000000_unified_schema_v*.sql` 基线

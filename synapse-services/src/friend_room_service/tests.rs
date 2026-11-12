@@ -678,6 +678,49 @@ async fn bench_friend_list_100_limit_50() {
     );
 }
 
+// ── W5 回归（B2/B3）：同 shard 追加不得覆盖已有好友，且版本必须递增 ──
+//
+// 背景：`read_friend_shard_for_update` 曾在目标 shard 存在但不含该 friend 时
+// 返回空快照，写入侧整条覆盖 → 同首字母好友只剩最后一个（B2）；version 也随之
+// 恒为 2，列表缓存 fingerprint 不变 → 最长 300s 读不到新好友（B3）。
+#[tokio::test]
+#[serial]
+async fn same_shard_friend_add_merges_and_bumps_version() {
+    let Some(container) = setup_test_container().await else {
+        return;
+    };
+
+    let suffix = unique_suffix();
+    let owner_user_id = register_test_user(&container, &format!("friendsvc_b2_{suffix}"), "B2 Owner").await;
+    let service = &container.extensions.friend_room_service;
+    let room_id = service.create_friend_list_room(&owner_user_id).await.expect("create friend list room");
+
+    // 两个 friend 的 localpart 首字母相同 → 落到同一个 shard（A）。
+    let first = format!("@alice_{suffix}:example.com");
+    let second = format!("@anna_{suffix}:example.com");
+    assert_eq!(shard_for_user_id(&first), shard_for_user_id(&second), "test requires same shard");
+
+    service.update_friend_list(&owner_user_id, &room_id, &first, "add", None).await.expect("add first friend");
+    // 先读一次：填充 sort cache，确保后续断言能暴露缓存未失效（B3）。
+    let request = FriendListRequest { limit: 50, offset: Some(0), from: None, sort_by: "alphabet".to_string() };
+    let after_first = service.get_friends_page(&owner_user_id, request.clone()).await.expect("page after first");
+    assert_eq!(after_first.total, 1);
+
+    service.update_friend_list(&owner_user_id, &room_id, &second, "add", None).await.expect("add second friend");
+    let after_second = service.get_friends_page(&owner_user_id, request).await.expect("page after second");
+
+    let mut ids: Vec<&str> = after_second.items.iter().map(|entry| entry.user_id.as_str()).collect();
+    ids.sort_unstable();
+    assert_eq!(ids, vec![first.as_str(), second.as_str()], "同 shard 新增不得覆盖已有好友（B2）");
+    assert!(!after_second.cached, "写后读必须重算列表，不能命中旧排序缓存（B3）");
+    assert!(
+        after_second.version > after_first.version,
+        "shard version 必须递增以驱动缓存指纹失效（B3）：{} -> {}",
+        after_first.version,
+        after_second.version
+    );
+}
+
 // ── W5 压测：1000 好友分 28 shard 写入 + 读取 ──────────────────
 //
 // 验证 W5 sharding 体系下，1000 好友能正常写入（v4 单事件时代曾因

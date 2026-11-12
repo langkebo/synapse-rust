@@ -56,9 +56,10 @@ impl FriendRoomService {
             return Err(FriendRoomError::NotFound(format!("Friend {friend_id} not found")));
         }
 
-        if let Some(version) = content.get("version").and_then(|v| v.as_i64()) {
-            content["version"] = json!(version + 1);
-        }
+        // 版本号无条件递增：列表缓存 fingerprint 由各 shard 的 version 组成，
+        // shard 缺 version 字段时若跳过自增，缓存会一直命中旧列表（B3）。
+        let next_version = content.get("version").and_then(|v| v.as_i64()).unwrap_or(0) + 1;
+        content["version"] = json!(next_version);
 
         self.send_state_event(&friend_room, user_id, "m.friends.list", &state_key, content).await?;
 
@@ -107,9 +108,10 @@ impl FriendRoomService {
             return Err(FriendRoomError::NotFound(format!("Friend {friend_id} not found")));
         }
 
-        if let Some(version) = content.get("version").and_then(|v| v.as_i64()) {
-            content["version"] = json!(version + 1);
-        }
+        // 版本号无条件递增：列表缓存 fingerprint 由各 shard 的 version 组成，
+        // shard 缺 version 字段时若跳过自增，缓存会一直命中旧列表（B3）。
+        let next_version = content.get("version").and_then(|v| v.as_i64()).unwrap_or(0) + 1;
+        content["version"] = json!(next_version);
 
         self.send_state_event(&friend_room, user_id, "m.friends.list", &state_key, content).await?;
 
@@ -149,9 +151,10 @@ impl FriendRoomService {
             return Err(FriendRoomError::NotFound(format!("Friend {friend_id} not found")));
         }
 
-        if let Some(version) = content.get("version").and_then(|v| v.as_i64()) {
-            content["version"] = json!(version + 1);
-        }
+        // 版本号无条件递增：列表缓存 fingerprint 由各 shard 的 version 组成，
+        // shard 缺 version 字段时若跳过自增，缓存会一直命中旧列表（B3）。
+        let next_version = content.get("version").and_then(|v| v.as_i64()).unwrap_or(0) + 1;
+        content["version"] = json!(next_version);
 
         self.send_state_event(&friend_room, user_id, "m.friends.list", &state_key, content).await?;
 

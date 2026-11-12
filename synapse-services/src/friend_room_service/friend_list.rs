@@ -35,36 +35,43 @@ pub(crate) fn merge_friend_list_shards(shards: &[(String, Value)]) -> Value {
 ///
 /// 返回 `(effective_state_key, content)`，调用方修改后写回 `effective_state_key` 即可
 /// （新增好友写目标 shard；遗留好友就地写回 `""`，保持 no-migration 语义）。
+///
+/// ⚠️ `m.friends.list` 是**整条 state event 覆盖**语义：目标 shard 已存在时，
+/// 即使其中暂不含该 friend，也必须返回其已有内容供调用方追加。若从空列表
+/// 起步，同首字母（同 shard）的其他好友会被整条覆盖而静默丢失（B2）。
 pub(crate) async fn read_friend_shard_for_update(
     storage: &synapse_storage::friend_room::FriendRoomStorage,
     room_id: &str,
     friend_id: &str,
 ) -> Result<(String, serde_json::Value), sqlx::Error> {
     let target = shard_to_state_key(shard_for_user_id(friend_id));
-    if let Some(content) = storage.get_friend_list_shard(room_id, &target).await? {
-        let present = content
-            .get("friends")
-            .and_then(|f| f.as_array())
-            .map(|arr| arr.iter().any(|f| f.get("user_id").and_then(|u| u.as_str()) == Some(friend_id)))
-            .unwrap_or(false);
-        if present {
-            return Ok((target, content));
+    // 先保留目标 shard 的现有内容：后面判定为「新增好友」时要基于它追加。
+    let target_content = storage.get_friend_list_shard(room_id, &target).await?;
+    if let Some(content) = target_content.as_ref() {
+        if shard_contains_friend(content, friend_id) {
+            return Ok((target, content.clone()));
         }
     }
     // v4 legacy 回退：只有升级前的老好友可能仍在 state_key=""。
     // 建房时就写了 `""` 空列表，所以该 shard 恒存在 —— 必须校验其中是否
     // 真的含该 friend，否则新好友会被一路写回 legacy，W5 分片永不生效。
     if let Some(content) = storage.get_friend_list_shard(room_id, "").await? {
-        let present = content
-            .get("friends")
-            .and_then(|f| f.as_array())
-            .map(|arr| arr.iter().any(|f| f.get("user_id").and_then(|u| u.as_str()) == Some(friend_id)))
-            .unwrap_or(false);
-        if present {
+        if shard_contains_friend(&content, friend_id) {
             return Ok(("".to_string(), content));
         }
     }
-    Ok((target, json!({ "friends": [], "version": 1 })))
+    // 既不在目标 shard 也不在 legacy：有旧 shard 内容就基于旧内容追加，
+    // 只有 shard 不存在时才从空列表起步。
+    Ok((target, target_content.unwrap_or_else(|| json!({ "friends": [], "version": 1 }))))
+}
+
+/// 判断 shard content 的 `friends` 数组里是否已含该 friend。
+fn shard_contains_friend(content: &serde_json::Value, friend_id: &str) -> bool {
+    content
+        .get("friends")
+        .and_then(|f| f.as_array())
+        .map(|arr| arr.iter().any(|f| f.get("user_id").and_then(|u| u.as_str()) == Some(friend_id)))
+        .unwrap_or(false)
 }
 
 /// W6: cursor 翻页起点解析。

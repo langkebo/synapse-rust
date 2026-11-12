@@ -318,7 +318,12 @@ const V12: &str = include_str!("../../migrations/00000000_unified_schema_v12.sql
 // （257123 字节）得 `64dcf2a96c3ccf11`，与改动前常量逐字节吻合，证明哈希实现未变后才取新值。
 // 同日补 `idx_devices_device_id`（复合主键不再携带 device_id 前缀索引）：259775 → 260123
 // 字节 ⇒ `5c7f1e0c449268fa`。
-const EXPECTED_BASELINE_FINGERPRINT: &str = "5c7f1e0c449268fa";
+// 2026-11-12（B5：基线补记 v12.0.3 分片索引自愈说明，并同步好友域 W5 索引改动）：
+// baseline 262564 → 263021 字节 ⇒ 按 R10 第①条独立复算 FNV-1a 64 得 `c78e9ee4a7cf8dc7`。
+// 自检：复算改动前的 `HEAD:migrations/…v12.sql`（262564 字节）得 `005fdb83213e0aa5`，
+// 与当时的常量 `5c7f1e0c449268fa` 不一致 —— W5 索引改动（`785d10653`）合入基线时漏同步本常量，
+// 本次一并纠正。
+const EXPECTED_BASELINE_FINGERPRINT: &str = "c78e9ee4a7cf8dc7";
 
 fn read(path: &str) -> String {
     fs::read_to_string(path).unwrap_or_else(|error| panic!("{path} must be readable: {error}"))

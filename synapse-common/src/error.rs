@@ -130,6 +130,8 @@ pub const STATUS_DIVERGENCE_WHITELIST: &[(ApiErrorKind, MatrixErrorCode)] = &[
 ///
 /// 客户端应结合 HTTP 状态码判别：`400` = 请求内容问题，`409` = 状态冲突，
 /// `500` = 服务端缺陷，`501` = 该字段/能力未实现，`503` = 暂不可用。
+/// 同时 `M_UNKNOWN` 响应体在 `errcode` / `error` 之外附带 `meaning` 字段
+/// （取值即本表第二列），客户端无需解析状态码即可拿到同一语义（BE-7）。
 pub const M_UNKNOWN_MEANINGS: &[(ApiErrorKind, &str)] = &[
     (ApiErrorKind::BadRequest, "bad_request_unknown"),
     (ApiErrorKind::Conflict, "conflict"),
@@ -1011,6 +1013,18 @@ impl ApiError {
         self.code.as_str()
     }
 
+    /// BE-7：返回该错误在 `M_UNKNOWN` 之下的机器可读含义。
+    ///
+    /// 只有 `errcode == M_UNKNOWN` 才有值，取自 [`M_UNKNOWN_MEANINGS`]；
+    /// 响应体据此附带 `meaning` 字段，客户端不必再靠 HTTP 状态码猜
+    /// 「请求内容问题 / 状态冲突 / 服务端缺陷 / 未实现 / 暂不可用」。
+    pub fn unknown_meaning(&self) -> Option<&'static str> {
+        if self.code != MatrixErrorCode::Unknown {
+            return None;
+        }
+        M_UNKNOWN_MEANINGS.iter().find(|(kind, _)| *kind == self.kind).map(|(_, meaning)| *meaning)
+    }
+
     /// Returns the user-facing error message.
     pub fn message(&self) -> String {
         match self.kind {
@@ -1084,6 +1098,12 @@ impl IntoResponse for ApiError {
             "errcode": errcode,
             "error": error_msg
         });
+
+        // BE-7：`M_UNKNOWN` 同码多义，附带机器可读 `meaning`；其它 errcode
+        // 保持 `{errcode, error}` 形状不变（不引入无意义字段）。
+        if let Some(meaning) = self.unknown_meaning() {
+            body["meaning"] = json!(meaning);
+        }
 
         if let Some(ms) = retry_after_ms {
             body["retry_after_ms"] = json!(ms);

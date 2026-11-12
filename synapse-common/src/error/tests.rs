@@ -1299,3 +1299,66 @@ async fn be09_gone_response_uses_the_standard_error_envelope() {
     assert!(body.get("deactivated").is_none(), "message 里的字段不得提升到响应顶层");
     assert_eq!(body.as_object().map(|obj| obj.len()), Some(2), "响应体只允许标准 {{errcode, error}} 两个字段");
 }
+
+/// BE-7：`M_UNKNOWN` 同码多义时，响应体必须带机器可读 `meaning`，
+/// 取值与 `M_UNKNOWN_MEANINGS` 一致；五种状态码各对应唯一含义。
+#[tokio::test]
+async fn be07_m_unknown_responses_carry_a_machine_readable_meaning() {
+    use axum::body::to_bytes;
+
+    let cases: Vec<(&str, ApiError)> = vec![
+        ("bad_request_unknown", ApiError::bad_request_unknown("unknown login type")),
+        ("conflict", ApiError::conflict("state changed concurrently")),
+        ("internal", ApiError::internal("bug")),
+        ("not_supported", ApiError::not_supported("capability not implemented")),
+        ("service_unavailable", ApiError::service_unavailable("maintenance")),
+    ];
+
+    let mut statuses = Vec::new();
+    for (expected_meaning, err) in cases {
+        assert_eq!(err.code, MatrixErrorCode::Unknown);
+        assert_eq!(err.unknown_meaning(), Some(expected_meaning), "meaning 必须与登记表一致");
+
+        let status = err.http_status();
+        statuses.push(status.as_u16());
+
+        let response = err.into_response();
+        assert_eq!(response.status(), status);
+        let raw = to_bytes(response.into_body(), usize::MAX).await.expect("body must be readable");
+        let body: serde_json::Value = serde_json::from_slice(&raw).expect("body must be JSON");
+        assert_eq!(body["errcode"], "M_UNKNOWN");
+        assert_eq!(body["meaning"], expected_meaning, "M_UNKNOWN 响应体必须带机器可读 meaning（BE-7）");
+    }
+
+    statuses.sort_unstable();
+    statuses.dedup();
+    assert_eq!(statuses, vec![400, 409, 500, 501, 503], "五个 M_UNKNOWN 状态码必须都被覆盖");
+}
+
+/// BE-7：非 `M_UNKNOWN` 响应体保持 `{errcode, error}` 形状，不得新增 `meaning`。
+#[tokio::test]
+async fn be07_non_unknown_responses_omit_meaning() {
+    use axum::body::to_bytes;
+
+    for err in [ApiError::forbidden("no access"), ApiError::not_found("missing"), ApiError::gone("gone")] {
+        let code = err.code_str();
+        assert_eq!(err.unknown_meaning(), None, "{code} 不是 M_UNKNOWN，不应有 meaning");
+        let response = err.into_response();
+        let raw = to_bytes(response.into_body(), usize::MAX).await.expect("body must be readable");
+        let body: serde_json::Value = serde_json::from_slice(&raw).expect("body must be JSON");
+        assert!(body.get("meaning").is_none(), "{code} 的响应体不得出现 meaning");
+    }
+}
+
+/// BE-7：登记表的含义必须非空且互不重复，否则 `meaning` 字段失去判别力。
+#[test]
+fn be07_m_unknown_meanings_are_unique_and_non_empty() {
+    let mut meanings: Vec<&str> = M_UNKNOWN_MEANINGS.iter().map(|(_, meaning)| *meaning).collect();
+    for meaning in &meanings {
+        assert!(!meaning.trim().is_empty(), "M_UNKNOWN_MEANINGS 不得出现空含义");
+    }
+    let total = meanings.len();
+    meanings.sort_unstable();
+    meanings.dedup();
+    assert_eq!(meanings.len(), total, "M_UNKNOWN_MEANINGS 的含义必须互不重复");
+}
